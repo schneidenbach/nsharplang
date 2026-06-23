@@ -50,7 +50,7 @@ public static class DocCommand
             if (openAfterGenerate && !TryOpen(manifest.IndexPath, out var openError))
                 return EmitError(outputMode, projectRoot, openError!);
 
-            if (outputMode == DocOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 Console.Write(JsonSerializer.Serialize(new
                 {
@@ -79,9 +79,9 @@ public static class DocCommand
         }
     }
 
-    private static int EmitError(DocOutputModeKind outputMode, string projectRoot, string message)
+    private static int EmitError(int outputMode, string projectRoot, string message)
     {
-        if (outputMode == DocOutputModeKind.Json)
+        if (outputMode == 1)
         {
             Console.Write(JsonSerializer.Serialize(new
             {

@@ -3,12 +3,6 @@ using System.Globalization;
 
 namespace NSharpLang.Cli;
 
-internal enum TestOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class TestCommandKernels
 {
     [ThreadStatic]
@@ -79,14 +73,8 @@ internal static class TestCommandKernels
             resultIndices[9] != 0);
     }
 
-    internal static TestOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.TestOutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# test output mode kernel rejected the value.");
-
-        return (TestOutputModeKind)code;
-    }
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.TestOutputMode(json ? 1 : 0);
 
     internal static int? GetDurationMilliseconds(string duration)
     {

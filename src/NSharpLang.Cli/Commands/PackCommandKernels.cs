@@ -11,19 +11,6 @@ internal readonly record struct PackOptionSummary(
     bool JsonOutput,
     bool ShowHelp);
 
-internal enum PackVersionSourceKind
-{
-    Missing = 0,
-    Override = 1,
-    Project = 2
-}
-
-internal enum PackOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class PackCommandKernels
 {
     [ThreadStatic]
@@ -52,28 +39,16 @@ internal static class PackCommandKernels
             resultIndices[6] != 0);
     }
 
-    internal static PackOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.PackOutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# pack output-mode kernel is unavailable.");
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.PackOutputMode(json ? 1 : 0);
 
-        return (PackOutputModeKind)code;
-    }
-
-    internal static PackVersionSourceKind GetEffectiveVersionSource(
+    internal static int GetEffectiveVersionSource(
         string? versionOverride,
         string? projectVersion)
-    {
-        var result = RequiredBindings.PackEffectiveVersionSource(
+        => RequiredBindings.PackEffectiveVersionSource(
             versionOverride == null ? 0 : 1,
             versionOverride ?? string.Empty,
             projectVersion ?? string.Empty);
-        if (result is < 0 or > 2)
-            throw new InvalidOperationException("N# pack version-source kernel is unavailable.");
-
-        return (PackVersionSourceKind)result;
-    }
 
     internal static string GetHelpText()
         => GetMessage(bindings => bindings.PackHelpText());

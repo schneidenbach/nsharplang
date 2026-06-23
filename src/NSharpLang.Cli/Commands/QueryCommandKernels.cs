@@ -30,33 +30,6 @@ internal readonly record struct QueryTopLevelOptionSummary(
     bool InspectCompact,
     string[] RemainingArgs);
 
-internal enum QueryInspectOutputModeKind
-{
-    InvalidCompactText = -1,
-    Json = 1,
-    CompactJson = 2,
-    Text = 3
-}
-
-internal enum QueryDiagnosticsOutputModeKind
-{
-    Json = 1,
-    Text = 2,
-    ClustersJson = 3
-}
-
-internal enum QueryJsonOnlyOutputModeKind
-{
-    TextUnsupported = -1,
-    Json = 1
-}
-
-internal enum QueryTextJsonOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -186,20 +159,10 @@ internal static class QueryCommandKernels
         return code == 1;
     }
 
-    internal static QueryInspectOutputModeKind GetInspectOutputMode(
+    internal static int GetInspectOutputMode(
         bool useText,
         bool inspectCompact)
-    {
-        var code = RequiredBindings.QueryInspectOutputMode(useText ? 1 : 0, inspectCompact ? 1 : 0);
-        return code switch
-        {
-            -1 => QueryInspectOutputModeKind.InvalidCompactText,
-            1 => QueryInspectOutputModeKind.Json,
-            2 => QueryInspectOutputModeKind.CompactJson,
-            3 => QueryInspectOutputModeKind.Text,
-            _ => throw new InvalidOperationException("N# query inspect output-mode kernel rejected the values.")
-        };
-    }
+        => RequiredBindings.QueryInspectOutputMode(useText ? 1 : 0, inspectCompact ? 1 : 0);
 
     internal static bool ShouldUseDaemon(bool useText, bool noDaemon)
     {
@@ -210,41 +173,16 @@ internal static class QueryCommandKernels
         return code != 0;
     }
 
-    internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(
+    internal static int GetDiagnosticsOutputMode(
         bool useText,
         bool clusters)
-    {
-        var code = RequiredBindings.QueryDiagnosticsOutputMode(useText ? 1 : 0, clusters ? 1 : 0);
-        return code switch
-        {
-            1 => QueryDiagnosticsOutputModeKind.Json,
-            2 => QueryDiagnosticsOutputModeKind.Text,
-            3 => QueryDiagnosticsOutputModeKind.ClustersJson,
-            _ => throw new InvalidOperationException("N# query diagnostics output-mode kernel rejected the values.")
-        };
-    }
+        => RequiredBindings.QueryDiagnosticsOutputMode(useText ? 1 : 0, clusters ? 1 : 0);
 
-    internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
-    {
-        var code = RequiredBindings.QueryJsonOnlyOutputMode(useText ? 1 : 0);
-        return code switch
-        {
-            -1 => QueryJsonOnlyOutputModeKind.TextUnsupported,
-            1 => QueryJsonOnlyOutputModeKind.Json,
-            _ => throw new InvalidOperationException("N# query JSON-only output-mode kernel rejected the value.")
-        };
-    }
+    internal static int GetJsonOnlyOutputMode(bool useText)
+        => RequiredBindings.QueryJsonOnlyOutputMode(useText ? 1 : 0);
 
-    internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
-    {
-        var code = RequiredBindings.QueryTextJsonOutputMode(useText ? 1 : 0);
-        return code switch
-        {
-            1 => QueryTextJsonOutputModeKind.Json,
-            2 => QueryTextJsonOutputModeKind.Text,
-            _ => throw new InvalidOperationException("N# query text/json output-mode kernel rejected the value.")
-        };
-    }
+    internal static int GetTextJsonOutputMode(bool useText)
+        => RequiredBindings.QueryTextJsonOutputMode(useText ? 1 : 0);
 
     internal static SymbolKind? ParseSymbolKind(string value)
     {

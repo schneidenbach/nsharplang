@@ -33,7 +33,7 @@ public static class TidyCommand
         var projectYml = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYml))
         {
-            if (outputMode == TidyOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 WriteJson(new
                 {
@@ -58,7 +58,7 @@ public static class TidyCommand
         }
         catch (Exception ex)
         {
-            if (outputMode == TidyOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 WriteJson(new
                 {
@@ -84,7 +84,7 @@ public static class TidyCommand
         var summary = SummarizeDependencies(results);
         var ok = summary.PossiblyUnusedCount == 0;
 
-        if (outputMode == TidyOutputModeKind.Json)
+        if (outputMode == 1)
         {
             WriteJson(new
             {
@@ -114,12 +114,12 @@ public static class TidyCommand
                     static result => result.Status);
             if (toRemove.Count == 0)
             {
-                if (outputMode == TidyOutputModeKind.Text) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
+                if (outputMode == 2) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
             }
             else
             {
                 RemoveDependencies(projectYml, toRemove.Select(r => r.Name).ToList());
-                if (outputMode == TidyOutputModeKind.Text)
+                if (outputMode == 2)
                     Console.WriteLine(TidyCommandKernels.GetRemovedDependenciesMessage(toRemove.Count));
             }
         }

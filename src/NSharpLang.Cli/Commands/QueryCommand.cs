@@ -81,7 +81,7 @@ public static class QueryCommand
             results = QuerySymbolNameFilter.Filter(results, filterPattern, 200);
         }
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.SymbolsToText(results));
         }
@@ -153,7 +153,7 @@ public static class QueryCommand
         var result = Service.GetHoverInfo(snapshot, file, line, col);
         if (result == null)
         {
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
@@ -173,7 +173,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.HoverToText(result, file, line, col));
         }
@@ -197,7 +197,7 @@ public static class QueryCommand
 
         var result = Service.GetCallGraph(snapshot, functionName, limit);
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.CallGraphToText(result));
         }
@@ -234,7 +234,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == -1)
         {
             return QueryError(QueryCommandKernels.GetPerformanceJsonOnlyMessage());
         }
@@ -308,7 +308,7 @@ public static class QueryCommand
 
     private static int TrustedCommand(string[] args, QueryOptions options)
     {
-        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == -1)
         {
             return QueryError(QueryCommandKernels.GetTrustedJsonOnlyMessage());
         }
@@ -348,7 +348,7 @@ public static class QueryCommand
 
             var result = Service.GetImplementors(snapshot, name);
 
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Write(OutputFormatter.ImplementorsToText(result));
             }
@@ -374,7 +374,7 @@ public static class QueryCommand
             var definition = Service.FindDefinition(snapshot, file, line, col);
             if (definition == null || !string.Equals(definition.Kind, "interface", StringComparison.OrdinalIgnoreCase))
             {
-                if (outputMode == QueryTextJsonOutputModeKind.Text)
+                if (outputMode == 2)
                 {
                     Console.Error.WriteLine(QueryCommandKernels.GetNoInterfaceAtPositionMessage(file, line, col));
                 }
@@ -396,7 +396,7 @@ public static class QueryCommand
 
             var result = Service.GetImplementors(snapshot, definition.Name);
 
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Write(OutputFormatter.ImplementorsToText(result));
             }
@@ -413,7 +413,7 @@ public static class QueryCommand
 
     private static int BatchCommand(string[] args, QueryOptions options)
     {
-        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == -1)
         {
             return QueryError(QueryCommandKernels.GetBatchJsonOnlyMessage());
         }
@@ -500,7 +500,7 @@ public static class QueryCommand
         // Make the file path relative to project root for output
         result = result with { File = GetRelativePath(projectRoot, filePath) };
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.OutlineToText(result));
         }
@@ -534,11 +534,11 @@ public static class QueryCommand
         }
 
         var summary = OutputFormatter.SummarizeDiagnostics(results);
-        if (outputMode == QueryDiagnosticsOutputModeKind.ClustersJson)
+        if (outputMode == 3)
         {
             Console.Write(OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot));
         }
-        else if (outputMode == QueryDiagnosticsOutputModeKind.Text)
+        else if (outputMode == 2)
         {
             Console.Write(OutputFormatter.DiagnosticsToText(results));
         }
@@ -576,7 +576,7 @@ public static class QueryCommand
         var result = Service.GetTypeAtPosition(snapshot, file, line, col);
         if (result == null)
         {
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Error.WriteLine(QueryCommandKernels.GetNoTypeInformationAtPositionMessage(file, line, col));
             }
@@ -596,7 +596,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.TypeToText(result, file, line, col));
         }
@@ -634,7 +634,7 @@ public static class QueryCommand
             var result = Service.FindDefinition(snapshot, file, line, col);
             if (result == null)
             {
-                if (outputMode == QueryTextJsonOutputModeKind.Text)
+                if (outputMode == 2)
                 {
                     Console.Error.WriteLine(QueryCommandKernels.GetNoDefinitionAtPositionMessage(file, line, col));
                 }
@@ -654,7 +654,7 @@ public static class QueryCommand
                 return 1;
             }
 
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Write(OutputFormatter.DefinitionToText(result));
             }
@@ -680,7 +680,7 @@ public static class QueryCommand
 
             var results = Service.FindDefinitionByName(snapshot, name);
 
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Write(OutputFormatter.DefinitionSearchToText(name, results));
             }
@@ -701,14 +701,14 @@ public static class QueryCommand
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
         var outputMode = QueryCommandKernels.GetInspectOutputMode(options.UseText, options.InspectCompact);
-        var compactMode = outputMode == QueryInspectOutputModeKind.CompactJson;
+        var compactMode = outputMode == 2;
 
         if (file == null || posStr == null)
         {
             return QueryError(QueryCommandKernels.GetPositionUsageMessage("inspect"));
         }
 
-        if (outputMode == QueryInspectOutputModeKind.InvalidCompactText)
+        if (outputMode == -1)
         {
             return QueryError(QueryCommandKernels.GetInspectCompactTextUnsupportedMessage());
         }
@@ -757,7 +757,7 @@ public static class QueryCommand
 
         if (type == null && definition == null && references.Count == 0)
         {
-            if (outputMode == QueryInspectOutputModeKind.Text)
+            if (outputMode == 3)
             {
                 Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
@@ -778,7 +778,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (outputMode == QueryInspectOutputModeKind.Text)
+        if (outputMode == 3)
         {
             Console.Write(OutputFormatter.InspectToText(inspect, file, line, col));
         }
@@ -819,7 +819,7 @@ public static class QueryCommand
         var definition = Service.FindDefinition(snapshot, file, line, col);
         if (definition == null)
         {
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
@@ -849,7 +849,7 @@ public static class QueryCommand
         {
             var message = QueryCommandKernels.GetSemanticReferencesUnavailableMessage();
 
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Error.WriteLine(message);
             }
@@ -871,7 +871,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.ReferencesToText(symbolName, results));
         }
@@ -910,7 +910,7 @@ public static class QueryCommand
         var engine = new CompletionEngine();
         var result = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.CompletionsToText(result, file, line, col));
         }
@@ -943,7 +943,7 @@ public static class QueryCommand
         var result = _docQuery.Value.Lookup(query);
         if (result == null)
         {
-            if (outputMode == QueryTextJsonOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.Error.WriteLine(QueryCommandKernels.GetNoDocumentationMessage(query));
             }
@@ -954,7 +954,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (outputMode == QueryTextJsonOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.Write(OutputFormatter.DocToText(result));
         }

@@ -105,7 +105,7 @@ public static class DoctorCommand
         }
 
         var ok = checks.All(c => c.Status != "fail");
-        if (outputMode == DoctorOutputModeKind.Json)
+        if (outputMode == 1)
             WriteJson(ok, checks);
         else
             WriteText(ok, checks);

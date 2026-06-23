@@ -711,10 +711,10 @@ func Main() {
         Assert.True(DoctorCommandKernels.GetOptionSummary(new[] { "--json" }).Json);
 
         var textMode = DoctorCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(DoctorOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = DoctorCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(DoctorOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var helpText = DoctorCommandKernels.GetHelpText();
         Assert.Contains("N# Doctor", helpText);
@@ -1940,10 +1940,10 @@ func Main() {
     {
         var cases = new[]
         {
-            (UseText: false, InspectCompact: false, Expected: QueryInspectOutputModeKind.Json),
-            (UseText: false, InspectCompact: true, Expected: QueryInspectOutputModeKind.CompactJson),
-            (UseText: true, InspectCompact: false, Expected: QueryInspectOutputModeKind.Text),
-            (UseText: true, InspectCompact: true, Expected: QueryInspectOutputModeKind.InvalidCompactText)
+            (UseText: false, InspectCompact: false, Expected: 1),
+            (UseText: false, InspectCompact: true, Expected: 2),
+            (UseText: true, InspectCompact: false, Expected: 3),
+            (UseText: true, InspectCompact: true, Expected: -1)
         };
 
         foreach (var testCase in cases)
@@ -1960,10 +1960,10 @@ func Main() {
     {
         var cases = new[]
         {
-            (UseText: false, Clusters: false, Expected: QueryDiagnosticsOutputModeKind.Json),
-            (UseText: true, Clusters: false, Expected: QueryDiagnosticsOutputModeKind.Text),
-            (UseText: false, Clusters: true, Expected: QueryDiagnosticsOutputModeKind.ClustersJson),
-            (UseText: true, Clusters: true, Expected: QueryDiagnosticsOutputModeKind.ClustersJson)
+            (UseText: false, Clusters: false, Expected: 1),
+            (UseText: true, Clusters: false, Expected: 2),
+            (UseText: false, Clusters: true, Expected: 3),
+            (UseText: true, Clusters: true, Expected: 3)
         };
 
         foreach (var testCase in cases)
@@ -1980,8 +1980,8 @@ func Main() {
     {
         var cases = new[]
         {
-            (UseText: false, Expected: QueryJsonOnlyOutputModeKind.Json),
-            (UseText: true, Expected: QueryJsonOnlyOutputModeKind.TextUnsupported)
+            (UseText: false, Expected: 1),
+            (UseText: true, Expected: -1)
         };
 
         foreach (var testCase in cases)
@@ -1996,8 +1996,8 @@ func Main() {
     {
         var cases = new[]
         {
-            (UseText: false, Expected: QueryTextJsonOutputModeKind.Json),
-            (UseText: true, Expected: QueryTextJsonOutputModeKind.Text)
+            (UseText: false, Expected: 1),
+            (UseText: true, Expected: 2)
         };
 
         foreach (var testCase in cases)
@@ -3665,10 +3665,10 @@ Exit codes:
         Assert.True(PackCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = PackCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(PackOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = PackCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(PackOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var helpText = PackCommandKernels.GetHelpText();
         Assert.Contains("N# Pack", helpText);
@@ -3748,19 +3748,19 @@ Exit codes:
     public void PackCommandKernels_SelectsEffectiveVersionSource()
     {
         var missing = PackCommandKernels.GetEffectiveVersionSource(null, null);
-        Assert.Equal(PackVersionSourceKind.Missing, missing);
+        Assert.Equal(0, missing);
 
         var fromOverride = PackCommandKernels.GetEffectiveVersionSource("2.0.0", "1.0.0");
-        Assert.Equal(PackVersionSourceKind.Override, fromOverride);
+        Assert.Equal(1, fromOverride);
 
         var blankOverride = PackCommandKernels.GetEffectiveVersionSource(" ", "1.0.0");
-        Assert.Equal(PackVersionSourceKind.Missing, blankOverride);
+        Assert.Equal(0, blankOverride);
 
         var fromProject = PackCommandKernels.GetEffectiveVersionSource(null, "1.0.0");
-        Assert.Equal(PackVersionSourceKind.Project, fromProject);
+        Assert.Equal(2, fromProject);
 
         var blankProject = PackCommandKernels.GetEffectiveVersionSource(null, " ");
-        Assert.Equal(PackVersionSourceKind.Missing, blankProject);
+        Assert.Equal(0, blankProject);
     }
 
     [Fact]
@@ -4501,10 +4501,10 @@ dependencies:
         Assert.True(TidyCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = TidyCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(TidyOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = TidyCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(TidyOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var importedNamespace = TidyCommandKernels.GetImportedNamespace(
             "  import  Newtonsoft.Json.Linq // trailing comment");
@@ -4696,10 +4696,10 @@ dependencies:
         Assert.True(helpAsProjectValue.ShowHelp);
 
         var textMode = TestCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(TestOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = TestCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(TestOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
     }
 
     [Fact]
@@ -4857,10 +4857,10 @@ dependencies:
         Assert.True(DocCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = DocCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(DocOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = DocCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(DocOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var helpText = DocCommandKernels.GetHelpText();
         Assert.Contains("N# API Documentation", helpText);

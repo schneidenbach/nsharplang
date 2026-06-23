@@ -69,7 +69,7 @@ partial class Program
         ProjectConfig? projectConfig,
         string? filter,
         bool verbose,
-        TestOutputModeKind outputMode,
+        int outputMode,
         int? timeoutMs,
         bool noCache,
         bool collectCoverage,
@@ -80,7 +80,7 @@ partial class Program
         if (!File.Exists(projectYmlPath))
         {
             var message = TestCommandKernels.GetMissingProjectFileMessage();
-            if (outputMode == TestOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                 return 1;
@@ -92,7 +92,7 @@ partial class Program
         if (collectCoverage || coverageReport)
         {
             var message = TestCommandKernels.GetCoverageUnsupportedMessage();
-            if (outputMode == TestOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                 return 1;
@@ -121,7 +121,7 @@ partial class Program
             if (outputPath == null)
             {
                 var message = TestCommandKernels.GetBuildFailedMessage();
-                if (outputMode == TestOutputModeKind.Json)
+                if (outputMode == 1)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
@@ -136,7 +136,7 @@ partial class Program
             var testResults = testRun.Results;
             var summary = SummarizeNativeTestRun(testRun);
 
-            if (outputMode == TestOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 OutputNativeTestJson(projectRoot, summary.Ok, testResults, summary: summary);
             }
@@ -154,12 +154,12 @@ partial class Program
         }
         catch (Exception ex)
         {
-            if (outputMode == TestOutputModeKind.Text)
+            if (outputMode == 2)
             {
                 Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(stopwatch.Elapsed)));
             }
 
-            if (outputMode == TestOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure);
                 return 1;

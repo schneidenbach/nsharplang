@@ -660,7 +660,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             if (timeoutMs == null)
             {
                 var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
-                if (outputMode == TestOutputModeKind.Json)
+                if (outputMode == 1)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
@@ -673,12 +673,12 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetProjectStartMessage(projectRoot));
+            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetProjectStartMessage(projectRoot));
 
             if (testOptions.CollectCoverage || testOptions.CoverageReport)
             {
                 var message = TestCommandKernels.GetCoverageUnsupportedMessage();
-                if (outputMode == TestOutputModeKind.Json)
+                if (outputMode == 1)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
@@ -692,7 +692,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
             if (testFiles.Length == 0)
             {
-                if (outputMode == TestOutputModeKind.Json)
+                if (outputMode == 1)
                 {
                     OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), summary: new NativeTestSummary(true, 0, 0, 0, 0));
                     return 0;
@@ -701,7 +701,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
                 return 0;
             }
 
-            if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
+            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
             CompilationBackendSelectionKernels.Validate(testOptions.BackendOption, projectConfig);
@@ -720,9 +720,9 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
         catch (Exception ex)
         {
-            if (outputMode == TestOutputModeKind.Text)
+            if (outputMode == 2)
                 Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
-            if (outputMode == TestOutputModeKind.Json) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure); return 1; }
+            if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure); return 1; }
             return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }

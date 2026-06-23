@@ -8,12 +8,6 @@ internal readonly record struct DoctorOptionSummary(
     bool SkipVscode,
     bool ShowHelp);
 
-internal enum DoctorOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class DoctorCommandKernels
 {
     [ThreadStatic]
@@ -35,14 +29,8 @@ internal static class DoctorCommandKernels
             resultIndices[3] != 0);
     }
 
-    internal static DoctorOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.OutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# doctor output-mode kernel rejected the options.");
-
-        return (DoctorOutputModeKind)code;
-    }
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.OutputMode(json ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.DoctorHelpText();

@@ -34,7 +34,7 @@ public static class PackCommand
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYmlPath))
         {
-            if (outputMode == PackOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 WriteErrorJson(PackCommandKernels.GetMissingProjectFileJsonMessage());
             }
@@ -52,14 +52,14 @@ public static class PackCommand
         }
         catch (Exception ex)
         {
-            if (outputMode == PackOutputModeKind.Json)
+            if (outputMode == 1)
                 WriteErrorJson(PackCommandKernels.GetParseFailedJsonMessage(ex.Message));
             else
                 WriteTextError(PackCommandKernels.GetParseFailedTextMessage(ex.Message));
             return 1;
         }
 
-        if (outputMode == PackOutputModeKind.Text)
+        if (outputMode == 2)
         {
             Console.WriteLine(PackCommandKernels.GetStartMessage(config.EffectiveName, config.Version));
             Console.WriteLine();
@@ -71,13 +71,13 @@ public static class PackCommand
             var versionSource = PackCommandKernels.GetEffectiveVersionSource(versionOverride, config.Version);
             var effectiveVersion = versionSource switch
             {
-                PackVersionSourceKind.Override => versionOverride,
-                PackVersionSourceKind.Project => config.Version,
+                1 => versionOverride,
+                2 => config.Version,
                 _ => null
             };
             if (effectiveVersion == null)
             {
-                if (outputMode == PackOutputModeKind.Json)
+                if (outputMode == 1)
                     WriteErrorJson(PackCommandKernels.GetMissingVersionJsonMessage());
                 else
                     WriteTextError(PackCommandKernels.GetMissingVersionTextMessage());
@@ -93,7 +93,7 @@ public static class PackCommand
                 includeTests: false);
             if (assemblyPath == null)
             {
-                if (outputMode == PackOutputModeKind.Json)
+                if (outputMode == 1)
                     WriteErrorJson(PackCommandKernels.GetBuildFailedJsonMessage());
                 else
                     WriteTextError(PackCommandKernels.GetBuildFailedTextMessage());
@@ -114,7 +114,7 @@ public static class PackCommand
                 CreateSymbolsPackage(projectName, effectiveVersion, assemblyPath, symbolsPath);
             }
 
-            if (outputMode == PackOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 WriteJson(writer =>
                 {
@@ -137,7 +137,7 @@ public static class PackCommand
         }
         catch (Exception ex)
         {
-            if (outputMode == PackOutputModeKind.Json)
+            if (outputMode == 1)
                 WriteErrorJson(PackCommandKernels.GetFailedJsonMessage(ex.Message));
             else
                 WriteTextError(PackCommandKernels.GetFailedTextMessage(ex.Message));
