@@ -5,8 +5,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 
 internal static class OutputFormatterDiagnosticKernels
 {
-    private const string DiagnosticHeaderRuler = "\u2500";
-
     private const int DiagnosticDetailExpectedType = 1;
     private const int DiagnosticDetailActualType = 2;
     private const int DiagnosticDetailHint = 3;
@@ -108,7 +106,7 @@ internal static class OutputFormatterDiagnosticKernels
         => RequiredBindings.DiagnosticSourceLine(line, sourceSnippet);
 
     internal static string GetHeaderLineText(string title, string file, int line, int column)
-        => RequiredBindings.DiagnosticHeaderLine(title, file, line, column, DiagnosticHeaderRuler);
+        => RequiredBindings.DiagnosticHeaderLine(title, file, line, column);
 
     internal static string GetCaretLineText(int line, int column, int length)
         => RequiredBindings.DiagnosticCaretLine(line, column, length);
@@ -163,7 +161,7 @@ internal static class OutputFormatterDiagnosticKernels
 
     private delegate string DiagnosticSourceLineText(int line, string sourceSnippet);
 
-    private delegate string DiagnosticHeaderLineText(string title, string file, int line, int column, string ruler);
+    private delegate string DiagnosticHeaderLineText(string title, string file, int line, int column);
 
     private delegate string DiagnosticCaretLineText(int line, int column, int length);
 

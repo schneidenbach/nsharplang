@@ -264,7 +264,7 @@ func DiagnosticSourceLineText(line: int, sourceSnippet: string): string {
     return "    " + line.ToString() + " | " + sourceSnippet
 }
 
-func DiagnosticHeaderLineText(title: string, fileName: string, line: int, column: int, ruler: string): string {
+func DiagnosticHeaderLineText(title: string, fileName: string, line: int, column: int): string {
     location := fileName + ":" + line.ToString() + ":" + column.ToString()
     headerContent := " " + title + " "
     locationPart := " " + location + " "
@@ -278,8 +278,8 @@ func DiagnosticHeaderLineText(title: string, fileName: string, line: int, column
         rulerWidth = 2
     }
 
-    return DiagnosticRepeatText(ruler, 2) + headerContent + DiagnosticRepeatText(ruler, rulerWidth) +
-        locationPart + DiagnosticRepeatText(ruler, 2)
+    return DiagnosticRepeatText("─", 2) + headerContent + DiagnosticRepeatText("─", rulerWidth) +
+        locationPart + DiagnosticRepeatText("─", 2)
 }
 
 func DiagnosticCaretLineText(line: int, column: int, length: int): string {

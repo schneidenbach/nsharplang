@@ -7964,8 +7964,8 @@ func outer(x: int): int {
             ("DiagnosticFoundSummaryText", new object[] { 0, 0, 0 }),
             ("DiagnosticSourceLineText", new object[] { 5, "    x := \"hi\"" }),
             ("DiagnosticSourceLineText", new object[] { 12, "value := 1" }),
-            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "Program.nl", 5, 4, "\u2500" }),
-            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45, "\u2500" }),
+            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "Program.nl", 5, 4 }),
+            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45 }),
             ("DiagnosticCaretLineText", new object[] { 5, 4, 3 }),
             ("DiagnosticCaretLineText", new object[] { 12, 0, 0 }),
             // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
@@ -28949,12 +28949,12 @@ func main() {
             "\u2500\u2500 [NL202] ERROR " + new string('\u2500', 29) + " Program.nl:5:4 \u2500\u2500",
             (string)(diagnosticHeaderLineText.Invoke(
                 null,
-                new object[] { "[NL202] ERROR", "Program.nl", 5, 4, "\u2500" }) ?? "<null>"));
+                new object[] { "[NL202] ERROR", "Program.nl", 5, 4 }) ?? "<null>"));
         Assert.Equal(
             "\u2500\u2500 [NL202] ERROR \u2500\u2500 A/Very/Long/File/Name/That/Forces/Minimum.nl:123:45 \u2500\u2500",
             (string)(diagnosticHeaderLineText.Invoke(
                 null,
-                new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45, "\u2500" }) ?? "<null>"));
+                new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45 }) ?? "<null>"));
         Assert.Equal(
             "      |    ^^^",
             (string)(diagnosticCaretLineText.Invoke(null, new object[] { 5, 4, 3 }) ?? "<null>"));
