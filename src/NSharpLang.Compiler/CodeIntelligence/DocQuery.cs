@@ -493,15 +493,10 @@ public class DocQuery
                 GetEventSummary(evt), null));
         }
 
-        if (DocQueryKernels.TryOrderDocMembers(results, out var dogfoodMembers))
-        {
-            return dogfoodMembers;
-        }
+        if (!DocQueryKernels.TryOrderDocMembers(results, out var dogfoodMembers))
+            throw new InvalidOperationException("N# doc member ordering kernel rejected the members.");
 
-        return results
-            .OrderBy(r => r.Kind)
-            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return dogfoodMembers;
     }
 
     private string[] GetBaseTypes(Type type)
