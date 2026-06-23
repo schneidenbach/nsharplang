@@ -580,7 +580,7 @@ public class CodeIntelligenceService
         if (source == null)
             return false;
 
-        if (CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
+        if (!CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
                 snapshot,
                 filePath,
                 source,
@@ -590,29 +590,9 @@ public class CodeIntelligenceService
                 selectedSpan.StartColumn,
                 selectedSpan.EndColumn,
                 out var dogfoodMatches))
-        {
-            return dogfoodMatches;
-        }
+            throw new InvalidOperationException("N# declaration-name match kernel rejected the source.");
 
-        return SelectedSpanMatchesDeclarationNameFallback(source, line, selectedSpan, declaration);
-    }
-
-    private static bool SelectedSpanMatchesDeclarationNameFallback(string source, int line,
-        (int StartColumn, int EndColumn) selectedSpan, SymbolDeclaration declaration)
-    {
-        var lines = source.Split('\n');
-        if (line <= 0 || line > lines.Length)
-            return false;
-
-        var lineText = lines[line - 1];
-        var searchStart = Math.Max(0, Math.Min(declaration.Column - 1, lineText.Length));
-        var nameIndex = lineText.IndexOf(declaration.Name, searchStart, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            return false;
-
-        var nameStartColumn = nameIndex + 1;
-        var nameEndColumn = nameStartColumn + declaration.Name.Length - 1;
-        return selectedSpan.StartColumn == nameStartColumn && selectedSpan.EndColumn == nameEndColumn;
+        return dogfoodMatches;
     }
 
     private List<ReferenceResult> BuildReferenceResultsFromDeclaration(ProjectSnapshot snapshot, SymbolDeclaration declaration)
@@ -827,51 +807,18 @@ public class CodeIntelligenceService
         if (absolutePath == null) return null;
 
         var source = GetSourceText(snapshot, absolutePath);
-        if (source != null
-            && CodeIntelligenceSourceTextKernels.TryExtractDocComment(
+        if (source == null)
+            return null;
+
+        if (!CodeIntelligenceSourceTextKernels.TryExtractDocComment(
                 snapshot,
                 absolutePath,
                 source,
                 definitionLine,
                 out var dogfoodDocumentation))
-        {
-            return dogfoodDocumentation;
-        }
+            throw new InvalidOperationException("N# doc comment kernel rejected the source.");
 
-        return ExtractDocCommentFallback(absolutePath, definitionLine);
-    }
-
-    private static string? ExtractDocCommentFallback(string absolutePath, int definitionLine)
-    {
-        try
-        {
-            var lines = File.ReadAllLines(absolutePath);
-            var commentLines = new List<string>();
-
-            // Walk backwards from the declaration line collecting comment lines
-            for (int i = definitionLine - 2; i >= 0; i--)
-            {
-                var trimmed = lines[i].Trim();
-                if (trimmed.StartsWith("//", StringComparison.Ordinal))
-                {
-                    commentLines.Insert(0, trimmed.TrimStart('/').Trim());
-                }
-                else if (string.IsNullOrWhiteSpace(trimmed) && commentLines.Count == 0)
-                {
-                    continue; // Skip blank lines between declaration and comment block
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            return commentLines.Count > 0 ? string.Join("\n", commentLines) : null;
-        }
-        catch
-        {
-            return null;
-        }
+        return dogfoodDocumentation;
     }
 
     // ── Call Graph ──────────────────────────────────────────────────────
@@ -1315,31 +1262,10 @@ public class CodeIntelligenceService
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
         var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (BindingLookupKernels.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
-            return dogfoodCandidateColumns;
+        if (!BindingLookupKernels.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
+            throw new InvalidOperationException("N# binding candidate column kernel rejected the source.");
 
-        return GetBindingCandidateColumnsFallback(col, span);
-    }
-
-    private static int[] GetBindingCandidateColumnsFallback(int col, (int StartColumn, int EndColumn)? span)
-    {
-        var seen = new HashSet<int>();
-
-        if (col > 0)
-            seen.Add(col);
-        if (col > 1)
-            seen.Add(col - 1);
-        seen.Add(col + 1);
-
-        if (span != null)
-        {
-            for (int candidate = span.Value.StartColumn; candidate <= span.Value.EndColumn; candidate++)
-            {
-                seen.Add(candidate);
-            }
-        }
-
-        return seen.OrderBy(candidate => Math.Abs(candidate - col)).ToArray();
+        return dogfoodCandidateColumns;
     }
 
     private SymbolDeclaration? FindDeclarationSymbol(ProjectSnapshot snapshot, string? name)
@@ -2838,35 +2764,23 @@ public class CodeIntelligenceService
         if (source == null)
             return null;
 
-        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
+        if (!CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
                 snapshot,
                 filePath,
                 source,
                 line,
                 out var dogfoodLine))
-        {
-            return dogfoodLine;
-        }
+            throw new InvalidOperationException("N# source line kernel rejected the source.");
 
-        return ExtractSourceLineFallback(source, line);
+        return dogfoodLine;
     }
 
     private static string? ExtractSourceLine(string source, int line)
     {
-        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
-        {
-            return dogfoodLine;
-        }
+        if (!CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
+            throw new InvalidOperationException("N# source line kernel rejected the source.");
 
-        return ExtractSourceLineFallback(source, line);
-    }
-
-    private static string? ExtractSourceLineFallback(string source, int line)
-    {
-        var lines = source.Split('\n');
-        if (line > 0 && line <= lines.Length)
-            return lines[line - 1];
-        return null;
+        return dogfoodLine;
     }
 
     private static string? FormatSuggestions(List<string>? suggestions)
