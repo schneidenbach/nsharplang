@@ -8,7 +8,7 @@ public static class RemoveCommand
 {
     public static int Execute(string[] args)
     {
-        var arguments = GetArgumentSummary(args);
+        var arguments = RemoveCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
             return ShowHelp();
 
@@ -62,9 +62,6 @@ public static class RemoveCommand
         Console.WriteLine(RemoveCommandKernels.GetRemovedMessage(packageName));
         return 0;
     }
-
-    internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
-        => RemoveCommandKernels.GetArgumentSummary(args);
 
     static int ShowHelp()
     {

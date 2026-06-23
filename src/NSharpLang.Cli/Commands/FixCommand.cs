@@ -32,12 +32,12 @@ public static class FixCommand
 
     public static int Execute(string[] args)
     {
-        var arguments = GetArgumentSummary(args);
+        var arguments = FixCommandArgumentKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
             return ShowHelp();
 
         var dryRun = arguments.DryRun;
-        var useText = GetEffectiveOutputMode(arguments) == FixOutputModeKind.Text;
+        var useText = FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText) == FixOutputModeKind.Text;
         var includeReviewNeeded = arguments.IncludeReviewNeeded;
         var fileArg = arguments.FileOption;
         var projectDir = GetProjectDir(arguments);
@@ -270,12 +270,6 @@ public static class FixCommand
 
         return new FixEntry(relativeFile, fix.DiagnosticCode, fix.Title, fix.Edits, safetyStr);
     }
-
-    internal static FixArgumentSummary GetArgumentSummary(string[] args)
-        => FixCommandArgumentKernels.GetArgumentSummary(args);
-
-    internal static FixOutputModeKind GetEffectiveOutputMode(FixArgumentSummary arguments)
-        => FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText);
 
     private static string GetProjectDir(FixArgumentSummary arguments)
     {

@@ -2530,24 +2530,15 @@ func Main() {
         Assert.True(dogfoodSummary.IncludeReviewNeeded);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = FixCommand.GetArgumentSummary(args);
-        Assert.Null(summary.ProjectOption);
-        Assert.Equal("Program.nl", summary.FileOption);
-        Assert.Equal("samples/demo", summary.PositionalProject);
-        Assert.True(summary.DryRun);
-        Assert.True(summary.UseText);
-        Assert.True(summary.IncludeReviewNeeded);
-        Assert.False(summary.ShowHelp);
-
-        var explicitProject = FixCommand.GetArgumentSummary(new[] { "--project", "ignored", "samples/demo" });
+        var explicitProject = FixCommandArgumentKernels.GetArgumentSummary(new[] { "--project", "ignored", "samples/demo" });
         Assert.Equal("ignored", explicitProject.ProjectOption);
         Assert.Equal("samples/demo", explicitProject.PositionalProject);
 
-        var permissiveValue = FixCommand.GetArgumentSummary(new[] { "--project", "--file", "Program.nl" });
+        var permissiveValue = FixCommandArgumentKernels.GetArgumentSummary(new[] { "--project", "--file", "Program.nl" });
         Assert.Equal("--file", permissiveValue.ProjectOption);
         Assert.Equal("Program.nl", permissiveValue.FileOption);
 
-        Assert.True(FixCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.True(FixCommandArgumentKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
     }
 
     [Fact]
@@ -2558,13 +2549,6 @@ func Main() {
 
         var textMode = FixCommandArgumentKernels.GetEffectiveOutputMode(true);
         Assert.Equal(FixOutputModeKind.Text, textMode);
-
-        Assert.Equal(
-            FixOutputModeKind.Json,
-            FixCommand.GetEffectiveOutputMode(new FixArgumentSummary(null, null, null, DryRun: false, UseText: false, IncludeReviewNeeded: false, ShowHelp: false)));
-        Assert.Equal(
-            FixOutputModeKind.Text,
-            FixCommand.GetEffectiveOutputMode(new FixArgumentSummary(null, null, null, DryRun: false, UseText: true, IncludeReviewNeeded: false, ShowHelp: false)));
     }
 
     [Fact]
@@ -2621,16 +2605,11 @@ func Main() {
         Assert.True(dogfoodSummary.DryRun);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = UpdateCommand.GetArgumentSummary(args);
-        Assert.Equal("Newtonsoft.Json", summary.TargetPackage);
-        Assert.True(summary.DryRun);
-        Assert.True(summary.ShowHelp);
-
-        Assert.Equal("Newtonsoft.Json", UpdateCommand.GetArgumentSummary(new[] { "--dry-run", "Newtonsoft.Json" }).TargetPackage);
-        Assert.Equal("Serilog", UpdateCommand.GetArgumentSummary(new[] { "--dry-run", "-v", "Serilog" }).TargetPackage);
-        Assert.Null(UpdateCommand.GetArgumentSummary(new[] { "--dry-run" }).TargetPackage);
-        Assert.True(UpdateCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
-        Assert.Equal("help", UpdateCommand.GetArgumentSummary(new[] { "help" }).TargetPackage);
+        Assert.Equal("Newtonsoft.Json", UpdateCommandKernels.GetArgumentSummary(new[] { "--dry-run", "Newtonsoft.Json" }).TargetPackage);
+        Assert.Equal("Serilog", UpdateCommandKernels.GetArgumentSummary(new[] { "--dry-run", "-v", "Serilog" }).TargetPackage);
+        Assert.Null(UpdateCommandKernels.GetArgumentSummary(new[] { "--dry-run" }).TargetPackage);
+        Assert.True(UpdateCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.Equal("help", UpdateCommandKernels.GetArgumentSummary(new[] { "help" }).TargetPackage);
 
         var helpText = UpdateCommandKernels.GetHelpText();
         Assert.Contains("N# Update Dependencies", helpText);
@@ -2670,29 +2649,21 @@ func Main() {
         Assert.True(dogfoodSummary.Prerelease);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = AddCommand.GetArgumentSummary(args);
-        Assert.Equal("13.0.3", summary.VersionOption);
-        Assert.Null(summary.PathOption);
-        Assert.Equal("Newtonsoft.Json", summary.PackageOperand);
-        Assert.True(summary.Framework);
-        Assert.True(summary.Prerelease);
-        Assert.False(summary.ShowHelp);
-
         Assert.Equal(
             "Newtonsoft.Json",
-            AddCommand.GetArgumentSummary(new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" }).PackageOperand);
+            AddCommandKernels.GetArgumentSummary(new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" }).PackageOperand);
         Assert.Equal(
             "Serilog@3.1.1",
-            AddCommand.GetArgumentSummary(new[] { "--prerelease", "Serilog@3.1.1" }).PackageOperand);
-        var pathSummary = AddCommand.GetArgumentSummary(new[] { "--path", "../MyLibrary" });
+            AddCommandKernels.GetArgumentSummary(new[] { "--prerelease", "Serilog@3.1.1" }).PackageOperand);
+        var pathSummary = AddCommandKernels.GetArgumentSummary(new[] { "--path", "../MyLibrary" });
         Assert.Equal("../MyLibrary", pathSummary.PathOption);
         Assert.Null(pathSummary.PackageOperand);
-        var permissiveValue = AddCommand.GetArgumentSummary(new[] { "--version", "--path", "../MyLibrary" });
+        var permissiveValue = AddCommandKernels.GetArgumentSummary(new[] { "--version", "--path", "../MyLibrary" });
         Assert.Equal("--path", permissiveValue.VersionOption);
         Assert.Equal("../MyLibrary", permissiveValue.PathOption);
         Assert.Equal("../MyLibrary", permissiveValue.PackageOperand);
-        Assert.True(AddCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
-        Assert.Null(AddCommand.GetArgumentSummary(new[] { "--version", "13.0.3" }).PackageOperand);
+        Assert.True(AddCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.Null(AddCommandKernels.GetArgumentSummary(new[] { "--version", "13.0.3" }).PackageOperand);
 
         var inlineSpec = AddCommandKernels.GetPackageSpec("Serilog@3.1.0", "ignored");
         Assert.Equal("Serilog", inlineSpec.PackageName);
@@ -2706,7 +2677,7 @@ func Main() {
         Assert.Equal("Serilog", unversionedSpec.PackageName);
         Assert.Null(unversionedSpec.Version);
 
-        var leadingAtSpec = AddCommand.GetPackageSpec("@scope@1.0", "2.0.0");
+        var leadingAtSpec = AddCommandKernels.GetPackageSpec("@scope@1.0", "2.0.0");
         Assert.Equal("@scope@1.0", leadingAtSpec.PackageName);
         Assert.Equal("2.0.0", leadingAtSpec.Version);
 
@@ -2720,7 +2691,6 @@ func Main() {
         };
         var insertAt = AddCommandKernels.GetDependencyInsertIndex(dependencyLines);
         Assert.Equal(4, insertAt);
-        Assert.Equal(4, AddCommand.GetDependencyInsertIndex(dependencyLines));
 
         var missingDependencySection = AddCommandKernels.GetDependencyInsertIndex(
             new[] { "name: Demo", "targetFramework: net10.0" });
@@ -2758,9 +2728,6 @@ func Main() {
             dependencies,
             "../Other/project.yml");
         Assert.False(projectMissing);
-
-        Assert.True(AddCommand.PackageOrFrameworkDependencyExists(dependencies, "NEWTONSOFT.JSON"));
-        Assert.True(AddCommand.ProjectDependencyExists(dependencies, "../SHARED/project.yml"));
 
         Assert.Equal(
             "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>",
@@ -3078,15 +3045,11 @@ func Main() {
         Assert.Equal("Serilog", dogfoodSummary.PackageOperand);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = RemoveCommand.GetArgumentSummary(args);
-        Assert.Equal("Serilog", summary.PackageOperand);
-        Assert.True(summary.ShowHelp);
-
-        Assert.Equal("Newtonsoft.Json", RemoveCommand.GetArgumentSummary(new[] { "Newtonsoft.Json" }).PackageOperand);
-        Assert.Equal("Serilog", RemoveCommand.GetArgumentSummary(new[] { "--dry-run", "Serilog" }).PackageOperand);
-        Assert.Null(RemoveCommand.GetArgumentSummary(new[] { "--dry-run" }).PackageOperand);
-        Assert.True(RemoveCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
-        Assert.Equal("help", RemoveCommand.GetArgumentSummary(new[] { "help" }).PackageOperand);
+        Assert.Equal("Newtonsoft.Json", RemoveCommandKernels.GetArgumentSummary(new[] { "Newtonsoft.Json" }).PackageOperand);
+        Assert.Equal("Serilog", RemoveCommandKernels.GetArgumentSummary(new[] { "--dry-run", "Serilog" }).PackageOperand);
+        Assert.Null(RemoveCommandKernels.GetArgumentSummary(new[] { "--dry-run" }).PackageOperand);
+        Assert.True(RemoveCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.Equal("help", RemoveCommandKernels.GetArgumentSummary(new[] { "help" }).PackageOperand);
 
         var shorthandVersion = RemoveCommandKernels.GetDependencyLineAction(
             "- Newtonsoft.Json@13.0.3",

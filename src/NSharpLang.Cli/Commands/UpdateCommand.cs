@@ -9,7 +9,7 @@ public static class UpdateCommand
 {
     public static int Execute(string[] args)
     {
-        var arguments = GetArgumentSummary(args);
+        var arguments = UpdateCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
             return ShowHelp();
 
@@ -132,9 +132,6 @@ public static class UpdateCommand
         Console.WriteLine(UpdateCommandKernels.GetHelpText());
         return 0;
     }
-
-    internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
-        => UpdateCommandKernels.GetArgumentSummary(args);
 
     internal static List<Reference> FilterNuGetDependencies(
         IReadOnlyList<Reference> dependencies,

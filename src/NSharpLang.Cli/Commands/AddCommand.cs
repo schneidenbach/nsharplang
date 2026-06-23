@@ -10,7 +10,7 @@ public static class AddCommand
 {
     public static int Execute(string[] args)
     {
-        var arguments = GetArgumentSummary(args);
+        var arguments = AddCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
             return ShowHelp();
 
@@ -35,7 +35,7 @@ public static class AddCommand
         if (string.IsNullOrWhiteSpace(raw))
             return Error(AddCommandKernels.GetUsageMessage());
 
-        var packageSpec = GetPackageSpec(raw, arguments.VersionOption);
+        var packageSpec = AddCommandKernels.GetPackageSpec(raw, arguments.VersionOption);
         var packageName = packageSpec.PackageName;
         var version = packageSpec.Version;
 
@@ -52,7 +52,7 @@ public static class AddCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            if (PackageOrFrameworkDependencyExists(config.Dependencies, packageName))
+            if (AddCommandKernels.PackageOrFrameworkDependencyExists(config.Dependencies, packageName))
                 return Error(AddCommandKernels.GetDuplicatePackageMessage(packageName));
         }
         catch
@@ -63,7 +63,7 @@ public static class AddCommand
         // Text-based insertion into project.yml
         var lineArray = File.ReadAllLines(projectYml);
         var lines = new List<string>(lineArray);
-        var insertAt = GetDependencyInsertIndex(lineArray);
+        var insertAt = AddCommandKernels.GetDependencyInsertIndex(lineArray);
 
         string newEntry;
         if (isFramework)
@@ -96,28 +96,13 @@ public static class AddCommand
         return 0;
     }
 
-    internal static AddArgumentSummary GetArgumentSummary(string[] args)
-        => AddCommandKernels.GetArgumentSummary(args);
-
-    internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
-        => AddCommandKernels.GetPackageSpec(raw, explicitVersion);
-
-    internal static int GetDependencyInsertIndex(string[] lines)
-        => AddCommandKernels.GetDependencyInsertIndex(lines);
-
-    internal static bool PackageOrFrameworkDependencyExists(IReadOnlyList<Reference> dependencies, string packageName)
-        => AddCommandKernels.PackageOrFrameworkDependencyExists(dependencies, packageName);
-
-    internal static bool ProjectDependencyExists(IReadOnlyList<Reference> dependencies, string localPath)
-        => AddCommandKernels.ProjectDependencyExists(dependencies, localPath);
-
     static int AddProjectReference(string projectYml, string localPath)
     {
         // Check for duplicate project reference
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            if (ProjectDependencyExists(config.Dependencies, localPath))
+            if (AddCommandKernels.ProjectDependencyExists(config.Dependencies, localPath))
                 return Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath));
         }
         catch
@@ -127,7 +112,7 @@ public static class AddCommand
 
         var lineArray = File.ReadAllLines(projectYml);
         var lines = new List<string>(lineArray);
-        var insertAt = GetDependencyInsertIndex(lineArray);
+        var insertAt = AddCommandKernels.GetDependencyInsertIndex(lineArray);
         var newEntry = $"  - project: {localPath}";
 
         if (insertAt >= 0)
