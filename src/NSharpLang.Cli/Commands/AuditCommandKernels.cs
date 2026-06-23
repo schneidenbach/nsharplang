@@ -7,12 +7,6 @@ internal readonly record struct AuditOptionSummary(
     bool Json,
     bool ShowHelp);
 
-internal enum AuditOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class AuditCommandKernels
 {
     [ThreadStatic]
@@ -34,14 +28,8 @@ internal static class AuditCommandKernels
             resultIndices[2] != 0);
     }
 
-    internal static AuditOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.OutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# audit output mode kernel rejected the value.");
-
-        return (AuditOutputModeKind)code;
-    }
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.OutputMode(json ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.AuditHelpText();

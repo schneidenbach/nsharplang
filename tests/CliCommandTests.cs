@@ -778,10 +778,10 @@ func Main() {
         Assert.True(AuditCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = AuditCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(AuditOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = AuditCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(AuditOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var helpText = AuditCommandKernels.GetHelpText();
         Assert.Contains("N# Security Audit", helpText);

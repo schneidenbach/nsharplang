@@ -45,7 +45,7 @@ public static class AuditCommand
 
             var vulnCount = CountVulnerabilities(output);
 
-            if (outputMode == AuditOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 using var rawDoc = JsonDocument.Parse(output);
                 using var stream = new MemoryStream();
