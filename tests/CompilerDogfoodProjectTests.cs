@@ -15207,28 +15207,17 @@ func main(): int {
             "Running",
             "Succeeded"
         };
-        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
+        var missingMembers = AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
             members,
-            coveredMembers,
-            out var missingMembers));
+            coveredMembers);
         Assert.Equal(
             new[] { "Created", "Failed", "Retrying" },
             missingMembers);
 
-        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
+        var allCoveredMissingMembers = AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
             members,
-            new HashSet<string>(members.Select(static member => member.Name), StringComparer.Ordinal),
-            out var allCoveredMissingMembers));
+            new HashSet<string>(members.Select(static member => member.Name), StringComparer.Ordinal));
         Assert.Empty(allCoveredMissingMembers);
-
-        Assert.False(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
-            new List<EnumMember>
-            {
-                new("Created", Value: null),
-                new("Created", Value: null)
-            },
-            new HashSet<string>(StringComparer.Ordinal),
-            out _));
 
         var unionCases = new List<UnionCase>
         {
@@ -15241,14 +15230,14 @@ func main(): int {
         };
         var coveredFlags = new[] { 0, 1, 0, 1, 0, 0 };
         var partialFlags = new[] { 0, 0, 1, 0, 1, 0 };
-        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
+        AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
             unionCases,
             coveredFlags,
             partialFlags,
             unionCases.Count,
             out var missingCases,
             out var partialMissingCases,
-            out var neverCoveredCases));
+            out var neverCoveredCases);
         Assert.Equal(
             new[] { "Created", "Running", "Failed", "Retrying" },
             missingCases);
@@ -15259,7 +15248,7 @@ func main(): int {
             new[] { "Created", "Retrying" },
             neverCoveredCases);
 
-        Assert.False(AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
+        Assert.Throws<InvalidOperationException>(() => AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
             unionCases,
             coveredFlags,
             partialFlags,

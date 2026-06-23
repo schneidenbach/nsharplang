@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -13,72 +12,43 @@ internal static class AnalyzerExhaustivenessSelector
     [ThreadStatic]
     private static MissingUnionCaseScratch? t_missingUnionCaseScratch;
 
-    internal static bool TrySelectMissingEnumMembers(
+    internal static List<string> SelectMissingEnumMembers(
         IReadOnlyList<EnumMember> members,
-        ISet<string> coveredMembers,
-        out List<string> missingMembers)
+        ISet<string> coveredMembers)
     {
-        missingMembers = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var memberCount = members.Count;
         var scratch = t_missingEnumMemberScratch ??= new MissingEnumMemberScratch();
         scratch.EnsureCapacity(memberCount);
 
-        try
+        for (var i = 0; i < memberCount; i++)
         {
-            scratch.ResetNames();
-            for (var i = 0; i < memberCount; i++)
-            {
-                var memberName = members[i].Name;
-                if (!scratch.AddName(memberName))
-                    return false;
-
-                scratch.CoveredFlags[i] = coveredMembers.Contains(memberName) ? 1 : 0;
-            }
-
-            var missingCount = bindings.AnalyzerMissingMemberIndices(
-                scratch.CoveredFlags,
-                memberCount,
-                scratch.ResultIndices);
-
-            if (missingCount < 0 || missingCount > memberCount || missingCount > scratch.ResultIndices.Length)
-            {
-                missingMembers = [];
-                return false;
-            }
-
-            var result = new List<string>(missingCount);
-            for (var i = 0; i < missingCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= memberCount)
-                {
-                    missingMembers = [];
-                    return false;
-                }
-
-                result.Add(members[sourceIndex].Name);
-            }
-
-            missingMembers = result;
-            return true;
+            scratch.CoveredFlags[i] = coveredMembers.Contains(members[i].Name) ? 1 : 0;
         }
-        catch
+
+        var missingCount = bindings.AnalyzerMissingMemberIndices(
+            scratch.CoveredFlags,
+            memberCount,
+            scratch.ResultIndices);
+
+        if (missingCount < 0 || missingCount > memberCount || missingCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# analyzer enum exhaustiveness kernel rejected the member table.");
+
+        var result = new List<string>(missingCount);
+        for (var i = 0; i < missingCount; i++)
         {
-            missingMembers = [];
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= memberCount)
+                throw new InvalidOperationException("N# analyzer enum exhaustiveness kernel returned an invalid member index.");
+
+            result.Add(members[sourceIndex].Name);
         }
-        finally
-        {
-            scratch.ResetNames();
-        }
+
+        return result;
     }
 
-    internal static bool TrySelectMissingUnionCasesFromFlags(
+    internal static void SelectMissingUnionCasesFromFlags(
         IReadOnlyList<UnionCase> cases,
         int[] coveredFlags,
         int[] partialFlags,
@@ -87,59 +57,39 @@ internal static class AnalyzerExhaustivenessSelector
         out List<string> partialMissingCases,
         out List<string> neverCoveredCases)
     {
-        missingCases = [];
-        partialMissingCases = [];
-        neverCoveredCases = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
-            return false;
+            throw new InvalidOperationException("N# analyzer union exhaustiveness kernel received an invalid case count.");
 
         var scratch = t_missingUnionCaseScratch ??= new MissingUnionCaseScratch();
         scratch.EnsureCapacity(count);
 
-        try
-        {
-            var missingCount = bindings.AnalyzerUnionMissingCaseIndices(
-                coveredFlags,
-                partialFlags,
-                count,
-                scratch.MissingIndices,
-                scratch.PartialMissingIndices,
-                scratch.NeverCoveredIndices,
-                scratch.ResultCounts);
+        var missingCount = bindings.AnalyzerUnionMissingCaseIndices(
+            coveredFlags,
+            partialFlags,
+            count,
+            scratch.MissingIndices,
+            scratch.PartialMissingIndices,
+            scratch.NeverCoveredIndices,
+            scratch.ResultCounts);
 
-            var partialMissingCount = scratch.ResultCounts[1];
-            var neverCoveredCount = scratch.ResultCounts[2];
-            if (missingCount < 0 ||
-                missingCount > count ||
-                partialMissingCount < 0 ||
-                partialMissingCount > missingCount ||
-                neverCoveredCount < 0 ||
-                neverCoveredCount > missingCount ||
-                partialMissingCount + neverCoveredCount != missingCount)
-            {
-                missingCases = [];
-                partialMissingCases = [];
-                neverCoveredCases = [];
-                return false;
-            }
-
-            missingCases = MaterializeCaseNames(cases, scratch.MissingIndices, missingCount);
-            partialMissingCases = MaterializeCaseNames(cases, scratch.PartialMissingIndices, partialMissingCount);
-            neverCoveredCases = MaterializeCaseNames(cases, scratch.NeverCoveredIndices, neverCoveredCount);
-            return true;
-        }
-        catch
+        var partialMissingCount = scratch.ResultCounts[1];
+        var neverCoveredCount = scratch.ResultCounts[2];
+        if (missingCount < 0 ||
+            missingCount > count ||
+            partialMissingCount < 0 ||
+            partialMissingCount > missingCount ||
+            neverCoveredCount < 0 ||
+            neverCoveredCount > missingCount ||
+            partialMissingCount + neverCoveredCount != missingCount)
         {
-            missingCases = [];
-            partialMissingCases = [];
-            neverCoveredCases = [];
-            return false;
+            throw new InvalidOperationException("N# analyzer union exhaustiveness kernel rejected the case table.");
         }
+
+        missingCases = MaterializeCaseNames(cases, scratch.MissingIndices, missingCount);
+        partialMissingCases = MaterializeCaseNames(cases, scratch.PartialMissingIndices, partialMissingCount);
+        neverCoveredCases = MaterializeCaseNames(cases, scratch.NeverCoveredIndices, neverCoveredCount);
     }
 
     private static List<string> MaterializeCaseNames(
@@ -169,6 +119,10 @@ internal static class AnalyzerExhaustivenessSelector
                 programType,
                 "AnalyzerUnionMissingCaseIndicesInto")));
 
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# analyzer exhaustiveness kernels are unavailable.");
+
     private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
     private delegate int AnalyzerUnionMissingCaseIndicesInto(
         int[] coveredFlags,
@@ -185,12 +139,8 @@ internal static class AnalyzerExhaustivenessSelector
 
     private sealed class MissingEnumMemberScratch
     {
-        private readonly HashSet<string> _seenNames = new(StringComparer.Ordinal);
-
         internal int[] CoveredFlags = Array.Empty<int>();
         internal int[] ResultIndices = Array.Empty<int>();
-
-        internal bool AddName(string name) => _seenNames.Add(name);
 
         internal void EnsureCapacity(int count)
         {
@@ -199,11 +149,6 @@ internal static class AnalyzerExhaustivenessSelector
                 CoveredFlags = new int[count];
                 ResultIndices = new int[count];
             }
-        }
-
-        internal void ResetNames()
-        {
-            _seenNames.Clear();
         }
     }
 

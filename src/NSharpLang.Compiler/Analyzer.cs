@@ -19036,24 +19036,14 @@ public class Analyzer : IDisposable
                 }
             }
 
-            if (!AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
-                    unionCases,
-                    coveredFlags,
-                    partialFlags,
-                    caseCount,
-                    out var missingCases,
-                    out var partialMissingCases,
-                    out var neverCoveredCases))
-            {
-                SelectMissingUnionCasesFromFlags(
-                    unionCases,
-                    coveredFlags,
-                    partialFlags,
-                    caseCount,
-                    out missingCases,
-                    out partialMissingCases,
-                    out neverCoveredCases);
-            }
+            AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
+                unionCases,
+                coveredFlags,
+                partialFlags,
+                caseCount,
+                out var missingCases,
+                out var partialMissingCases,
+                out var neverCoveredCases);
 
             if (missingCases.Any())
             {
@@ -19137,40 +19127,6 @@ public class Analyzer : IDisposable
 
             return caseName;
         }));
-    }
-
-    private static void SelectMissingUnionCasesFromFlags(
-        IReadOnlyList<UnionCase> cases,
-        int[] coveredFlags,
-        int[] partialFlags,
-        int count,
-        out List<string> missingCases,
-        out List<string> partialMissingCases,
-        out List<string> neverCoveredCases)
-    {
-        missingCases = new List<string>();
-        partialMissingCases = new List<string>();
-        neverCoveredCases = new List<string>();
-
-        if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
-            return;
-
-        for (var i = 0; i < count; i++)
-        {
-            if (coveredFlags[i] != 0)
-                continue;
-
-            var caseName = cases[i].Name;
-            missingCases.Add(caseName);
-            if (partialFlags[i] != 0)
-            {
-                partialMissingCases.Add(caseName);
-            }
-            else
-            {
-                neverCoveredCases.Add(caseName);
-            }
-        }
     }
 
     private bool IsUnionCaseCoveredByPatterns(
@@ -19404,15 +19360,11 @@ public class Analyzer : IDisposable
             }
         }
 
-        // Check if all enum members are covered
-        if (!AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
-                enumType.Declaration.Members,
-                coveredMembers,
-                out var missingMembers))
-        {
-            var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
-            missingMembers = allMembers.Except(coveredMembers).ToList();
-        }
+        // Check if all enum members are covered. The missing-member selection is owned by
+        // the N# analyzer exhaustiveness kernel; do not recover with a C# duplicate.
+        var missingMembers = AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
+            enumType.Declaration.Members,
+            coveredMembers);
 
         if (missingMembers.Count > 0)
         {
