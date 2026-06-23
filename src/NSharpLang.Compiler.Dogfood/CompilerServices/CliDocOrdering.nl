@@ -75,9 +75,10 @@ func CliDocSymbolOrderCountingIndicesCore(
     includedCount := 0
     i = 0
     while i < count {
-        if ranks.IncludeFlags[i] != 0 {
+        kindId := ranks.KindRanks[i]
+        if ranks.IncludeFlags[i] != 0 || CliDocSymbolKindIsDocumented(kindId) {
             nameRank := ranks.NameRanks[i]
-            kindRank := ranks.KindRanks[i]
+            kindRank := CliDocSymbolKindOrderRank(kindId)
             if nameRank <= 0 || nameRank >= nameBucketCount || kindRank <= 0 || kindRank >= kindBucketCount {
                 return -1
             }
@@ -104,7 +105,8 @@ func CliDocSymbolOrderCountingIndicesCore(
 
     i = 0
     while i < count {
-        if ranks.IncludeFlags[i] != 0 {
+        kindId := ranks.KindRanks[i]
+        if ranks.IncludeFlags[i] != 0 || CliDocSymbolKindIsDocumented(kindId) {
             nameRank := ranks.NameRanks[i]
             writeIndex := nameBuckets.Offsets[nameRank]
             temp.Indices[writeIndex] = i
@@ -125,7 +127,7 @@ func CliDocSymbolOrderCountingIndicesCore(
     i = 0
     while i < includedCount {
         sourceIndex := temp.Indices[i]
-        kindRank := ranks.KindRanks[sourceIndex]
+        kindRank := CliDocSymbolKindOrderRank(ranks.KindRanks[sourceIndex])
         writeIndex := kindBuckets.Offsets[kindRank]
         result.Indices[writeIndex] = sourceIndex
         kindBuckets.Offsets[kindRank] = writeIndex + 1
@@ -133,6 +135,82 @@ func CliDocSymbolOrderCountingIndicesCore(
     }
 
     return includedCount
+}
+
+func CliDocSymbolKindIsDocumented(kindId: int): bool {
+    if kindId == 10 || kindId == 11 {
+        return false
+    }
+
+    return true
+}
+
+func CliDocSymbolKindOrderRank(kindId: int): int {
+    if kindId == 1 {
+        return 1
+    }
+
+    if kindId == 12 {
+        return 2
+    }
+
+    if kindId == 5 {
+        return 3
+    }
+
+    if kindId == 13 {
+        return 4
+    }
+
+    if kindId == 8 {
+        return 5
+    }
+
+    if kindId == 0 {
+        return 6
+    }
+
+    if kindId == 4 {
+        return 7
+    }
+
+    if kindId == 9 {
+        return 8
+    }
+
+    if kindId == 11 {
+        return 9
+    }
+
+    if kindId == 7 {
+        return 10
+    }
+
+    if kindId == 3 {
+        return 11
+    }
+
+    if kindId == 2 {
+        return 12
+    }
+
+    if kindId == 15 {
+        return 13
+    }
+
+    if kindId == 14 {
+        return 14
+    }
+
+    if kindId == 6 {
+        return 15
+    }
+
+    if kindId == 10 {
+        return 16
+    }
+
+    return 0
 }
 
 func CliDocSlugsInto(rawSlugs: string[], resultSlugs: string[]): int {

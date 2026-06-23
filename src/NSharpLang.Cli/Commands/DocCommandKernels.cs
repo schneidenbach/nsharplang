@@ -137,9 +137,9 @@ internal static class DocCommandKernels
             for (var i = 0; i < symbolCount; i++)
             {
                 var symbol = symbols[i];
-                scratch.KindRanks[i] = GetSymbolKindRank(symbol.Kind);
+                scratch.KindRanks[i] = (int)symbol.Kind;
                 scratch.NameRanks[i] = scratch.GetNameRank(symbol.Name);
-                scratch.IncludeFlags[i] = (includeAllKinds || IsDocumentedSymbolKind(symbol.Kind)) ? 1 : 0;
+                scratch.IncludeFlags[i] = includeAllKinds ? 1 : 0;
             }
 
             var orderedCount = bindings.SymbolOrderCountingIndices(
@@ -226,31 +226,6 @@ internal static class DocCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliDocSignatureText>(
                 programType,
                 "CliDocSignatureText")));
-
-    private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
-        kind is not SymbolKind.Variable and not SymbolKind.Parameter;
-
-    private static int GetSymbolKindRank(SymbolKind kind) =>
-        kind switch
-        {
-            SymbolKind.Class => 1,
-            SymbolKind.Constructor => 2,
-            SymbolKind.Enum => 3,
-            SymbolKind.EnumMember => 4,
-            SymbolKind.Field => 5,
-            SymbolKind.Function => 6,
-            SymbolKind.Interface => 7,
-            SymbolKind.Method => 8,
-            SymbolKind.Parameter => 9,
-            SymbolKind.Property => 10,
-            SymbolKind.Record => 11,
-            SymbolKind.Struct => 12,
-            SymbolKind.Test => 13,
-            SymbolKind.TypeAlias => 14,
-            SymbolKind.Union => 15,
-            SymbolKind.Variable => 16,
-            _ => 100
-        };
 
     private delegate int CliDocSymbolOrderCountingIndicesInto(
         int[] kindRanks,

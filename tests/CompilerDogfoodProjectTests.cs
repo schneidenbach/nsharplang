@@ -27300,14 +27300,10 @@ func main() {
             .OrderBy(name => name, StringComparer.Ordinal)
             .Select((name, index) => (name, rank: index + 1))
             .ToDictionary(item => item.name, item => item.rank, StringComparer.Ordinal);
-        var kindRankMap = Enum.GetValues<SymbolKind>()
-            .OrderBy(kind => kind.ToString(), StringComparer.Ordinal)
-            .Select((kind, index) => (kind, rank: index + 1))
-            .ToDictionary(item => item.kind, item => item.rank);
 
         for (var i = 0; i < symbols.Length; i++)
         {
-            kindRanks[i] = kindRankMap[symbols[i].Kind];
+            kindRanks[i] = (int)symbols[i].Kind;
             nameRanks[i] = nameRankMap[symbols[i].Name];
             includeFlags[i] = symbols[i].Kind is SymbolKind.Variable or SymbolKind.Parameter ? 0 : 1;
         }
@@ -27399,14 +27395,10 @@ func main() {
             .OrderBy(name => name, StringComparer.Ordinal)
             .Select((name, index) => (name, rank: index + 1))
             .ToDictionary(item => item.name, item => item.rank, StringComparer.Ordinal);
-        var kindRankMap = Enum.GetValues<SymbolKind>()
-            .OrderBy(kind => kind.ToString(), StringComparer.Ordinal)
-            .Select((kind, index) => (kind, rank: index + 1))
-            .ToDictionary(item => item.kind, item => item.rank);
 
         for (var i = 0; i < members.Length; i++)
         {
-            kindRanks[i] = kindRankMap[members[i].Kind];
+            kindRanks[i] = (int)members[i].Kind;
             nameRanks[i] = nameRankMap[members[i].Name];
         }
 
