@@ -64,28 +64,13 @@ internal static class FixCommandArgumentKernels
         }
     }
 
-    internal static bool TryGetEffectiveOutputMode(bool useText, out FixOutputModeKind outputMode)
+    internal static FixOutputModeKind GetEffectiveOutputMode(bool useText)
     {
-        outputMode = default;
+        var result = RequiredBindings.FixEffectiveOutputMode(useText ? 1 : 0);
+        if (result is < 1 or > 2)
+            throw new InvalidOperationException("N# fix output mode kernel rejected the value.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.FixEffectiveOutputMode(useText ? 1 : 0);
-            if (result is < 1 or > 2)
-                return false;
-
-            outputMode = (FixOutputModeKind)result;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (FixOutputModeKind)result;
     }
 
     private static Bindings? LoadBindings()
@@ -104,6 +89,9 @@ internal static class FixCommandArgumentKernels
     private sealed record Bindings(
         CliFixArgumentSummaryInto FixArgumentSummary,
         CliFixEffectiveOutputMode FixEffectiveOutputMode);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# fix argument kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

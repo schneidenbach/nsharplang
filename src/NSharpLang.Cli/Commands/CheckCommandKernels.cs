@@ -67,31 +67,15 @@ internal static class CheckCommandKernels
         }
     }
 
-    internal static bool TryGetEffectiveOutputMode(
+    internal static CheckOutputModeKind GetEffectiveOutputMode(
         bool useText,
-        bool systemsReport,
-        out CheckOutputModeKind outputMode)
+        bool systemsReport)
     {
-        outputMode = default;
+        var result = RequiredBindings.CheckEffectiveOutputMode(useText ? 1 : 0, systemsReport ? 1 : 0);
+        if (result != -1 && result != 1 && result != 2 && result != 3)
+            throw new InvalidOperationException("N# check output-mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.CheckEffectiveOutputMode(useText ? 1 : 0, systemsReport ? 1 : 0);
-            if (result != -1 && result != 1 && result != 2 && result != 3)
-                return false;
-
-            outputMode = (CheckOutputModeKind)result;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (CheckOutputModeKind)result;
     }
 
     internal static string GetHelpText()

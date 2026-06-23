@@ -2053,10 +2053,9 @@ func Main() {
 
         foreach (var testCase in cases)
         {
-            Assert.True(QueryCommandKernels.TryGetInspectOutputMode(
+            var dogfoodMode = QueryCommandKernels.GetInspectOutputMode(
                 testCase.UseText,
-                testCase.InspectCompact,
-                out var dogfoodMode));
+                testCase.InspectCompact);
             Assert.Equal(testCase.Expected, dogfoodMode);
             Assert.Equal(
                 testCase.Expected,
@@ -2077,10 +2076,9 @@ func Main() {
 
         foreach (var testCase in cases)
         {
-            Assert.True(QueryCommandKernels.TryGetDiagnosticsOutputMode(
+            var dogfoodMode = QueryCommandKernels.GetDiagnosticsOutputMode(
                 testCase.UseText,
-                testCase.Clusters,
-                out var dogfoodMode));
+                testCase.Clusters);
             Assert.Equal(testCase.Expected, dogfoodMode);
             Assert.Equal(
                 testCase.Expected,
@@ -2099,7 +2097,7 @@ func Main() {
 
         foreach (var testCase in cases)
         {
-            Assert.True(QueryCommandKernels.TryGetJsonOnlyOutputMode(testCase.UseText, out var dogfoodMode));
+            var dogfoodMode = QueryCommandKernels.GetJsonOnlyOutputMode(testCase.UseText);
             Assert.Equal(testCase.Expected, dogfoodMode);
             Assert.Equal(testCase.Expected, QueryCommand.GetJsonOnlyOutputMode(testCase.UseText));
         }
@@ -2116,7 +2114,7 @@ func Main() {
 
         foreach (var testCase in cases)
         {
-            Assert.True(QueryCommandKernels.TryGetTextJsonOutputMode(testCase.UseText, out var dogfoodMode));
+            var dogfoodMode = QueryCommandKernels.GetTextJsonOutputMode(testCase.UseText);
             Assert.Equal(testCase.Expected, dogfoodMode);
             Assert.Equal(testCase.Expected, QueryCommand.GetTextJsonOutputMode(testCase.UseText));
         }
@@ -2135,10 +2133,9 @@ func Main() {
 
         foreach (var testCase in cases)
         {
-            Assert.True(QueryCommandKernels.TryShouldUseDaemon(
+            var dogfoodShouldUse = QueryCommandKernels.ShouldUseDaemon(
                 testCase.UseText,
-                testCase.NoDaemon,
-                out var dogfoodShouldUse));
+                testCase.NoDaemon);
             Assert.Equal(testCase.Expected, dogfoodShouldUse);
             Assert.Equal(
                 testCase.Expected,
@@ -2586,16 +2583,16 @@ func Main() {
     [Fact]
     public void CheckCommandKernels_SelectsEffectiveOutputMode()
     {
-        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(false, false, out var defaultMode));
+        var defaultMode = CheckCommandKernels.GetEffectiveOutputMode(false, false);
         Assert.Equal(CheckOutputModeKind.Json, defaultMode);
 
-        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(true, false, out var textMode));
+        var textMode = CheckCommandKernels.GetEffectiveOutputMode(true, false);
         Assert.Equal(CheckOutputModeKind.Text, textMode);
 
-        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(false, true, out var systemsReportMode));
+        var systemsReportMode = CheckCommandKernels.GetEffectiveOutputMode(false, true);
         Assert.Equal(CheckOutputModeKind.SystemsReportJson, systemsReportMode);
 
-        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(true, true, out var invalidMode));
+        var invalidMode = CheckCommandKernels.GetEffectiveOutputMode(true, true);
         Assert.Equal(CheckOutputModeKind.InvalidSystemsReportText, invalidMode);
 
         Assert.Equal(
@@ -2690,10 +2687,10 @@ func Main() {
     [Fact]
     public void FixCommandArgumentKernels_SelectsEffectiveOutputMode()
     {
-        Assert.True(FixCommandArgumentKernels.TryGetEffectiveOutputMode(false, out var defaultMode));
+        var defaultMode = FixCommandArgumentKernels.GetEffectiveOutputMode(false);
         Assert.Equal(FixOutputModeKind.Json, defaultMode);
 
-        Assert.True(FixCommandArgumentKernels.TryGetEffectiveOutputMode(true, out var textMode));
+        var textMode = FixCommandArgumentKernels.GetEffectiveOutputMode(true);
         Assert.Equal(FixOutputModeKind.Text, textMode);
 
         Assert.Equal(
@@ -3038,16 +3035,16 @@ func Main() {
     [Fact]
     public void LintCommandKernels_SelectsEffectiveOutputMode()
     {
-        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(false, false, out var defaultMode));
+        var defaultMode = LintCommandKernels.GetEffectiveOutputMode(false, false);
         Assert.Equal(LintOutputModeKind.Json, defaultMode);
 
-        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(false, true, out var explicitJson));
+        var explicitJson = LintCommandKernels.GetEffectiveOutputMode(false, true);
         Assert.Equal(LintOutputModeKind.Json, explicitJson);
 
-        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(true, false, out var explicitText));
+        var explicitText = LintCommandKernels.GetEffectiveOutputMode(true, false);
         Assert.Equal(LintOutputModeKind.Text, explicitText);
 
-        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(true, true, out var jsonWins));
+        var jsonWins = LintCommandKernels.GetEffectiveOutputMode(true, true);
         Assert.Equal(LintOutputModeKind.Json, jsonWins);
 
         Assert.Equal(

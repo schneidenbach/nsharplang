@@ -204,12 +204,7 @@ public static class CheckCommand
     }
 
     internal static CheckOutputModeKind GetEffectiveOutputMode(CheckArgumentSummary arguments)
-    {
-        if (CheckCommandKernels.TryGetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# check output-mode kernel rejected the options.");
-    }
+        => CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
 
     private static string GetProjectDir(CheckArgumentSummary arguments)
     {

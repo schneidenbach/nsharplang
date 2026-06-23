@@ -283,12 +283,7 @@ public static class FixCommand
     }
 
     internal static FixOutputModeKind GetEffectiveOutputMode(FixArgumentSummary arguments)
-    {
-        if (FixCommandArgumentKernels.TryGetEffectiveOutputMode(arguments.UseText, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# fix output mode kernel rejected the value.");
-    }
+        => FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText);
 
     private static string GetProjectDir(FixArgumentSummary arguments)
     {

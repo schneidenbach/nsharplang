@@ -212,12 +212,7 @@ public static class LintCommand
     }
 
     internal static LintOutputModeKind GetEffectiveOutputMode(LintOptionSummary options)
-    {
-        if (LintCommandKernels.TryGetEffectiveOutputMode(options.UseText, options.UseJson, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# lint output mode kernel rejected the options.");
-    }
+        => LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson);
 
     private static string[] GetPositionalFiles(string[] args)
         => LintCommandKernels.TryGetFileArgs(args, out var files)

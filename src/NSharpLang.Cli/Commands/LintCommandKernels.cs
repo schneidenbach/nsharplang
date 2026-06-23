@@ -104,31 +104,15 @@ internal static class LintCommandKernels
         }
     }
 
-    internal static bool TryGetEffectiveOutputMode(
+    internal static LintOutputModeKind GetEffectiveOutputMode(
         bool useText,
-        bool useJson,
-        out LintOutputModeKind outputMode)
+        bool useJson)
     {
-        outputMode = default;
+        var result = RequiredBindings.LintEffectiveOutputMode(useText ? 1 : 0, useJson ? 1 : 0);
+        if (result is < 1 or > 2)
+            throw new InvalidOperationException("N# lint output mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.LintEffectiveOutputMode(useText ? 1 : 0, useJson ? 1 : 0);
-            if (result is < 1 or > 2)
-                return false;
-
-            outputMode = (LintOutputModeKind)result;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (LintOutputModeKind)result;
     }
 
     internal static string GetHelpText()

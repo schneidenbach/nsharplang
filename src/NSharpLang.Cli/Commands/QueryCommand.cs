@@ -1020,36 +1020,16 @@ public static class QueryCommand
     }
 
     internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
-    {
-        if (QueryCommandKernels.TryGetInspectOutputMode(useText, inspectCompact, out var mode))
-            return mode;
-
-        throw new InvalidOperationException("N# query inspect output-mode kernel rejected the values.");
-    }
+        => QueryCommandKernels.GetInspectOutputMode(useText, inspectCompact);
 
     internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(bool useText, bool clusters)
-    {
-        if (QueryCommandKernels.TryGetDiagnosticsOutputMode(useText, clusters, out var mode))
-            return mode;
-
-        throw new InvalidOperationException("N# query diagnostics output-mode kernel rejected the values.");
-    }
+        => QueryCommandKernels.GetDiagnosticsOutputMode(useText, clusters);
 
     internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
-    {
-        if (QueryCommandKernels.TryGetJsonOnlyOutputMode(useText, out var mode))
-            return mode;
-
-        throw new InvalidOperationException("N# query JSON-only output-mode kernel rejected the value.");
-    }
+        => QueryCommandKernels.GetJsonOnlyOutputMode(useText);
 
     internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
-    {
-        if (QueryCommandKernels.TryGetTextJsonOutputMode(useText, out var mode))
-            return mode;
-
-        throw new InvalidOperationException("N# query text/json output-mode kernel rejected the value.");
-    }
+        => QueryCommandKernels.GetTextJsonOutputMode(useText);
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {
@@ -1193,12 +1173,7 @@ public static class QueryCommand
     }
 
     internal static bool ShouldTryExecuteViaDaemon(bool useText, bool noDaemon)
-    {
-        if (QueryCommandKernels.TryShouldUseDaemon(useText, noDaemon, out var shouldUse))
-            return shouldUse;
-
-        throw new InvalidOperationException("N# query daemon routing kernel rejected the values.");
-    }
+        => QueryCommandKernels.ShouldUseDaemon(useText, noDaemon);
 
     private static int GetJsonExitCode(string json)
     {

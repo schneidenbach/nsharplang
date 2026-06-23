@@ -285,145 +285,64 @@ internal static class QueryCommandKernels
         }
     }
 
-    internal static bool TryGetInspectOutputMode(
+    internal static QueryInspectOutputModeKind GetInspectOutputMode(
         bool useText,
-        bool inspectCompact,
-        out QueryInspectOutputModeKind mode)
+        bool inspectCompact)
     {
-        mode = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
+        var code = RequiredBindings.QueryInspectOutputMode(useText ? 1 : 0, inspectCompact ? 1 : 0);
+        return code switch
         {
-            var code = bindings.QueryInspectOutputMode(useText ? 1 : 0, inspectCompact ? 1 : 0);
-            mode = code switch
-            {
-                -1 => QueryInspectOutputModeKind.InvalidCompactText,
-                1 => QueryInspectOutputModeKind.Json,
-                2 => QueryInspectOutputModeKind.CompactJson,
-                3 => QueryInspectOutputModeKind.Text,
-                _ => default
-            };
-
-            return code is -1 or 1 or 2 or 3;
-        }
-        catch
-        {
-            mode = default;
-            return false;
-        }
+            -1 => QueryInspectOutputModeKind.InvalidCompactText,
+            1 => QueryInspectOutputModeKind.Json,
+            2 => QueryInspectOutputModeKind.CompactJson,
+            3 => QueryInspectOutputModeKind.Text,
+            _ => throw new InvalidOperationException("N# query inspect output-mode kernel rejected the values.")
+        };
     }
 
-    internal static bool TryShouldUseDaemon(bool useText, bool noDaemon, out bool shouldUse)
+    internal static bool ShouldUseDaemon(bool useText, bool noDaemon)
     {
-        shouldUse = false;
+        var code = RequiredBindings.QueryShouldUseDaemon(useText ? 1 : 0, noDaemon ? 1 : 0);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# query daemon routing kernel rejected the values.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.QueryShouldUseDaemon(useText ? 1 : 0, noDaemon ? 1 : 0);
-            if (code is not 0 and not 1)
-                return false;
-
-            shouldUse = code != 0;
-            return true;
-        }
-        catch
-        {
-            shouldUse = false;
-            return false;
-        }
+        return code != 0;
     }
 
-    internal static bool TryGetDiagnosticsOutputMode(
+    internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(
         bool useText,
-        bool clusters,
-        out QueryDiagnosticsOutputModeKind mode)
+        bool clusters)
     {
-        mode = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
+        var code = RequiredBindings.QueryDiagnosticsOutputMode(useText ? 1 : 0, clusters ? 1 : 0);
+        return code switch
         {
-            var code = bindings.QueryDiagnosticsOutputMode(useText ? 1 : 0, clusters ? 1 : 0);
-            mode = code switch
-            {
-                1 => QueryDiagnosticsOutputModeKind.Json,
-                2 => QueryDiagnosticsOutputModeKind.Text,
-                3 => QueryDiagnosticsOutputModeKind.ClustersJson,
-                _ => default
-            };
-
-            return code is 1 or 2 or 3;
-        }
-        catch
-        {
-            mode = default;
-            return false;
-        }
+            1 => QueryDiagnosticsOutputModeKind.Json,
+            2 => QueryDiagnosticsOutputModeKind.Text,
+            3 => QueryDiagnosticsOutputModeKind.ClustersJson,
+            _ => throw new InvalidOperationException("N# query diagnostics output-mode kernel rejected the values.")
+        };
     }
 
-    internal static bool TryGetJsonOnlyOutputMode(bool useText, out QueryJsonOnlyOutputModeKind mode)
+    internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
     {
-        mode = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
+        var code = RequiredBindings.QueryJsonOnlyOutputMode(useText ? 1 : 0);
+        return code switch
         {
-            var code = bindings.QueryJsonOnlyOutputMode(useText ? 1 : 0);
-            mode = code switch
-            {
-                -1 => QueryJsonOnlyOutputModeKind.TextUnsupported,
-                1 => QueryJsonOnlyOutputModeKind.Json,
-                _ => default
-            };
-
-            return code is -1 or 1;
-        }
-        catch
-        {
-            mode = default;
-            return false;
-        }
+            -1 => QueryJsonOnlyOutputModeKind.TextUnsupported,
+            1 => QueryJsonOnlyOutputModeKind.Json,
+            _ => throw new InvalidOperationException("N# query JSON-only output-mode kernel rejected the value.")
+        };
     }
 
-    internal static bool TryGetTextJsonOutputMode(bool useText, out QueryTextJsonOutputModeKind mode)
+    internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
     {
-        mode = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
+        var code = RequiredBindings.QueryTextJsonOutputMode(useText ? 1 : 0);
+        return code switch
         {
-            var code = bindings.QueryTextJsonOutputMode(useText ? 1 : 0);
-            mode = code switch
-            {
-                1 => QueryTextJsonOutputModeKind.Json,
-                2 => QueryTextJsonOutputModeKind.Text,
-                _ => default
-            };
-
-            return code is 1 or 2;
-        }
-        catch
-        {
-            mode = default;
-            return false;
-        }
+            1 => QueryTextJsonOutputModeKind.Json,
+            2 => QueryTextJsonOutputModeKind.Text,
+            _ => throw new InvalidOperationException("N# query text/json output-mode kernel rejected the value.")
+        };
     }
 
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
@@ -566,6 +485,9 @@ internal static class QueryCommandKernels
             ? message
             : throw new InvalidOperationException("N# query message kernel returned empty output.");
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# query kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
