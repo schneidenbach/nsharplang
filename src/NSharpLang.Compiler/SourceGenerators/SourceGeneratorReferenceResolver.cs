@@ -783,16 +783,8 @@ public static class SourceGeneratorReferenceResolver
 
     private static (int Major, int Minor)? ParseTargetFrameworkVersion(string targetFramework)
     {
-        if (SourceGeneratorReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out var major,
-                out var minor))
-        {
-            return parsed ? (major, minor) : null;
-        }
-
-        throw new InvalidOperationException("N# source-generator reference resolver kernel rejected target-framework version parsing.");
+        var parsed = SourceGeneratorReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+        return parsed.Parsed ? (parsed.Major, parsed.Minor) : null;
     }
 
     private static Version? TryParseVersion(string? value)

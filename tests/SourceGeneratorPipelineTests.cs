@@ -37,24 +37,16 @@ public class SourceGeneratorPipelineTests
 
         static void AssertParsed(string targetFramework, int expectedMajor, int expectedMinor)
         {
-            Assert.True(SourceGeneratorReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out var major,
-                out var minor));
-            Assert.True(parsed);
-            Assert.Equal(expectedMajor, major);
-            Assert.Equal(expectedMinor, minor);
+            var parsed = SourceGeneratorReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+            Assert.True(parsed.Parsed);
+            Assert.Equal(expectedMajor, parsed.Major);
+            Assert.Equal(expectedMinor, parsed.Minor);
         }
 
         static void AssertInvalid(string targetFramework)
         {
-            Assert.True(SourceGeneratorReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out _,
-                out _));
-            Assert.False(parsed);
+            var parsed = SourceGeneratorReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+            Assert.False(parsed.Parsed);
         }
     }
 
