@@ -13533,6 +13533,43 @@ func outer(x: int): int {
     }
 
     [Fact]
+    public void Stage5_AotMode_DoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        // AOT builds are a product emission mode. Once AOT analysis accepts the program, a columnar decline must
+        // fail the build instead of preserving C# ILCompiler ownership for the emitted assembly.
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-aot-required-columnar-{Guid.NewGuid():N}");
+        var sourcePath = Path.Combine(projectRoot, "Rejected.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "Stage5Aot.dll");
+        var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
+
+        try
+        {
+            Directory.CreateDirectory(projectRoot);
+            File.WriteAllText(sourcePath, source);
+            Assert.False(RouteColumnarProgram(source).Ok);
+
+            var config = ProjectFileParser.CreateDefault("Stage5Aot");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            var compiler = new MultiFileCompiler(new[] { sourcePath }, projectRoot, config)
+            {
+                AotMode = true,
+            };
+            var result = compiler.CompileToIlAssembly("Stage5Aot", outputPath);
+
+            Assert.False(result.Success);
+            Assert.Null(result.OutputAssemblyPath);
+            Assert.Contains(result.Errors, error =>
+                error.Message.Contains("Columnar AOT emission is required", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ColumnarCompiler_DoesNotConvertEmitterExceptionsToDeclines()
     {
         // Emitter faults are not unsupported-source declines. If this returns false, production can silently

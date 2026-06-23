@@ -972,6 +972,10 @@ public class MultiFileCompiler
                 {
                     AddRequiredColumnarDogfoodEmissionError(assemblyName);
                 }
+                else if (AotMode)
+                {
+                    AddRequiredColumnarAotEmissionError(assemblyName);
+                }
                 else
                 {
                     var mergedCompilationUnit = CreateMergedCompilationUnit();
@@ -1071,6 +1075,20 @@ public class MultiFileCompiler
         {
             HumanExplanation = "The shipped N# dogfood sources are not allowed to fall back to the C# ILCompiler.",
             Suggestion = "Port the rejected source shape to the columnar backend, or move parity-only probes out of the shipped dogfood source set."
+        });
+    }
+
+    private void AddRequiredColumnarAotEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar AOT emission is required for '{assemblyName}', but the columnar backend declined.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "AOT builds are not allowed to fall back to the C# ILCompiler after AOT analysis passes.",
+            Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
         });
     }
 
