@@ -13580,6 +13580,41 @@ func outer(x: int): int {
     }
 
     [Fact]
+    public void Stage5_DogfoodProductSource_DoesNotFallbackToCSharpUnderAlternateAssemblyName()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var sourcePath = DogfoodProductFilePath("AnonymousUnionShims.nl");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"DogfoodNonCanonical.{Guid.NewGuid():N}.dll");
+        var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
+        Assert.False(RouteColumnarProgram(source).Ok);
+
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [sourcePath] = source
+        };
+
+        try
+        {
+            var result = new MultiFileCompiler(new[] { sourcePath }, projectRoot, config, overrides)
+                .CompileToIlAssembly("DogfoodNonCanonical", outputPath);
+
+            Assert.False(result.Success);
+            Assert.Null(result.OutputAssemblyPath);
+            Assert.Contains(result.Errors, error =>
+                error.Message.Contains("Columnar dogfood emission is required", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
     public void Stage5_ColumnarBackend_DeclinesContextualTestDeclarations()
     {
         var helper = "func helper(): int {\n    return 1\n}\n";

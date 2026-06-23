@@ -1036,9 +1036,12 @@ public class MultiFileCompiler
 
     private bool RequiresColumnarDogfoodEmission(string assemblyName)
     {
-        if (!string.Equals(assemblyName, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal))
-            return false;
         if (_sourceFiles.Count == 0)
+            return false;
+
+        var isDogfoodAssembly = string.Equals(assemblyName, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal);
+        var usesDogfoodProductSources = _sourceFiles.Any(IsDogfoodProductSourceFile);
+        if (!isDogfoodAssembly && !usesDogfoodProductSources)
             return false;
 
         // Clean bootstrap still needs the C# compiler to produce the first dogfood assembly.
@@ -1047,6 +1050,13 @@ public class MultiFileCompiler
             return false;
 
         return true;
+    }
+
+    private static bool IsDogfoodProductSourceFile(string sourceFile)
+    {
+        var normalizedPath = Path.GetFullPath(sourceFile).Replace('\\', '/');
+        return normalizedPath.Contains("/NSharpLang.Compiler.Dogfood/", StringComparison.Ordinal)
+            && !normalizedPath.Contains("/NSharpLang.Compiler.Dogfood.ParityCorpus/", StringComparison.Ordinal);
     }
 
     private void AddRequiredColumnarDogfoodEmissionError(string assemblyName)
