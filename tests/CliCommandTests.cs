@@ -2284,24 +2284,17 @@ func Main() {
         Assert.True(dogfoodSummary.Systems);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = Program.GetNewArgumentSummary(args);
-        Assert.Equal("PacketCore", summary.FirstPositional);
-        Assert.Null(summary.SecondPositional);
-        Assert.Equal("library", summary.TemplateOption);
-        Assert.True(summary.Systems);
-        Assert.True(summary.ShowHelp);
-
         var projectName = NewCommandKernels.GetProjectNameOperand(
             new[] { "--template", "webapi", "MyApi" },
             new[] { "--template", "--type" });
         Assert.Equal("MyApi", projectName);
 
-        var positionalTemplate = Program.GetNewArgumentSummary(new[] { "systems-cli", "PacketTool" });
+        var positionalTemplate = NewCommandKernels.GetArgumentSummary(new[] { "systems-cli", "PacketTool" });
         Assert.Equal("systems-cli", positionalTemplate.FirstPositional);
         Assert.Equal("PacketTool", positionalTemplate.SecondPositional);
         Assert.Null(positionalTemplate.TemplateOption);
 
-        var typeAlias = Program.GetNewArgumentSummary(new[] { "--type", "webapi", "MyApi" });
+        var typeAlias = NewCommandKernels.GetArgumentSummary(new[] { "--type", "webapi", "MyApi" });
         Assert.Equal("webapi", typeAlias.TemplateOption);
         Assert.Equal("MyApi", typeAlias.FirstPositional);
 
@@ -2334,7 +2327,7 @@ func Main() {
         var unknownSourceKinds = NewCommandKernels.GetTemplateSourceFileKinds("unknown");
         Assert.Empty(unknownSourceKinds);
 
-        Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.True(NewCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
 
         var helpText = NewCommandKernels.GetHelpText();
         Assert.Contains("N# New Project", helpText);
@@ -3594,7 +3587,7 @@ func Main() {
 
         Assert.Equal(
             "Program.nl",
-            Program.GetRunSourceOperand(new[] { "--backend", "--unknown", "Program.nl" }));
+            RunCommandKernels.GetSourceOperand(new[] { "--backend", "--unknown", "Program.nl" }));
     }
 
     [Fact]
@@ -3611,12 +3604,12 @@ func Main() {
         var help = RunCommandKernels.GetOptionSummary(new[] { "help" });
         Assert.True(help.ShowHelp);
 
-        var permissive = Program.GetRunOptionSummary(new[] { "--backend", "--help" });
+        var permissive = RunCommandKernels.GetOptionSummary(new[] { "--backend", "--help" });
         Assert.Equal("--help", permissive.BackendOption);
         Assert.True(permissive.ShowHelp);
 
-        Assert.True(Program.GetRunOptionSummary(new[] { "-h" }).ShowHelp);
-        Assert.Null(Program.GetRunOptionSummary(new[] { "--backend" }).BackendOption);
+        Assert.True(RunCommandKernels.GetOptionSummary(new[] { "-h" }).ShowHelp);
+        Assert.Null(RunCommandKernels.GetOptionSummary(new[] { "--backend" }).BackendOption);
 
         var helpText = RunCommandKernels.GetHelpText();
         Assert.Contains("N# Run", helpText);
@@ -3701,29 +3694,18 @@ func Main() {
         Assert.True(dogfoodSummary.Aot);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = Program.GetPublishArgumentSummary(args);
-        Assert.Null(summary.ValidationError);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("il", summary.BackendOption);
-        Assert.Equal("Release", summary.Configuration);
-        Assert.Equal("dist", summary.Output);
-        Assert.Equal("osx-arm64", summary.Runtime);
-        Assert.True(summary.SelfContained);
-        Assert.True(summary.Aot);
-        Assert.False(summary.ShowHelp);
-
-        var missingValue = Program.GetPublishArgumentSummary(new[] { "--project", "--backend", "il" });
+        var missingValue = PublishCommandKernels.GetArgumentSummary(new[] { "--project", "--backend", "il" });
         Assert.Equal("Option '--project' requires a value.", missingValue.ValidationError);
 
-        var targetPlatform = Program.GetPublishArgumentSummary(new[] { "--target", "linux-x64" });
+        var targetPlatform = PublishCommandKernels.GetArgumentSummary(new[] { "--target", "linux-x64" });
         Assert.Equal(
             "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.",
             targetPlatform.ValidationError);
 
-        var unknown = Program.GetPublishArgumentSummary(new[] { "--mystery" });
+        var unknown = PublishCommandKernels.GetArgumentSummary(new[] { "--mystery" });
         Assert.Equal("Unknown publish option '--mystery'. Run 'nlc publish --help' for supported options.", unknown.ValidationError);
 
-        var unexpected = Program.GetPublishArgumentSummary(new[] { "Project.nl" });
+        var unexpected = PublishCommandKernels.GetArgumentSummary(new[] { "Project.nl" });
         Assert.Equal("Unexpected publish argument 'Project.nl'. Run 'nlc publish --help' for usage.", unexpected.ValidationError);
 
         Assert.Equal(
@@ -3804,13 +3786,13 @@ Exit codes:
 
         Assert.Equal(
             "Debug",
-            Program.GetPublishArgumentSummary(new[] { "-c", "Debug" }).Configuration);
+            PublishCommandKernels.GetArgumentSummary(new[] { "-c", "Debug" }).Configuration);
 
-        Assert.True(Program.GetPublishArgumentSummary(new[] { "help" }).ShowHelp);
-        Assert.True(Program.GetPublishArgumentSummary(new[] { "--help" }).ShowHelp);
-        Assert.True(Program.GetPublishArgumentSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(PublishCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.True(PublishCommandKernels.GetArgumentSummary(new[] { "--help" }).ShowHelp);
+        Assert.True(PublishCommandKernels.GetArgumentSummary(new[] { "ignored", "-h" }).ShowHelp);
 
-        var helpAfterInvalidValue = Program.GetPublishArgumentSummary(new[] { "--project", "--help" });
+        var helpAfterInvalidValue = PublishCommandKernels.GetArgumentSummary(new[] { "--project", "--help" });
         Assert.True(helpAfterInvalidValue.ShowHelp);
         Assert.Equal("Option '--project' requires a value.", helpAfterInvalidValue.ValidationError);
     }
@@ -4403,16 +4385,16 @@ Exit codes:
         Assert.True(summary.StdinMode);
         Assert.True(summary.ShowHelp);
 
-        var programSummary = Program.GetFormatOptionSummary(new[] { "--project", "--check", "--verify-no-changes" });
+        var programSummary = FormatCommandKernels.GetOptionSummary(new[] { "--project", "--check", "--verify-no-changes" });
         Assert.Equal("--check", programSummary.ProjectOption);
         Assert.True(programSummary.VerifyOnly);
         Assert.False(programSummary.DiffOnly);
         Assert.False(programSummary.StdinMode);
         Assert.False(programSummary.ShowHelp);
 
-        Assert.True(Program.GetFormatOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(Program.GetFormatOptionSummary(new[] { "--help" }).ShowHelp);
-        Assert.True(Program.GetFormatOptionSummary(new[] { "-h" }).ShowHelp);
+        Assert.True(FormatCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(FormatCommandKernels.GetOptionSummary(new[] { "--help" }).ShowHelp);
+        Assert.True(FormatCommandKernels.GetOptionSummary(new[] { "-h" }).ShowHelp);
 
         var helpText = FormatCommandKernels.GetHelpText();
         Assert.Contains("N# Format", helpText);
@@ -4913,11 +4895,9 @@ dependencies:
 
         var textMode = TestCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TestOutputModeKind.Text, textMode);
-        Assert.Equal(TestOutputModeKind.Text, Program.GetTestOutputMode(json: false));
 
         var jsonMode = TestCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TestOutputModeKind.Json, jsonMode);
-        Assert.Equal(TestOutputModeKind.Json, Program.GetTestOutputMode(json: true));
     }
 
     [Fact]

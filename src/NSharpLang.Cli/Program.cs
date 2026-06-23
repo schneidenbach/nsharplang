@@ -52,7 +52,7 @@ partial class Program
 
     internal static int Execute(string[] args)
     {
-        var commandKind = GetCommandKind(args);
+        var commandKind = ProgramCommandKernels.GetCommandKind(args);
 
         return commandKind switch
         {
@@ -90,9 +90,6 @@ partial class Program
         };
     }
 
-    internal static ProgramCommandKind GetCommandKind(string[] args)
-        => ProgramCommandKernels.GetCommandKind(args);
-
     private static string GetCommandNameForError(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLower();
 
@@ -101,7 +98,7 @@ partial class Program
 
     static int BuildCommand(string[] args)
     {
-        var helpOptions = GetBuildOptionSummary(args);
+        var helpOptions = BuildCommandKernels.GetOptionSummary(args);
         if (helpOptions.ShowHelp)
         {
             Console.WriteLine(BuildCommandKernels.GetHelpText());
@@ -112,7 +109,7 @@ partial class Program
         // mistaken for source-file operands by the build operand parsers.
         var cliDefines = ExtractDefineFlags(ref args);
 
-        var buildOptions = GetBuildOptionSummary(args);
+        var buildOptions = BuildCommandKernels.GetOptionSummary(args);
         var buildOperands = GetBuildOperandSummary(args);
 
         try
@@ -355,7 +352,7 @@ partial class Program
 
     static int RunCommand(string[] args)
     {
-        var helpOptions = GetRunOptionSummary(args);
+        var helpOptions = RunCommandKernels.GetOptionSummary(args);
         if (helpOptions.ShowHelp)
         {
             Console.WriteLine(RunCommandKernels.GetHelpText());
@@ -365,9 +362,9 @@ partial class Program
         // Extract --define/-d before operand detection so their values are never
         // mistaken for the source-file operand.
         var cliDefines = ExtractDefineFlags(ref args);
-        var runOptions = GetRunOptionSummary(args);
+        var runOptions = RunCommandKernels.GetOptionSummary(args);
         var backendOption = runOptions.BackendOption;
-        var sourceFile = GetRunSourceOperand(args);
+        var sourceFile = RunCommandKernels.GetSourceOperand(args);
 
         try
         {
@@ -404,7 +401,7 @@ partial class Program
 
     static int PublishCommand(string[] args)
     {
-        var publishArguments = GetPublishArgumentSummary(args);
+        var publishArguments = PublishCommandKernels.GetArgumentSummary(args);
         if (publishArguments.ShowHelp)
         {
             Console.WriteLine(PublishCommandKernels.GetHelpText());
@@ -520,12 +517,9 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
     }
 
-    internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
-        => PublishCommandKernels.GetArgumentSummary(args);
-
     static int NewCommand(string[] args)
     {
-        var arguments = GetNewArgumentSummary(args);
+        var arguments = NewCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
         {
             Console.WriteLine(NewCommandKernels.GetHelpText());
@@ -600,9 +594,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             return Error(NewCommandKernels.GetFailedMessage(ex.Message));
         }
     }
-
-    internal static NewArgumentSummary GetNewArgumentSummary(string[] args)
-        => NewCommandKernels.GetArgumentSummary(args);
 
     static string[] GetTemplateSourceFiles(string template)
     {
@@ -687,7 +678,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static int TestCommand(string[] args)
     {
-        var testOptions = GetTestOptionSummary(args);
+        var testOptions = TestCommandKernels.GetOptionSummary(args);
         if (testOptions.ShowHelp)
         {
             Console.WriteLine(TestCommandKernels.GetHelpText());
@@ -696,13 +687,13 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
         var projectRoot = testOptions.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
-        var outputMode = GetTestOutputMode(testOptions.JsonOutput);
+        var outputMode = TestCommandKernels.GetOutputMode(testOptions.JsonOutput);
 
         // Parse timeout to milliseconds
         int? timeoutMs = null;
         if (testOptions.Timeout != null)
         {
-            timeoutMs = ParseDurationToMs(testOptions.Timeout);
+            timeoutMs = TestCommandKernels.GetDurationMilliseconds(testOptions.Timeout);
             if (timeoutMs == null)
             {
                 var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
@@ -775,7 +766,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static int FormatCommand(string[] args)
     {
-        var formatOptions = GetFormatOptionSummary(args);
+        var formatOptions = FormatCommandKernels.GetOptionSummary(args);
         if (formatOptions.ShowHelp)
         {
             Console.WriteLine(FormatCommandKernels.GetHelpText());
@@ -788,7 +779,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             var diffOnly = formatOptions.DiffOnly;
             var stdinMode = formatOptions.StdinMode;
             var projectRoot = Path.GetFullPath(formatOptions.ProjectOption ?? Directory.GetCurrentDirectory());
-            var positionalFiles = GetPositionalArgs(args, "--project");
+            var positionalFiles = PositionalArgumentKernels.GetArgs(args, ["--project"]);
 
             if (stdinMode && positionalFiles.Length > 0)
             {
@@ -997,22 +988,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         return extraction.Defines.ToList();
     }
 
-    static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
-        => PositionalArgumentKernels.GetArgs(args, optionsWithValues);
-
-    static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
-        => NewCommandKernels.GetProjectNameOperand(args, optionsWithValues);
-
     private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
-
-    static BuildOptionSummary GetBuildOptionSummary(string[] args)
-        => BuildCommandKernels.GetOptionSummary(args);
-
-    static TestOptionSummary GetTestOptionSummary(string[] args)
-        => TestCommandKernels.GetOptionSummary(args);
-
-    internal static TestOutputModeKind GetTestOutputMode(bool json)
-        => TestCommandKernels.GetOutputMode(json);
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {
@@ -1021,18 +997,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             summary.Count,
             summary.Count > 0 ? args[summary.FirstOperandIndex] : null);
     }
-
-    internal static string? GetRunSourceOperand(string[] args)
-        => RunCommandKernels.GetSourceOperand(args);
-
-    internal static RunOptionSummary GetRunOptionSummary(string[] args)
-        => RunCommandKernels.GetOptionSummary(args);
-
-    internal static FormatOptionSummary GetFormatOptionSummary(string[] args)
-        => FormatCommandKernels.GetOptionSummary(args);
-
-    static int? ParseDurationToMs(string duration)
-        => TestCommandKernels.GetDurationMilliseconds(duration);
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 
