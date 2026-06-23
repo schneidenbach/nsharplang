@@ -1045,7 +1045,7 @@ Y: int
     }
 
     [Fact]
-    public void FormatterConfigKernels_ParseIntsLikeCSharpFallback()
+    public void FormatterConfigKernels_ParseIntsWithNSharpKernel()
     {
         var cases = new[]
         {
@@ -1065,9 +1065,9 @@ Y: int
         {
             var expectedParsed = int.TryParse(value, out var expected);
 
-            var actualParsed = FormatterConfigKernels.TryParseInt(value, out var actual);
-            Assert.Equal(expectedParsed, actualParsed);
-            Assert.Equal(expected, actual);
+            var actual = FormatterConfigKernels.ParseInt(value);
+            Assert.Equal(expectedParsed, actual.HasValue);
+            Assert.Equal(expected, actual.GetValueOrDefault());
         }
     }
 

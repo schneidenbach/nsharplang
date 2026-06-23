@@ -9,32 +9,21 @@ internal static class FormatterConfigKernels
     [ThreadStatic]
     private static int[]? t_intResult;
 
-    internal static bool TryParseInt(string value, out int parsed)
+    internal static int? ParseInt(string value)
     {
-        parsed = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            throw new InvalidOperationException("N# formatter config integer parser kernel is unavailable.");
-
         var result = t_intResult ??= new int[1];
-        try
-        {
-            var code = bindings.TryParseInt(value, result);
-            if (code == 0)
-                return false;
-            if (code != 1)
-                throw new InvalidOperationException("N# formatter config integer parser kernel rejected the result buffer.");
+        var code = RequiredBindings.ParseInt(value, result);
+        if (code == 0)
+            return null;
 
-            parsed = result[0];
-            return true;
-        }
-        catch (Exception ex)
-        {
-            parsed = 0;
-            throw new InvalidOperationException("N# formatter config integer parser kernel failed.", ex);
-        }
+        if (code != 1)
+            throw new InvalidOperationException("N# formatter config integer parser kernel rejected the result buffer.");
+
+        return result[0];
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# formatter config integer parser kernel is unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -44,5 +33,5 @@ internal static class FormatterConfigKernels
 
     private delegate int EditorConfigTryParseIntInto(string value, int[] result);
 
-    private sealed record Bindings(EditorConfigTryParseIntInto TryParseInt);
+    private sealed record Bindings(EditorConfigTryParseIntInto ParseInt);
 }

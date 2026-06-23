@@ -51,8 +51,9 @@ public class FormatterConfig
             if (trimmed.StartsWith("max_line_length"))
             {
                 var value = trimmed.Split('=')[1].Trim();
-                if (TryParseOptionalInt(value, out var maxLen))
-                    config.MaxLineLength = maxLen;
+                var maxLen = FormatterConfigKernels.ParseInt(value);
+                if (maxLen.HasValue)
+                    config.MaxLineLength = maxLen.Value;
             }
         }
 
@@ -60,17 +61,7 @@ public class FormatterConfig
     }
 
     private static int ParseRequiredInt(string value)
-    {
-        if (FormatterConfigKernels.TryParseInt(value, out var parsed))
-            return parsed;
-
-        throw new FormatException();
-    }
-
-    private static bool TryParseOptionalInt(string value, out int parsed)
-    {
-        return FormatterConfigKernels.TryParseInt(value, out parsed);
-    }
+        => FormatterConfigKernels.ParseInt(value) ?? throw new FormatException();
 
     private static string? FindEditorConfig(string dir)
     {
