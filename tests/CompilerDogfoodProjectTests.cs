@@ -13524,6 +13524,42 @@ func outer(x: int): int {
     }
 
     [Fact]
+    public void Stage5_CompilerServiceDogfood_DoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        // The same unsupported foreach still compiles for ordinary user code through the temporary C# fallback.
+        // For shipped compiler-service dogfood sources, that fallback would keep C# codegen owning the replacement
+        // compiler/tooling path, so MultiFileCompiler must fail instead of silently emitting through ILCompiler.
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-required-columnar-{Guid.NewGuid():N}");
+        var servicesDir = Path.Combine(projectRoot, "CompilerServices");
+        var sourcePath = Path.Combine(servicesDir, "Rejected.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "NSharpLang.Compiler.Dogfood.dll");
+        var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
+
+        try
+        {
+            Directory.CreateDirectory(servicesDir);
+            File.WriteAllText(sourcePath, source);
+            Assert.False(RouteColumnarProgram(source).Ok);
+
+            var config = ProjectFileParser.CreateDefault("NSharpLang.Compiler.Dogfood");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            var result = new MultiFileCompiler(new[] { sourcePath }, projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+
+            Assert.False(result.Success);
+            Assert.Null(result.OutputAssemblyPath);
+            Assert.Contains(result.Errors, error =>
+                error.Message.Contains("Columnar compiler-service emission is required", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Stage5_ColumnarBackend_DeclinesContextualTestDeclarations()
     {
         var helper = "func helper(): int {\n    return 1\n}\n";
