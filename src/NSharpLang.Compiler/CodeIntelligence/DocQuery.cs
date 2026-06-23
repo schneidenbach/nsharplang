@@ -691,11 +691,7 @@ public class DocQuery
             return dogfoodType;
         }
 
-        return distinctCandidates
-            .OrderByDescending(t => ScoreTypeMatch(query, t))
-            .ThenBy(t => t.Namespace?.Length ?? int.MaxValue)
-            .ThenBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        throw new InvalidOperationException("N# doc query best-type selector kernel rejected the candidates.");
     }
 
     private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
@@ -704,7 +700,7 @@ public class DocQuery
             candidates,
             out var dogfoodCandidates)
             ? dogfoodCandidates
-            : candidates.Distinct().ToArray();
+            : throw new InvalidOperationException("N# doc query type deduplication kernel rejected the candidates.");
     }
 
     private static int ScoreTypeMatch(string query, Type type)
@@ -906,7 +902,7 @@ public class DocQuery
             names,
             out var dogfoodNames)
             ? dogfoodNames
-            : names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            : throw new InvalidOperationException("N# doc query assembly-name deduplication kernel rejected the names.");
     }
 
     private IEnumerable<string> GetReferencePackDirectories()

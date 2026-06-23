@@ -197,7 +197,7 @@ internal static class DocQueryKernels
             {
                 var candidate = candidates[i];
                 var fullName = candidate.FullName;
-                if (fullName == null || !IsAscii(fullName))
+                if (fullName == null)
                     return false;
 
                 scratch.Scores[i] = scoreTypeMatch(query, candidate);
@@ -327,17 +327,6 @@ internal static class DocQueryKernels
             "property" => 6,
             _ => 0
         };
-
-    private static bool IsAscii(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] > '\u007f')
-                return false;
-        }
-
-        return true;
-    }
 
     private delegate int StableDistinctRankIndicesInto(
         int[] valueRanks,
