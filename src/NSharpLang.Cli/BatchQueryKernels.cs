@@ -21,9 +21,6 @@ internal static class BatchQueryKernels
             return false;
 
         var requestCount = requests.Count;
-        if (requestCount == 0)
-            return true;
-
         var scratch = t_duplicateIdScratch ??= new DuplicateIdScratch();
         scratch.EnsureCapacity(requestCount);
 
@@ -38,9 +35,6 @@ internal static class BatchQueryKernels
                     scratch.AddId(id);
                 }
             }
-
-            if (scratch.UniqueIdCount == 0)
-                return true;
 
             scratch.BuildSortedRanks();
             for (var i = 0; i < requestCount; i++)
@@ -104,10 +98,7 @@ internal static class BatchQueryKernels
         if (itemCount < 0)
             return false;
 
-        if (itemCount == 0)
-            return true;
-
-        if (okWords.Length == 0 || itemCount > (long)okWords.Length * 64)
+        if (itemCount > (long)okWords.Length * 64)
             return false;
 
         try
