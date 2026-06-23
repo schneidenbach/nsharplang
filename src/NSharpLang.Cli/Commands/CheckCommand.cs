@@ -43,7 +43,7 @@ public static class CheckCommand
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
             }
 
-            _ = CompilationBackendSelectionKernels.Resolve(arguments.BackendOption, projectConfig);
+            CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig);
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);

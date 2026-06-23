@@ -2452,18 +2452,18 @@ func Main() {
     }
 
     [Fact]
-    public void CompilationBackendSelectionKernels_ResolvesEffectiveBackend()
+    public void CompilationBackendSelectionKernels_ValidatesEffectiveBackend()
     {
-        Assert.Equal(CompilationBackend.Il, CompilationBackendSelectionKernels.Resolve(null, null));
-        Assert.Equal(CompilationBackend.Il, CompilationBackendSelectionKernels.Resolve("  ", new ProjectConfig { Backend = " il " }));
-        Assert.Equal(CompilationBackend.Il, CompilationBackendSelectionKernels.Resolve("il", new ProjectConfig { Backend = "transpile" }));
+        CompilationBackendSelectionKernels.Validate(null, null);
+        CompilationBackendSelectionKernels.Validate("  ", new ProjectConfig { Backend = " il " });
+        CompilationBackendSelectionKernels.Validate("il", new ProjectConfig { Backend = "transpile" });
 
         var retired = Assert.Throws<InvalidOperationException>(() =>
-            CompilationBackendSelectionKernels.Resolve(null, new ProjectConfig { Backend = " transpile " }));
+            CompilationBackendSelectionKernels.Validate(null, new ProjectConfig { Backend = " transpile " }));
         Assert.Contains("removed", retired.Message);
 
         var invalid = Assert.Throws<InvalidOperationException>(() =>
-            CompilationBackendSelectionKernels.Resolve(null, new ProjectConfig { Backend = "native" }));
+            CompilationBackendSelectionKernels.Validate(null, new ProjectConfig { Backend = "native" }));
         Assert.Equal("Invalid backend: 'native'. Must be 'il'.", invalid.Message);
     }
 

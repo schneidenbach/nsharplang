@@ -127,7 +127,7 @@ partial class Program
                     ? Path.GetFullPath(buildOptions.ProjectOption)
                     : Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                _ = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, currentProjectConfig);
+                CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, currentProjectConfig);
 
                 var buildResult = RunBuildEmittingPerfReport(
                     buildOptions.PerfReport,
@@ -151,7 +151,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, sourceProjectConfig);
+            CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, sourceProjectConfig);
             var singleFileResult = RunBuildEmittingPerfReport(
                 buildOptions.PerfReport,
                 sourceDir,
@@ -365,7 +365,7 @@ partial class Program
             {
                 var projectRoot = Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                _ = CompilationBackendSelectionKernels.Resolve(backendOption, currentProjectConfig);
+                CompilationBackendSelectionKernels.Validate(backendOption, currentProjectConfig);
 
                 return RunWithIlBackend(projectRoot, cliDefines);
             }
@@ -379,7 +379,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = CompilationBackendSelectionKernels.Resolve(backendOption, sourceProjectConfig);
+            CompilationBackendSelectionKernels.Validate(backendOption, sourceProjectConfig);
             return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
         }
         catch (Exception ex)
@@ -416,7 +416,7 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            _ = CompilationBackendSelectionKernels.Resolve(backendOption, config);
+            CompilationBackendSelectionKernels.Validate(backendOption, config);
 
             var configuration = publishArguments.Configuration;
             var output = publishArguments.Output;
@@ -704,7 +704,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-            _ = CompilationBackendSelectionKernels.Resolve(testOptions.BackendOption, projectConfig);
+            CompilationBackendSelectionKernels.Validate(testOptions.BackendOption, projectConfig);
 
             return TestWithIlBackend(
                 projectRoot,

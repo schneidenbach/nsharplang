@@ -97,9 +97,6 @@ public class ProjectConfig
     [YamlIgnore]
     public string EffectiveName => Name ?? Path.GetFileName(Environment.CurrentDirectory) ?? "Project";
 
-    [YamlIgnore]
-    public CompilationBackend EffectiveBackend => CompilationBackendExtensions.Parse(Backend);
-
     /// <summary>
     /// Source generator assemblies discovered from package, framework, and project references.
     /// This is compiler-internal state: project.yml remains the source of user-authored
@@ -624,7 +621,7 @@ public class ProjectFileParser
     /// </summary>
     private static void ValidateConfig(ProjectConfig config, string projectDirectory)
     {
-        _ = config.EffectiveBackend;
+        CompilationBackendExtensions.Validate(config.Backend);
 
         // Validate outputType
         if (config.OutputType != "exe" && config.OutputType != "library")

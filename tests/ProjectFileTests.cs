@@ -180,7 +180,6 @@ targetFramework: net10.0
             var config = ProjectFileParser.Parse(tempFile);
 
             Assert.Equal("il", config.Backend);
-            Assert.Equal(CompilationBackend.Il, config.EffectiveBackend);
         }
         finally
         {

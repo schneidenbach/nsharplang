@@ -7,17 +7,21 @@ internal static class CompilationBackendSelectionKernels
 {
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static CompilationBackend Resolve(string? backendOption, ProjectConfig? config)
+    internal static void Validate(string? backendOption, ProjectConfig? config)
     {
         var selectedValue = GetSelectedBackendValue(backendOption, config);
         var statusCode = RequiredBindings.EffectiveBackendKind(backendOption ?? string.Empty, config?.Backend ?? string.Empty);
-        return statusCode switch
+        switch (statusCode)
         {
-            1 => CompilationBackend.Il,
-            -1 => throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage),
-            0 => throw new InvalidOperationException($"Invalid backend: '{selectedValue}'. Must be 'il'."),
-            _ => throw new InvalidOperationException("N# compilation backend selection kernel rejected the backend configuration.")
-        };
+            case 1:
+                return;
+            case -1:
+                throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
+            case 0:
+                throw new InvalidOperationException($"Invalid backend: '{selectedValue}'. Must be 'il'.");
+            default:
+                throw new InvalidOperationException("N# compilation backend selection kernel rejected the backend configuration.");
+        }
     }
 
     private static string? GetSelectedBackendValue(string? backendOption, ProjectConfig? config)
