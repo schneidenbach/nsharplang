@@ -28,13 +28,11 @@ internal static class TreeCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[4];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var depthOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# tree option parser kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var depthOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
         return new TreeOptionSummary(
             projectOption,
             depthOption,
@@ -223,17 +221,4 @@ internal static class TreeCommandKernels
         CliTreeTransitiveDependencyLine TreeTransitiveDependencyLine,
         CliTreeLimitationsHeader TreeLimitationsHeader,
         CliTreeLimitationLine TreeLimitationLine);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

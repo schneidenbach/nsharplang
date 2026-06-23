@@ -28,14 +28,12 @@ internal static class FixCommandArgumentKernels
     {
         var resultIndices = t_resultIndices ??= new int[7];
         var code = RequiredBindings.FixArgumentSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var fileOption)
-            || !TryGetOptionalArg(args, resultIndices[2], out var positionalProject))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# fix argument summary kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var fileOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var positionalProject = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new FixArgumentSummary(
             projectOption,
             fileOption,
@@ -74,17 +72,4 @@ internal static class FixCommandArgumentKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# fix argument kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

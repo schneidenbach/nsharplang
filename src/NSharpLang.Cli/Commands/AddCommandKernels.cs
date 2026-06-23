@@ -31,14 +31,12 @@ internal static class AddCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[6];
         var code = RequiredBindings.AddArgumentSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var versionOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var pathOption)
-            || !TryGetOptionalArg(args, resultIndices[2], out var packageOperand))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# add argument parser kernel rejected the arguments.");
-        }
 
+        var versionOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var pathOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var packageOperand = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new AddArgumentSummary(
             versionOption,
             pathOption,
@@ -285,19 +283,6 @@ internal static class AddCommandKernels
         CliAddFrameworkAddedMessage AddFrameworkAddedMessage,
         CliAddPackageAddedMessage AddPackageAddedMessage,
         CliAddProjectReferenceAddedMessage AddProjectReferenceAddedMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private static string Slice(string value, int start, int length)
     {

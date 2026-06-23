@@ -19,13 +19,11 @@ internal static class InitCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[4];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var nameOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var typeOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# init option summary kernel rejected the arguments.");
-        }
 
+        var nameOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var typeOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
         return new InitOptionSummary(
             nameOption,
             typeOption,
@@ -121,17 +119,4 @@ internal static class InitCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# init command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

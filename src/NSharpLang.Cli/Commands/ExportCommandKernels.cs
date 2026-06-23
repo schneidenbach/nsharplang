@@ -54,13 +54,11 @@ internal static class ExportCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[3];
         var code = RequiredBindings.CSharpOptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# export csharp option parser kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var outputOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
         return new ExportCSharpOptionSummary(
             projectOption,
             outputOption,
@@ -493,19 +491,6 @@ internal static class ExportCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# export command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

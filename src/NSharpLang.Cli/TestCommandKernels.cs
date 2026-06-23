@@ -58,15 +58,13 @@ internal static class TestCommandKernels
     {
         var resultIndices = t_optionResultIndices ??= new int[10];
         var code = RequiredBindings.TestOptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var project)
-            || !TryGetOptionalArg(args, resultIndices[1], out var filter)
-            || !TryGetOptionalArg(args, resultIndices[2], out var timeout)
-            || !TryGetOptionalArg(args, resultIndices[3], out var backend))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# test option summary kernel rejected the arguments.");
-        }
 
+        var project = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var filter = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var timeout = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var backend = resultIndices[3] == -1 ? null : args[resultIndices[3]];
         var coverageReport = resultIndices[6] != 0;
         return new TestOptionSummary(
             project,
@@ -281,17 +279,4 @@ internal static class TestCommandKernels
         CliTestVerbosePassedMessage TestVerbosePassedMessage,
         CliTestVerboseSkippedMessage TestVerboseSkippedMessage,
         CliTestVerboseFailedMessage TestVerboseFailedMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

@@ -38,14 +38,12 @@ internal static class BuildCommandKernels
     {
         var resultIndices = t_optionResultIndices ??= new int[9];
         var code = RequiredBindings.BuildOptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var output)
-            || !TryGetOptionalArg(args, resultIndices[1], out var backend)
-            || !TryGetOptionalArg(args, resultIndices[2], out var project))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# build option summary kernel rejected the arguments.");
-        }
 
+        var output = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var backend = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var project = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new BuildOptionSummary(
             output,
             backend,
@@ -172,19 +170,6 @@ internal static class BuildCommandKernels
         CliBuildSuccessMessage BuildSuccessMessage,
         CliBuildOutputPathMessage BuildOutputPathMessage,
         CliBuildTimingsMessage BuildTimingsMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private sealed class OperandScratch
     {

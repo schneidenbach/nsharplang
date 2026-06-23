@@ -31,14 +31,12 @@ internal static class CheckCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[7];
         var code = RequiredBindings.CheckArgumentSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
-            || !TryGetOptionalArg(args, resultIndices[2], out var positionalProject))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# check argument parser kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var backendOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var positionalProject = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new CheckArgumentSummary(
             projectOption,
             backendOption,
@@ -145,17 +143,4 @@ internal static class CheckCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# check command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

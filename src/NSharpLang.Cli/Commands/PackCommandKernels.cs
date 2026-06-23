@@ -35,15 +35,13 @@ internal static class PackCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[7];
         var code = RequiredBindings.PackOptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var outputDir)
-            || !TryGetOptionalArg(args, resultIndices[2], out var versionOverride)
-            || !TryGetOptionalArg(args, resultIndices[3], out var configuration))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# pack option-summary kernel is unavailable.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var outputDir = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var versionOverride = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var configuration = resultIndices[3] == -1 ? null : args[resultIndices[3]];
         return new PackOptionSummary(
             projectOption,
             outputDir,
@@ -154,19 +152,6 @@ internal static class PackCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# pack kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

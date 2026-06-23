@@ -29,12 +29,12 @@ internal static class DaemonCommandKernels
         var code = RequiredBindings.OptionSummary(args, resultIndices);
         if (code != 0
             || resultIndices[0] < (int)DaemonSubcommandKind.Unknown
-            || resultIndices[0] > (int)DaemonSubcommandKind.Run
-            || !TryGetOptionalArg(args, resultIndices[1], out var projectOption))
+            || resultIndices[0] > (int)DaemonSubcommandKind.Run)
         {
             throw new InvalidOperationException("N# daemon option summary kernel rejected the arguments.");
         }
 
+        var projectOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
         return new DaemonOptionSummary(
             (DaemonSubcommandKind)resultIndices[0],
             projectOption,
@@ -126,17 +126,4 @@ internal static class DaemonCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# daemon command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

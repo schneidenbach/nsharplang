@@ -32,15 +32,11 @@ internal static class PublishCommandKernels
                 resultIndices[8] != 0);
         }
 
-        if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
-            || !TryGetOptionalArg(args, resultIndices[2], out var configuration)
-            || !TryGetOptionalArg(args, resultIndices[3], out var output)
-            || !TryGetOptionalArg(args, resultIndices[4], out var runtime))
-        {
-            throw new InvalidOperationException("N# publish argument summary kernel rejected the arguments.");
-        }
-
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var backendOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var configuration = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var output = resultIndices[3] == -1 ? null : args[resultIndices[3]];
+        var runtime = resultIndices[4] == -1 ? null : args[resultIndices[4]];
         return new PublishArgumentSummary(
             null,
             projectOption,
@@ -95,19 +91,6 @@ internal static class PublishCommandKernels
 
     internal static string GetSuccessMessage()
         => RequiredBindings.PublishSuccessMessage();
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

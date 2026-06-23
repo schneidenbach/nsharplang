@@ -89,15 +89,11 @@ internal static class QueryCommandKernels
         if (code != 0)
             throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
 
-        if (!TryGetOptionalArg(args, resultIndices[0], out var file)
-            || !TryGetOptionalArg(args, resultIndices[1], out var pos)
-            || !TryGetOptionalArg(args, resultIndices[2], out var name)
-            || !TryGetOptionalArg(args, resultIndices[3], out var kind)
-            || !TryGetOptionalArg(args, resultIndices[4], out var severity))
-        {
-            throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
-        }
-
+        var file = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var pos = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var name = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var kind = resultIndices[3] == -1 ? null : args[resultIndices[3]];
+        var severity = resultIndices[4] == -1 ? null : args[resultIndices[4]];
         return new QueryDaemonParameterSummary(
             file,
             pos,
@@ -115,15 +111,11 @@ internal static class QueryCommandKernels
         if (code != 0)
             throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
 
-        if (!TryGetOptionalArg(args, resultIndices[0], out var filter)
-            || !TryGetOptionalArg(args, resultIndices[1], out var function)
-            || !TryGetOptionalArg(args, resultIndices[2], out var limit)
-            || !TryGetOptionalArg(args, resultIndices[3], out var requests)
-            || !TryGetOptionalArg(args, resultIndices[4], out var leadingOperand))
-        {
-            throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
-        }
-
+        var filter = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var function = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var limit = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var requests = resultIndices[3] == -1 ? null : args[resultIndices[3]];
+        var leadingOperand = resultIndices[4] == -1 ? null : args[resultIndices[4]];
         return new QueryCommandOptionSummary(
             filter,
             function,
@@ -146,14 +138,10 @@ internal static class QueryCommandKernels
         if (remainingCount < 0 || remainingCount > args.Length)
             throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
 
-        if (!TryGetOptionalArg(args, resultIndices[0], out var subcommand)
-            || !TryGetOptionalArg(args, resultIndices[1], out var projectDir)
-            || !TryGetOptionalArg(args, resultIndices[2], out var file)
-            || !TryGetOptionalArg(args, resultIndices[3], out var pos))
-        {
-            throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
-        }
-
+        var subcommand = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var projectDir = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var file = resultIndices[2] == -1 ? null : args[resultIndices[2]];
+        var pos = resultIndices[3] == -1 ? null : args[resultIndices[3]];
         var remainingArgs = new string[remainingCount];
         for (var i = 0; i < remainingCount; i++)
         {
@@ -492,19 +480,6 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryFailedAnalyzeProjectMessage>(
                 programType,
                 "CliQueryFailedAnalyzeProjectMessage")));
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private delegate int CliQueryDaemonParameterSummaryInto(string[] args, int[] resultIndices);
 

@@ -44,14 +44,12 @@ internal static class NewCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[5];
         var code = RequiredBindings.NewArgumentSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var firstPositional)
-            || !TryGetOptionalArg(args, resultIndices[1], out var secondPositional)
-            || !TryGetOptionalArg(args, resultIndices[2], out var templateOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# new argument summary kernel rejected the arguments.");
-        }
 
+        var firstPositional = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var secondPositional = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var templateOption = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new NewArgumentSummary(
             firstPositional,
             secondPositional,
@@ -317,17 +315,4 @@ internal static class NewCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# new command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

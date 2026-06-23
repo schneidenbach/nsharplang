@@ -31,13 +31,11 @@ internal static class DocCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[5];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# doc option parser kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var outputOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
         return new DocOptionSummary(
             projectOption,
             outputOption,
@@ -325,19 +323,6 @@ internal static class DocCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# doc command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private sealed class SymbolOrderScratch
     {

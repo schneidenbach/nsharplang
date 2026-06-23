@@ -51,14 +51,12 @@ internal static class WatchCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[4];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0
-            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-            || !TryGetOptionalArg(args, resultIndices[1], out var debounceMsOption)
-            || !TryGetOptionalArg(args, resultIndices[2], out var maxRunsOption))
-        {
+        if (code != 0)
             throw new InvalidOperationException("N# watch option summary kernel rejected the arguments.");
-        }
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
+        var debounceMsOption = resultIndices[1] == -1 ? null : args[resultIndices[1]];
+        var maxRunsOption = resultIndices[2] == -1 ? null : args[resultIndices[2]];
         return new WatchOptionSummary(
             projectOption,
             debounceMsOption,
@@ -213,18 +211,5 @@ internal static class WatchCommandKernels
             return true;
 
         throw new InvalidOperationException("N# watch changed-path kernel rejected the path.");
-    }
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
     }
 }
