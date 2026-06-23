@@ -762,12 +762,7 @@ internal static class CompilationReferenceResolver
     private static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
-    {
-        if (CompilationReferenceResolverKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences))
-            return dogfoodReferences;
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected dependency type filtering.");
-    }
+        => CompilationReferenceResolverKernels.FilterReferencesByType(references, referenceType);
 
     private static string GetGlobalPackagesFolder()
     {

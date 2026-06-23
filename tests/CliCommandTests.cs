@@ -4163,10 +4163,9 @@ Exit codes:
             new Reference { Nuget = "YamlDotNet", Version = "16.0.0" }
         };
 
-        Assert.True(CompilationReferenceResolverKernels.TryFilterReferencesByType(
+        var packageReferences = CompilationReferenceResolverKernels.FilterReferencesByType(
             references,
-            ReferenceType.NuGet,
-            out var packageReferences));
+            ReferenceType.NuGet);
         Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
     }
 

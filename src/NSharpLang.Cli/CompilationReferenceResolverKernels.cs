@@ -26,65 +26,48 @@ internal static class CompilationReferenceResolverKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFilterReferencesByType(
+    internal static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> references,
-        ReferenceType targetType,
-        out List<Reference> filteredReferences)
+        ReferenceType targetType)
     {
-        filteredReferences = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var referenceCount = references.Count;
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
-            return false;
+            throw new ArgumentOutOfRangeException(nameof(targetType), "Reference type is not supported.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
         scratch.EnsureCapacity(referenceCount);
 
-        try
+        for (var i = 0; i < referenceCount; i++)
         {
-            for (var i = 0; i < referenceCount; i++)
-                scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
-
-            var filteredCount = bindings.ReferenceTypeFilterIndices(
-                scratch.TypeRanks,
-                targetTypeRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredReferences = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= referenceCount)
-                {
-                    filteredReferences = new List<Reference>();
-                    return false;
-                }
-
-                var reference = references[sourceIndex];
-                if (reference.Type != targetType)
-                {
-                    filteredReferences = new List<Reference>();
-                    return false;
-                }
-
-                filteredReferences.Add(reference);
-            }
-
-            return true;
+            scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
+            if (scratch.TypeRanks[i] <= 0)
+                throw new InvalidOperationException("N# reference resolver type filter received an unsupported reference type.");
         }
-        catch
+
+        var filteredCount = RequiredBindings.ReferenceTypeFilterIndices(
+            scratch.TypeRanks,
+            targetTypeRank,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# reference resolver type filter kernel returned an invalid result count.");
+
+        var filteredReferences = new List<Reference>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            filteredReferences = new List<Reference>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= referenceCount)
+                throw new InvalidOperationException("N# reference resolver type filter kernel returned an invalid reference index.");
+
+            var reference = references[sourceIndex];
+            if (reference.Type != targetType)
+                throw new InvalidOperationException("N# reference resolver type filter kernel selected the wrong reference type.");
+
+            filteredReferences.Add(reference);
         }
+
+        return filteredReferences;
     }
 
     internal static int SelectBestScoreIndex(int[] scores, int count)
