@@ -142,7 +142,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetPositionUsageMessage("hover"));
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -212,7 +212,7 @@ public static class QueryCommand
     private static int GetCallGraphLimit(string? limitStr)
     {
         const int defaultLimit = 100;
-        if (limitStr != null && TryParsePositiveInt(limitStr, out var parsedLimit))
+        if (limitStr != null && QueryCommandKernels.ParsePositiveInt(limitStr, out var parsedLimit))
             return parsedLimit;
 
         return defaultLimit;
@@ -229,7 +229,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetPositionUsageMessage("perf"));
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -363,7 +363,7 @@ public static class QueryCommand
         // Position-based: resolve the interface name at position, then find implementors
         if (file != null && posStr != null)
         {
-            if (!TryParsePosition(posStr, out var line, out var col))
+            if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
             {
                 return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
             }
@@ -562,7 +562,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetPositionUsageMessage("type"));
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -620,7 +620,7 @@ public static class QueryCommand
         // Position-based (primary, semantic)
         if (file != null && posStr != null)
         {
-            if (!TryParsePosition(posStr, out var line, out var col))
+            if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
             {
                 return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
             }
@@ -713,7 +713,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInspectCompactTextUnsupportedMessage());
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -804,7 +804,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetReferencesUsageMessage());
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -895,7 +895,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetPositionUsageMessage("completions"));
         }
 
-        if (!TryParsePosition(posStr, out var line, out var col))
+        if (!QueryCommandKernels.ParsePosition(posStr, out var line, out var col))
         {
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
@@ -992,12 +992,6 @@ public static class QueryCommand
 
     internal static QueryTopLevelOptionSummary GetTopLevelOptionSummary(string[] args)
         => QueryCommandKernels.GetTopLevelOptionSummary(args);
-
-    private static bool TryParsePosition(string posStr, out int line, out int col)
-        => QueryCommandKernels.ParsePosition(posStr, out line, out col);
-
-    private static bool TryParsePositiveInt(string value, out int parsed)
-        => QueryCommandKernels.ParsePositiveInt(value, out parsed);
 
     internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
         => QueryCommandKernels.GetInspectOutputMode(useText, inspectCompact);

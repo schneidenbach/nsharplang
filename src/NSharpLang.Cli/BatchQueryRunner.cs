@@ -490,7 +490,7 @@ internal static class BatchQueryRunner
             return false;
         }
 
-        if (!TryParsePosition(request.Pos, out line, out column))
+        if (!QueryCommandKernels.ParsePosition(request.Pos, out line, out column))
         {
             invalid = InvalidRequest(
                 command,
@@ -502,9 +502,6 @@ internal static class BatchQueryRunner
 
         return true;
     }
-
-    private static bool TryParsePosition(string position, out int line, out int column)
-        => QueryCommandKernels.ParsePosition(position, out line, out column);
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)
         => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", Normalize(request));

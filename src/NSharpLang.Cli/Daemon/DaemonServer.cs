@@ -288,7 +288,10 @@ public class DaemonServer
             var compact = GetParam<bool>(request.Params, "compact");
             var clusters = GetParam<bool>(request.Params, "clusters");
 
-            ParsePosition(posStr, out var line, out var col);
+            var line = 0;
+            var col = 0;
+            if (posStr != null)
+                DaemonServerKernels.ParsePosition(posStr, out line, out col);
 
             // Query methods
             string result = request.Method switch
@@ -315,17 +318,6 @@ public class DaemonServer
         {
             return Error(request.Id, DaemonConstants.ErrorInternal, ex.Message);
         }
-    }
-
-    private static void ParsePosition(string? posStr, out int line, out int col)
-    {
-        line = 0;
-        col = 0;
-
-        if (posStr == null)
-            return;
-
-        DaemonServerKernels.ParsePosition(posStr, out line, out col);
     }
 
     // ── Query Handlers ──────────────────────────────────────────────────
