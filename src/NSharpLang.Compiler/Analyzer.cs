@@ -21139,30 +21139,6 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Maps a built-in N# type name to the corresponding CLR System.Type for reflection-based assignability.
-    /// </summary>
-    private static Type? MapBuiltInToClrType(string name) => name switch
-    {
-        "int" => typeof(int),
-        "long" => typeof(long),
-        "float" => typeof(float),
-        "double" => typeof(double),
-        "decimal" => typeof(decimal),
-        "bool" => typeof(bool),
-        "string" => typeof(string),
-        "char" => typeof(char),
-        "byte" => typeof(byte),
-        "sbyte" => typeof(sbyte),
-        "short" => typeof(short),
-        "ushort" => typeof(ushort),
-        "uint" => typeof(uint),
-        "ulong" => typeof(ulong),
-        "object" => typeof(object),
-        "void" => typeof(void),
-        _ => null
-    };
-
-    /// <summary>
     /// Checks whether source is a subtype of target by walking base class chains and interface lists
     /// for N#-declared types (nominal subtyping).
     /// </summary>

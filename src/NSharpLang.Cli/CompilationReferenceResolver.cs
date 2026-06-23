@@ -93,11 +93,6 @@ internal static class CompilationReferenceResolver
     internal static string GetStableOutputDirectory(string projectRoot, ProjectConfig config, string configuration)
         => Path.Combine(projectRoot, "bin", configuration, config.TargetFramework);
 
-    internal static string GetStableAssemblyPath(string projectRoot, ProjectConfig config, string configuration)
-        => Path.Combine(
-            GetStableOutputDirectory(projectRoot, config, configuration),
-            $"{GetProjectAssemblyName(projectRoot, config)}.dll");
-
     private static ReferenceResolutionResult ResolveProjectReferences(
         string projectRoot,
         ProjectConfig config,

@@ -211,15 +211,6 @@ public class Formatter
     }
 
     /// <summary>
-    /// Estimate the end line of a declaration (heuristic: next decl's line - 1).
-    /// For declarations with bodies, we approximate using the start line.
-    /// </summary>
-    private static int GetEndLine(Declaration decl)
-    {
-        return decl.Line; // Conservative: use start line
-    }
-
-    /// <summary>
     /// Format a list of member declarations (e.g., inside a class/struct/interface),
     /// preserving comments and blank lines between members.
     /// </summary>
