@@ -22,9 +22,6 @@ internal static class UpdateDependencyFilter
             return false;
 
         var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(dependencyCount);
 
@@ -81,9 +78,6 @@ internal static class UpdateDependencyFilter
             return false;
 
         var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(dependencyCount);
 

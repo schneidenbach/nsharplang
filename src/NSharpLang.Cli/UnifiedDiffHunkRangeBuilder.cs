@@ -22,9 +22,6 @@ internal static class UnifiedDiffHunkRangeBuilder
             return false;
 
         var lineCount = lines.Count;
-        if (lineCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(lineCount);
 

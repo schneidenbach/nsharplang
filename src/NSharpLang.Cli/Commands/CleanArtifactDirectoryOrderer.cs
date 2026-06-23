@@ -28,9 +28,6 @@ internal static class CleanArtifactDirectoryOrderer
             return false;
 
         var directoryCount = directories.Count;
-        if (directoryCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureInputCapacity(directoryCount);
 

@@ -27,9 +27,6 @@ internal static class CompilerErrorSeverityFilter
             return false;
 
         var errorCount = errors.Count;
-        if (errorCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(errorCount);
 
