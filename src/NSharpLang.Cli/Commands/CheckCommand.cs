@@ -38,7 +38,7 @@ public static class CheckCommand
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
             }
 
-            var backend = ResolveCompilationBackend(arguments.BackendOption, projectConfig);
+            var backend = CompilationBackendSelectionKernels.Resolve(arguments.BackendOption, projectConfig);
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
@@ -196,11 +196,6 @@ public static class CheckCommand
             return Path.GetFullPath(arguments.ProjectOption);
 
         return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
-    }
-
-    private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
-    {
-        return CompilationBackendSelectionKernels.Resolve(backendOption, config);
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

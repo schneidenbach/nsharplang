@@ -11,11 +11,6 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
-    private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
-    {
-        return CompilationBackendSelectionKernels.Resolve(backendOption, config);
-    }
-
     private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false, IReadOnlyList<string>? cliDefines = null)
     {
         var totalSw = Stopwatch.StartNew();

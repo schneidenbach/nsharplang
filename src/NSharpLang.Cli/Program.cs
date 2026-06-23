@@ -121,7 +121,7 @@ partial class Program
                     ? Path.GetFullPath(buildOptions.ProjectOption)
                     : Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = ResolveCompilationBackend(buildOptions.BackendOption, currentProjectConfig);
+                var backend = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, currentProjectConfig);
                 if (backend != CompilationBackend.Il)
                 {
                     throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
@@ -149,7 +149,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = ResolveCompilationBackend(buildOptions.BackendOption, sourceProjectConfig);
+            _ = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, sourceProjectConfig);
             var singleFileResult = RunBuildEmittingPerfReport(
                 buildOptions.PerfReport,
                 sourceDir,
@@ -372,7 +372,7 @@ partial class Program
             {
                 var projectRoot = Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = ResolveCompilationBackend(backendOption, currentProjectConfig);
+                var backend = CompilationBackendSelectionKernels.Resolve(backendOption, currentProjectConfig);
                 if (backend != CompilationBackend.Il)
                 {
                     throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
@@ -390,7 +390,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
+            _ = CompilationBackendSelectionKernels.Resolve(backendOption, sourceProjectConfig);
             return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
         }
         catch (Exception ex)
@@ -427,7 +427,7 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            var backend = ResolveCompilationBackend(backendOption, config);
+            var backend = CompilationBackendSelectionKernels.Resolve(backendOption, config);
             if (backend != CompilationBackend.Il)
             {
                 throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
@@ -732,7 +732,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-            _ = ResolveCompilationBackend(testOptions.BackendOption, projectConfig);
+            _ = CompilationBackendSelectionKernels.Resolve(testOptions.BackendOption, projectConfig);
 
             return TestWithIlBackend(
                 projectRoot,
