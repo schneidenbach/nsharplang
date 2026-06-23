@@ -172,7 +172,7 @@ public static class CheckCommand
             severity,
             out var filteredErrors)
             ? filteredErrors
-            : errorList.Where(error => error.Severity == severity).ToList();
+            : throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
     }
 
     /// <summary>

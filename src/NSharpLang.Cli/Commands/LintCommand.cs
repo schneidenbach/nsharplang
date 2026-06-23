@@ -242,7 +242,7 @@ public static class LintCommand
             severity,
             out var filteredErrors)
             ? filteredErrors
-            : errors.Where(error => error.Severity == severity).ToList();
+            : throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
     }
 
     private static string? ExtractSourceLine(string source, int line) =>
