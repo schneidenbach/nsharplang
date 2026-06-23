@@ -226,7 +226,20 @@ partial class Program
             discoverySink.Finished.WaitOne();
 
             var testCases = discoverySink.TestCases
-                .Where(testCase => MatchesXunitTestFilter(testCase, filter))
+                .Where(testCase =>
+                {
+                    if (string.IsNullOrWhiteSpace(filter))
+                    {
+                        return true;
+                    }
+
+                    var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
+                    return TestCommandKernels.MatchesFilter(
+                        filter,
+                        displayName,
+                        testCase.DisplayName,
+                        GetXunitFullyQualifiedName(testCase));
+                })
                 .ToArray();
 
             using var executionSink = new XunitResultSink(verbose, testCases.Length);
@@ -358,22 +371,6 @@ partial class Program
     private static string FormatXunitFailure(IFailureInformation failure)
         => string.Join(Environment.NewLine, failure.Messages.Where(message => !string.IsNullOrWhiteSpace(message)));
 
-    private static bool MatchesXunitTestFilter(ITestCase testCase, string? filter)
-    {
-        if (string.IsNullOrWhiteSpace(filter))
-        {
-            return true;
-        }
-
-        var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
-        var fullyQualifiedName = GetXunitFullyQualifiedName(testCase);
-        return TestCommandKernels.MatchesFilter(
-            filter,
-            displayName,
-            testCase.DisplayName,
-            fullyQualifiedName);
-    }
-
     private static NativeTestRun RunReflectionTests(
         string assemblyPath,
         string? filter,
@@ -388,7 +385,13 @@ partial class Program
         {
             var assembly = loadContext.LoadFromAssemblyPath(assemblyPath);
             var testCases = DiscoverNativeTests(assembly)
-                .Where(testCase => MatchesTestFilter(testCase, filter))
+                .Where(testCase =>
+                    string.IsNullOrWhiteSpace(filter)
+                    || TestCommandKernels.MatchesFilter(
+                        filter,
+                        testCase.DisplayName,
+                        string.Empty,
+                        testCase.FullyQualifiedName))
                 .ToArray();
 
             var results = new List<NativeTestResult>(testCases.Length);
@@ -577,20 +580,6 @@ partial class Program
         {
             throw new TimeoutException("Test timed out.");
         }
-    }
-
-    private static bool MatchesTestFilter(NativeTestCase testCase, string? filter)
-    {
-        if (string.IsNullOrWhiteSpace(filter))
-        {
-            return true;
-        }
-
-        return TestCommandKernels.MatchesFilter(
-            filter,
-            testCase.DisplayName,
-            string.Empty,
-            testCase.FullyQualifiedName);
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)

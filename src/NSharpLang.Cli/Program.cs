@@ -939,30 +939,22 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
             foreach (var childDirectory in childDirectories)
             {
-                if (!ShouldSkipDiscoveredDirectory(childDirectory))
+                var name = Path.GetFileName(childDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (!FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(name))
+                {
                     pending.Push(childDirectory);
+                }
             }
 
             foreach (var file in childFiles)
             {
-                if (ShouldFormatDiscoveredFile(projectRoot, file))
+                var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                if (FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath))
                 {
                     yield return file;
                 }
             }
         }
-    }
-
-    static bool ShouldSkipDiscoveredDirectory(string directory)
-    {
-        var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        return FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(name);
-    }
-
-    static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
-    {
-        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
-        return FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath);
     }
 
     /// <summary>
