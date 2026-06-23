@@ -67,28 +67,14 @@ internal static class TidyCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out TidyOutputModeKind outputMode)
+    internal static TidyOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy output mode kernels are unavailable.");
+        var code = bindings.OutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# tidy output mode kernel rejected the value.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.OutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (TidyOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (TidyOutputModeKind)code;
     }
 
     internal static bool TryGetImportedNamespace(string line, out string? importedNamespace)

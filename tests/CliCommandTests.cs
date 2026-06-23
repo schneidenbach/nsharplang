@@ -4888,11 +4888,11 @@ dependencies:
         Assert.True(TidyCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(TidyCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
-        Assert.True(TidyCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = TidyCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TidyOutputModeKind.Text, textMode);
         Assert.Equal(TidyOutputModeKind.Text, TidyCommand.GetOutputMode(json: false));
 
-        Assert.True(TidyCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = TidyCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TidyOutputModeKind.Json, jsonMode);
         Assert.Equal(TidyOutputModeKind.Json, TidyCommand.GetOutputMode(json: true));
 

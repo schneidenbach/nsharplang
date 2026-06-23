@@ -312,12 +312,7 @@ public static class TidyCommand
     }
 
     internal static TidyOutputModeKind GetOutputMode(bool json)
-    {
-        if (TidyCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# tidy output mode kernel rejected the value.");
-    }
+        => TidyCommandKernels.GetOutputMode(json);
 
     internal static string? GetImportedNamespace(string line)
     {
