@@ -39,7 +39,7 @@ public static class AssemblyVersionUtilities
         Span<int> values = stackalloc int[] { 0, 0, 0, 0 };
         for (var i = 0; i < parts.Length; i++)
         {
-            if (!TryParseVersionComponent(parts[i], out var value))
+            if (!AssemblyVersionKernels.TryParseComponent(parts[i], out var value))
             {
                 return false;
             }
@@ -50,7 +50,4 @@ public static class AssemblyVersionUtilities
         assemblyVersion = new Version(values[0], values[1], values[2], values[3]);
         return true;
     }
-
-    private static bool TryParseVersionComponent(string component, out int value)
-        => AssemblyVersionKernels.TryParseComponent(component, out value);
 }
