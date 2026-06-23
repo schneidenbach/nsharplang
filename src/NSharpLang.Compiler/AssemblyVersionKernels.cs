@@ -15,22 +15,25 @@ internal static class AssemblyVersionKernels
 
         var bindings = s_bindings.Value;
         if (bindings == null)
-            return false;
+            throw new InvalidOperationException("N# assembly-version parser kernel is unavailable.");
 
         var result = t_componentResult ??= new int[1];
         try
         {
             var code = bindings.TryParseComponent(component, result);
-            if (code != 1)
+            if (code == 0)
                 return false;
+
+            if (code != 1)
+                throw new InvalidOperationException("N# assembly-version parser kernel rejected the result buffer.");
 
             value = result[0];
             return true;
         }
-        catch
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             value = 0;
-            return false;
+            throw new InvalidOperationException("N# assembly-version parser kernel failed.", ex);
         }
     }
 

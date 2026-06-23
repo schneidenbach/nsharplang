@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 
 namespace NSharpLang.Compiler;
 
@@ -53,18 +52,5 @@ public static class AssemblyVersionUtilities
     }
 
     private static bool TryParseVersionComponent(string component, out int value)
-    {
-        if (AssemblyVersionKernels.TryParseComponent(component, out value))
-            return true;
-
-        return TryParseVersionComponentWithCSharp(component, out value);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product assembly-version component parsing routes through AssemblyVersionKernels.
-    private static bool TryParseVersionComponentWithCSharp(string component, out int value)
-        => int.TryParse(
-            component,
-            NumberStyles.None,
-            CultureInfo.InvariantCulture,
-            out value);
+        => AssemblyVersionKernels.TryParseComponent(component, out value);
 }

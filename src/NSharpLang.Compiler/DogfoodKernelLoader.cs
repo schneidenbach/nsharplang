@@ -48,9 +48,18 @@ internal static class DogfoodKernelLoader
         catch
         {
             var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
+            if (File.Exists(assemblyPath))
+                return Assembly.LoadFrom(assemblyPath);
+
+            var compilerAssemblyDirectory = Path.GetDirectoryName(typeof(DogfoodKernelLoader).Assembly.Location);
+            if (!string.IsNullOrEmpty(compilerAssemblyDirectory))
+            {
+                assemblyPath = Path.Combine(compilerAssemblyDirectory, $"{DogfoodAssemblyName}.dll");
+                if (File.Exists(assemblyPath))
+                    return Assembly.LoadFrom(assemblyPath);
+            }
+
+            return null;
         }
     }
 }

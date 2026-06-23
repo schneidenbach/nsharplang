@@ -23,7 +23,7 @@ public class ProjectFileTests
     }
 
     [Fact]
-    public void AssemblyVersionKernels_ParseComponentsLikeCSharpFallback()
+    public void AssemblyVersionKernels_ParseComponentsLikeClrIntegerParsing()
     {
         var cases = new[]
         {
