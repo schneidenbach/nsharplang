@@ -2214,11 +2214,6 @@ func Main() {
         Assert.True(dogfoodSummary.Systems);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var projectName = NewCommandKernels.GetProjectNameOperand(
-            new[] { "--template", "webapi", "MyApi" },
-            new[] { "--template", "--type" });
-        Assert.Equal("MyApi", projectName);
-
         var positionalTemplate = NewCommandKernels.GetArgumentSummary(new[] { "systems-cli", "PacketTool" });
         Assert.Equal("systems-cli", positionalTemplate.FirstPositional);
         Assert.Equal("PacketTool", positionalTemplate.SecondPositional);

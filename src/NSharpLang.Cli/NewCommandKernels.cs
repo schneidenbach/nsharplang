@@ -58,20 +58,6 @@ internal static class NewCommandKernels
             resultIndices[4] != 0);
     }
 
-    internal static string? GetProjectNameOperand(
-        string[] args,
-        string[] optionsWithValues)
-    {
-        var index = RequiredBindings.FirstPositionalArgIndex(args, optionsWithValues);
-        if (index == -1)
-            return null;
-
-        if (index < 0 || index >= args.Length)
-            throw new InvalidOperationException("N# first positional argument kernel rejected the arguments.");
-
-        return args[index];
-    }
-
     internal static NewProjectTemplateKind NormalizeTemplateKind(string value)
     {
         var result = RequiredBindings.NewTemplateKind(value);
@@ -175,9 +161,6 @@ internal static class NewCommandKernels
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
-                programType,
-                "CliFirstPositionalArgIndex"),
             DogfoodKernelLoader.CreateDelegate<CliNewArgumentSummaryInto>(
                 programType,
                 "CliNewArgumentSummaryInto"),
@@ -248,10 +231,6 @@ internal static class NewCommandKernels
                 programType,
                 "CliNewTemplateSourceText")));
 
-    private delegate int CliFirstPositionalArgIndex(
-        string[] args,
-        string[] optionsWithValues);
-
     private delegate int CliNewArgumentSummaryInto(
         string[] args,
         int[] resultIndices);
@@ -288,7 +267,6 @@ internal static class NewCommandKernels
     private delegate string CliNewTemplateSourceText(string template, int sourceFileKind);
 
     private sealed record Bindings(
-        CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliNewArgumentSummaryInto NewArgumentSummary,
         CliNewTemplateKind NewTemplateKind,
         CliNewEffectiveTemplateKind NewEffectiveTemplateKind,

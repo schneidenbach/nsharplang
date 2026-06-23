@@ -45,8 +45,6 @@ internal readonly record struct TestOptionSummary(
 
 partial class Program
 {
-    private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
-
     static int Main(string[] args)
         => Execute(args);
 
