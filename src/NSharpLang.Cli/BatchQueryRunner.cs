@@ -118,16 +118,10 @@ internal static class BatchQueryRunner
 
     private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
     {
-        if (BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds))
-            return duplicateIds;
+        if (!BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds))
+            throw new InvalidOperationException("N# batch duplicate-id kernel rejected the requests.");
 
-        return requests
-            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
-            .GroupBy(request => request.Id, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key!)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
+        return duplicateIds;
     }
 
     public static BatchQueryExecutionResult Execute(
