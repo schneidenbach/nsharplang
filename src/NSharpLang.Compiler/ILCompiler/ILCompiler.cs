@@ -1662,43 +1662,6 @@ public partial class ILCompiler
             yield break;
         }
 
-        var declaredNames = EnumerateDeclaredTypes()
-            .Select(info => info.Name)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Cast<string>()
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-
-        var matchingDeclaredNames = declaredNames
-            .Where(name => string.Equals(name, typeName, StringComparison.Ordinal)
-                || name.EndsWith("." + typeName, StringComparison.Ordinal))
-            .ToArray();
-
-        var importedNamespaceMatches = matchingDeclaredNames
-            .Where(name =>
-            {
-                var namespaceName = GetNamespaceFromTypeName(name);
-                return string.IsNullOrEmpty(namespaceName)
-                    || _compilationUnit.Imports.Any(import =>
-                        import.Alias == null
-                        && string.Equals(import.Namespace, namespaceName, StringComparison.Ordinal));
-            })
-            .ToArray();
-
-        if (importedNamespaceMatches.Length == 1)
-        {
-            yield return importedNamespaceMatches[0];
-        }
-        else if (matchingDeclaredNames.Length == 1)
-        {
-            yield return matchingDeclaredNames[0];
-        }
-    }
-
-    private static string GetNamespaceFromTypeName(string typeName)
-    {
-        var separatorIndex = typeName.LastIndexOf('.');
-        return separatorIndex >= 0 ? typeName[..separatorIndex] : string.Empty;
     }
 
     private string? ResolveDeclaredTypeName(string typeName)
@@ -1807,20 +1770,6 @@ public partial class ILCompiler
         if (ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(types, typeName, out type, out var found))
         {
             return found;
-        }
-
-        var matches = types
-            .Where(entry => string.Equals(entry.Key, typeName, StringComparison.Ordinal)
-                || entry.Key.EndsWith("." + typeName, StringComparison.Ordinal))
-            .Select(entry => entry.Value)
-            .Distinct()
-            .Take(2)
-            .ToArray();
-
-        if (matches.Length == 1)
-        {
-            type = matches[0];
-            return true;
         }
 
         type = null!;
