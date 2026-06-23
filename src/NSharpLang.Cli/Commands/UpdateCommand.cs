@@ -141,26 +141,9 @@ public static class UpdateCommand
         string? targetPackage)
     {
         if (targetPackage == null)
-        {
-            if (UpdateDependencyFilter.TryFilterAllNuGetDependencies(
-                dependencies,
-                out var allNuGetDependencies))
-            {
-                return allNuGetDependencies;
-            }
+            return UpdateDependencyFilter.FilterAllNuGetDependencies(dependencies);
 
-            throw new InvalidOperationException("N# update dependency filter kernel rejected the dependencies.");
-        }
-
-        if (UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
-            dependencies,
-            targetPackage,
-            out var filteredDependencies))
-        {
-            return filteredDependencies;
-        }
-
-        throw new InvalidOperationException("N# update target dependency filter kernel rejected the dependencies.");
+        return UpdateDependencyFilter.FilterTargetNuGetDependencies(dependencies, targetPackage);
     }
 
     static int Error(string message)

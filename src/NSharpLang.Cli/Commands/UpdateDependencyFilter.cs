@@ -11,72 +11,45 @@ internal static class UpdateDependencyFilter
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFilterAllNuGetDependencies(
-        IReadOnlyList<Reference> dependencies,
-        out List<Reference> filteredDependencies)
+    internal static List<Reference> FilterAllNuGetDependencies(IReadOnlyList<Reference> dependencies)
     {
-        filteredDependencies = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var dependencyCount = dependencies.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(dependencyCount);
 
-        try
+        for (var i = 0; i < dependencyCount; i++)
+            scratch.NuGetFlags[i] = dependencies[i].Nuget == null ? 0 : 1;
+
+        var filteredCount = bindings.AllNuGetDependencyIndices(
+            scratch.NuGetFlags,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# update dependency filter kernel returned an invalid result count.");
+
+        var filteredDependencies = new List<Reference>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            for (var i = 0; i < dependencyCount; i++)
-                scratch.NuGetFlags[i] = dependencies[i].Nuget == null ? 0 : 1;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= dependencyCount)
+                throw new InvalidOperationException("N# update dependency filter kernel returned an invalid dependency index.");
 
-            var filteredCount = bindings.AllNuGetDependencyIndices(
-                scratch.NuGetFlags,
-                scratch.ResultIndices);
+            var dependency = dependencies[sourceIndex];
+            if (dependency.Nuget == null)
+                throw new InvalidOperationException("N# update dependency filter kernel selected a non-NuGet dependency.");
 
-            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredDependencies = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                var dependency = dependencies[sourceIndex];
-                if (dependency.Nuget == null)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                filteredDependencies.Add(dependency);
-            }
-
-            return true;
+            filteredDependencies.Add(dependency);
         }
-        catch
-        {
-            filteredDependencies = new List<Reference>();
-            return false;
-        }
+
+        return filteredDependencies;
     }
 
-    internal static bool TryFilterTargetNuGetDependencies(
+    internal static List<Reference> FilterTargetNuGetDependencies(
         IReadOnlyList<Reference> dependencies,
-        string targetPackage,
-        out List<Reference> filteredDependencies)
+        string targetPackage)
     {
-        filteredDependencies = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var dependencyCount = dependencies.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(dependencyCount);
@@ -93,8 +66,7 @@ internal static class UpdateDependencyFilter
 
             if (!scratch.TryGetNameRank(targetPackage, out var targetNameRank))
             {
-                filteredDependencies = new List<Reference>();
-                return true;
+                return new List<Reference>();
             }
 
             for (var i = 0; i < dependencyCount; i++)
@@ -111,27 +83,19 @@ internal static class UpdateDependencyFilter
                 scratch.ResultIndices);
 
             if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
+                throw new InvalidOperationException("N# update target dependency filter kernel returned an invalid result count.");
 
-            filteredDependencies = new List<Reference>(filteredCount);
+            var filteredDependencies = new List<Reference>(filteredCount);
             for (var i = 0; i < filteredCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= dependencyCount)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# update target dependency filter kernel returned an invalid dependency index.");
 
                 filteredDependencies.Add(dependencies[sourceIndex]);
             }
 
-            return true;
-        }
-        catch
-        {
-            filteredDependencies = new List<Reference>();
-            return false;
+            return filteredDependencies;
         }
         finally
         {
@@ -147,6 +111,10 @@ internal static class UpdateDependencyFilter
             DogfoodKernelLoader.CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(
                 programType,
                 "CliUpdateTargetNuGetDependencyIndicesInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value
+            ?? throw new InvalidOperationException("N# update dependency filter kernels are unavailable.");
 
     private delegate int CliUpdateAllNuGetDependencyIndicesInto(
         int[] nugetFlags,

@@ -962,9 +962,7 @@ func Main() {
             new Reference { Nuget = "System.Text.Json", Version = "10.0.0" }
         };
 
-        Assert.True(UpdateDependencyFilter.TryFilterAllNuGetDependencies(
-            dependencies,
-            out var adapterAllNuGet));
+        var adapterAllNuGet = UpdateDependencyFilter.FilterAllNuGetDependencies(dependencies);
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
             adapterAllNuGet.Select(reference => reference.Nuget));
 
@@ -972,17 +970,11 @@ func Main() {
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
             allNuGet.Select(reference => reference.Nuget));
 
-        Assert.True(UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
-            dependencies,
-            "SERILOG",
-            out var serilog));
+        var serilog = UpdateDependencyFilter.FilterTargetNuGetDependencies(dependencies, "SERILOG");
         Assert.Equal(new[] { "Serilog", "serilog" },
             serilog.Select(reference => reference.Nuget));
 
-        Assert.True(UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
-            dependencies,
-            "Missing.Package",
-            out var missing));
+        var missing = UpdateDependencyFilter.FilterTargetNuGetDependencies(dependencies, "Missing.Package");
         Assert.Empty(missing);
     }
 
