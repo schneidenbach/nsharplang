@@ -234,28 +234,13 @@ internal static class CompilationReferenceResolverKernels
         return selectedIndex;
     }
 
-    internal static bool TryPathHasSegmentIgnoreCase(string path, char separator, string segment, out bool hasSegment)
+    internal static bool PathHasSegmentIgnoreCase(string path, char separator, string segment)
     {
-        hasSegment = false;
+        var code = RequiredBindings.PathHasSegmentIgnoreCase(path, separator, segment);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# reference resolver path segment kernel returned an invalid code.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.PathHasSegmentIgnoreCase(path, separator, segment);
-            if (code is not 0 and not 1)
-                return false;
-
-            hasSegment = code == 1;
-            return true;
-        }
-        catch
-        {
-            hasSegment = false;
-            return false;
-        }
+        return code == 1;
     }
 
     internal static string GetCSharpProjectReferenceBuildMessage(string projectPath)

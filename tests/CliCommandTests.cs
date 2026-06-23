@@ -4265,11 +4265,10 @@ Exit codes:
         string segment,
         bool expected)
     {
-        Assert.True(CompilationReferenceResolverKernels.TryPathHasSegmentIgnoreCase(
+        var hasSegment = CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
             path,
             separator,
-            segment,
-            out var hasSegment));
+            segment);
         Assert.Equal(expected, hasSegment);
     }
 

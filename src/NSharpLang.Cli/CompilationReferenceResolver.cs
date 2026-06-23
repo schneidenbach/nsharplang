@@ -359,18 +359,10 @@ internal static class CompilationReferenceResolver
     }
 
     private static bool IsReferenceAssemblyOutputPath(string path)
-    {
-        if (CompilationReferenceResolverKernels.TryPathHasSegmentIgnoreCase(
+        => CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
             path,
             Path.DirectorySeparatorChar,
-            "ref",
-            out var hasRefSegment))
-        {
-            return hasRefSegment;
-        }
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected project-reference output filtering.");
-    }
+            "ref");
 
     private static string? ReadCSharpProjectAssemblyName(string projectPath)
     {
