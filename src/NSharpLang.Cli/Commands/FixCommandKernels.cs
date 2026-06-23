@@ -14,126 +14,83 @@ internal static class FixCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFilterBySafety(
+    internal static List<CodeAction> FilterBySafety(
         IReadOnlyList<CodeAction> fixes,
-        bool includeReviewNeeded,
-        out List<CodeAction> safeActions)
+        bool includeReviewNeeded)
     {
-        safeActions = new List<CodeAction>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var fixCount = fixes.Count;
         var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
         scratch.EnsureCapacity(fixCount);
 
-        try
+        for (var i = 0; i < fixCount; i++)
         {
-            for (var i = 0; i < fixCount; i++)
-            {
-                scratch.SafetyRanks[i] = GetFixSafetyRank(fixes[i].Safety);
-            }
-
-            var safeCount = bindings.SafetyFilter(
-                scratch.SafetyRanks,
-                includeReviewNeeded ? 1 : 0,
-                scratch.ResultIndices);
-
-            if (safeCount < 0 || safeCount > fixCount || safeCount > scratch.ResultIndices.Length)
-            {
-                safeActions = new List<CodeAction>();
-                return false;
-            }
-
-            safeActions = new List<CodeAction>(safeCount);
-            for (var i = 0; i < safeCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= fixCount)
-                {
-                    safeActions = new List<CodeAction>();
-                    return false;
-                }
-
-                safeActions.Add(fixes[sourceIndex]);
-            }
-
-            return true;
+            scratch.SafetyRanks[i] = GetFixSafetyRank(fixes[i].Safety);
         }
-        catch
+
+        var safeCount = bindings.SafetyFilter(
+            scratch.SafetyRanks,
+            includeReviewNeeded ? 1 : 0,
+            scratch.ResultIndices);
+
+        if (safeCount < 0 || safeCount > fixCount || safeCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# fix safety filter kernel rejected the fixes.");
+
+        var safeActions = new List<CodeAction>(safeCount);
+        for (var i = 0; i < safeCount; i++)
         {
-            safeActions = new List<CodeAction>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= fixCount)
+            {
+                throw new InvalidOperationException("N# fix safety filter kernel returned an invalid source index.");
+            }
+
+            safeActions.Add(fixes[sourceIndex]);
         }
+
+        return safeActions;
     }
 
-    internal static bool TrySelectSkippedEntries(
+    internal static List<FixEntry> SelectSkippedEntries(
         IReadOnlyList<FixEntry> results,
-        bool includeReviewNeeded,
-        out List<FixEntry> skipped)
+        bool includeReviewNeeded)
     {
-        skipped = new List<FixEntry>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var resultCount = results.Count;
         var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
         scratch.EnsureCapacity(resultCount);
 
-        try
+        for (var i = 0; i < resultCount; i++)
         {
-            for (var i = 0; i < resultCount; i++)
-            {
-                scratch.SafetyRanks[i] = GetFixEntrySafetyRank(results[i].Safety);
-            }
-
-            var skippedCount = bindings.SkippedIndices(
-                scratch.SafetyRanks,
-                includeReviewNeeded ? 1 : 0,
-                scratch.ResultIndices);
-
-            if (skippedCount < 0 || skippedCount > resultCount || skippedCount > scratch.ResultIndices.Length)
-            {
-                skipped = new List<FixEntry>();
-                return false;
-            }
-
-            skipped = new List<FixEntry>(skippedCount);
-            for (var i = 0; i < skippedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= resultCount)
-                {
-                    skipped = new List<FixEntry>();
-                    return false;
-                }
-
-                skipped.Add(results[sourceIndex]);
-            }
-
-            return true;
+            scratch.SafetyRanks[i] = GetFixEntrySafetyRank(results[i].Safety);
         }
-        catch
+
+        var skippedCount = bindings.SkippedIndices(
+            scratch.SafetyRanks,
+            includeReviewNeeded ? 1 : 0,
+            scratch.ResultIndices);
+
+        if (skippedCount < 0 || skippedCount > resultCount || skippedCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# fix skipped-entry selection kernel rejected the fixes.");
+
+        var skipped = new List<FixEntry>(skippedCount);
+        for (var i = 0; i < skippedCount; i++)
         {
-            skipped = new List<FixEntry>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= resultCount)
+            {
+                throw new InvalidOperationException("N# fix skipped-entry selection kernel returned an invalid source index.");
+            }
+
+            skipped.Add(results[sourceIndex]);
         }
+
+        return skipped;
     }
 
-    internal static bool TryGroupAppliedEntriesByFile(
-        IReadOnlyList<FixEntry> applied,
-        out FixAppliedFileGrouping grouping)
+    internal static FixAppliedFileGrouping GroupAppliedEntriesByFile(IReadOnlyList<FixEntry> applied)
     {
-        grouping = FixAppliedFileGrouping.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var appliedCount = applied.Count;
         var scratch = t_appliedFileGroupingScratch ??= new AppliedFileGroupingScratch();
         scratch.EnsureCapacity(appliedCount);
@@ -162,7 +119,7 @@ internal static class FixCommandKernels
                 || groupCount > scratch.UniqueFileRankCount
                 || groupCount > appliedCount)
             {
-                return false;
+                throw new InvalidOperationException("N# fix applied-file grouping kernel rejected the fixes.");
             }
 
             var files = new string[groupCount];
@@ -181,7 +138,7 @@ internal static class FixCommandKernels
                     || count < 0
                     || start + count > appliedCount)
                 {
-                    return false;
+                    throw new InvalidOperationException("N# fix applied-file grouping kernel returned an invalid group.");
                 }
 
                 files[groupIndex] = scratch.FilesByRank[rank] ?? string.Empty;
@@ -194,19 +151,13 @@ internal static class FixCommandKernels
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= appliedCount)
                 {
-                    return false;
+                    throw new InvalidOperationException("N# fix applied-file grouping kernel returned an invalid source index.");
                 }
 
                 indices[i] = sourceIndex;
             }
 
-            grouping = new FixAppliedFileGrouping(files, starts, counts, indices);
-            return true;
-        }
-        catch
-        {
-            grouping = FixAppliedFileGrouping.Empty;
-            return false;
+            return new FixAppliedFileGrouping(files, starts, counts, indices);
         }
         finally
         {
@@ -264,7 +215,7 @@ internal static class FixCommandKernels
 
     private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# fix message kernels are unavailable.");
+        var bindings = RequiredBindings;
         var message = getMessage(bindings);
         return !string.IsNullOrEmpty(message)
             ? message
@@ -403,6 +354,9 @@ internal static class FixCommandKernels
         CliFixSkippedHeader SkippedHeader,
         CliFixSkippedReason SkippedReason,
         CliFixSkippedLine SkippedLine);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# fix command kernels are unavailable.");
 
     private sealed class SafetyFilterScratch
     {

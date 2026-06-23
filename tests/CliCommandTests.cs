@@ -4648,18 +4648,16 @@ dependencies:
             NewFix("review null access", FixSafety.ReviewNeeded)
         };
 
-        Assert.True(FixCommandKernels.TryFilterBySafety(
+        var defaultSafeActions = FixCommandKernels.FilterBySafety(
             fixes,
-            includeReviewNeeded: false,
-            out var defaultSafeActions));
+            includeReviewNeeded: false);
         Assert.Equal(
             fixes.Where(fix => fix.Safety == FixSafety.Safe),
             defaultSafeActions);
 
-        Assert.True(FixCommandKernels.TryFilterBySafety(
+        var reviewSafeActions = FixCommandKernels.FilterBySafety(
             fixes,
-            includeReviewNeeded: true,
-            out var reviewSafeActions));
+            includeReviewNeeded: true);
         Assert.Equal(
             fixes.Where(fix => fix.Safety is FixSafety.Safe or FixSafety.ReviewNeeded),
             reviewSafeActions);
@@ -4681,18 +4679,16 @@ dependencies:
             NewEntry("review null access", "reviewNeeded")
         };
 
-        Assert.True(FixCommandKernels.TrySelectSkippedEntries(
+        var defaultSkipped = FixCommandKernels.SelectSkippedEntries(
             entries,
-            includeReviewNeeded: false,
-            out var defaultSkipped));
+            includeReviewNeeded: false);
         Assert.Equal(
             entries.Where(entry => entry.Safety is not "safe"),
             defaultSkipped);
 
-        Assert.True(FixCommandKernels.TrySelectSkippedEntries(
+        var reviewSkipped = FixCommandKernels.SelectSkippedEntries(
             entries,
-            includeReviewNeeded: true,
-            out var reviewSkipped));
+            includeReviewNeeded: true);
         Assert.Equal(
             entries.Where(entry => entry.Safety is not "safe" and not "reviewNeeded"),
             reviewSkipped);
@@ -4713,7 +4709,7 @@ dependencies:
             NewEntry("src/A.nl", "NL005", "second a")
         };
 
-        Assert.True(FixCommandKernels.TryGroupAppliedEntriesByFile(entries, out var grouping));
+        var grouping = FixCommandKernels.GroupAppliedEntriesByFile(entries);
 
         var actual = new List<(string File, string Code, string Title)>();
         for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)

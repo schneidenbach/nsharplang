@@ -93,8 +93,7 @@ public static class FixCommand
 
                 var relativeFile = NormalizePath(Path.GetRelativePath(projectDir, file));
 
-                if (!FixCommandKernels.TryFilterBySafety(fixes, includeReviewNeeded, out var safeActions))
-                    throw new InvalidOperationException("N# fix safety filter kernel rejected the fixes.");
+                var safeActions = FixCommandKernels.FilterBySafety(fixes, includeReviewNeeded);
 
                 foreach (var fix in fixes)
                 {
@@ -184,8 +183,7 @@ public static class FixCommand
         {
             Console.Error.WriteLine(FixCommandKernels.GetAppliedHeader(applied.Count, filesModified, dryRun));
 
-            if (!FixCommandKernels.TryGroupAppliedEntriesByFile(applied, out var groupedApplied))
-                throw new InvalidOperationException("N# fix applied-file grouping kernel rejected the fixes.");
+            var groupedApplied = FixCommandKernels.GroupAppliedEntriesByFile(applied);
 
             for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
             {
@@ -202,8 +200,7 @@ public static class FixCommand
         }
 
         // Report skipped fixes
-        if (!FixCommandKernels.TrySelectSkippedEntries(results, includeReviewNeeded, out var skipped))
-            throw new InvalidOperationException("N# fix skipped-entry selection kernel rejected the fixes.");
+        var skipped = FixCommandKernels.SelectSkippedEntries(results, includeReviewNeeded);
 
         if (skipped.Count > 0)
         {
