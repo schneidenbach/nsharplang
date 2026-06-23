@@ -107,11 +107,11 @@ public static class TidyCommand
         if (fix)
         {
             var toRemove = TidyCommandKernels.TrySelectPossiblyUnusedDependencies(
-                results,
-                static result => result.Status,
-                out var dogfoodToRemove)
+                    results,
+                    static result => result.Status,
+                    out var dogfoodToRemove)
                 ? dogfoodToRemove
-                : results.Where(r => r.Status == "possibly-unused").ToList();
+                : throw new InvalidOperationException("N# tidy dependency status filter kernel rejected the results.");
             if (toRemove.Count == 0)
             {
                 if (outputMode == TidyOutputModeKind.Text) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
@@ -251,9 +251,7 @@ public static class TidyCommand
                 dogfoodSummary.UnknownCount);
         }
 
-        return new TidyDependencySummary(
-            results.Count(r => r.Status == "possibly-unused"),
-            results.Count(r => r.Status == "unknown"));
+        throw new InvalidOperationException("N# tidy dependency status summary kernel rejected the results.");
     }
 
     private static void PrintTable(
