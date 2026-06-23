@@ -5096,11 +5096,11 @@ dependencies:
         Assert.Equal("--help", helpAsProjectValue.ProjectOption);
         Assert.True(helpAsProjectValue.ShowHelp);
 
-        Assert.True(TestCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = TestCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TestOutputModeKind.Text, textMode);
         Assert.Equal(TestOutputModeKind.Text, Program.GetTestOutputMode(json: false));
 
-        Assert.True(TestCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = TestCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TestOutputModeKind.Json, jsonMode);
         Assert.Equal(TestOutputModeKind.Json, Program.GetTestOutputMode(json: true));
     }
@@ -5108,19 +5108,19 @@ dependencies:
     [Fact]
     public void TestCommandKernels_ParsesTimeoutDurations()
     {
-        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("30s", out var seconds));
+        var seconds = TestCommandKernels.GetDurationMilliseconds("30s");
         Assert.Equal(30_000, seconds);
 
-        Assert.True(TestCommandKernels.TryGetDurationMilliseconds(" 5m ", out var minutes));
+        var minutes = TestCommandKernels.GetDurationMilliseconds(" 5m ");
         Assert.Equal(300_000, minutes);
 
-        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("1h", out var hours));
+        var hours = TestCommandKernels.GetDurationMilliseconds("1h");
         Assert.Equal(3_600_000, hours);
 
-        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("0s", out var zero));
+        var zero = TestCommandKernels.GetDurationMilliseconds("0s");
         Assert.Null(zero);
 
-        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("2147484s", out var overflow));
+        var overflow = TestCommandKernels.GetDurationMilliseconds("2147484s");
         Assert.Null(overflow);
 
         var (exitCode, _, stderr) = CaptureConsole(() =>

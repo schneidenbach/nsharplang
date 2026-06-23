@@ -116,52 +116,19 @@ internal static class TestCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out TestOutputModeKind outputMode)
+    internal static TestOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.TestOutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# test output mode kernel rejected the value.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.TestOutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (TestOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (TestOutputModeKind)code;
     }
 
-    internal static bool TryGetDurationMilliseconds(string duration, out int? milliseconds)
+    internal static int? GetDurationMilliseconds(string duration)
     {
-        milliseconds = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var value = bindings.TestDurationMilliseconds(duration);
-            if (value < 0)
-                return true;
-
-            milliseconds = value;
-            return true;
-        }
-        catch
-        {
-            milliseconds = null;
-            return false;
-        }
+        var value = RequiredBindings.TestDurationMilliseconds(duration);
+        return value < 0 ? null : value;
     }
 
     internal static bool TryMatchesFilter(

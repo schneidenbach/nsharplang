@@ -1086,12 +1086,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     internal static TestOutputModeKind GetTestOutputMode(bool json)
-    {
-        if (TestCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# test output mode kernel rejected the value.");
-    }
+        => TestCommandKernels.GetOutputMode(json);
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {
@@ -1130,12 +1125,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static int? ParseDurationToMs(string duration)
-    {
-        if (TestCommandKernels.TryGetDurationMilliseconds(duration, out var milliseconds))
-            return milliseconds;
-
-        throw new InvalidOperationException("N# test duration kernel rejected the value.");
-    }
+        => TestCommandKernels.GetDurationMilliseconds(duration);
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 
