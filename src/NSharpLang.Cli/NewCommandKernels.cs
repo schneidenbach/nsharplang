@@ -40,156 +40,75 @@ internal static class NewCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out NewArgumentSummary summary)
+    internal static NewArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[5];
-        try
+        var code = RequiredBindings.NewArgumentSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var firstPositional)
+            || !TryGetOptionalArg(args, resultIndices[1], out var secondPositional)
+            || !TryGetOptionalArg(args, resultIndices[2], out var templateOption))
         {
-            var code = bindings.NewArgumentSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var firstPositional)
-                || !TryGetOptionalArg(args, resultIndices[1], out var secondPositional)
-                || !TryGetOptionalArg(args, resultIndices[2], out var templateOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new NewArgumentSummary(
-                firstPositional,
-                secondPositional,
-                templateOption,
-                resultIndices[3] != 0,
-                resultIndices[4] != 0);
-            return true;
+            throw new InvalidOperationException("N# new argument summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new NewArgumentSummary(
+            firstPositional,
+            secondPositional,
+            templateOption,
+            resultIndices[3] != 0,
+            resultIndices[4] != 0);
     }
 
-    internal static bool TryGetProjectNameOperand(
+    internal static string? GetProjectNameOperand(
         string[] args,
-        string[] optionsWithValues,
-        out string? projectName)
+        string[] optionsWithValues)
     {
-        projectName = null;
+        var index = RequiredBindings.FirstPositionalArgIndex(args, optionsWithValues);
+        if (index == -1)
+            return null;
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        if (index < 0 || index >= args.Length)
+            throw new InvalidOperationException("N# first positional argument kernel rejected the arguments.");
 
-        try
-        {
-            var index = bindings.FirstPositionalArgIndex(args, optionsWithValues);
-            if (index == -1)
-                return true;
-
-            if (index < 0 || index >= args.Length)
-                return false;
-
-            projectName = args[index];
-            return true;
-        }
-        catch
-        {
-            projectName = null;
-            return false;
-        }
+        return args[index];
     }
 
-    internal static bool TryNormalizeTemplate(string value, out NewProjectTemplateKind templateKind)
+    internal static NewProjectTemplateKind NormalizeTemplateKind(string value)
     {
-        templateKind = NewProjectTemplateKind.Unknown;
+        var result = RequiredBindings.NewTemplateKind(value);
+        if (result is < 0 or > 6)
+            throw new InvalidOperationException("N# new template normalization kernel rejected the template.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.NewTemplateKind(value);
-            if (result is < 0 or > 6)
-                return false;
-
-            templateKind = (NewProjectTemplateKind)result;
-            return true;
-        }
-        catch
-        {
-            templateKind = NewProjectTemplateKind.Unknown;
-            return false;
-        }
+        return (NewProjectTemplateKind)result;
     }
 
-    internal static bool TryResolveTemplate(string value, bool systems, out NewProjectTemplateKind templateKind)
+    internal static NewProjectTemplateKind ResolveTemplateKind(string value, bool systems)
     {
-        templateKind = NewProjectTemplateKind.Unknown;
+        var result = RequiredBindings.NewEffectiveTemplateKind(value, systems ? 1 : 0);
+        if (result is < 0 or > 6)
+            throw new InvalidOperationException("N# new template resolution kernel rejected the template.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.NewEffectiveTemplateKind(value, systems ? 1 : 0);
-            if (result is < 0 or > 6)
-                return false;
-
-            templateKind = (NewProjectTemplateKind)result;
-            return true;
-        }
-        catch
-        {
-            templateKind = NewProjectTemplateKind.Unknown;
-            return false;
-        }
+        return (NewProjectTemplateKind)result;
     }
 
-    internal static bool TryGetTemplateSourceFileKinds(
-        string template,
-        out NewTemplateSourceFileKind[] sourceFileKinds)
+    internal static NewTemplateSourceFileKind[] GetTemplateSourceFileKinds(string template)
     {
-        sourceFileKinds = Array.Empty<NewTemplateSourceFileKind>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultKinds = t_sourceFileKinds ??= new int[2];
-        try
+        var count = RequiredBindings.NewTemplateSourceFileKinds(template, resultKinds);
+        if (count < 0 || count > resultKinds.Length)
+            throw new InvalidOperationException("N# new template source manifest kernel rejected the template.");
+
+        var kinds = new NewTemplateSourceFileKind[count];
+        for (var i = 0; i < count; i++)
         {
-            var count = bindings.NewTemplateSourceFileKinds(template, resultKinds);
-            if (count < 0 || count > resultKinds.Length)
-                return false;
+            if (resultKinds[i] is < 1 or > 7)
+                throw new InvalidOperationException("N# new template source manifest kernel rejected the template.");
 
-            var kinds = new NewTemplateSourceFileKind[count];
-            for (var i = 0; i < count; i++)
-            {
-                if (resultKinds[i] is < 1 or > 7)
-                    return false;
-
-                kinds[i] = (NewTemplateSourceFileKind)resultKinds[i];
-            }
-
-            sourceFileKinds = kinds;
-            return true;
+            kinds[i] = (NewTemplateSourceFileKind)resultKinds[i];
         }
-        catch
-        {
-            sourceFileKinds = Array.Empty<NewTemplateSourceFileKind>();
-            return false;
-        }
+
+        return kinds;
     }
 
     internal static string GetHelpText()

@@ -2320,7 +2320,7 @@ func Main() {
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };
 
-        Assert.True(NewCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = NewCommandKernels.GetArgumentSummary(args);
         Assert.Equal("PacketCore", dogfoodSummary.FirstPositional);
         Assert.Null(dogfoodSummary.SecondPositional);
         Assert.Equal("library", dogfoodSummary.TemplateOption);
@@ -2334,10 +2334,9 @@ func Main() {
         Assert.True(summary.Systems);
         Assert.True(summary.ShowHelp);
 
-        Assert.True(NewCommandKernels.TryGetProjectNameOperand(
+        var projectName = NewCommandKernels.GetProjectNameOperand(
             new[] { "--template", "webapi", "MyApi" },
-            new[] { "--template", "--type" },
-            out var projectName));
+            new[] { "--template", "--type" });
         Assert.Equal("MyApi", projectName);
 
         var positionalTemplate = Program.GetNewArgumentSummary(new[] { "systems-cli", "PacketTool" });
@@ -2349,33 +2348,33 @@ func Main() {
         Assert.Equal("webapi", typeAlias.TemplateOption);
         Assert.Equal("MyApi", typeAlias.FirstPositional);
 
-        Assert.True(NewCommandKernels.TryNormalizeTemplate(" LIB ", out var libraryAlias));
+        var libraryAlias = NewCommandKernels.NormalizeTemplateKind(" LIB ");
         Assert.Equal(NewProjectTemplateKind.Library, libraryAlias);
-        Assert.True(NewCommandKernels.TryNormalizeTemplate("web-api", out var webApiAlias));
+        var webApiAlias = NewCommandKernels.NormalizeTemplateKind("web-api");
         Assert.Equal(NewProjectTemplateKind.WebApi, webApiAlias);
-        Assert.True(NewCommandKernels.TryNormalizeTemplate("systems", out var systemsAlias));
+        var systemsAlias = NewCommandKernels.NormalizeTemplateKind("systems");
         Assert.Equal(NewProjectTemplateKind.SystemsCli, systemsAlias);
-        Assert.True(NewCommandKernels.TryNormalizeTemplate("unknown", out var unknownAlias));
+        var unknownAlias = NewCommandKernels.NormalizeTemplateKind("unknown");
         Assert.Equal(NewProjectTemplateKind.Unknown, unknownAlias);
 
-        Assert.True(NewCommandKernels.TryResolveTemplate("console", systems: true, out var systemsConsole));
+        var systemsConsole = NewCommandKernels.ResolveTemplateKind("console", systems: true);
         Assert.Equal(NewProjectTemplateKind.SystemsCli, systemsConsole);
-        Assert.True(NewCommandKernels.TryResolveTemplate("library", systems: true, out var systemsLibrary));
+        var systemsLibrary = NewCommandKernels.ResolveTemplateKind("library", systems: true);
         Assert.Equal(NewProjectTemplateKind.SystemsLib, systemsLibrary);
-        Assert.True(NewCommandKernels.TryResolveTemplate("test", systems: true, out var systemsTest));
+        var systemsTest = NewCommandKernels.ResolveTemplateKind("test", systems: true);
         Assert.Equal(NewProjectTemplateKind.Test, systemsTest);
-        Assert.True(NewCommandKernels.TryResolveTemplate("web-api", systems: false, out var effectiveWebApi));
+        var effectiveWebApi = NewCommandKernels.ResolveTemplateKind("web-api", systems: false);
         Assert.Equal(NewProjectTemplateKind.WebApi, effectiveWebApi);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("webapi", out var webApiSourceKinds));
+        var webApiSourceKinds = NewCommandKernels.GetTemplateSourceFileKinds("webapi");
         Assert.Equal(
             new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.WebApiController },
             webApiSourceKinds);
-        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("systems-lib", out var systemsLibSourceKinds));
+        var systemsLibSourceKinds = NewCommandKernels.GetTemplateSourceFileKinds("systems-lib");
         Assert.Equal(
             new[] { NewTemplateSourceFileKind.PacketCore, NewTemplateSourceFileKind.PacketCoreTests },
             systemsLibSourceKinds);
-        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("unknown", out var unknownSourceKinds));
+        var unknownSourceKinds = NewCommandKernels.GetTemplateSourceFileKinds("unknown");
         Assert.Empty(unknownSourceKinds);
 
         Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);

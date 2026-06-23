@@ -626,12 +626,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     internal static NewArgumentSummary GetNewArgumentSummary(string[] args)
-    {
-        if (NewCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# new argument summary kernel rejected the arguments.");
-    }
+        => NewCommandKernels.GetArgumentSummary(args);
 
     static string[] GetTemplateSourceFiles(string template)
     {
@@ -644,12 +639,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static NewTemplateSourceFileKind[] GetTemplateSourceFileKinds(string template)
-    {
-        if (NewCommandKernels.TryGetTemplateSourceFileKinds(template, out var dogfoodKinds))
-            return dogfoodKinds;
-
-        throw new InvalidOperationException("N# new template source manifest kernel rejected the template.");
-    }
+        => NewCommandKernels.GetTemplateSourceFileKinds(template);
 
     static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
         => sourceFileKind switch
@@ -665,20 +655,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         };
 
     static string? NormalizeProjectTemplate(string value)
-    {
-        if (!NewCommandKernels.TryNormalizeTemplate(value, out var templateKind))
-            throw new InvalidOperationException("N# new template normalization kernel rejected the template.");
-
-        return GetProjectTemplateName(templateKind);
-    }
+        => GetProjectTemplateName(NewCommandKernels.NormalizeTemplateKind(value));
 
     static string? ResolveProjectTemplate(string value, bool systems)
-    {
-        if (!NewCommandKernels.TryResolveTemplate(value, systems, out var templateKind))
-            throw new InvalidOperationException("N# new template resolution kernel rejected the template.");
-
-        return GetProjectTemplateName(templateKind);
-    }
+        => GetProjectTemplateName(NewCommandKernels.ResolveTemplateKind(value, systems));
 
     static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
         => templateKind switch
@@ -1060,12 +1040,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
-    {
-        if (NewCommandKernels.TryGetProjectNameOperand(args, optionsWithValues, out var positional))
-            return positional;
-
-        throw new InvalidOperationException("N# first positional argument kernel rejected the arguments.");
-    }
+        => NewCommandKernels.GetProjectNameOperand(args, optionsWithValues);
 
     private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
 
