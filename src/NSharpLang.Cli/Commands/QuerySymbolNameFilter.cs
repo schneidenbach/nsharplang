@@ -23,7 +23,7 @@ internal static class QuerySymbolNameFilter
         if (bindings == null)
             return false;
 
-        if (limit <= 0 || symbols.Count == 0)
+        if (limit <= 0)
             return true;
 
         if (!IsAscii(pattern))
