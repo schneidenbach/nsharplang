@@ -56,15 +56,15 @@ public static class QueryCommand
 
     private static int SymbolsCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
-        var summary = GetDaemonParameterSummary(args);
-        var commandSummary = GetCommandOptionSummary(args);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         SymbolKind? kindFilter = null;
         var kindArg = summary.Kind;
         if (kindArg != null)
@@ -98,7 +98,7 @@ public static class QueryCommand
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
-        var summary = GetDaemonParameterSummary(args);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var fileFilter = summary.File ?? options.File;
         var normalizedFilter = fileFilter?.Replace('\\', '/');
 
@@ -132,8 +132,8 @@ public static class QueryCommand
 
     private static int HoverCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
 
@@ -187,8 +187,8 @@ public static class QueryCommand
 
     private static int CallGraphCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var commandSummary = GetCommandOptionSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var functionName = commandSummary.Function;
         var limit = GetCallGraphLimit(commandSummary.Limit);
 
@@ -220,7 +220,7 @@ public static class QueryCommand
 
     private static int PerformanceCommand(string[] args, QueryOptions options)
     {
-        var summary = GetDaemonParameterSummary(args);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
 
@@ -234,7 +234,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError(QueryCommandKernels.GetPerformanceJsonOnlyMessage());
         }
@@ -308,7 +308,7 @@ public static class QueryCommand
 
     private static int TrustedCommand(string[] args, QueryOptions options)
     {
-        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError(QueryCommandKernels.GetTrustedJsonOnlyMessage());
         }
@@ -334,8 +334,8 @@ public static class QueryCommand
 
     private static int ImplementorsCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var name = summary.Name;
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
@@ -413,12 +413,12 @@ public static class QueryCommand
 
     private static int BatchCommand(string[] args, QueryOptions options)
     {
-        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
+        if (QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError(QueryCommandKernels.GetBatchJsonOnlyMessage());
         }
 
-        var commandSummary = GetCommandOptionSummary(args);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var requestsPath = commandSummary.Requests ?? commandSummary.LeadingOperand;
 
         if (string.IsNullOrWhiteSpace(requestsPath))
@@ -476,9 +476,9 @@ public static class QueryCommand
 
     private static int OutlineCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
         // Outline can work on a single file without full project analysis
-        var commandSummary = GetCommandOptionSummary(args);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var file = commandSummary.LeadingOperand ?? options.File;
 
         if (file == null)
@@ -514,9 +514,9 @@ public static class QueryCommand
 
     private static int DiagnosticsCommand(string[] args, QueryOptions options)
     {
-        var parameterSummary = GetDaemonParameterSummary(args);
+        var parameterSummary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var wantsClusters = parameterSummary.Clusters;
-        var outputMode = GetDiagnosticsOutputMode(options.UseText, wantsClusters);
+        var outputMode = QueryCommandKernels.GetDiagnosticsOutputMode(options.UseText, wantsClusters);
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
@@ -552,8 +552,8 @@ public static class QueryCommand
 
     private static int TypeCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
 
@@ -610,9 +610,9 @@ public static class QueryCommand
 
     private static int DefinitionCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
-        var commandSummary = GetCommandOptionSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
         var name = summary.Name ?? commandSummary.LeadingOperand;
@@ -697,10 +697,10 @@ public static class QueryCommand
 
     private static int InspectCommand(string[] args, QueryOptions options)
     {
-        var summary = GetDaemonParameterSummary(args);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
-        var outputMode = GetInspectOutputMode(options.UseText, options.InspectCompact);
+        var outputMode = QueryCommandKernels.GetInspectOutputMode(options.UseText, options.InspectCompact);
         var compactMode = outputMode == QueryInspectOutputModeKind.CompactJson;
 
         if (file == null || posStr == null)
@@ -794,8 +794,8 @@ public static class QueryCommand
 
     private static int ReferencesCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
 
@@ -885,8 +885,8 @@ public static class QueryCommand
 
     private static int CompletionsCommand(string[] args, QueryOptions options)
     {
-        var outputMode = GetTextJsonOutputMode(options.UseText);
-        var summary = GetDaemonParameterSummary(args);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
 
@@ -931,9 +931,9 @@ public static class QueryCommand
 
     private static int DocCommand(string[] args, QueryOptions options)
     {
-        var commandSummary = GetCommandOptionSummary(args);
+        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var query = commandSummary.LeadingOperand;
-        var outputMode = GetTextJsonOutputMode(options.UseText);
+        var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
 
         if (query == null)
         {
@@ -978,7 +978,7 @@ public static class QueryCommand
 
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
-        var summary = GetTopLevelOptionSummary(args);
+        var summary = QueryCommandKernels.GetTopLevelOptionSummary(args);
         subcommand = summary.Subcommand ?? string.Empty;
         remainingArgs = summary.RemainingArgs;
         return new QueryOptions(
@@ -989,21 +989,6 @@ public static class QueryCommand
             summary.NoDaemon,
             summary.InspectCompact);
     }
-
-    internal static QueryTopLevelOptionSummary GetTopLevelOptionSummary(string[] args)
-        => QueryCommandKernels.GetTopLevelOptionSummary(args);
-
-    internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
-        => QueryCommandKernels.GetInspectOutputMode(useText, inspectCompact);
-
-    internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(bool useText, bool clusters)
-        => QueryCommandKernels.GetDiagnosticsOutputMode(useText, clusters);
-
-    internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
-        => QueryCommandKernels.GetJsonOnlyOutputMode(useText);
-
-    internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
-        => QueryCommandKernels.GetTextJsonOutputMode(useText);
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {
@@ -1066,7 +1051,7 @@ public static class QueryCommand
     private static Dictionary<string, object?> BuildDaemonParameters(string[] args, QueryOptions options)
     {
         var parameters = new Dictionary<string, object?>();
-        var summary = GetDaemonParameterSummary(args);
+        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var pos = summary.Pos ?? options.Pos;
         var name = summary.Name;
@@ -1096,17 +1081,11 @@ public static class QueryCommand
         return parameters;
     }
 
-    internal static QueryDaemonParameterSummary GetDaemonParameterSummary(string[] args)
-        => QueryCommandKernels.GetDaemonParameterSummary(args);
-
-    internal static QueryCommandOptionSummary GetCommandOptionSummary(string[] args)
-        => QueryCommandKernels.GetCommandOptionSummary(args);
-
     private static bool TryExecuteViaDaemon(QueryOptions options, string method,
         Dictionary<string, object?> parameters, out int exitCode)
     {
         exitCode = 0;
-        if (!ShouldTryExecuteViaDaemon(options.UseText, options.NoDaemon))
+        if (!QueryCommandKernels.ShouldUseDaemon(options.UseText, options.NoDaemon))
             return false;
 
         var projectRoot = GetProjectRoot(options);
@@ -1135,9 +1114,6 @@ public static class QueryCommand
         exitCode = GetJsonExitCode(result);
         return true;
     }
-
-    internal static bool ShouldTryExecuteViaDaemon(bool useText, bool noDaemon)
-        => QueryCommandKernels.ShouldUseDaemon(useText, noDaemon);
 
     private static int GetJsonExitCode(string json)
     {

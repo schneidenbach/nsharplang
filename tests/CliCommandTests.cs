@@ -1856,10 +1856,7 @@ func Main() {
         Assert.True(dogfoodSummary.IncludeKeywords);
         Assert.True(dogfoodSummary.Clusters);
 
-        var summary = QueryCommand.GetDaemonParameterSummary(args);
-        Assert.Equal(dogfoodSummary, summary);
-
-        var permissive = QueryCommand.GetDaemonParameterSummary(
+        var permissive = QueryCommandKernels.GetDaemonParameterSummary(
             new[] { "--file", "--include-keywords", "--pos", "--clusters", "--severity" });
         Assert.Equal("--include-keywords", permissive.File);
         Assert.Equal("--clusters", permissive.Pos);
@@ -1867,7 +1864,7 @@ func Main() {
         Assert.True(permissive.IncludeKeywords);
         Assert.True(permissive.Clusters);
 
-        Assert.False(QueryCommand.GetDaemonParameterSummary(new[] { "--file" }).IncludeKeywords);
+        Assert.False(QueryCommandKernels.GetDaemonParameterSummary(new[] { "--file" }).IncludeKeywords);
     }
 
     [Fact]
@@ -1893,10 +1890,7 @@ func Main() {
         Assert.Equal("batch.json", dogfoodSummary.Requests);
         Assert.Equal("Type.Name", dogfoodSummary.LeadingOperand);
 
-        var summary = QueryCommand.GetCommandOptionSummary(args);
-        Assert.Equal(dogfoodSummary, summary);
-
-        var permissive = QueryCommand.GetCommandOptionSummary(
+        var permissive = QueryCommandKernels.GetCommandOptionSummary(
             new[] { "--filter", "--function", "--limit", "--requests", "--requests" });
         Assert.Equal("--function", permissive.Filter);
         Assert.Equal("--limit", permissive.Function);
@@ -1904,7 +1898,7 @@ func Main() {
         Assert.Equal("--requests", permissive.Requests);
         Assert.Null(permissive.LeadingOperand);
 
-        var missing = QueryCommand.GetCommandOptionSummary(new[] { "--requests" });
+        var missing = QueryCommandKernels.GetCommandOptionSummary(new[] { "--requests" });
         Assert.Null(missing.Requests);
         Assert.Null(missing.LeadingOperand);
     }
@@ -1941,21 +1935,11 @@ func Main() {
         Assert.True(dogfoodSummary.InspectCompact);
         Assert.Equal(new[] { "loose" }, dogfoodSummary.RemainingArgs);
 
-        var summary = QueryCommand.GetTopLevelOptionSummary(args);
-        Assert.Equal(dogfoodSummary.Subcommand, summary.Subcommand);
-        Assert.Equal(dogfoodSummary.ProjectDir, summary.ProjectDir);
-        Assert.Equal(dogfoodSummary.File, summary.File);
-        Assert.Equal(dogfoodSummary.Pos, summary.Pos);
-        Assert.Equal(dogfoodSummary.UseText, summary.UseText);
-        Assert.Equal(dogfoodSummary.NoDaemon, summary.NoDaemon);
-        Assert.Equal(dogfoodSummary.InspectCompact, summary.InspectCompact);
-        Assert.Equal(dogfoodSummary.RemainingArgs, summary.RemainingArgs);
-
-        var permissive = QueryCommand.GetTopLevelOptionSummary(new[] { "symbols", "--project", "--file" });
+        var permissive = QueryCommandKernels.GetTopLevelOptionSummary(new[] { "symbols", "--project", "--file" });
         Assert.Equal("--file", permissive.ProjectDir);
         Assert.Empty(permissive.RemainingArgs);
 
-        var trailingMissing = QueryCommand.GetTopLevelOptionSummary(new[] { "symbols", "--project" });
+        var trailingMissing = QueryCommandKernels.GetTopLevelOptionSummary(new[] { "symbols", "--project" });
         Assert.Null(trailingMissing.ProjectDir);
         Assert.Equal(new[] { "--project" }, trailingMissing.RemainingArgs);
     }
@@ -1977,9 +1961,6 @@ func Main() {
                 testCase.UseText,
                 testCase.InspectCompact);
             Assert.Equal(testCase.Expected, dogfoodMode);
-            Assert.Equal(
-                testCase.Expected,
-                QueryCommand.GetInspectOutputMode(testCase.UseText, testCase.InspectCompact));
         }
     }
 
@@ -2000,9 +1981,6 @@ func Main() {
                 testCase.UseText,
                 testCase.Clusters);
             Assert.Equal(testCase.Expected, dogfoodMode);
-            Assert.Equal(
-                testCase.Expected,
-                QueryCommand.GetDiagnosticsOutputMode(testCase.UseText, testCase.Clusters));
         }
     }
 
@@ -2019,7 +1997,6 @@ func Main() {
         {
             var dogfoodMode = QueryCommandKernels.GetJsonOnlyOutputMode(testCase.UseText);
             Assert.Equal(testCase.Expected, dogfoodMode);
-            Assert.Equal(testCase.Expected, QueryCommand.GetJsonOnlyOutputMode(testCase.UseText));
         }
     }
 
@@ -2036,7 +2013,6 @@ func Main() {
         {
             var dogfoodMode = QueryCommandKernels.GetTextJsonOutputMode(testCase.UseText);
             Assert.Equal(testCase.Expected, dogfoodMode);
-            Assert.Equal(testCase.Expected, QueryCommand.GetTextJsonOutputMode(testCase.UseText));
         }
     }
 
@@ -2057,9 +2033,6 @@ func Main() {
                 testCase.UseText,
                 testCase.NoDaemon);
             Assert.Equal(testCase.Expected, dogfoodShouldUse);
-            Assert.Equal(
-                testCase.Expected,
-                QueryCommand.ShouldTryExecuteViaDaemon(testCase.UseText, testCase.NoDaemon));
         }
     }
 
