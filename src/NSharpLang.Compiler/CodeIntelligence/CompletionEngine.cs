@@ -145,37 +145,17 @@ public class CompletionEngine
         int col,
         [NotNullWhen(true)] out string? beforeCursor)
     {
-        if (CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
+        if (!CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
                 snapshot,
                 filePath,
                 sourceText,
                 line,
                 col,
                 out var dogfoodPrefix))
-        {
-            beforeCursor = dogfoodPrefix;
-            return beforeCursor != null;
-        }
+            throw new InvalidOperationException("N# completion prefix kernel rejected the source.");
 
-        return TryExtractCompletionPrefixFallback(sourceText, line, col, out beforeCursor);
-    }
-
-    private static bool TryExtractCompletionPrefixFallback(
-        string sourceText,
-        int line,
-        int col,
-        [NotNullWhen(true)] out string? beforeCursor)
-    {
-        beforeCursor = null;
-        var lines = sourceText.Split('\n');
-        if (line <= 0 || line > lines.Length)
-        {
-            return false;
-        }
-
-        var lineText = lines[line - 1];
-        beforeCursor = col > 0 && col <= lineText.Length ? lineText.Substring(0, col) : lineText;
-        return true;
+        beforeCursor = dogfoodPrefix;
+        return beforeCursor != null;
     }
 
     private CompletionResult GetMemberAccessCompletions(
