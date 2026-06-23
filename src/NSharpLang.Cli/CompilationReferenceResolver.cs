@@ -568,12 +568,8 @@ internal static class CompilationReferenceResolver
 
     private static string? SelectBestInstalledNuGetVersion(string[] versions)
     {
-        if (CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(versions, out var dogfoodIndex))
-        {
-            return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
-        }
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected installed NuGet version selection.");
+        var dogfoodIndex = CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex(versions);
+        return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
     }
 
     private static string GetLatestPackageVersion(string packageName)
@@ -594,12 +590,8 @@ internal static class CompilationReferenceResolver
 
     private static string? SelectLatestNuGetVersion(string[] versions)
     {
-        if (CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(versions, out var dogfoodIndex))
-        {
-            return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
-        }
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected latest NuGet version selection.");
+        var dogfoodIndex = CompilationReferenceResolverKernels.SelectLatestNuGetVersionIndex(versions);
+        return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
     }
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)

@@ -215,57 +215,23 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
-    internal static bool TrySelectLatestNuGetVersionIndex(string[] versions, out int selectedIndex)
+    internal static int SelectLatestNuGetVersionIndex(string[] versions)
     {
-        selectedIndex = -1;
+        var selectedIndex = RequiredBindings.LatestNuGetVersionIndex(versions);
+        if (selectedIndex < -1 || selectedIndex >= versions.Length)
+            throw new InvalidOperationException("N# reference resolver latest NuGet version kernel returned an invalid version index.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            selectedIndex = bindings.LatestNuGetVersionIndex(versions);
-            if (selectedIndex < -1 || selectedIndex >= versions.Length)
-            {
-                selectedIndex = -1;
-                return false;
-            }
-
-            return true;
-        }
-        catch
-        {
-            selectedIndex = -1;
-            return false;
-        }
+        return selectedIndex;
     }
 
-    internal static bool TrySelectBestNuGetVersionIndex(string[] versions, out int selectedIndex)
+    internal static int SelectBestNuGetVersionIndex(string[] versions)
     {
-        selectedIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var compareScratch = t_nuGetVersionCompareResult ??= new int[9];
-        try
-        {
-            selectedIndex = bindings.BestNuGetVersionIndex(versions, compareScratch);
-            if (selectedIndex < -1 || selectedIndex >= versions.Length)
-            {
-                selectedIndex = -1;
-                return false;
-            }
+        var selectedIndex = RequiredBindings.BestNuGetVersionIndex(versions, compareScratch);
+        if (selectedIndex < -1 || selectedIndex >= versions.Length)
+            throw new InvalidOperationException("N# reference resolver best NuGet version kernel returned an invalid version index.");
 
-            return true;
-        }
-        catch
-        {
-            selectedIndex = -1;
-            return false;
-        }
+        return selectedIndex;
     }
 
     internal static bool TryPathHasSegmentIgnoreCase(string path, char separator, string segment, out bool hasSegment)

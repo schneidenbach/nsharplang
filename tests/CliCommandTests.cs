@@ -4226,9 +4226,7 @@ Exit codes:
 
         static void AssertSelected(string[] versions, int expectedIndex)
         {
-            Assert.True(CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(
-                versions,
-                out var selectedIndex));
+            var selectedIndex = CompilationReferenceResolverKernels.SelectLatestNuGetVersionIndex(versions);
             Assert.Equal(expectedIndex, selectedIndex);
         }
     }
@@ -4245,9 +4243,7 @@ Exit codes:
 
         static void AssertSelected(string[] versions, int expectedIndex)
         {
-            Assert.True(CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(
-                versions,
-                out var selectedIndex));
+            var selectedIndex = CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex(versions);
             Assert.Equal(expectedIndex, selectedIndex);
         }
     }
