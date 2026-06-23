@@ -25,125 +25,28 @@ public static class CodeIntelligenceTextUtilities
         if (line < 0 || character < 0)
             return false;
 
-        if (CodeIntelligenceSourceTextKernels.TryExtractEditorIdentifierSpan(
+        if (!CodeIntelligenceSourceTextKernels.TryExtractEditorIdentifierSpan(
                 text,
                 line + 1,
                 character + 1,
                 out var dogfoodSpan))
-        {
-            if (dogfoodSpan == null)
-                return false;
+            throw new InvalidOperationException("N# editor identifier span kernel rejected the position.");
 
-            span = new EditorIdentifierSpan(
-                dogfoodSpan.Value.StartColumn,
-                dogfoodSpan.Value.EndColumn,
-                dogfoodSpan.Value.Name);
-            return true;
-        }
+        if (dogfoodSpan == null)
+            return false;
 
-        return TryGetEditorIdentifierSpanAtPositionFallback(text, line, character, out span);
+        span = new EditorIdentifierSpan(
+            dogfoodSpan.Value.StartColumn,
+            dogfoodSpan.Value.EndColumn,
+            dogfoodSpan.Value.Name);
+        return true;
     }
 
     public static string? GetSourceLine(string source, int line)
     {
-        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
-        {
-            return dogfoodLine;
-        }
+        if (!CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
+            throw new InvalidOperationException("N# source line kernel rejected the line.");
 
-        return GetSourceLineFallback(source, line);
+        return dogfoodLine;
     }
-
-    private static bool TryGetEditorIdentifierSpanAtPositionFallback(
-        string text,
-        int line,
-        int character,
-        out EditorIdentifierSpan span)
-    {
-        span = default;
-        if (!TryGetLogicalLineRange(text, line, out var lineStart, out var lineLength) || lineLength == 0)
-            return false;
-
-        if (character >= lineLength)
-        {
-            character = lineLength - 1;
-            if (!IsIdentifierChar(text[lineStart + character]))
-                return false;
-        }
-        else if (!IsIdentifierChar(text[lineStart + character]))
-        {
-            return false;
-        }
-
-        var start = character;
-        while (start > 0 && IsIdentifierChar(text[lineStart + start - 1]))
-        {
-            start--;
-        }
-
-        var end = character;
-        while (end + 1 < lineLength && IsIdentifierChar(text[lineStart + end + 1]))
-        {
-            end++;
-        }
-
-        span = new EditorIdentifierSpan(
-            start + 1,
-            end + 1,
-            text.Substring(lineStart + start, end - start + 1));
-        return true;
-    }
-
-    private static string? GetSourceLineFallback(string source, int line)
-    {
-        if (line <= 0)
-            return null;
-
-        return TryGetLogicalLineRange(source, line - 1, out var lineStart, out var lineLength)
-            ? source.Substring(lineStart, lineLength)
-            : null;
-    }
-
-    private static bool TryGetLogicalLineRange(string source, int line, out int start, out int length)
-    {
-        start = 0;
-        length = 0;
-        if (line < 0)
-            return false;
-
-        var currentLine = 0;
-        var lineStart = 0;
-        for (var index = 0; index < source.Length; index++)
-        {
-            var ch = source[index];
-            if (ch != '\r' && ch != '\n')
-            {
-                continue;
-            }
-
-            if (currentLine == line)
-            {
-                start = lineStart;
-                length = index - lineStart;
-                return true;
-            }
-
-            if (ch == '\r' && index + 1 < source.Length && source[index + 1] == '\n')
-            {
-                index++;
-            }
-
-            currentLine++;
-            lineStart = index + 1;
-        }
-
-        if (currentLine != line)
-            return false;
-
-        start = lineStart;
-        length = source.Length - lineStart;
-        return true;
-    }
-
-    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
 }
