@@ -27073,15 +27073,14 @@ func main() {
     {
         var typeRanks = new[]
         {
-            1, 3, 2, 4, 1, 0, 4, 2, 3, 1
+            0, 2, 1, 3, 0, -1, 3, 1, 2, 0
         };
         var cases = new[]
         {
-            (TargetTypeRank: 1, Expected: new[] { 0, 4, 9 }),
-            (TargetTypeRank: 2, Expected: new[] { 2, 7 }),
-            (TargetTypeRank: 3, Expected: new[] { 1, 8 }),
-            (TargetTypeRank: 4, Expected: new[] { 3, 6 }),
-            (TargetTypeRank: 0, Expected: Array.Empty<int>()),
+            (TargetTypeRank: 0, Expected: new[] { 0, 4, 9 }),
+            (TargetTypeRank: 1, Expected: new[] { 2, 7 }),
+            (TargetTypeRank: 2, Expected: new[] { 1, 8 }),
+            (TargetTypeRank: 3, Expected: new[] { 3, 6 }),
             (TargetTypeRank: -1, Expected: Array.Empty<int>()),
             (TargetTypeRank: 99, Expected: Array.Empty<int>())
         };

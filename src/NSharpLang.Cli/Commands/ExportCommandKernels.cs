@@ -92,19 +92,19 @@ internal static class ExportCommandKernels
     {
         var bindings = RequiredBindings;
         var dependencyCount = dependencies.Count;
-        var targetTypeRank = GetReferenceTypeRank(targetType);
-        if (targetTypeRank <= 0)
+        var targetTypeId = (int)targetType;
+        if (targetTypeId < 0 || targetTypeId > (int)ReferenceType.Framework)
             throw new InvalidOperationException("N# export reference filter kernel received an unsupported reference type.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
         scratch.EnsureCapacity(dependencyCount);
 
         for (var i = 0; i < dependencyCount; i++)
-            scratch.TypeRanks[i] = GetReferenceTypeRank(dependencies[i].Type);
+            scratch.TypeRanks[i] = (int)dependencies[i].Type;
 
         var filteredCount = bindings.ReferenceTypeFilterIndices(
             scratch.TypeRanks,
-            targetTypeRank,
+            targetTypeId,
             scratch.ResultIndices);
 
         if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
@@ -491,16 +491,6 @@ internal static class ExportCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# export command kernels are unavailable.");
-
-    private static int GetReferenceTypeRank(ReferenceType type) =>
-        type switch
-        {
-            ReferenceType.NuGet => 1,
-            ReferenceType.Dll => 2,
-            ReferenceType.Project => 3,
-            ReferenceType.Framework => 4,
-            _ => 0
-        };
 
     private sealed class OperandScratch
     {

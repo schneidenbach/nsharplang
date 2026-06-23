@@ -83,19 +83,19 @@ internal static class RestoreCommandKernels
     {
         var bindings = RequiredBindings;
         var referenceCount = references.Count;
-        var targetTypeRank = GetReferenceTypeRank(targetType);
-        if (targetTypeRank <= 0)
+        var targetTypeId = (int)targetType;
+        if (targetTypeId < 0 || targetTypeId > (int)ReferenceType.Framework)
             throw new InvalidOperationException("N# restore reference filter kernel received an unsupported reference type.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
         scratch.EnsureCapacity(referenceCount);
 
         for (var i = 0; i < referenceCount; i++)
-            scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
+            scratch.TypeRanks[i] = (int)references[i].Type;
 
         var filteredCount = bindings.ReferenceTypeFilterIndices(
             scratch.TypeRanks,
-            targetTypeRank,
+            targetTypeId,
             scratch.ResultIndices);
 
         if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
@@ -218,16 +218,6 @@ internal static class RestoreCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# restore command kernels are unavailable.");
-
-    private static int GetReferenceTypeRank(ReferenceType type) =>
-        type switch
-        {
-            ReferenceType.NuGet => 1,
-            ReferenceType.Dll => 2,
-            ReferenceType.Project => 3,
-            ReferenceType.Framework => 4,
-            _ => 0
-        };
 
     private sealed class ReferenceTypeFilterScratch
     {

@@ -976,7 +976,7 @@ func CliReferenceTypeFilterChecksumInto(
     typeRanks: int[],
     targetTypeRank: int,
     resultIndices: int[]): int {
-    if targetTypeRank <= 0 {
+    if targetTypeRank < 0 || targetTypeRank > 3 {
         return 0
     }
 

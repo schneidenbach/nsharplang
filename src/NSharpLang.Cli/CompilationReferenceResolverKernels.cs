@@ -31,8 +31,8 @@ internal static class CompilationReferenceResolverKernels
         ReferenceType targetType)
     {
         var referenceCount = references.Count;
-        var targetTypeRank = GetReferenceTypeRank(targetType);
-        if (targetTypeRank <= 0)
+        var targetTypeId = (int)targetType;
+        if (targetTypeId < 0 || targetTypeId > (int)ReferenceType.Framework)
             throw new ArgumentOutOfRangeException(nameof(targetType), "Reference type is not supported.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
@@ -40,14 +40,16 @@ internal static class CompilationReferenceResolverKernels
 
         for (var i = 0; i < referenceCount; i++)
         {
-            scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
-            if (scratch.TypeRanks[i] <= 0)
+            var typeId = (int)references[i].Type;
+            if (typeId < 0 || typeId > (int)ReferenceType.Framework)
                 throw new InvalidOperationException("N# reference resolver type filter received an unsupported reference type.");
+
+            scratch.TypeRanks[i] = typeId;
         }
 
         var filteredCount = RequiredBindings.ReferenceTypeFilterIndices(
             scratch.TypeRanks,
-            targetTypeRank,
+            targetTypeId,
             scratch.ResultIndices);
 
         if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
@@ -273,16 +275,6 @@ internal static class CompilationReferenceResolverKernels
         CliBestNuGetVersionIndex BestNuGetVersionIndex,
         CliPathHasSegmentIgnoreCase PathHasSegmentIgnoreCase,
         CliCSharpProjectReferenceBuildMessage CSharpProjectReferenceBuildMessage);
-
-    private static int GetReferenceTypeRank(ReferenceType type) =>
-        type switch
-        {
-            ReferenceType.NuGet => 1,
-            ReferenceType.Dll => 2,
-            ReferenceType.Project => 3,
-            ReferenceType.Framework => 4,
-            _ => 0
-        };
 
     private sealed class ReferenceTypeFilterScratch
     {
