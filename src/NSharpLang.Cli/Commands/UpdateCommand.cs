@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using NSharpLang.Compiler;
 
@@ -28,7 +27,7 @@ public static class UpdateCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            var allNuGetDeps = FilterNuGetDependencies(config.Dependencies, targetPackage: null);
+            var allNuGetDeps = UpdateDependencyFilter.FilterAllNuGetDependencies(config.Dependencies);
 
             if (allNuGetDeps.Count == 0)
             {
@@ -39,7 +38,7 @@ public static class UpdateCommand
             var nugetDeps = allNuGetDeps;
             if (targetPackage != null)
             {
-                nugetDeps = FilterNuGetDependencies(allNuGetDeps, targetPackage);
+                nugetDeps = UpdateDependencyFilter.FilterTargetNuGetDependencies(allNuGetDeps, targetPackage);
                 if (nugetDeps.Count == 0)
                     return Error(UpdateCommandKernels.GetPackageNotFoundMessage(targetPackage));
             }
@@ -128,16 +127,6 @@ public static class UpdateCommand
         {
             return Error(UpdateCommandKernels.GetFailedMessage(ex.Message));
         }
-    }
-
-    internal static List<Reference> FilterNuGetDependencies(
-        IReadOnlyList<Reference> dependencies,
-        string? targetPackage)
-    {
-        if (targetPackage == null)
-            return UpdateDependencyFilter.FilterAllNuGetDependencies(dependencies);
-
-        return UpdateDependencyFilter.FilterTargetNuGetDependencies(dependencies, targetPackage);
     }
 
     static int Error(string message)

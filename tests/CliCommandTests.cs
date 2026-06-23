@@ -923,10 +923,6 @@ func Main() {
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
             adapterAllNuGet.Select(reference => reference.Nuget));
 
-        var allNuGet = UpdateCommand.FilterNuGetDependencies(dependencies, targetPackage: null);
-        Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
-            allNuGet.Select(reference => reference.Nuget));
-
         var serilog = UpdateDependencyFilter.FilterTargetNuGetDependencies(dependencies, "SERILOG");
         Assert.Equal(new[] { "Serilog", "serilog" },
             serilog.Select(reference => reference.Nuget));
