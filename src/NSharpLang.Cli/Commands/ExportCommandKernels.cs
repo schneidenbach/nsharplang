@@ -34,106 +34,58 @@ internal static class ExportCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetTargetSummary(string[] args, out ExportTargetSummary summary)
+    internal static ExportTargetSummary GetTargetSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_targetSummaryIndices ??= new int[2];
-        try
-        {
-            var code = bindings.TargetSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.TargetSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
 
-            var targetKindValue = resultIndices[0];
-            if (targetKindValue is not 0 and not 1)
-                return false;
+        var targetKindValue = resultIndices[0];
+        if (targetKindValue is not 0 and not 1)
+            throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
 
-            summary = new ExportTargetSummary(
-                (ExportTargetKind)targetKindValue,
-                resultIndices[1] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new ExportTargetSummary(
+            (ExportTargetKind)targetKindValue,
+            resultIndices[1] != 0);
     }
 
-    internal static bool TryGetCSharpOptionSummary(string[] args, out ExportCSharpOptionSummary summary)
+    internal static ExportCSharpOptionSummary GetCSharpOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[3];
-        try
+        var code = RequiredBindings.CSharpOptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
         {
-            var code = bindings.CSharpOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new ExportCSharpOptionSummary(
-                projectOption,
-                outputOption,
-                resultIndices[2] != 0);
-            return true;
+            throw new InvalidOperationException("N# export csharp option parser kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new ExportCSharpOptionSummary(
+            projectOption,
+            outputOption,
+            resultIndices[2] != 0);
     }
 
-    internal static bool TryGetCSharpInputOperand(string[] args, out string? operand)
+    internal static string? GetCSharpInputOperand(string[] args)
     {
-        operand = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var scratch = t_operandScratch ??= new OperandScratch();
         scratch.EnsureCapacity(args.Length);
 
-        try
-        {
-            var index = bindings.CSharpFirstOperandIndex(
-                args,
-                scratch.KindIds,
-                scratch.NextIndices,
-                scratch.PreviousIndices,
-                scratch.NextOptionIndices,
-                scratch.ResultIndices);
-            if (index == -1)
-                return true;
+        var index = RequiredBindings.CSharpFirstOperandIndex(
+            args,
+            scratch.KindIds,
+            scratch.NextIndices,
+            scratch.PreviousIndices,
+            scratch.NextOptionIndices,
+            scratch.ResultIndices);
+        if (index == -1)
+            return null;
 
-            if (index < 0 || index >= args.Length)
-                return false;
+        if (index < 0 || index >= args.Length)
+            throw new InvalidOperationException("N# export csharp input parser kernel rejected the arguments.");
 
-            operand = args[index];
-            return true;
-        }
-        catch
-        {
-            operand = null;
-            return false;
-        }
+        return args[index];
     }
 
     internal static bool TryFilterReferencesByType(
@@ -268,28 +220,13 @@ internal static class ExportCommandKernels
         }
     }
 
-    internal static bool TryIsTestSourceFile(string sourceFile, out bool isTestSource)
+    internal static bool IsTestSourceFile(string sourceFile)
     {
-        isTestSource = false;
+        var result = RequiredBindings.IsTestSourceFile(sourceFile);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# export test-source classifier kernel rejected the path.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.IsTestSourceFile(sourceFile);
-            if (result is not 0 and not 1)
-                return false;
-
-            isTestSource = result != 0;
-            return true;
-        }
-        catch
-        {
-            isTestSource = false;
-            return false;
-        }
+        return result != 0;
     }
 
     internal static string GetHelpText()

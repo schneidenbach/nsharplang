@@ -3288,45 +3288,35 @@ func Main() {
     [Fact]
     public void ExportCommandKernels_SelectsInputOperandAfterOrderedOptionStripping()
     {
-        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
-            new[] { "Program.nl", "--output", "Program.cs" },
-            out var sourceFirst));
+        var sourceFirst = ExportCommandKernels.GetCSharpInputOperand(
+            new[] { "Program.nl", "--output", "Program.cs" });
         Assert.Equal("Program.nl", sourceFirst);
 
-        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
-            new[] { "--output", "dist", "Program.nl" },
-            out var outputFirst));
+        var outputFirst = ExportCommandKernels.GetCSharpInputOperand(
+            new[] { "--output", "dist", "Program.nl" });
         Assert.Equal("Program.nl", outputFirst);
 
-        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
-            new[] { "-o", "--output", "file" },
-            out var shortOutputConsumesLongOutput));
+        var shortOutputConsumesLongOutput = ExportCommandKernels.GetCSharpInputOperand(
+            new[] { "-o", "--output", "file" });
         Assert.Null(shortOutputConsumesLongOutput);
 
-        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
-            new[] { "--output", "--project", "file" },
-            out var longOutputConsumesProject));
+        var longOutputConsumesProject = ExportCommandKernels.GetCSharpInputOperand(
+            new[] { "--output", "--project", "file" });
         Assert.Equal("file", longOutputConsumesProject);
     }
 
     [Fact]
     public void ExportCommandKernels_SummarizesTargets()
     {
-        Assert.True(ExportCommandKernels.TryGetTargetSummary(
-            Array.Empty<string>(),
-            out var empty));
+        var empty = ExportCommandKernels.GetTargetSummary(Array.Empty<string>());
         Assert.Equal(ExportTargetKind.Unknown, empty.TargetKind);
         Assert.True(empty.ShowHelp);
 
-        Assert.True(ExportCommandKernels.TryGetTargetSummary(
-            new[] { "CSHARP", "--help" },
-            out var csharp));
+        var csharp = ExportCommandKernels.GetTargetSummary(new[] { "CSHARP", "--help" });
         Assert.Equal(ExportTargetKind.CSharp, csharp.TargetKind);
         Assert.False(csharp.ShowHelp);
 
-        Assert.True(ExportCommandKernels.TryGetTargetSummary(
-            new[] { "python", "--help" },
-            out var unknown));
+        var unknown = ExportCommandKernels.GetTargetSummary(new[] { "python", "--help" });
         Assert.Equal(ExportTargetKind.Unknown, unknown.TargetKind);
         Assert.False(unknown.ShowHelp);
 
@@ -3348,7 +3338,7 @@ func Main() {
     {
         var args = new[] { "-o", "short.cs", "--project", "samples/demo", "--output", "long.cs" };
 
-        Assert.True(ExportCommandKernels.TryGetCSharpOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = ExportCommandKernels.GetCSharpOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("long.cs", dogfoodSummary.OutputOption);
         Assert.False(dogfoodSummary.ShowHelp);
@@ -3378,7 +3368,7 @@ func Main() {
     [InlineData("src/Program.tests.nls", false)]
     public void ExportCommandKernels_ClassifiesTestSourceFiles(string sourceFile, bool expected)
     {
-        Assert.True(ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var dogfoodIsTestSource));
+        var dogfoodIsTestSource = ExportCommandKernels.IsTestSourceFile(sourceFile);
         Assert.Equal(expected, dogfoodIsTestSource);
         Assert.Equal(expected, ExportCommand.IsTestSourceFile(sourceFile));
     }

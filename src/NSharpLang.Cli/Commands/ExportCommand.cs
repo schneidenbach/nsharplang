@@ -27,12 +27,7 @@ public static class ExportCommand
     }
 
     internal static ExportTargetSummary GetTargetSummary(string[] args)
-    {
-        if (ExportCommandKernels.TryGetTargetSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
-    }
+        => ExportCommandKernels.GetTargetSummary(args);
 
     private static int ExportCSharp(string[] args)
     {
@@ -209,28 +204,13 @@ public static class ExportCommand
     }
 
     internal static ExportCSharpOptionSummary GetExportCSharpOptionSummary(string[] args)
-    {
-        if (ExportCommandKernels.TryGetCSharpOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# export csharp option parser kernel rejected the arguments.");
-    }
+        => ExportCommandKernels.GetCSharpOptionSummary(args);
 
     private static string? GetExportCSharpInputOperand(string[] args)
-    {
-        if (ExportCommandKernels.TryGetCSharpInputOperand(args, out var positional))
-            return positional;
-
-        throw new InvalidOperationException("N# export csharp input parser kernel rejected the arguments.");
-    }
+        => ExportCommandKernels.GetCSharpInputOperand(args);
 
     internal static bool IsTestSourceFile(string sourceFile)
-    {
-        if (ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var isTestSource))
-            return isTestSource;
-
-        throw new InvalidOperationException("N# export test-source classifier kernel rejected the path.");
-    }
+        => ExportCommandKernels.IsTestSourceFile(sourceFile);
 
     private static void EmitDiagnostics(IEnumerable<CompilerError> errors)
     {
