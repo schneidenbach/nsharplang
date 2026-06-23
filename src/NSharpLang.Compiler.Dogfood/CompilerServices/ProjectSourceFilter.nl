@@ -116,6 +116,8 @@ func ProjectSourceFilterMatchesPattern(path: string, pattern: string): bool {
 }
 
 // Backtracking matcher. pathIndex/patternIndex walk the slash-normalized inputs in lockstep.
+// The production regex uses default RegexOptions: "." does not consume '\n', while "[^/]*"
+// does. The final "$" anchor may match just before a trailing '\n'.
 func ProjectSourceFilterMatchFrom(
     path: string,
     pathIndex: int,
@@ -143,6 +145,10 @@ func ProjectSourceFilterMatchFrom(
                     nextPattern := afterStars + 1
                     scan := pi
                     while scan < path.Length {
+                        if path[scan] == '\n' {
+                            return false
+                        }
+
                         crossedSlash := ProjectSourceFilterNormalizeSlash(path[scan]) == '/'
                         scan = scan + 1
                         if crossedSlash {
@@ -155,9 +161,14 @@ func ProjectSourceFilterMatchFrom(
                     return false
                 }
 
-                // Bare "**" => ".*": greedily try the longest remaining tail first, backtracking.
+                // Bare "**" => ".*": greedily try the longest non-newline tail first, backtracking.
                 nextPattern := afterStars
-                k := path.Length
+                limit := pi
+                while limit < path.Length && path[limit] != '\n' {
+                    limit = limit + 1
+                }
+
+                k := limit
                 while k >= pi {
                     if ProjectSourceFilterMatchFrom(path, k, pattern, nextPattern) {
                         return true
@@ -190,8 +201,8 @@ func ProjectSourceFilterMatchFrom(
         }
 
         if pc == '?' {
-            // "." in regex matches any single character except newline; paths never contain '\n'.
-            if pi >= path.Length {
+            // "." in regex matches any single character except newline.
+            if pi >= path.Length || path[pi] == '\n' {
                 return false
             }
 
@@ -213,8 +224,9 @@ func ProjectSourceFilterMatchFrom(
         qi = qi + 1
     }
 
-    // Anchored '$': the whole path must be consumed.
+    // Anchored '$': match at end, or just before a final '\n' like .NET Regex.
     return pi == path.Length
+        || (pi == path.Length - 1 && path[pi] == '\n')
 }
 
 func ProjectSourceFilterNormalizeSlash(ch: char): char {

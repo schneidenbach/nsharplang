@@ -12,8 +12,7 @@ internal static class ProjectSourceFileFilter
     /// <summary>
     /// Single-pass replacement for ProjectConfig.GetSourceFiles' post-enumeration filtering
     /// (test-file filter + exclude-glob filter). Materializes the kept files preserving enumeration
-    /// order. Returns false (so callers keep the C# path) when the dogfood assembly is unavailable
-    /// or any input is unexpected.
+    /// order. Returns false when the dogfood assembly is unavailable or any input is unexpected.
     /// </summary>
     internal static bool TryFilter(
         string[] files,
@@ -44,14 +43,6 @@ internal static class ProjectSourceFileFilter
                     return false;
 
                 var relativePath = Path.GetRelativePath(projectRoot, file);
-
-                // The production glob uses .NET regex, where '.' (and '.*') does not match '\n' and
-                // the trailing '$' anchor matches before a final '\n'. The N# kernel treats '\n' as
-                // an ordinary character, so fall back to the exact C# regex path for the (extremely
-                // rare) case of a newline in an on-disk file path to preserve exact parity.
-                if (relativePath.Contains('\n'))
-                    return false;
-
                 scratch.RelativePaths[i] = relativePath;
             }
 

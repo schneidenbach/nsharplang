@@ -120,38 +120,17 @@ public class ProjectConfig
         // local agent worktrees that can mirror the repo and explode the project size.
         var allFiles = EnumerateSourceFiles(projectRoot).ToArray();
 
-        // Fast path: when exclude globs are present, the N# dogfood kernel classifies every file in
-        // a single pass (test-file filter + exclude-glob filter) without recompiling a regex per
-        // (file, pattern) pair, preserving enumeration order and the exact glob semantics of
-        // MatchesPattern below. With no excludes there is no regex to avoid, so the cheap LINQ
-        // suffix filter below stays on the C# path (and skips per-file Path.GetRelativePath).
-        if (Exclude.Count > 0 &&
-            ProjectSourceFileFilter.TryFilter(
-                allFiles,
-                projectRoot,
-                Exclude.ToArray(),
-                includeTests,
-                out var dogfoodFiles))
+        if (ProjectSourceFileFilter.TryFilter(
+            allFiles,
+            projectRoot,
+            Exclude.ToArray(),
+            includeTests,
+            out var dogfoodFiles))
         {
             return dogfoodFiles;
         }
 
-        // Filter out test files if not including them
-        var files = includeTests
-            ? allFiles
-            : allFiles.Where(f => !f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)).ToArray();
-
-        // Apply exclude patterns
-        if (Exclude.Count > 0)
-        {
-            files = files.Where(file =>
-            {
-                var relativePath = Path.GetRelativePath(projectRoot, file);
-                return !Exclude.Any(pattern => MatchesPattern(relativePath, pattern));
-            }).ToArray();
-        }
-
-        return files;
+        throw new InvalidOperationException("N# project source-file filter kernel rejected the project files.");
     }
 
     private static readonly HashSet<string> DefaultSkippedSourceDirectories = new(StringComparer.OrdinalIgnoreCase)
@@ -211,25 +190,6 @@ public class ProjectConfig
         }
     }
 
-    /// <summary>
-    /// Simple glob pattern matching (supports * and **)
-    /// </summary>
-    private static bool MatchesPattern(string path, string pattern)
-    {
-        // Normalize path separators
-        path = path.Replace('\\', '/');
-        pattern = pattern.Replace('\\', '/');
-
-        // Convert glob pattern to regex
-        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
-            .Replace("\\*\\*/", ".*?/")  // **/ matches any number of directories
-            .Replace("\\*\\*", ".*")      // ** matches anything
-            .Replace("\\*", "[^/]*")      // * matches anything except /
-            .Replace("\\?", ".")          // ? matches single character
-            + "$";
-
-        return System.Text.RegularExpressions.Regex.IsMatch(path, regexPattern);
-    }
 }
 
 public enum SourceGeneratorReferenceKind
