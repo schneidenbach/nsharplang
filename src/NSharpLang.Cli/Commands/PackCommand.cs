@@ -161,7 +161,19 @@ public static class PackCommand
         }
 
         using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
-        AddTextEntry(archive, $"{projectName}.nuspec", GenerateNuspec(config, projectName, version));
+        var pkg = config.Package;
+        var packageTags = pkg?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
+        var nuspecText = PackCommandKernels.GetNuspecText(
+            projectName,
+            version,
+            pkg?.Author ?? string.Empty,
+            pkg?.Description ?? string.Empty,
+            packageTags,
+            pkg?.Tags?.Count ?? 0,
+            pkg?.License ?? string.Empty,
+            pkg?.Repository ?? string.Empty,
+            pkg?.Icon ?? string.Empty);
+        AddTextEntry(archive, $"{projectName}.nuspec", nuspecText);
         archive.CreateEntryFromFile(assemblyPath, $"lib/{config.TargetFramework}/{Path.GetFileName(assemblyPath)}");
 
         var runtimeConfigPath = Path.ChangeExtension(assemblyPath, ".runtimeconfig.json");
@@ -195,22 +207,6 @@ public static class PackCommand
         {
             archive.CreateEntryFromFile(pdbPath, $"lib/{Path.GetFileName(pdbPath)}");
         }
-    }
-
-    static string GenerateNuspec(ProjectConfig config, string projectName, string version)
-    {
-        var pkg = config.Package;
-        var packageTags = pkg?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
-        return PackCommandKernels.GetNuspecText(
-            projectName,
-            version,
-            pkg?.Author ?? string.Empty,
-            pkg?.Description ?? string.Empty,
-            packageTags,
-            pkg?.Tags?.Count ?? 0,
-            pkg?.License ?? string.Empty,
-            pkg?.Repository ?? string.Empty,
-            pkg?.Icon ?? string.Empty);
     }
 
     static void AddTextEntry(ZipArchive archive, string entryName, string contents)

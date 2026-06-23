@@ -353,16 +353,13 @@ internal static class CompilationReferenceResolver
         }
 
         return Directory.GetFiles(outputRoot, $"{assemblyName}.dll", SearchOption.AllDirectories)
-            .Where(path => !IsReferenceAssemblyOutputPath(path))
+            .Where(path => !CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
+                path,
+                Path.DirectorySeparatorChar,
+                "ref"))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }
-
-    private static bool IsReferenceAssemblyOutputPath(string path)
-        => CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
-            path,
-            Path.DirectorySeparatorChar,
-            "ref");
 
     private static string? ReadCSharpProjectAssemblyName(string projectPath)
     {
