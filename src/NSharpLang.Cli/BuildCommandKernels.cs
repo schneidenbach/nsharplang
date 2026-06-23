@@ -12,50 +12,26 @@ internal static class BuildCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOperandSummary(string[] args, out int count, out int firstOperandIndex)
+    internal static (int Count, int FirstOperandIndex) GetOperandSummary(string[] args)
     {
-        count = 0;
-        firstOperandIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var scratch = t_operandScratch ??= new OperandScratch();
         scratch.EnsureCapacity(args.Length);
 
-        try
-        {
-            count = bindings.BuildOperandSummary(
-                args,
-                scratch.KindIds,
-                scratch.NextIndices,
-                scratch.PreviousIndices,
-                scratch.NextOptionIndices,
-                scratch.ResultIndices);
-            if (count < 0 || count > args.Length)
-            {
-                count = 0;
-                firstOperandIndex = -1;
-                return false;
-            }
+        var count = RequiredBindings.BuildOperandSummary(
+            args,
+            scratch.KindIds,
+            scratch.NextIndices,
+            scratch.PreviousIndices,
+            scratch.NextOptionIndices,
+            scratch.ResultIndices);
+        if (count < 0 || count > args.Length)
+            throw new InvalidOperationException("N# build operand summary kernel rejected the arguments.");
 
-            firstOperandIndex = count > 0 ? scratch.ResultIndices[0] : -1;
-            if ((count > 0 && firstOperandIndex < 0) || firstOperandIndex < -1 || firstOperandIndex >= args.Length)
-            {
-                count = 0;
-                firstOperandIndex = -1;
-                return false;
-            }
+        var firstOperandIndex = count > 0 ? scratch.ResultIndices[0] : -1;
+        if ((count > 0 && firstOperandIndex < 0) || firstOperandIndex < -1 || firstOperandIndex >= args.Length)
+            throw new InvalidOperationException("N# build operand summary kernel rejected the arguments.");
 
-            return true;
-        }
-        catch
-        {
-            count = 0;
-            firstOperandIndex = -1;
-            return false;
-        }
+        return (count, firstOperandIndex);
     }
 
     internal static BuildOptionSummary GetOptionSummary(string[] args)

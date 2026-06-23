@@ -1032,12 +1032,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
-    {
-        if (PositionalArgumentKernels.TryGetArgs(args, optionsWithValues, out var positionalArgs))
-            return positionalArgs;
-
-        throw new InvalidOperationException("N# positional argument kernel rejected the arguments.");
-    }
+        => PositionalArgumentKernels.GetArgs(args, optionsWithValues);
 
     static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
         => NewCommandKernels.GetProjectNameOperand(args, optionsWithValues);
@@ -1055,23 +1050,14 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {
-        if (BuildCommandKernels.TryGetOperandSummary(args, out var count, out var firstOperandIndex))
-        {
-            return new BuildOperandSummary(
-                count,
-                count > 0 ? args[firstOperandIndex] : null);
-        }
-
-        throw new InvalidOperationException("N# build operand summary kernel rejected the arguments.");
+        var summary = BuildCommandKernels.GetOperandSummary(args);
+        return new BuildOperandSummary(
+            summary.Count,
+            summary.Count > 0 ? args[summary.FirstOperandIndex] : null);
     }
 
     internal static string? GetRunSourceOperand(string[] args)
-    {
-        if (RunCommandKernels.TryGetSourceOperand(args, out var operand))
-            return operand;
-
-        throw new InvalidOperationException("N# run source operand kernel rejected the arguments.");
-    }
+        => RunCommandKernels.GetSourceOperand(args);
 
     internal static RunOptionSummary GetRunOptionSummary(string[] args)
         => RunCommandKernels.GetOptionSummary(args);

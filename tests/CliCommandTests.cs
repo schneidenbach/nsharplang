@@ -2510,10 +2510,9 @@ func Main() {
             "console"
         };
 
-        Assert.True(PositionalArgumentKernels.TryGetArgs(
+        var positionalArgs = PositionalArgumentKernels.GetArgs(
             args,
-            new[] { "--template", "--type" },
-            out var positionalArgs));
+            new[] { "--template", "--type" });
         Assert.Equal(new[] { "systems-cli", "PacketTool", "src/App.nl", "" }, positionalArgs);
     }
 
@@ -3541,12 +3540,9 @@ func Main() {
     [Fact]
     public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
     {
-        Assert.True(BuildCommandKernels.TryGetOperandSummary(
-            Array.Empty<string>(),
-            out var emptyCount,
-            out var emptyIndex));
-        Assert.Equal(0, emptyCount);
-        Assert.Equal(-1, emptyIndex);
+        var empty = BuildCommandKernels.GetOperandSummary(Array.Empty<string>());
+        Assert.Equal(0, empty.Count);
+        Assert.Equal(-1, empty.FirstOperandIndex);
 
         var args = new[]
         {
@@ -3561,24 +3557,18 @@ func Main() {
             "Program.nl"
         };
 
-        Assert.True(BuildCommandKernels.TryGetOperandSummary(args, out var count, out var firstOperandIndex));
-        Assert.Equal(1, count);
-        Assert.Equal(8, firstOperandIndex);
-        Assert.Equal("Program.nl", args[firstOperandIndex]);
+        var summary = BuildCommandKernels.GetOperandSummary(args);
+        Assert.Equal(1, summary.Count);
+        Assert.Equal(8, summary.FirstOperandIndex);
+        Assert.Equal("Program.nl", args[summary.FirstOperandIndex]);
 
-        Assert.True(BuildCommandKernels.TryGetOperandSummary(
-            new[] { "Main.nl", "--backend", "il" },
-            out var sourceFirstCount,
-            out var sourceFirstIndex));
-        Assert.Equal(1, sourceFirstCount);
-        Assert.Equal(0, sourceFirstIndex);
+        var sourceFirst = BuildCommandKernels.GetOperandSummary(new[] { "Main.nl", "--backend", "il" });
+        Assert.Equal(1, sourceFirst.Count);
+        Assert.Equal(0, sourceFirst.FirstOperandIndex);
 
-        Assert.True(BuildCommandKernels.TryGetOperandSummary(
-            new[] { "Main.nl", "--backend", "il", "Extra.nl" },
-            out var multiSourceCount,
-            out var multiSourceFirstIndex));
-        Assert.Equal(2, multiSourceCount);
-        Assert.Equal(0, multiSourceFirstIndex);
+        var multiSource = BuildCommandKernels.GetOperandSummary(new[] { "Main.nl", "--backend", "il", "Extra.nl" });
+        Assert.Equal(2, multiSource.Count);
+        Assert.Equal(0, multiSource.FirstOperandIndex);
     }
 
     [Fact]
@@ -3682,29 +3672,19 @@ func Main() {
     [Fact]
     public void RunCommandKernels_SelectsSourceOperandAfterBackendStripping()
     {
-        Assert.True(RunCommandKernels.TryGetSourceOperand(
-            Array.Empty<string>(),
-            out var empty));
+        var empty = RunCommandKernels.GetSourceOperand(Array.Empty<string>());
         Assert.Null(empty);
 
-        Assert.True(RunCommandKernels.TryGetSourceOperand(
-            new[] { "--backend", "il" },
-            out var projectRun));
+        var projectRun = RunCommandKernels.GetSourceOperand(new[] { "--backend", "il" });
         Assert.Null(projectRun);
 
-        Assert.True(RunCommandKernels.TryGetSourceOperand(
-            new[] { "--backend", "il", "Program.nl" },
-            out var backendFirst));
+        var backendFirst = RunCommandKernels.GetSourceOperand(new[] { "--backend", "il", "Program.nl" });
         Assert.Equal("Program.nl", backendFirst);
 
-        Assert.True(RunCommandKernels.TryGetSourceOperand(
-            new[] { "Program.nl", "--backend", "il" },
-            out var sourceFirst));
+        var sourceFirst = RunCommandKernels.GetSourceOperand(new[] { "Program.nl", "--backend", "il" });
         Assert.Equal("Program.nl", sourceFirst);
 
-        Assert.True(RunCommandKernels.TryGetSourceOperand(
-            new[] { "--backend" },
-            out var danglingBackend));
+        var danglingBackend = RunCommandKernels.GetSourceOperand(new[] { "--backend" });
         Assert.Equal("--backend", danglingBackend);
 
         Assert.Equal(

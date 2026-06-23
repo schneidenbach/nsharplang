@@ -25,31 +25,16 @@ internal static class RunCommandKernels
             resultIndices[1] != 0);
     }
 
-    internal static bool TryGetSourceOperand(string[] args, out string? operand)
+    internal static string? GetSourceOperand(string[] args)
     {
-        operand = null;
+        var index = RequiredBindings.RunFirstOperandIndex(args);
+        if (index == -1)
+            return null;
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        if (index < 0 || index >= args.Length)
+            throw new InvalidOperationException("N# run source operand kernel rejected the arguments.");
 
-        try
-        {
-            var index = bindings.RunFirstOperandIndex(args);
-            if (index == -1)
-                return true;
-
-            if (index < 0 || index >= args.Length)
-                return false;
-
-            operand = args[index];
-            return true;
-        }
-        catch
-        {
-            operand = null;
-            return false;
-        }
+        return args[index];
     }
 
     internal static string GetHelpText()

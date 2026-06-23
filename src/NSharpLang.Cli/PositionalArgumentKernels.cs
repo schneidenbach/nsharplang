@@ -9,17 +9,11 @@ internal static class PositionalArgumentKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgs(
+    internal static string[] GetArgs(
         string[] args,
-        string[] optionsWithValues,
-        out string[] positionalArgs)
+        string[] optionsWithValues)
     {
-        positionalArgs = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# positional argument kernels are unavailable.");
         var resultIndices = t_resultIndices;
         if (resultIndices == null || resultIndices.Length < args.Length)
         {
@@ -27,32 +21,21 @@ internal static class PositionalArgumentKernels
             t_resultIndices = resultIndices;
         }
 
-        try
+        var count = bindings.PositionalArgIndices(args, optionsWithValues, resultIndices);
+        if (count < 0 || count > args.Length)
+            throw new InvalidOperationException("N# positional argument kernel rejected the arguments.");
+
+        var positionalArgs = new string[count];
+        for (var i = 0; i < count; i++)
         {
-            var count = bindings.PositionalArgIndices(args, optionsWithValues, resultIndices);
-            if (count < 0 || count > args.Length)
-                return false;
+            var sourceIndex = resultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= args.Length)
+                throw new InvalidOperationException("N# positional argument kernel rejected the arguments.");
 
-            positionalArgs = new string[count];
-            for (var i = 0; i < count; i++)
-            {
-                var sourceIndex = resultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= args.Length)
-                {
-                    positionalArgs = Array.Empty<string>();
-                    return false;
-                }
-
-                positionalArgs[i] = args[sourceIndex];
-            }
-
-            return true;
+            positionalArgs[i] = args[sourceIndex];
         }
-        catch
-        {
-            positionalArgs = Array.Empty<string>();
-            return false;
-        }
+
+        return positionalArgs;
     }
 
     private static Bindings? LoadBindings()
