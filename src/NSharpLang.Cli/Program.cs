@@ -353,21 +353,6 @@ partial class Program
         throw new InvalidOperationException("N# generated output base-path length kernel rejected the path.");
     }
 
-    static string FindRepoRoot(string startPath)
-    {
-        var current = new DirectoryInfo(startPath);
-        while (current != null)
-        {
-            if (Directory.Exists(Path.Combine(current.FullName, "src/NSharpLang.Sdk")))
-            {
-                return current.FullName;
-            }
-            current = current.Parent;
-        }
-        // Fallback: assume we're in the repo
-        return startPath;
-    }
-
     static string CreateTempBuildDirectory()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");
