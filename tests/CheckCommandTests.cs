@@ -513,6 +513,57 @@ func countChars(s: string): int {
     }
 
     [Fact]
+    public void CheckCommand_AotProjectReferenceDoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+            TestSdkFeed.WriteVersionedSdkProject(sharedDir, "SharedLib");
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: SharedLib
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: App
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - project: Shared/project.yml
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Root(): int {
+    return 1
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("AOT builds are not allowed to fall back to the C# ILCompiler", stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_ProjectYmlNative_DoesNotCreateGeneratedCsproj()
     {
         var tempDir = CreateTempDir();

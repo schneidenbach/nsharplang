@@ -1356,6 +1356,64 @@ class Greeter {
     }
 
     [Fact]
+    public void BuildCommand_AotProjectReferenceDoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+            TestSdkFeed.WriteVersionedSdkProject(sharedDir, "SharedLib");
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: SharedLib
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: App
+outputType: exe
+targetFramework: net10.0
+dependencies:
+  - project: Shared/project.yml
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "root"
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--aot", "-o", outputDir));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("AOT builds are not allowed to fall back to the C# ILCompiler", stdout + stderr);
+            Assert.False(File.Exists(Path.Combine(outputDir, "SharedLib.dll")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void ReferenceResolver_CSharpProjectReference_IsLibraryReferenceOnly()
     {
         var tempDir = CreateTempDir();

@@ -39,7 +39,7 @@ partial class Program
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions(Configuration: configuration, Quiet: !verbose));
+                new ReferenceResolutionOptions(Configuration: configuration, Quiet: !verbose, AotMode: aot));
             resolveSw.Stop();
 
             compileSw.Start();
@@ -199,7 +199,7 @@ partial class Program
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
             projectRoot,
             config,
-            new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose));
+            new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose, AotMode: aotMode));
 
         return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests, aotMode);
     }

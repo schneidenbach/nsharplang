@@ -40,7 +40,10 @@ public static class CheckCommand
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
             if (projectConfig != null)
             {
-                CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
+                CompilationReferenceResolver.AddResolvedDllReferences(
+                    projectDir,
+                    projectConfig,
+                    new ReferenceResolutionOptions(AotMode: aot));
             }
 
             CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig);

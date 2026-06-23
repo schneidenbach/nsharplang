@@ -17,7 +17,8 @@ internal sealed record ReferenceResolutionOptions(
     string Configuration = "Debug",
     bool IncludeTests = false,
     bool BuildProjectReferences = true,
-    bool Quiet = false);
+    bool Quiet = false,
+    bool AotMode = false);
 
 internal sealed class ReferenceResolutionResult
 {
@@ -239,6 +240,7 @@ internal static class CompilationReferenceResolver
             var assemblyName = GetProjectAssemblyName(projectRoot, config);
             var outputPath = Path.Combine(outputDirectory, $"{assemblyName}.dll");
             var compiler = new MultiFileCompiler(projectRoot, config);
+            compiler.AotMode = options.AotMode;
             var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
             if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
             {
