@@ -68,6 +68,40 @@ func Run(): int {
     }
 
     [Fact]
+    public void AotMode_SourceGeneratorEmissionDoesNotFallbackToCSharpExport()
+    {
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return GeneratedTools.Value + 1
+}
+"""));
+
+        var config = CreateLibraryConfig("AotGeneratedType");
+        AddDirectGenerator(config);
+        var outputPath = project.OutputPath("AotGeneratedType");
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config)
+        {
+            AotMode = true
+        };
+
+        var result = compiler.CompileToIlAssembly("AotGeneratedType", outputPath);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error =>
+            error.Message.Contains("source generators require C# export emission", StringComparison.Ordinal));
+        Assert.False(File.Exists(outputPath));
+        Assert.False(File.Exists(Path.Combine(
+            project.Root,
+            "obj",
+            "nsharp",
+            "generated",
+            "AotGeneratedType",
+            "emit",
+            "exported",
+            "Program.nl.cs")));
+    }
+
+    [Fact]
     public void PackageReferenceSourceGenerator_RunsFromNuGetAnalyzerAssets()
     {
         using var packages = UseSyntheticNuGetPackages();

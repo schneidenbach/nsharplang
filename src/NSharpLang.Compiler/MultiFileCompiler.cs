@@ -949,17 +949,24 @@ public class MultiFileCompiler
 
             if (ShouldEmitWithSourceGenerators())
             {
-                ExportAllFilesToCSharp();
-                if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+                if (AotMode)
                 {
-                    var emitResult = SourceGeneratorPipeline.EmitFinalAssembly(
-                        _config!,
-                        _projectRoot,
-                        assemblyName,
-                        _exportedCSharpFiles,
-                        _compilationUnits.Values,
-                        outputPath);
-                    _allErrors.AddRange(emitResult.Diagnostics);
+                    AddRequiredColumnarAotSourceGeneratorEmissionError(assemblyName);
+                }
+                else
+                {
+                    ExportAllFilesToCSharp();
+                    if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+                    {
+                        var emitResult = SourceGeneratorPipeline.EmitFinalAssembly(
+                            _config!,
+                            _projectRoot,
+                            assemblyName,
+                            _exportedCSharpFiles,
+                            _compilationUnits.Values,
+                            outputPath);
+                        _allErrors.AddRange(emitResult.Diagnostics);
+                    }
                 }
             }
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
@@ -1096,6 +1103,21 @@ public class MultiFileCompiler
         {
             HumanExplanation = "AOT builds are not allowed to fall back to the C# ILCompiler after AOT analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
+        });
+    }
+
+    private void AddRequiredColumnarAotSourceGeneratorEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar AOT emission is required for '{assemblyName}', but source generators require C# export emission.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "AOT builds are not allowed to use source-generator emission because it materializes N# as C# before emitting the final assembly.",
+            ContextualHint = "The source-generator analysis pass may still expose generated symbols to diagnostics, but final AOT assembly emission must stay on the columnar path.",
+            Suggestion = "Remove the source generator dependency, port the generated surface to N#/columnar, or build without --aot until source-generator emission is columnar-owned."
         });
     }
 
