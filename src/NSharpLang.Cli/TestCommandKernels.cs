@@ -19,56 +19,39 @@ internal static class TestCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TrySummarizeOutcomeRanks(
+    internal static (bool Ok, int Passed, int Failed, int Skipped) SummarizeOutcomeRanks(
         int[] outcomeRanks,
-        int outcomeCount,
-        out (bool Ok, int Passed, int Failed, int Skipped) summary)
+        int outcomeCount)
     {
-        summary = (true, 0, 0, 0);
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         if (outcomeCount < 0 || outcomeCount > outcomeRanks.Length)
-            return false;
+            throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.");
 
         var summaryCounts = t_summaryCounts ??= new int[4];
-        try
-        {
-            var summarizedCount = bindings.TestOutcomeSummary(
-                outcomeRanks,
-                outcomeCount,
-                summaryCounts);
+        var summarizedCount = RequiredBindings.TestOutcomeSummary(
+            outcomeRanks,
+            outcomeCount,
+            summaryCounts);
 
-            var passed = summaryCounts[0];
-            var failed = summaryCounts[1];
-            var skipped = summaryCounts[2];
-            var nonOk = summaryCounts[3];
-            if (summarizedCount != outcomeCount ||
-                passed < 0 ||
-                failed < 0 ||
-                skipped < 0 ||
-                nonOk < 0 ||
-                passed > outcomeCount ||
-                failed > outcomeCount ||
-                skipped > outcomeCount ||
-                nonOk > outcomeCount ||
-                passed + failed + skipped > outcomeCount ||
-                nonOk < failed)
-            {
-                summary = (true, 0, 0, 0);
-                return false;
-            }
-
-            summary = (nonOk == 0, passed, failed, skipped);
-            return true;
-        }
-        catch
+        var passed = summaryCounts[0];
+        var failed = summaryCounts[1];
+        var skipped = summaryCounts[2];
+        var nonOk = summaryCounts[3];
+        if (summarizedCount != outcomeCount ||
+            passed < 0 ||
+            failed < 0 ||
+            skipped < 0 ||
+            nonOk < 0 ||
+            passed > outcomeCount ||
+            failed > outcomeCount ||
+            skipped > outcomeCount ||
+            nonOk > outcomeCount ||
+            passed + failed + skipped > outcomeCount ||
+            nonOk < failed)
         {
-            summary = (true, 0, 0, 0);
-            return false;
+            throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.");
         }
+
+        return (nonOk == 0, passed, failed, skipped);
     }
 
     internal static TestOptionSummary GetOptionSummary(string[] args)
@@ -113,33 +96,17 @@ internal static class TestCommandKernels
         return value < 0 ? null : value;
     }
 
-    internal static bool TryMatchesFilter(
+    internal static bool MatchesFilter(
         string filter,
         string displayName,
         string alternateDisplayName,
-        string fullyQualifiedName,
-        out bool matches)
+        string fullyQualifiedName)
     {
-        matches = false;
+        var code = RequiredBindings.TestFilterMatches(filter, displayName, alternateDisplayName, fullyQualifiedName);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# test filter kernel rejected the filter.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.TestFilterMatches(filter, displayName, alternateDisplayName, fullyQualifiedName);
-            if (code is not 0 and not 1)
-                return false;
-
-            matches = code == 1;
-            return true;
-        }
-        catch
-        {
-            matches = false;
-            return false;
-        }
+        return code == 1;
     }
 
     internal static string GetHelpText()

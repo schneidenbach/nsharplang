@@ -367,17 +367,11 @@ partial class Program
 
         var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
         var fullyQualifiedName = GetXunitFullyQualifiedName(testCase);
-        if (TestCommandKernels.TryMatchesFilter(
-                filter,
-                displayName,
-                testCase.DisplayName,
-                fullyQualifiedName,
-                out var matches))
-        {
-            return matches;
-        }
-
-        throw new InvalidOperationException("N# test filter kernel rejected the filter.");
+        return TestCommandKernels.MatchesFilter(
+            filter,
+            displayName,
+            testCase.DisplayName,
+            fullyQualifiedName);
     }
 
     private static NativeTestRun RunReflectionTests(
@@ -592,17 +586,11 @@ partial class Program
             return true;
         }
 
-        if (TestCommandKernels.TryMatchesFilter(
-                filter,
-                testCase.DisplayName,
-                string.Empty,
-                testCase.FullyQualifiedName,
-                out var matches))
-        {
-            return matches;
-        }
-
-        throw new InvalidOperationException("N# test filter kernel rejected the filter.");
+        return TestCommandKernels.MatchesFilter(
+            filter,
+            testCase.DisplayName,
+            string.Empty,
+            testCase.FullyQualifiedName);
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)
@@ -702,20 +690,16 @@ partial class Program
 
     private static NativeTestSummary SummarizeNativeTestRun(NativeTestRun testRun)
     {
-        if (TestCommandKernels.TrySummarizeOutcomeRanks(
-                testRun.OutcomeRanks,
-                testRun.OutcomeCount,
-                out var dogfoodSummary))
-        {
-            return new NativeTestSummary(
-                dogfoodSummary.Ok,
-                testRun.OutcomeCount,
-                dogfoodSummary.Passed,
-                dogfoodSummary.Failed,
-                dogfoodSummary.Skipped);
-        }
+        var dogfoodSummary = TestCommandKernels.SummarizeOutcomeRanks(
+            testRun.OutcomeRanks,
+            testRun.OutcomeCount);
 
-        throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.");
+        return new NativeTestSummary(
+            dogfoodSummary.Ok,
+            testRun.OutcomeCount,
+            dogfoodSummary.Passed,
+            dogfoodSummary.Failed,
+            dogfoodSummary.Skipped);
     }
 
     private static int GetNativeTestOutcomeRank(string outcome) =>

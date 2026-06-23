@@ -4916,10 +4916,9 @@ dependencies:
     [Fact]
     public void TestCommandKernels_SummarizesTestOutcomeRanks()
     {
-        Assert.True(TestCommandKernels.TrySummarizeOutcomeRanks(
+        var testSummary = TestCommandKernels.SummarizeOutcomeRanks(
             new[] { 1, 1, 3, 2, 0, 1 },
-            6,
-            out var testSummary));
+            6);
         Assert.False(testSummary.Ok);
         Assert.Equal(3, testSummary.Passed);
         Assert.Equal(1, testSummary.Failed);
@@ -5055,12 +5054,11 @@ dependencies:
             string fullyQualifiedName,
             bool expected)
         {
-            Assert.True(TestCommandKernels.TryMatchesFilter(
+            var actual = TestCommandKernels.MatchesFilter(
                 filter,
                 displayName,
                 alternateDisplayName,
-                fullyQualifiedName,
-                out var actual));
+                fullyQualifiedName);
             Assert.Equal(expected, actual);
         }
     }
