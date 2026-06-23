@@ -116,7 +116,7 @@ partial class Program
         var cliDefines = ExtractDefineFlags(ref args);
 
         var buildOptions = BuildCommandKernels.GetOptionSummary(args);
-        var buildOperands = GetBuildOperandSummary(args);
+        var buildOperands = BuildCommandKernels.GetOperandSummary(args);
 
         try
         {
@@ -147,7 +147,7 @@ partial class Program
                 return buildResult;
             }
 
-            var sourceFile = buildOperands.FirstOperand!;
+            var sourceFile = args[buildOperands.FirstOperandIndex];
             if (!File.Exists(sourceFile))
             {
                 return Error(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
@@ -286,11 +286,11 @@ partial class Program
         foreach (var nlFile in Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
         {
             var rel = Path.GetRelativePath(projectRoot, nlFile);
-            if (ShouldSkipGeneratedSourcePath(rel))
+            if (GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath(rel))
                 continue;
 
             // Strip .nl (or .tests.nl) extension to get the base name with relative dir
-            var basePathLength = GetGeneratedSourceBasePathLength(rel);
+            var basePathLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength(rel);
             if (basePathLength < 0)
                 continue;
 
@@ -312,7 +312,7 @@ partial class Program
             foreach (var gcsFile in Directory.GetFiles(nsharpDir, "*.g.cs", SearchOption.AllDirectories))
             {
                 var relToNsharp = Path.GetRelativePath(nsharpDir, gcsFile).Replace('\\', '/');
-                var basePathLength = GetGeneratedOutputBasePathLength(relToNsharp);
+                var basePathLength = GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength(relToNsharp);
                 var basePath = basePathLength >= 0 ? relToNsharp[..basePathLength] : relToNsharp;
 
                 if (!nlRelativePaths.Contains(basePath))
@@ -322,15 +322,6 @@ partial class Program
             }
         }
     }
-
-    static int GetGeneratedSourceBasePathLength(string relativeSourcePath)
-        => GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength(relativeSourcePath);
-
-    static bool ShouldSkipGeneratedSourcePath(string relativeSourcePath)
-        => GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath(relativeSourcePath);
-
-    static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
-        => GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength(relativeGeneratedPath);
 
     static string CreateTempBuildDirectory()
     {
@@ -571,8 +562,9 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "project.yml"));
             Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "global.json"));
             Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "NuGet.config"));
-            foreach (var file in GetTemplateSourceFiles(template))
+            foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
             {
+                var file = GetTemplateSourceFileName(sourceFileKind);
                 Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, file));
             }
 
@@ -601,16 +593,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         {
             return Error(NewCommandKernels.GetFailedMessage(ex.Message));
         }
-    }
-
-    static string[] GetTemplateSourceFiles(string template)
-    {
-        var sourceFileKinds = NewCommandKernels.GetTemplateSourceFileKinds(template);
-        var sourceFiles = new string[sourceFileKinds.Length];
-        for (var i = 0; i < sourceFileKinds.Length; i++)
-            sourceFiles[i] = GetTemplateSourceFileName(sourceFileKinds[i]);
-
-        return sourceFiles;
     }
 
     static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
@@ -971,16 +953,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         var extraction = DefineArgumentKernels.Extract(args);
         args = extraction.RemainingArgs;
         return extraction.Defines.ToList();
-    }
-
-    private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
-
-    static BuildOperandSummary GetBuildOperandSummary(string[] args)
-    {
-        var summary = BuildCommandKernels.GetOperandSummary(args);
-        return new BuildOperandSummary(
-            summary.Count,
-            summary.Count > 0 ? args[summary.FirstOperandIndex] : null);
     }
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
