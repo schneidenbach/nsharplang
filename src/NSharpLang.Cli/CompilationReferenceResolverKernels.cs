@@ -87,39 +87,19 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
-    internal static bool TrySelectBestScoreIndex(int[] scores, int count, out int bestIndex)
+    internal static int SelectBestScoreIndex(int[] scores, int count)
     {
-        bestIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         if (count < 0 || count > scores.Length)
-            return false;
+            throw new ArgumentOutOfRangeException(nameof(count), "Score count must fit within the score array.");
 
-        try
-        {
-            bestIndex = bindings.ReferenceResolutionBestScoreIndex(scores, count);
-            if (bestIndex < -1 || bestIndex >= count)
-            {
-                bestIndex = -1;
-                return false;
-            }
+        var bestIndex = RequiredBindings.ReferenceResolutionBestScoreIndex(scores, count);
+        if (bestIndex < -1 || bestIndex >= count)
+            throw new InvalidOperationException("N# reference resolver score kernel returned an invalid score index.");
 
-            if (bestIndex >= 0 && scores[bestIndex] < 0)
-            {
-                bestIndex = -1;
-                return false;
-            }
+        if (bestIndex >= 0 && scores[bestIndex] < 0)
+            throw new InvalidOperationException("N# reference resolver score kernel selected an incompatible score.");
 
-            return true;
-        }
-        catch
-        {
-            bestIndex = -1;
-            return false;
-        }
+        return bestIndex;
     }
 
     internal static bool TryParseTargetFrameworkVersion(
@@ -344,13 +324,7 @@ internal static class CompilationReferenceResolverKernels
     }
 
     internal static string GetCSharpProjectReferenceBuildMessage(string projectPath)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            throw new InvalidOperationException("N# reference resolver kernels are unavailable.");
-
-        return bindings.CSharpProjectReferenceBuildMessage(projectPath);
-    }
+        => RequiredBindings.CSharpProjectReferenceBuildMessage(projectPath);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -384,6 +358,10 @@ internal static class CompilationReferenceResolverKernels
             DogfoodKernelLoader.CreateDelegate<CliCSharpProjectReferenceBuildMessage>(
                 programType,
                 "CliCSharpProjectReferenceBuildMessage")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value
+            ?? throw new InvalidOperationException("N# reference resolver kernels are unavailable.");
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,

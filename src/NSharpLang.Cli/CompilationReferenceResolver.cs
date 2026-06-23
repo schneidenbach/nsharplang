@@ -731,12 +731,7 @@ internal static class CompilationReferenceResolver
     }
 
     private static int SelectBestFrameworkScoreIndex(int[] scores)
-    {
-        if (CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length, out var dogfoodBestIndex))
-            return dogfoodBestIndex;
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected framework score selection.");
-    }
+        => CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
 
     private static string? NormalizeNuGetDependencyVersion(string? version)
     {
