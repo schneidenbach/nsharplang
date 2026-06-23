@@ -798,16 +798,13 @@ internal static class CompilationReferenceResolver
             versions[i] = candidates[i].Version;
 
         var targetMajor = targetVersion.HasValue ? targetVersion.Value.Major : (int?)null;
-        if (CompilationReferenceResolverKernels.TrySelectSharedFrameworkCandidateIndex(
-                versions,
-                targetMajor,
-                out var dogfoodIndex)
-            && dogfoodIndex >= 0)
-        {
+        var dogfoodIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkCandidateIndex(
+            versions,
+            targetMajor);
+        if (dogfoodIndex >= 0)
             return candidates[dogfoodIndex].Directory;
-        }
 
-        throw new InvalidOperationException("N# reference resolver kernel rejected shared-framework directory selection.");
+        throw new InvalidOperationException("N# reference resolver kernel did not select a shared-framework directory.");
     }
 
     private static IEnumerable<string> EnumerateDotnetSharedRoots()
@@ -842,25 +839,12 @@ internal static class CompilationReferenceResolver
     }
 
     private static int GetFrameworkCompatibilityScore(string? assetFramework, string targetFramework)
-    {
-        if (CompilationReferenceResolverKernels.TryGetFrameworkCompatibilityScore(assetFramework, targetFramework, out var dogfoodScore))
-            return dogfoodScore;
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected framework compatibility scoring.");
-    }
+        => CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(assetFramework, targetFramework);
 
     private static (int Major, int Minor)? ParseTargetFrameworkVersion(string targetFramework)
     {
-        if (CompilationReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out var major,
-                out var minor))
-        {
-            return parsed ? (major, minor) : null;
-        }
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected target-framework version parsing.");
+        var parsed = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+        return parsed.Parsed ? (parsed.Major, parsed.Minor) : null;
     }
 
     private static Version? TryParseVersion(string? value)

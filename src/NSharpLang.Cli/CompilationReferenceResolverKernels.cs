@@ -85,64 +85,28 @@ internal static class CompilationReferenceResolverKernels
         return bestIndex;
     }
 
-    internal static bool TryParseTargetFrameworkVersion(
-        string targetFramework,
-        out bool parsed,
-        out int major,
-        out int minor)
+    internal static (bool Parsed, int Major, int Minor) ParseTargetFrameworkVersion(string targetFramework)
     {
-        parsed = false;
-        major = 0;
-        minor = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_targetFrameworkVersionResult ??= new int[2];
-        try
-        {
-            var code = bindings.TargetFrameworkVersion(targetFramework, result);
-            if (code is not 0 and not 1)
-                return false;
 
-            parsed = code == 1;
-            major = result[0];
-            minor = result[1];
-            return true;
-        }
-        catch
-        {
-            parsed = false;
-            major = 0;
-            minor = 0;
-            return false;
-        }
+        var code = RequiredBindings.TargetFrameworkVersion(targetFramework, result);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# reference resolver target-framework parser returned an invalid code.");
+
+        return code == 1
+            ? (true, result[0], result[1])
+            : (false, 0, 0);
     }
 
-    internal static bool TryGetFrameworkCompatibilityScore(string? assetFramework, string targetFramework, out int score)
+    internal static int GetFrameworkCompatibilityScore(string? assetFramework, string targetFramework)
     {
-        score = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_frameworkCompatibilityScoreResult ??= new int[5];
-        try
-        {
-            var code = bindings.FrameworkCompatibilityScore(assetFramework ?? string.Empty, targetFramework, result);
-            if (code != 1)
-                return false;
 
-            score = result[0];
-            return true;
-        }
-        catch
-        {
-            score = -1;
-            return false;
-        }
+        var code = RequiredBindings.FrameworkCompatibilityScore(assetFramework ?? string.Empty, targetFramework, result);
+        if (code != 1)
+            throw new InvalidOperationException("N# reference resolver framework compatibility kernel returned an invalid code.");
+
+        return result[0];
     }
 
     internal static string? NormalizeNuGetDependencyVersion(string? version)
@@ -165,54 +129,36 @@ internal static class CompilationReferenceResolverKernels
         return source.Substring(start, length);
     }
 
-    internal static bool TrySelectSharedFrameworkCandidateIndex(
+    internal static int SelectSharedFrameworkCandidateIndex(
         IReadOnlyList<Version> versions,
-        int? targetMajor,
-        out int selectedIndex)
+        int? targetMajor)
     {
-        selectedIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var count = versions.Count;
         var scratch = t_sharedFrameworkCandidateScratch ??= new SharedFrameworkCandidateScratch();
         scratch.EnsureCapacity(count);
 
-        try
+        for (var i = 0; i < count; i++)
         {
-            for (var i = 0; i < count; i++)
-            {
-                var version = versions[i];
-                scratch.MajorVersions[i] = version.Major;
-                scratch.MinorVersions[i] = version.Minor;
-                scratch.BuildVersions[i] = version.Build;
-                scratch.RevisionVersions[i] = version.Revision;
-            }
-
-            selectedIndex = bindings.SharedFrameworkCandidateIndex(
-                scratch.MajorVersions,
-                scratch.MinorVersions,
-                scratch.BuildVersions,
-                scratch.RevisionVersions,
-                count,
-                targetMajor.HasValue ? 1 : 0,
-                targetMajor.GetValueOrDefault());
-
-            if (selectedIndex < -1 || selectedIndex >= count)
-            {
-                selectedIndex = -1;
-                return false;
-            }
-
-            return true;
+            var version = versions[i];
+            scratch.MajorVersions[i] = version.Major;
+            scratch.MinorVersions[i] = version.Minor;
+            scratch.BuildVersions[i] = version.Build;
+            scratch.RevisionVersions[i] = version.Revision;
         }
-        catch
-        {
-            selectedIndex = -1;
-            return false;
-        }
+
+        var selectedIndex = RequiredBindings.SharedFrameworkCandidateIndex(
+            scratch.MajorVersions,
+            scratch.MinorVersions,
+            scratch.BuildVersions,
+            scratch.RevisionVersions,
+            count,
+            targetMajor.HasValue ? 1 : 0,
+            targetMajor.GetValueOrDefault());
+
+        if (selectedIndex < -1 || selectedIndex >= count)
+            throw new InvalidOperationException("N# reference resolver shared-framework kernel returned an invalid candidate index.");
+
+        return selectedIndex;
     }
 
     internal static int SelectLatestNuGetVersionIndex(string[] versions)

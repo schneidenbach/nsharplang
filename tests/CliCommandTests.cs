@@ -4207,10 +4207,9 @@ Exit codes:
 
         static void AssertSelected(Version[] versions, int? targetMajor, int expectedIndex)
         {
-            Assert.True(CompilationReferenceResolverKernels.TrySelectSharedFrameworkCandidateIndex(
+            var selectedIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkCandidateIndex(
                 versions,
-                targetMajor,
-                out var selectedIndex));
+                targetMajor);
             Assert.Equal(expectedIndex, selectedIndex);
         }
     }
@@ -4316,24 +4315,16 @@ Exit codes:
 
         static void AssertParsed(string targetFramework, int expectedMajor, int expectedMinor)
         {
-            Assert.True(CompilationReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out var major,
-                out var minor));
-            Assert.True(parsed);
-            Assert.Equal(expectedMajor, major);
-            Assert.Equal(expectedMinor, minor);
+            var parsed = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+            Assert.True(parsed.Parsed);
+            Assert.Equal(expectedMajor, parsed.Major);
+            Assert.Equal(expectedMinor, parsed.Minor);
         }
 
         static void AssertInvalid(string targetFramework)
         {
-            Assert.True(CompilationReferenceResolverKernels.TryParseTargetFrameworkVersion(
-                targetFramework,
-                out var parsed,
-                out _,
-                out _));
-            Assert.False(parsed);
+            var parsed = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
+            Assert.False(parsed.Parsed);
         }
     }
 
@@ -4355,10 +4346,9 @@ Exit codes:
 
         static void AssertScore(string? assetFramework, string targetFramework, int expectedScore)
         {
-            Assert.True(CompilationReferenceResolverKernels.TryGetFrameworkCompatibilityScore(
+            var score = CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(
                 assetFramework,
-                targetFramework,
-                out var score));
+                targetFramework);
             Assert.Equal(expectedScore, score);
         }
     }
