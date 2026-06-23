@@ -20,37 +20,16 @@ internal static class RemoveCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out RemoveArgumentSummary summary)
+    internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[2];
-        try
-        {
-            var code = bindings.RemoveArgumentSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.RemoveArgumentSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var packageOperand))
+            throw new InvalidOperationException("N# remove argument summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var packageOperand))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new RemoveArgumentSummary(
-                packageOperand,
-                resultIndices[1] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new RemoveArgumentSummary(
+            packageOperand,
+            resultIndices[1] != 0);
     }
 
     internal static bool TryGetDependencyLineAction(

@@ -275,12 +275,7 @@ public static class FixCommand
     }
 
     internal static FixArgumentSummary GetArgumentSummary(string[] args)
-    {
-        if (FixCommandArgumentKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# fix argument summary kernel rejected the arguments.");
-    }
+        => FixCommandArgumentKernels.GetArgumentSummary(args);
 
     internal static FixOutputModeKind GetEffectiveOutputMode(FixArgumentSummary arguments)
         => FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText);

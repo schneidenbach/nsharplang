@@ -134,12 +134,7 @@ public static class UpdateCommand
     }
 
     internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
-    {
-        if (UpdateCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# update argument summary kernel rejected the arguments.");
-    }
+        => UpdateCommandKernels.GetArgumentSummary(args);
 
     internal static List<Reference> FilterNuGetDependencies(
         IReadOnlyList<Reference> dependencies,

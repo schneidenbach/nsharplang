@@ -14,38 +14,17 @@ internal static class UpdateCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out UpdateArgumentSummary summary)
+    internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[3];
-        try
-        {
-            var code = bindings.UpdateArgumentSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.UpdateArgumentSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var targetPackage))
+            throw new InvalidOperationException("N# update argument summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var targetPackage))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new UpdateArgumentSummary(
-                targetPackage,
-                resultIndices[1] != 0,
-                resultIndices[2] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new UpdateArgumentSummary(
+            targetPackage,
+            resultIndices[1] != 0,
+            resultIndices[2] != 0);
     }
 
     internal static string GetHelpText()

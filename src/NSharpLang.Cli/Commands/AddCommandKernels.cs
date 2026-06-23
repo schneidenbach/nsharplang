@@ -27,43 +27,25 @@ internal static class AddCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out AddArgumentSummary summary)
+    internal static AddArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[6];
-        try
+        var code = RequiredBindings.AddArgumentSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var versionOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var pathOption)
+            || !TryGetOptionalArg(args, resultIndices[2], out var packageOperand))
         {
-            var code = bindings.AddArgumentSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var versionOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var pathOption)
-                || !TryGetOptionalArg(args, resultIndices[2], out var packageOperand))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new AddArgumentSummary(
-                versionOption,
-                pathOption,
-                packageOperand,
-                resultIndices[3] != 0,
-                resultIndices[4] != 0,
-                resultIndices[5] != 0);
-            return true;
+            throw new InvalidOperationException("N# add argument parser kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new AddArgumentSummary(
+            versionOption,
+            pathOption,
+            packageOperand,
+            resultIndices[3] != 0,
+            resultIndices[4] != 0,
+            resultIndices[5] != 0);
     }
 
     internal static bool TryGetPackageSpec(string raw, string? explicitVersion, out AddPackageSpec spec)

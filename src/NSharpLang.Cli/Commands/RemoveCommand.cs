@@ -64,12 +64,7 @@ public static class RemoveCommand
     }
 
     internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
-    {
-        if (RemoveCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# remove argument summary kernel rejected the arguments.");
-    }
+        => RemoveCommandKernels.GetArgumentSummary(args);
 
     internal static RemoveDependencyLineAction GetDependencyLineAction(string line, string packageName)
     {

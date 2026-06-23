@@ -97,12 +97,7 @@ public static class AddCommand
     }
 
     internal static AddArgumentSummary GetArgumentSummary(string[] args)
-    {
-        if (AddCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# add argument parser kernel rejected the arguments.");
-    }
+        => AddCommandKernels.GetArgumentSummary(args);
 
     internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
     {

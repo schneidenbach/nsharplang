@@ -27,44 +27,26 @@ internal static class CheckCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out CheckArgumentSummary summary)
+    internal static CheckArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[7];
-        try
+        var code = RequiredBindings.CheckArgumentSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
+            || !TryGetOptionalArg(args, resultIndices[2], out var positionalProject))
         {
-            var code = bindings.CheckArgumentSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
-                || !TryGetOptionalArg(args, resultIndices[2], out var positionalProject))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new CheckArgumentSummary(
-                projectOption,
-                backendOption,
-                positionalProject,
-                resultIndices[3] != 0,
-                resultIndices[4] != 0,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0);
-            return true;
+            throw new InvalidOperationException("N# check argument parser kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new CheckArgumentSummary(
+            projectOption,
+            backendOption,
+            positionalProject,
+            resultIndices[3] != 0,
+            resultIndices[4] != 0,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0);
     }
 
     internal static CheckOutputModeKind GetEffectiveOutputMode(

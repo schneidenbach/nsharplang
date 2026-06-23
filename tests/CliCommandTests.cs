@@ -2522,7 +2522,7 @@ func Main() {
     public void CheckCommandKernels_SummarizesOptionsAndSkipsBackendValue()
     {
         var args = new[] { "--backend", "il", "samples/demo", "--text", "--aot", "--systems-report" };
-        Assert.True(CheckCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = CheckCommandKernels.GetArgumentSummary(args);
         Assert.Null(dogfoodSummary.ProjectOption);
         Assert.Equal("il", dogfoodSummary.BackendOption);
         Assert.Equal("samples/demo", dogfoodSummary.PositionalProject);
@@ -2655,7 +2655,7 @@ func Main() {
             "samples/demo"
         };
 
-        Assert.True(FixCommandArgumentKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = FixCommandArgumentKernels.GetArgumentSummary(args);
         Assert.Null(dogfoodSummary.ProjectOption);
         Assert.Equal("Program.nl", dogfoodSummary.FileOption);
         Assert.Equal("samples/demo", dogfoodSummary.PositionalProject);
@@ -2750,7 +2750,7 @@ func Main() {
     {
         var args = new[] { "--dry-run", "-v", "Newtonsoft.Json", "-h" };
 
-        Assert.True(UpdateCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = UpdateCommandKernels.GetArgumentSummary(args);
         Assert.Equal("Newtonsoft.Json", dogfoodSummary.TargetPackage);
         Assert.True(dogfoodSummary.DryRun);
         Assert.True(dogfoodSummary.ShowHelp);
@@ -2796,7 +2796,7 @@ func Main() {
     {
         var args = new[] { "--version", "13.0.3", "--framework", "--prerelease", "Newtonsoft.Json" };
 
-        Assert.True(AddCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = AddCommandKernels.GetArgumentSummary(args);
         Assert.Equal("13.0.3", dogfoodSummary.VersionOption);
         Assert.Null(dogfoodSummary.PathOption);
         Assert.Equal("Newtonsoft.Json", dogfoodSummary.PackageOperand);
@@ -3248,7 +3248,7 @@ func Main() {
     {
         var args = new[] { "--dry-run", "Serilog", "-h" };
 
-        Assert.True(RemoveCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = RemoveCommandKernels.GetArgumentSummary(args);
         Assert.Equal("Serilog", dogfoodSummary.PackageOperand);
         Assert.True(dogfoodSummary.ShowHelp);
 

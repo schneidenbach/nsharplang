@@ -196,12 +196,7 @@ public static class CheckCommand
     }
 
     internal static CheckArgumentSummary GetArgumentSummary(string[] args)
-    {
-        if (CheckCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# check argument parser kernel rejected the arguments.");
-    }
+        => CheckCommandKernels.GetArgumentSummary(args);
 
     internal static CheckOutputModeKind GetEffectiveOutputMode(CheckArgumentSummary arguments)
         => CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
