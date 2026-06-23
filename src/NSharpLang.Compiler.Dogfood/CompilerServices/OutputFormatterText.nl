@@ -232,8 +232,8 @@ func QueryCallGraphEdgeLineText(name: string, fileName: string, line: int): stri
     return "  " + name + "  (" + fileName + ":" + line.ToString() + ")"
 }
 
-func QueryCallGraphTruncatedLineText(separator: string): string {
-    return "(results truncated " + separator + " use --limit to increase)"
+func QueryCallGraphTruncatedLineText(): string {
+    return "(results truncated " + QueryTextSeparator() + " use --limit to increase)"
 }
 
 func QueryImplementorsHeaderText(interfaceName: string, count: int): string {
@@ -282,11 +282,10 @@ func QueryDocParameterLineText(
     name: string,
     typeName: string,
     summary: string,
-    hasSummary: int,
-    separator: string): string {
+    hasSummary: int): string {
     docText := ""
     if hasSummary != 0 {
-        docText = " " + separator + " " + summary
+        docText = " " + QueryTextSeparator() + " " + summary
     }
 
     return "    " + name + ": " + typeName + docText
@@ -295,11 +294,10 @@ func QueryDocParameterLineText(
 func QueryDocReturnsLineText(
     returnType: string,
     returnDoc: string,
-    hasReturnDoc: int,
-    separator: string): string {
+    hasReturnDoc: int): string {
     docText := ""
     if hasReturnDoc != 0 {
-        docText = " " + separator + " " + returnDoc
+        docText = " " + QueryTextSeparator() + " " + returnDoc
     }
 
     return "  Returns: " + returnType + docText
@@ -322,8 +320,7 @@ func QueryDocMemberLineText(
     typeName: string,
     hasType: int,
     summary: string,
-    hasSummary: int,
-    separator: string): string {
+    hasSummary: int): string {
     parameterText := ""
     if hasParameters != 0 {
         parameterText = " " + parameters
@@ -336,10 +333,14 @@ func QueryDocMemberLineText(
 
     docText := ""
     if hasSummary != 0 {
-        docText = " " + separator + " " + summary
+        docText = " " + QueryTextSeparator() + " " + summary
     }
 
     return "    " + kindText + " " + name + parameterText + typeText + docText
+}
+
+func QueryTextSeparator(): string {
+    return "—"
 }
 
 func QueryDocOverflowLineText(remaining: int): string {

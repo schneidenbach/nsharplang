@@ -167,7 +167,7 @@ internal static class OutputFormatterTextKernels
             callSite.Line);
 
     internal static string GetCallGraphTruncatedLineText()
-        => RequiredBindings.QueryCallGraphTruncatedLineText("\u2014");
+        => RequiredBindings.QueryCallGraphTruncatedLineText();
 
     internal static string GetImplementorsHeaderText(string interfaceName, int count)
         => RequiredBindings.QueryImplementorsHeaderText(interfaceName, count);
@@ -199,15 +199,13 @@ internal static class OutputFormatterTextKernels
             parameter.Name,
             parameter.Type,
             parameter.Summary ?? string.Empty,
-            parameter.Summary != null ? 1 : 0,
-            "\u2014");
+            parameter.Summary != null ? 1 : 0);
 
     internal static string GetDocReturnsLineText(string returnType, string? returnDoc)
         => RequiredBindings.QueryDocReturnsLineText(
             returnType,
             returnDoc ?? string.Empty,
-            returnDoc != null ? 1 : 0,
-            "\u2014");
+            returnDoc != null ? 1 : 0);
 
     internal static string GetDocMembersHeaderText(string kind)
         => RequiredBindings.QueryDocMembersHeaderText(kind);
@@ -221,8 +219,7 @@ internal static class OutputFormatterTextKernels
             member.Type ?? string.Empty,
             member.Type != null ? 1 : 0,
             member.Summary ?? string.Empty,
-            member.Summary != null ? 1 : 0,
-            "\u2014");
+            member.Summary != null ? 1 : 0);
 
     internal static string GetDocOverflowLineText(int remaining)
         => RequiredBindings.QueryDocOverflowLineText(remaining);
@@ -529,7 +526,7 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryCallGraphEdgeLineText(string name, string fileName, int line);
 
-    private delegate string QueryCallGraphTruncatedLineText(string separator);
+    private delegate string QueryCallGraphTruncatedLineText();
 
     private delegate string QueryImplementorsHeaderText(string interfaceName, int count);
 
@@ -549,14 +546,12 @@ internal static class OutputFormatterTextKernels
         string name,
         string typeName,
         string summary,
-        int hasSummary,
-        string separator);
+        int hasSummary);
 
     private delegate string QueryDocReturnsLineText(
         string returnType,
         string returnDoc,
-        int hasReturnDoc,
-        string separator);
+        int hasReturnDoc);
 
     private delegate string QueryDocMembersHeaderText(string kindText);
 
@@ -568,8 +563,7 @@ internal static class OutputFormatterTextKernels
         string typeName,
         int hasType,
         string summary,
-        int hasSummary,
-        string separator);
+        int hasSummary);
 
     private delegate string QueryDocOverflowLineText(int remaining);
 
