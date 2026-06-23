@@ -13,17 +13,26 @@ public static class DaemonCommand
     {
         var options = DaemonCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowDaemonHelp();
-
-        var projectDir = GetProjectDir(options);
-        return options.SubcommandKind switch
         {
-            DaemonSubcommandKind.Start => StartCommand(projectDir),
-            DaemonSubcommandKind.Stop => StopCommand(projectDir),
-            DaemonSubcommandKind.Status => StatusCommand(projectDir),
-            DaemonSubcommandKind.Run => RunCommand(projectDir), // Internal: runs the daemon in-process
-            _ => ShowDaemonHelp()
-        };
+            Console.WriteLine(DaemonCommandKernels.GetHelpText());
+            return 0;
+        }
+
+        var projectDir = options.ProjectOption ?? Directory.GetCurrentDirectory();
+        switch (options.SubcommandKind)
+        {
+            case DaemonSubcommandKind.Start:
+                return StartCommand(projectDir);
+            case DaemonSubcommandKind.Stop:
+                return StopCommand(projectDir);
+            case DaemonSubcommandKind.Status:
+                return StatusCommand(projectDir);
+            case DaemonSubcommandKind.Run:
+                return RunCommand(projectDir); // Internal: runs the daemon in-process
+            default:
+                Console.WriteLine(DaemonCommandKernels.GetHelpText());
+                return 0;
+        }
     }
 
     private static int StartCommand(string projectDir)
@@ -93,12 +102,4 @@ public static class DaemonCommand
         return 0;
     }
 
-    private static string GetProjectDir(DaemonOptionSummary options)
-        => options.ProjectOption ?? Directory.GetCurrentDirectory();
-
-    private static int ShowDaemonHelp()
-    {
-        Console.WriteLine(DaemonCommandKernels.GetHelpText());
-        return 0;
-    }
 }

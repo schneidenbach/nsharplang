@@ -52,6 +52,18 @@ partial class Program
     {
         var commandKind = ProgramCommandKernels.GetCommandKind(args);
 
+        if (commandKind == ProgramCommandKind.Help)
+        {
+            Console.WriteLine(ProgramCommandKernels.GetHelpText(GetVersion()));
+            return 0;
+        }
+
+        if (commandKind == ProgramCommandKind.Version)
+        {
+            Console.WriteLine(ProgramCommandKernels.GetVersionText(GetVersion()));
+            return 0;
+        }
+
         return commandKind switch
         {
             ProgramCommandKind.Build => BuildCommand(GetCommandArgs(args)),
@@ -81,15 +93,11 @@ partial class Program
             ProgramCommandKind.Audit => AuditCommand.Execute(GetCommandArgs(args)),
             ProgramCommandKind.Pack => PackCommand.Execute(GetCommandArgs(args)),
             ProgramCommandKind.Export => Commands.ExportCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Help => ShowHelp(),
-            ProgramCommandKind.Version => ShowVersion(),
             ProgramCommandKind.Transpile => Error(ProgramCommandKernels.GetTranspileRemovedMessage()),
-            _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(GetCommandNameForError(args)))
+            _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
+                args.Length == 0 ? string.Empty : args[0].ToLower()))
         };
     }
-
-    private static string GetCommandNameForError(string[] args)
-        => args.Length == 0 ? string.Empty : args[0].ToLower();
 
     private static string[] GetCommandArgs(string[] args)
         => args.Length <= 1 ? Array.Empty<string>() : args.Skip(1).ToArray();
@@ -991,19 +999,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             ?.InformationalVersion
             ?? typeof(Program).Assembly.GetName().Version?.ToString()
             ?? "unknown";
-    }
-
-    static int ShowVersion()
-    {
-        Console.WriteLine(ProgramCommandKernels.GetVersionText(GetVersion()));
-        return 0;
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(ProgramCommandKernels.GetHelpText(GetVersion()));
-
-        return 0;
     }
 
     static int Error(string message)
