@@ -12,11 +12,15 @@ public static class WatchCommand
     {
         var options = WatchCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(WatchCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var targetSummary = WatchCommandKernels.GetTargetSummary(args);
+        var targetNameForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
         if (targetSummary.TargetKind == WatchTargetKind.Unknown)
-            return Error(WatchCommandKernels.GetUnsupportedTargetMessage(GetUnsupportedTargetName(args)));
+            return Error(WatchCommandKernels.GetUnsupportedTargetMessage(targetNameForError));
 
         var watchedCommand = WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind);
 
@@ -142,15 +146,6 @@ public static class WatchCommand
 
         Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
-    }
-
-    private static string GetUnsupportedTargetName(string[] args)
-        => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(WatchCommandKernels.GetHelpText());
-        return 0;
     }
 
     private static int Error(string message)

@@ -10,9 +10,12 @@ public static class AuditCommand
     {
         var options = AuditCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(AuditCommandKernels.GetHelpText());
+            return 0;
+        }
 
-        var projectRoot = GetProjectRoot(options);
+        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
         var outputMode = AuditCommandKernels.GetOutputMode(options.Json);
 
         if (!Directory.Exists(projectRoot))
@@ -152,16 +155,6 @@ public static class AuditCommand
         {
             Console.WriteLine(AuditCommandKernels.GetParseFailureMessage());
         }
-    }
-
-    private static string GetProjectRoot(AuditOptionSummary options)
-        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(AuditCommandKernels.GetHelpText());
-
-        return 0;
     }
 
     static int Error(string message)
