@@ -55,39 +55,20 @@ internal static class DocCommandKernels
         return (DocOutputModeKind)code;
     }
 
-    internal static bool TryOrderSymbolsForGeneration(
-        IReadOnlyList<SymbolResult> symbols,
-        out List<SymbolResult> orderedSymbols)
-        => TryOrderEntriesForGeneration(symbols, includeAllKinds: false, out orderedSymbols);
+    internal static List<SymbolResult> OrderSymbolsForGeneration(IReadOnlyList<SymbolResult> symbols)
+        => OrderEntriesForGeneration(symbols, includeAllKinds: false);
 
-    internal static bool TryOrderMembersForGeneration(
-        IReadOnlyList<SymbolResult> members,
-        out List<SymbolResult> orderedMembers)
-        => TryOrderEntriesForGeneration(members, includeAllKinds: true, out orderedMembers);
+    internal static List<SymbolResult> OrderMembersForGeneration(IReadOnlyList<SymbolResult> members)
+        => OrderEntriesForGeneration(members, includeAllKinds: true);
 
-    internal static bool TryCreateSlugs(string[] rawSlugs, out string[] slugs)
+    internal static string[] CreateSlugs(string[] rawSlugs)
     {
-        slugs = Array.Empty<string>();
+        var resultSlugs = new string[rawSlugs.Length];
+        var count = RequiredBindings.DocSlugs(rawSlugs, resultSlugs);
+        if (count != rawSlugs.Length)
+            throw new InvalidOperationException("N# doc slug kernel rejected the symbol table.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var resultSlugs = new string[rawSlugs.Length];
-            var count = bindings.DocSlugs(rawSlugs, resultSlugs);
-            if (count != rawSlugs.Length)
-                return false;
-
-            slugs = resultSlugs;
-            return true;
-        }
-        catch
-        {
-            slugs = Array.Empty<string>();
-            return false;
-        }
+        return resultSlugs;
     }
 
     internal static string GetHelpText()
@@ -140,17 +121,11 @@ internal static class DocCommandKernels
         string typeName)
         => RequiredBindings.SignatureText((int)kind, name, hasParameterList ? 1 : 0, parametersText, typeName);
 
-    private static bool TryOrderEntriesForGeneration(
+    private static List<SymbolResult> OrderEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
-        bool includeAllKinds,
-        out List<SymbolResult> orderedSymbols)
+        bool includeAllKinds)
     {
-        orderedSymbols = new List<SymbolResult>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var symbolCount = symbols.Count;
         var scratch = t_symbolOrderScratch ??= new SymbolOrderScratch();
         scratch.EnsureCapacity(symbolCount);
@@ -184,27 +159,21 @@ internal static class DocCommandKernels
                 scratch.ResultIndices);
 
             if (orderedCount < 0 || orderedCount > symbolCount || orderedCount > scratch.ResultIndices.Length)
-                return false;
+                throw new InvalidOperationException("N# doc symbol ordering kernel rejected the symbol table.");
 
-            orderedSymbols = new List<SymbolResult>(orderedCount);
+            var orderedSymbols = new List<SymbolResult>(orderedCount);
             for (var i = 0; i < orderedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= symbolCount)
                 {
-                    orderedSymbols = new List<SymbolResult>();
-                    return false;
+                    throw new InvalidOperationException("N# doc symbol ordering kernel returned an invalid source index.");
                 }
 
                 orderedSymbols.Add(symbols[sourceIndex]);
             }
 
-            return true;
-        }
-        catch
-        {
-            orderedSymbols = new List<SymbolResult>();
-            return false;
+            return orderedSymbols;
         }
         finally
         {

@@ -5209,7 +5209,7 @@ dependencies:
             .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(DocCommandKernels.TryOrderSymbolsForGeneration(symbols, out var actual));
+        var actual = DocCommandKernels.OrderSymbolsForGeneration(symbols);
         Assert.Equal(expected, actual);
 
         static SymbolResult NewSymbol(string name, SymbolKind kind) =>
@@ -5236,7 +5236,7 @@ dependencies:
             .ThenBy(member => member.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(DocCommandKernels.TryOrderMembersForGeneration(members, out var actual));
+        var actual = DocCommandKernels.OrderMembersForGeneration(members);
         Assert.Equal(expected, actual);
 
         static SymbolResult NewSymbol(string name, SymbolKind kind) =>
@@ -5255,7 +5255,7 @@ dependencies:
             "Property-HTTPClient2-API.Client.nl"
         };
 
-        Assert.True(DocCommandKernels.TryCreateSlugs(rawSlugs, out var actual));
+        var actual = DocCommandKernels.CreateSlugs(rawSlugs);
         Assert.Equal(rawSlugs.Select(CreateExpectedDocSlug).ToArray(), actual);
 
         static string CreateExpectedDocSlug(string raw)

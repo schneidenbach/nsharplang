@@ -193,12 +193,7 @@ internal static class ProjectDocGenerator
     }
 
     internal static List<SymbolResult> OrderSymbolsForGeneration(IReadOnlyList<SymbolResult> symbols)
-    {
-        if (DocCommandKernels.TryOrderSymbolsForGeneration(symbols, out var orderedSymbols))
-            return orderedSymbols;
-
-        throw new InvalidOperationException("N# doc symbol ordering kernel rejected the symbol table.");
-    }
+        => DocCommandKernels.OrderSymbolsForGeneration(symbols);
 
     private static string RenderIndexPage(IReadOnlyList<SymbolResult> symbols, IReadOnlyList<DocPage> pages, string projectRoot)
     {
@@ -279,10 +274,7 @@ internal static class ProjectDocGenerator
         if (members == null || members.Length == 0)
             return new List<SymbolResult>();
 
-        if (DocCommandKernels.TryOrderMembersForGeneration(members, out var orderedMembers))
-            return orderedMembers;
-
-        throw new InvalidOperationException("N# doc member ordering kernel rejected the member table.");
+        return DocCommandKernels.OrderMembersForGeneration(members);
     }
 
     private static string WrapHtml(string title, string body) => $$$"""
@@ -393,10 +385,7 @@ internal static class ProjectDocGenerator
         for (var i = 0; i < symbols.Count; i++)
             rawSlugs[i] = CreateRawSlug(symbols[i]);
 
-        if (DocCommandKernels.TryCreateSlugs(rawSlugs, out var dogfoodSlugs))
-            return dogfoodSlugs;
-
-        throw new InvalidOperationException("N# doc slug kernel rejected the symbol table.");
+        return DocCommandKernels.CreateSlugs(rawSlugs);
     }
 
     private static string CreateRawSlug(SymbolResult symbol)
