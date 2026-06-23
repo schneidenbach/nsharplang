@@ -3159,22 +3159,17 @@ func Main() {
         Assert.Equal("long.cs", dogfoodSummary.OutputOption);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = ExportCommand.GetExportCSharpOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("long.cs", summary.OutputOption);
-        Assert.False(summary.ShowHelp);
-
-        var shortOutputOnly = ExportCommand.GetExportCSharpOptionSummary(new[] { "-o", "short.cs" });
+        var shortOutputOnly = ExportCommandKernels.GetCSharpOptionSummary(new[] { "-o", "short.cs" });
         Assert.Null(shortOutputOnly.ProjectOption);
         Assert.Equal("short.cs", shortOutputOnly.OutputOption);
 
-        var permissiveValue = ExportCommand.GetExportCSharpOptionSummary(new[] { "--project", "--output", "--output", "--help" });
+        var permissiveValue = ExportCommandKernels.GetCSharpOptionSummary(new[] { "--project", "--output", "--output", "--help" });
         Assert.Equal("--output", permissiveValue.ProjectOption);
         Assert.Equal("--output", permissiveValue.OutputOption);
         Assert.True(permissiveValue.ShowHelp);
 
-        Assert.True(ExportCommand.GetExportCSharpOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(ExportCommand.GetExportCSharpOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(ExportCommandKernels.GetCSharpOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(ExportCommandKernels.GetCSharpOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
     }
 
     [Theory]
@@ -3186,7 +3181,6 @@ func Main() {
     {
         var dogfoodIsTestSource = ExportCommandKernels.IsTestSourceFile(sourceFile);
         Assert.Equal(expected, dogfoodIsTestSource);
-        Assert.Equal(expected, ExportCommand.IsTestSourceFile(sourceFile));
     }
 
     [Fact]
@@ -3907,7 +3901,6 @@ Exit codes:
             "../Models/Models.csproj",
             "../Utilities/Utilities.csproj"
         }, dogfoodReferences);
-        Assert.Equal(dogfoodReferences, RestoreCommand.DeduplicateProjectReferences(projectReferences));
     }
 
     [Fact]

@@ -13,7 +13,7 @@ public static class ExportCommand
 {
     public static int Execute(string[] args)
     {
-        var targetSummary = GetTargetSummary(args);
+        var targetSummary = ExportCommandKernels.GetTargetSummary(args);
         if (targetSummary.ShowHelp)
         {
             return ShowHelp();
@@ -26,12 +26,9 @@ public static class ExportCommand
         };
     }
 
-    internal static ExportTargetSummary GetTargetSummary(string[] args)
-        => ExportCommandKernels.GetTargetSummary(args);
-
     private static int ExportCSharp(string[] args)
     {
-        var options = GetExportCSharpOptionSummary(args);
+        var options = ExportCommandKernels.GetCSharpOptionSummary(args);
         if (options.ShowHelp)
         {
             return ShowCSharpHelp();
@@ -40,7 +37,7 @@ public static class ExportCommand
         var outputPath = options.OutputOption;
         var projectOption = options.ProjectOption;
 
-        var firstPositional = GetExportCSharpInputOperand(args);
+        var firstPositional = ExportCommandKernels.GetCSharpInputOperand(args);
         if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
         {
             return Error(ExportCommandKernels.GetSourceAndProjectConflictMessage());
@@ -203,15 +200,6 @@ public static class ExportCommand
         return fullOutputPath;
     }
 
-    internal static ExportCSharpOptionSummary GetExportCSharpOptionSummary(string[] args)
-        => ExportCommandKernels.GetCSharpOptionSummary(args);
-
-    private static string? GetExportCSharpInputOperand(string[] args)
-        => ExportCommandKernels.GetCSharpInputOperand(args);
-
-    internal static bool IsTestSourceFile(string sourceFile)
-        => ExportCommandKernels.IsTestSourceFile(sourceFile);
-
     private static void EmitDiagnostics(IEnumerable<CompilerError> errors)
     {
         foreach (var error in errors)
@@ -289,7 +277,7 @@ public static class ExportCommand
                 var mainDllReferences = ResolveDllReferences(exportConfig.Dependencies, projectRoot, projectOutputDirectory);
                 var mainPackageReferences = ResolvePackageReferences(exportConfig.Dependencies);
                 var mainFrameworkReferences = ResolveFrameworkReferences(exportConfig.Dependencies);
-                var hasTestFiles = exportResult.ExportedFiles.Keys.Any(IsTestSourceFile);
+                var hasTestFiles = exportResult.ExportedFiles.Keys.Any(ExportCommandKernels.IsTestSourceFile);
                 if (hasTestFiles)
                 {
                     RecreateDirectory(testOutputDirectory);
@@ -299,7 +287,7 @@ public static class ExportCommand
                 {
                     var relativeSourcePath = Path.GetRelativePath(projectRoot, sourceFile);
                     var relativeCSharpPath = ChangeSourceExtension(relativeSourcePath);
-                    var targetDirectory = IsTestSourceFile(sourceFile)
+                    var targetDirectory = ExportCommandKernels.IsTestSourceFile(sourceFile)
                         ? testOutputDirectory
                         : projectOutputDirectory;
                     var targetFilePath = Path.Combine(targetDirectory, relativeCSharpPath);
@@ -358,8 +346,9 @@ public static class ExportCommand
         private List<string> ResolveProjectReferences(IEnumerable<Reference> dependencies, string projectRoot, string outputDirectory)
         {
             var projectReferences = new List<string>();
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
 
-            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Project))
+            foreach (var dependency in ExportCommandKernels.FilterReferencesByType(dependencyList, ReferenceType.Project))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Project!)
                     ? dependency.Project!
@@ -383,14 +372,15 @@ public static class ExportCommand
                 projectReferences.Add(NormalizePath(Path.GetRelativePath(outputDirectory, exportedReference.ProjectFilePath)));
             }
 
-            return DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
+            return ExportCommandKernels.DeduplicateReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
         }
 
         private List<DllReferenceInfo> ResolveDllReferences(IEnumerable<Reference> dependencies, string projectRoot, string outputDirectory)
         {
             var dllReferences = new List<DllReferenceInfo>();
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
 
-            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Dll))
+            foreach (var dependency in ExportCommandKernels.FilterReferencesByType(dependencyList, ReferenceType.Dll))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Dll!)
                     ? dependency.Dll!
@@ -416,33 +406,27 @@ public static class ExportCommand
                     NormalizePath(Path.GetRelativePath(outputDirectory, copiedReferencePath))));
             }
 
-            return DeduplicateExportReferences(dllReferences);
+            return ExportCommandKernels.DeduplicateReferences(dllReferences, null);
         }
 
         private static List<PackageReferenceInfo> ResolvePackageReferences(IEnumerable<Reference> dependencies)
         {
-            var packageReferences = FilterExportReferencesByType(dependencies, ReferenceType.NuGet)
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
+            var packageReferences = ExportCommandKernels.FilterReferencesByType(dependencyList, ReferenceType.NuGet)
                 .Select(reference => new PackageReferenceInfo(reference.Nuget!, reference.Version))
                 .ToList();
 
-            return DeduplicateExportReferences(packageReferences);
+            return ExportCommandKernels.DeduplicateReferences(packageReferences, null);
         }
 
         private static List<string> ResolveFrameworkReferences(IEnumerable<Reference> dependencies)
         {
-            var frameworkReferences = FilterExportReferencesByType(dependencies, ReferenceType.Framework)
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
+            var frameworkReferences = ExportCommandKernels.FilterReferencesByType(dependencyList, ReferenceType.Framework)
                 .Select(reference => reference.Framework!)
                 .ToList();
 
-            return DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
-        }
-
-        private static List<Reference> FilterExportReferencesByType(
-            IEnumerable<Reference> dependencies,
-            ReferenceType referenceType)
-        {
-            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
-            return ExportCommandKernels.FilterReferencesByType(dependencyList, referenceType);
+            return ExportCommandKernels.DeduplicateReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
         }
 
         private static string GenerateMainProjectFile(
@@ -452,10 +436,10 @@ public static class ExportCommand
             List<string> projectReferences,
             List<DllReferenceInfo> dllReferences)
         {
-            var distinctPackageReferences = DeduplicateExportReferences(packageReferences);
-            var distinctFrameworkReferences = DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
-            var distinctProjectReferences = DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
-            var distinctDllReferences = DeduplicateExportReferences(dllReferences);
+            var distinctPackageReferences = ExportCommandKernels.DeduplicateReferences(packageReferences, null);
+            var distinctFrameworkReferences = ExportCommandKernels.DeduplicateReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctProjectReferences = ExportCommandKernels.DeduplicateReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctDllReferences = ExportCommandKernels.DeduplicateReferences(dllReferences, null);
             var package = config.Package;
             var packageTags = package?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
             var packageIcon = package?.Icon;
@@ -494,10 +478,10 @@ public static class ExportCommand
             var frameworkPackages = GetTestFrameworkPackages(config.TestFramework);
             testPackageReferences.InsertRange(0, frameworkPackages);
 
-            var distinctPackageReferences = DeduplicateExportReferences(testPackageReferences);
-            var distinctFrameworkReferences = DeduplicateExportReferences(testFrameworkReferences, StringComparer.OrdinalIgnoreCase);
-            var distinctProjectReferences = DeduplicateExportReferences(testProjectReferences, StringComparer.OrdinalIgnoreCase);
-            var distinctDllReferences = DeduplicateExportReferences(testDllReferences);
+            var distinctPackageReferences = ExportCommandKernels.DeduplicateReferences(testPackageReferences, null);
+            var distinctFrameworkReferences = ExportCommandKernels.DeduplicateReferences(testFrameworkReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctProjectReferences = ExportCommandKernels.DeduplicateReferences(testProjectReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctDllReferences = ExportCommandKernels.DeduplicateReferences(testDllReferences, null);
 
             return ExportCommandKernels.GetCSharpTestProjectFileText(
                 config.TargetFramework,
@@ -510,12 +494,6 @@ public static class ExportCommand
                 distinctDllReferences.Select(reference => reference.Name).ToArray(),
                 distinctDllReferences.Select(reference => reference.HintPath).ToArray());
         }
-
-        private static List<T> DeduplicateExportReferences<T>(
-            IReadOnlyList<T> references,
-            IEqualityComparer<T>? comparer = null)
-            where T : notnull
-            => ExportCommandKernels.DeduplicateReferences(references, comparer);
 
         private static List<PackageReferenceInfo> GetTestFrameworkPackages(string testFramework)
         {

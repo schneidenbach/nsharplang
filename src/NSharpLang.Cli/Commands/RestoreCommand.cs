@@ -64,7 +64,7 @@ public static class RestoreCommand
             var outputType = config.OutputType == "exe" ? "Exe" : "Library";
             var baseSdk = config.Sdk ?? "Microsoft.NET.Sdk";
 
-            var resolvedProjectReferences = FilterReferencesByType(config.Dependencies, ReferenceType.Project)
+            var resolvedProjectReferences = RestoreCommandKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Project)
                 .Select(reference =>
                 {
                     var projectPath = Path.IsPathRooted(reference.Project!)
@@ -73,7 +73,7 @@ public static class RestoreCommand
                     return ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
                 })
                 .ToArray();
-            var projectReferences = DeduplicateProjectReferences(resolvedProjectReferences);
+            var projectReferences = RestoreCommandKernels.DeduplicateProjectReferences(resolvedProjectReferences);
 
             var propsPath = Path.Combine(objDir, "project.g.props");
             File.WriteAllText(
@@ -88,7 +88,7 @@ public static class RestoreCommand
                     projectReferences),
                 Encoding.UTF8);
 
-            foreach (var dependency in FilterReferencesByType(config.Dependencies, ReferenceType.Project))
+            foreach (var dependency in RestoreCommandKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Project))
             {
                 var referencedPath = dependency.Project!;
                 var absoluteReferencePath = Path.IsPathRooted(referencedPath)
@@ -130,11 +130,4 @@ public static class RestoreCommand
         Console.WriteLine(RestoreCommandKernels.GetHelpText());
     }
 
-    internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
-        => RestoreCommandKernels.DeduplicateProjectReferences(projectReferences);
-
-    private static List<Reference> FilterReferencesByType(
-        IReadOnlyList<Reference> references,
-        ReferenceType referenceType)
-        => RestoreCommandKernels.FilterReferencesByType(references, referenceType);
 }
