@@ -1051,22 +1051,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (FormatCommandKernels.TryShouldSkipDiscoveredDirectoryName(name, out var shouldSkip))
             return shouldSkip;
 
-        return ShouldSkipDiscoveredDirectoryNameWithCSharp(name);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product format directory
-    // traversal pruning routes through FormatCommandKernels.
-    static bool ShouldSkipDiscoveredDirectoryNameWithCSharp(string name)
-    {
-        return name.Equals(".git", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".hg", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".svn", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("bin", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("obj", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("node_modules", StringComparison.OrdinalIgnoreCase);
+        throw new InvalidOperationException("N# format directory pruning kernel rejected the directory name.");
     }
 
     static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
@@ -1075,49 +1060,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat))
             return shouldFormat;
 
-        return ShouldFormatDiscoveredPathWithCSharp(relativePath);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product discovery routes through FormatCommandKernels.
-    static bool ShouldFormatDiscoveredPathWithCSharp(string relativePath)
-    {
-        if (relativePath.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".svn", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
-            return false;
-
-        for (var i = 0; i <= segments.Length - 2; i++)
-        {
-            var isFixtureRoot = string.Equals(segments[i], "test", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(segments[i], "tests", StringComparison.OrdinalIgnoreCase);
-            if (isFixtureRoot && string.Equals(segments[i + 1], "fixtures", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    static string? GetOptionValue(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-
-        return null;
+        throw new InvalidOperationException("N# format discovery path kernel rejected the path.");
     }
 
     /// <summary>
@@ -1135,58 +1078,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             return extraction.Defines.ToList();
         }
 
-        return ExtractDefineFlagsWithCSharp(ref args);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product define extraction routes through DefineArgumentKernels.
-    static List<string> ExtractDefineFlagsWithCSharp(ref string[] args)
-    {
-        var defines = new List<string>();
-        var remaining = new List<string>(args.Length);
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            if (arg is "--define" or "-d")
-            {
-                if (i + 1 < args.Length)
-                {
-                    AddDefineSymbols(defines, args[i + 1]);
-                    i++; // consume the flag's value
-                }
-
-                continue;
-            }
-
-            if (arg.StartsWith("--define=", StringComparison.Ordinal))
-            {
-                AddDefineSymbols(defines, arg["--define=".Length..]);
-                continue;
-            }
-
-            if (arg.StartsWith("-d=", StringComparison.Ordinal))
-            {
-                AddDefineSymbols(defines, arg["-d=".Length..]);
-                continue;
-            }
-
-            remaining.Add(arg);
-        }
-
-        args = remaining.ToArray();
-        return defines;
-    }
-
-    static void AddDefineSymbols(List<string> defines, string raw)
-    {
-        foreach (var part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var symbol = part.Trim();
-            if (symbol.Length > 0 && !defines.Contains(symbol))
-            {
-                defines.Add(symbol);
-            }
-        }
+        throw new InvalidOperationException("N# define argument extraction kernel rejected the arguments.");
     }
 
     static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
@@ -1194,60 +1086,15 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (PositionalArgumentKernels.TryGetArgs(args, optionsWithValues, out var positionalArgs))
             return positionalArgs;
 
-        return GetPositionalArgsWithCSharp(args, optionsWithValues);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product positional collection routes through PositionalArgumentKernels.
-    static string[] GetPositionalArgsWithCSharp(string[] args, params string[] optionsWithValues)
-    {
-        var positional = new List<string>();
-        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (options.Contains(args[i]))
-            {
-                i++;
-                continue;
-            }
-
-            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose" or "--systems")
-                continue;
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                positional.Add(args[i]);
-        }
-
-        return positional.ToArray();
+        throw new InvalidOperationException("N# positional argument kernel rejected the arguments.");
     }
 
     static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
     {
-        return NewCommandKernels.TryGetProjectNameOperand(args, optionsWithValues, out var positional)
-            ? positional
-            : GetFirstPositionalArgWithCSharp(args, optionsWithValues);
-    }
+        if (NewCommandKernels.TryGetProjectNameOperand(args, optionsWithValues, out var positional))
+            return positional;
 
-    static string? GetFirstPositionalArgWithCSharp(string[] args, string[] optionsWithValues)
-    {
-        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (options.Contains(args[i]))
-            {
-                i++;
-                continue;
-            }
-
-            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
-                continue;
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
-
-        return null;
+        throw new InvalidOperationException("N# first positional argument kernel rejected the arguments.");
     }
 
     private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
@@ -1257,55 +1104,24 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (BuildCommandKernels.TryGetOptionSummary(args, out var summary))
             return summary;
 
-        return GetBuildOptionSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# build option summary kernel rejected the arguments.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product build option parsing routes through BuildCommandKernels.
-    static BuildOptionSummary GetBuildOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
-            GetOptionValue(args, "--backend"),
-            GetOptionValue(args, "--project"),
-            args.Contains("--release"),
-            args.Contains("--verbose"),
-            args.Contains("--timings"),
-            args.Contains("--perf-report"),
-            args.Contains("--aot"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     static TestOptionSummary GetTestOptionSummary(string[] args)
     {
         if (TestCommandKernels.TryGetOptionSummary(args, out var summary))
             return summary;
 
-        return GetTestOptionSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# test option summary kernel rejected the arguments.");
     }
 
     internal static TestOutputModeKind GetTestOutputMode(bool json)
-        => TestCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetTestOutputModeWithCSharp(json);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product test option parsing routes through TestCommandKernels.
-    static TestOptionSummary GetTestOptionSummaryWithCSharp(string[] args)
     {
-        var coverageReport = args.Contains("--coverage-report");
-        return new TestOptionSummary(
-            GetOptionValue(args, "--project"),
-            GetOptionValue(args, "--backend"),
-            GetOptionValue(args, "--filter"),
-            GetOptionValue(args, "--timeout"),
-            args.Contains("--verbose"),
-            args.Contains("--json"),
-            coverageReport,
-            args.Contains("--coverage") || coverageReport,
-            args.Contains("--no-cache"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
-    }
+        if (TestCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product test output mode selection routes through TestCommandKernels.
-    private static TestOutputModeKind GetTestOutputModeWithCSharp(bool json)
-        => json ? TestOutputModeKind.Json : TestOutputModeKind.Text;
+        throw new InvalidOperationException("N# test output mode kernel rejected the value.");
+    }
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {
@@ -1316,22 +1132,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
                 count > 0 ? args[firstOperandIndex] : null);
         }
 
-        var operands = GetBuildOperandArgsWithCSharp(args);
-        return new BuildOperandSummary(
-            operands.Length,
-            operands.Length > 0 ? operands[0] : null);
-    }
-
-    static string[] GetBuildOperandArgsWithCSharp(string[] args)
-    {
-        args = args
-            .Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot")
-            .ToArray();
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--backend");
-        args = StripOptionWithValue(args, "--project");
-        return args;
+        throw new InvalidOperationException("N# build operand summary kernel rejected the arguments.");
     }
 
     internal static string? GetRunSourceOperand(string[] args)
@@ -1339,8 +1140,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (RunCommandKernels.TryGetSourceOperand(args, out var operand))
             return operand;
 
-        var strippedArgs = StripOptionWithValue(args, "--backend");
-        return strippedArgs.Length > 0 ? strippedArgs[0] : null;
+        throw new InvalidOperationException("N# run source operand kernel rejected the arguments.");
     }
 
     internal static RunOptionSummary GetRunOptionSummary(string[] args)
@@ -1348,79 +1148,23 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (RunCommandKernels.TryGetOptionSummary(args, out var summary))
             return summary;
 
-        return GetRunOptionSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# run option summary kernel rejected the arguments.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product run option parsing routes through RunCommandKernels.
-    static RunOptionSummary GetRunOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValue(args, "--backend"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     internal static FormatOptionSummary GetFormatOptionSummary(string[] args)
     {
         if (FormatCommandKernels.TryGetOptionSummary(args, out var summary))
             return summary;
 
-        return GetFormatOptionSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# format option summary kernel rejected the arguments.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product format option parsing routes through FormatCommandKernels.
-    static FormatOptionSummary GetFormatOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValue(args, "--project"),
-            args.Contains("--check") || args.Contains("--verify-no-changes"),
-            args.Contains("--diff"),
-            args.Contains("--stdin"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     static int? ParseDurationToMs(string duration)
     {
         if (TestCommandKernels.TryGetDurationMilliseconds(duration, out var milliseconds))
             return milliseconds;
 
-        return ParseDurationToMsWithCSharp(duration);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product test timeout parsing routes through TestCommandKernels.
-    static int? ParseDurationToMsWithCSharp(string duration)
-    {
-        if (string.IsNullOrWhiteSpace(duration)) return null;
-
-        var trimmed = duration.Trim();
-        if (trimmed.Length < 2) return null;
-
-        var unit = trimmed[^1];
-        if (!int.TryParse(trimmed[..^1], out var value) || value <= 0)
-            return null;
-
-        int? multiplier = unit switch
-        {
-            's' => 1000,
-            'm' => 60 * 1000,
-            'h' => 60 * 60 * 1000,
-            _ => null
-        };
-
-        if (multiplier is not { } factor || value > int.MaxValue / factor)
-            return null;
-
-        return value * factor;
-    }
-
-    static string[] StripOptionWithValue(string[] args, string flag)
-    {
-        var result = new List<string>();
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == flag && i + 1 < args.Length)
-            {
-                i++; // Skip the value too
-                continue;
-            }
-            result.Add(args[i]);
-        }
-        return result.ToArray();
+        throw new InvalidOperationException("N# test duration kernel rejected the value.");
     }
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
