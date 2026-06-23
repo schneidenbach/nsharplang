@@ -662,6 +662,54 @@ func CliQuerySymbolKindInto(kind: string, result: int[]): int {
         return 0
     }
 
+    hasComma := false
+    commaScan := start
+    while commaScan < end {
+        if kind[commaScan] == ',' {
+            hasComma = true
+        }
+
+        commaScan = commaScan + 1
+    }
+
+    if hasComma {
+        combined := 0
+        segmentStart := start
+        while segmentStart < end {
+            segmentEnd := segmentStart
+            while segmentEnd < end && kind[segmentEnd] != ',' {
+                segmentEnd = segmentEnd + 1
+            }
+
+            if CliQuerySymbolKindSegmentInto(kind, segmentStart, segmentEnd, result) != 1 {
+                result[0] = 0
+                return 0
+            }
+
+            combined = combined | result[0]
+            segmentStart = segmentEnd + 1
+        }
+
+        result[0] = combined
+        return 1
+    }
+
+    return CliQuerySymbolKindSegmentInto(kind, start, end, result)
+}
+
+func CliQuerySymbolKindSegmentInto(kind: string, start: int, end: int, result: int[]): int {
+    while start < end && CliQueryIsWhiteSpace(kind[start]) {
+        start = start + 1
+    }
+
+    while end > start && CliQueryIsWhiteSpace(kind[end - 1]) {
+        end = end - 1
+    }
+
+    if start >= end {
+        return 0
+    }
+
     values := new CliQueryIntResultTable { Values: result }
     if CliTryParseIntSegmentCore(kind, start, end, ref values, 0) {
         return 1

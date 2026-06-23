@@ -429,14 +429,9 @@ internal static class QueryCommandKernels
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
-        {
-            if (parsed)
-                return true;
+            return parsed;
 
-            return TryParseSymbolKindWithCSharp(value, out kind);
-        }
-
-        return TryParseSymbolKindWithCSharp(value, out kind);
+        throw new InvalidOperationException("N# query symbol-kind parser kernel rejected the value.");
     }
 
     private static bool TryParseSymbolKindWithDogfood(string value, out bool parsed, out SymbolKind kind)
@@ -467,16 +462,12 @@ internal static class QueryCommandKernels
         }
     }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query symbol-kind parsing routes through QueryCommandKernels.
-    private static bool TryParseSymbolKindWithCSharp(string value, out SymbolKind kind)
-        => Enum.TryParse(value, ignoreCase: true, out kind);
-
     internal static string GetHelpText(string commandLines)
     {
         if (TryGetMessage(bindings => bindings.QueryHelpText(commandLines), out var message))
             return message;
 
-        return GetHelpTextWithCSharp(commandLines);
+        throw new InvalidOperationException("N# query help-text kernel rejected the values.");
     }
 
     internal static string GetDescriptionWithAliases(string description, string aliasesText)
@@ -484,7 +475,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryDescriptionWithAliases(description, aliasesText), out var message))
             return message;
 
-        return GetDescriptionWithAliasesWithCSharp(description, aliasesText);
+        throw new InvalidOperationException("N# query description kernel rejected the values.");
     }
 
     internal static string GetUnknownSubcommandMessage(string subcommand)
@@ -492,7 +483,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryUnknownSubcommandMessage(subcommand), out var message))
             return message;
 
-        return GetUnknownSubcommandMessageWithCSharp(subcommand);
+        throw new InvalidOperationException("N# query unknown-subcommand message kernel rejected the values.");
     }
 
     internal static string GetNoCompilationUnitForFileMessage(string fileFilter)
@@ -500,7 +491,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoCompilationUnitForFileMessage(fileFilter), out var message))
             return message;
 
-        return GetNoCompilationUnitForFileMessageWithCSharp(fileFilter);
+        throw new InvalidOperationException("N# query no-compilation-unit message kernel rejected the values.");
     }
 
     internal static string GetNoCompilationUnitsMessage()
@@ -508,7 +499,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoCompilationUnitsMessage(), out var message))
             return message;
 
-        return GetNoCompilationUnitsMessageWithCSharp();
+        throw new InvalidOperationException("N# query no-compilation-units message kernel rejected the values.");
     }
 
     internal static string GetPositionUsageMessage(string subcommand)
@@ -516,7 +507,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryPositionUsageMessage(subcommand), out var message))
             return message;
 
-        return GetPositionUsageMessageWithCSharp(subcommand);
+        throw new InvalidOperationException("N# query position-usage message kernel rejected the values.");
     }
 
     internal static string GetInvalidPositionMessage(string position)
@@ -524,7 +515,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryInvalidPositionMessage(position), out var message))
             return message;
 
-        return GetInvalidPositionMessageWithCSharp(position);
+        throw new InvalidOperationException("N# query invalid-position message kernel rejected the values.");
     }
 
     internal static string GetNoSymbolAtPositionMessage(string file, int line, int column)
@@ -535,7 +526,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoSymbolAtPositionMessage(file, lineText, columnText), out var message))
             return message;
 
-        return GetNoSymbolAtPositionMessageWithCSharp(file, lineText, columnText);
+        throw new InvalidOperationException("N# query no-symbol message kernel rejected the values.");
     }
 
     internal static string GetNoTypeInformationAtPositionMessage(string file, int line, int column)
@@ -546,7 +537,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoTypeInformationAtPositionMessage(file, lineText, columnText), out var message))
             return message;
 
-        return GetNoTypeInformationAtPositionMessageWithCSharp(file, lineText, columnText);
+        throw new InvalidOperationException("N# query no-type message kernel rejected the values.");
     }
 
     internal static string GetNoDefinitionAtPositionMessage(string file, int line, int column)
@@ -557,7 +548,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoDefinitionAtPositionMessage(file, lineText, columnText), out var message))
             return message;
 
-        return GetNoDefinitionAtPositionMessageWithCSharp(file, lineText, columnText);
+        throw new InvalidOperationException("N# query no-definition message kernel rejected the values.");
     }
 
     internal static string GetNoInterfaceAtPositionMessage(string file, int line, int column)
@@ -568,7 +559,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoInterfaceAtPositionMessage(file, lineText, columnText), out var message))
             return message;
 
-        return GetNoInterfaceAtPositionMessageWithCSharp(file, lineText, columnText);
+        throw new InvalidOperationException("N# query no-interface message kernel rejected the values.");
     }
 
     internal static string GetPerformanceJsonOnlyMessage()
@@ -576,7 +567,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryPerformanceJsonOnlyMessage(), out var message))
             return message;
 
-        return GetPerformanceJsonOnlyMessageWithCSharp();
+        throw new InvalidOperationException("N# query performance JSON-only message kernel rejected the values.");
     }
 
     internal static string GetTrustedJsonOnlyMessage()
@@ -584,7 +575,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryTrustedJsonOnlyMessage(), out var message))
             return message;
 
-        return GetTrustedJsonOnlyMessageWithCSharp();
+        throw new InvalidOperationException("N# query trusted JSON-only message kernel rejected the values.");
     }
 
     internal static string GetImplementorsUsageMessage()
@@ -592,7 +583,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryImplementorsUsageMessage(), out var message))
             return message;
 
-        return GetImplementorsUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query implementors usage message kernel rejected the values.");
     }
 
     internal static string GetBatchJsonOnlyMessage()
@@ -600,7 +591,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryBatchJsonOnlyMessage(), out var message))
             return message;
 
-        return GetBatchJsonOnlyMessageWithCSharp();
+        throw new InvalidOperationException("N# query batch JSON-only message kernel rejected the values.");
     }
 
     internal static string GetBatchUsageMessage()
@@ -608,7 +599,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryBatchUsageMessage(), out var message))
             return message;
 
-        return GetBatchUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query batch usage message kernel rejected the values.");
     }
 
     internal static string GetEmptyBatchMessage()
@@ -616,7 +607,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryEmptyBatchMessage(), out var message))
             return message;
 
-        return GetEmptyBatchMessageWithCSharp();
+        throw new InvalidOperationException("N# query empty-batch message kernel rejected the values.");
     }
 
     internal static string GetOutlineUsageMessage()
@@ -624,7 +615,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryOutlineUsageMessage(), out var message))
             return message;
 
-        return GetOutlineUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query outline usage message kernel rejected the values.");
     }
 
     internal static string GetFileNotFoundMessage(string filePath)
@@ -632,7 +623,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryFileNotFoundMessage(filePath), out var message))
             return message;
 
-        return GetFileNotFoundMessageWithCSharp(filePath);
+        throw new InvalidOperationException("N# query file-not-found message kernel rejected the values.");
     }
 
     internal static string GetDefinitionUsageMessage()
@@ -640,7 +631,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryDefinitionUsageMessage(), out var message))
             return message;
 
-        return GetDefinitionUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query definition usage message kernel rejected the values.");
     }
 
     internal static string GetInspectCompactTextUnsupportedMessage()
@@ -648,7 +639,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryInspectCompactTextUnsupportedMessage(), out var message))
             return message;
 
-        return GetInspectCompactTextUnsupportedMessageWithCSharp();
+        throw new InvalidOperationException("N# query inspect compact/text message kernel rejected the values.");
     }
 
     internal static string GetReferencesUsageMessage()
@@ -656,7 +647,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryReferencesUsageMessage(), out var message))
             return message;
 
-        return GetReferencesUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query references usage message kernel rejected the values.");
     }
 
     internal static string GetSemanticReferencesUnavailableMessage()
@@ -664,7 +655,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QuerySemanticReferencesUnavailableMessage(), out var message))
             return message;
 
-        return GetSemanticReferencesUnavailableMessageWithCSharp();
+        throw new InvalidOperationException("N# query semantic references message kernel rejected the values.");
     }
 
     internal static string GetDocUsageMessage()
@@ -672,7 +663,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryDocUsageMessage(), out var message))
             return message;
 
-        return GetDocUsageMessageWithCSharp();
+        throw new InvalidOperationException("N# query doc usage message kernel rejected the values.");
     }
 
     internal static string GetNoDocumentationMessage(string query)
@@ -680,7 +671,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryNoDocumentationMessage(query), out var message))
             return message;
 
-        return GetNoDocumentationMessageWithCSharp(query);
+        throw new InvalidOperationException("N# query no-documentation message kernel rejected the values.");
     }
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectDir)
@@ -688,7 +679,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryProjectDirectoryNotFoundMessage(projectDir), out var message))
             return message;
 
-        return GetProjectDirectoryNotFoundMessageWithCSharp(projectDir);
+        throw new InvalidOperationException("N# query project-directory message kernel rejected the values.");
     }
 
     internal static string GetFailedAnalyzeProjectMessage(string message)
@@ -696,7 +687,7 @@ internal static class QueryCommandKernels
         if (TryGetMessage(bindings => bindings.QueryFailedAnalyzeProjectMessage(message), out var result))
             return result;
 
-        return GetFailedAnalyzeProjectMessageWithCSharp(message);
+        throw new InvalidOperationException("N# query failed-analysis message kernel rejected the values.");
     }
 
     private static string ToInvariantText(int value)
@@ -721,143 +712,6 @@ internal static class QueryCommandKernels
             return false;
         }
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query messages route through QueryCommandKernels.
-    private static string GetHelpTextWithCSharp(string commandLines)
-        => "N# Code Intelligence CLI\n"
-           + "\n"
-           + "Usage: nlc query <command> [options]\n"
-           + "\n"
-           + "Commands:\n"
-           + commandLines + "\n"
-           + "\n"
-           + "Global Options:\n"
-           + "  --json        Output as JSON (default)\n"
-           + "  --text        Output as human-readable text (Elm-style)\n"
-           + "  --no-daemon   Force in-process analysis even if a daemon is running\n"
-           + "  --project     Project root directory (default: current directory)\n"
-           + "  --file        Target file for file-scoped operations\n"
-           + "  --pos         Position as line:col (e.g. 5:12)\n"
-           + "  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)\n"
-           + "  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc query symbols                              # All symbols in project\n"
-           + "  nlc query symbols --filter '*Person*'          # Symbols matching glob\n"
-           + "  nlc query symbols --filter Person              # Symbols matching substring\n"
-           + "  nlc query batch --requests requests.json       # Mixed semantic queries in one call\n"
-           + "  nlc query symbols --file Program.nl            # Symbols in one file\n"
-           + "  nlc query symbols --kind function              # Only functions\n"
-           + "  nlc query outline Program.nl                   # File structure\n"
-           + "  nlc query diagnostics                          # All errors/warnings\n"
-           + "  nlc query diagnostics --clusters               # Diagnostic clusters\n"
-           + "  nlc query diagnostics --text                   # Elm-style error output\n"
-           + "  nlc query type --file Program.nl --pos 5:4     # Type at position\n"
-           + "  nlc query inspect --file Program.nl --pos 5:4\n"
-           + "  nlc query inspect --file Program.nl --pos 5:4 --compact\n"
-           + "  nlc query def --file Program.nl --pos 5:4      # Definition at position\n"
-           + "  nlc query def --name Person                    # Search by name\n"
-           + "  nlc query refs --file Program.nl --pos 5:4     # All references\n"
-           + "  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position\n"
-           + "  nlc query call-graph --function Main           # Callers/callees of Main\n"
-           + "  nlc query call-graph --function Main --limit 50\n"
-           + "  nlc query implementors --name IShape           # Types implementing IShape\n"
-           + "  nlc query implementors --file Program.nl --pos 10:11\n"
-           + "  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts\n"
-           + "  nlc query trusted                              # Governed [trusted] wrappers\n"
-           + "  nlc query doc Console                          # Type documentation\n"
-           + "  nlc query doc Console.WriteLine                # Method documentation\n"
-           + "  nlc query doc List                             # Generic type docs\n"
-           + "\n"
-           + "JSON queries reuse `nlc daemon` automatically when a daemon is already running.\n"
-           + "Use `--no-daemon` to bypass the daemon for debugging.";
-
-    private static string GetDescriptionWithAliasesWithCSharp(string description, string aliasesText)
-        => string.IsNullOrEmpty(aliasesText)
-            ? description
-            : $"{description} (aliases: {aliasesText})";
-
-    private static string GetUnknownSubcommandMessageWithCSharp(string subcommand)
-        => $"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.";
-
-    private static string GetNoCompilationUnitForFileMessageWithCSharp(string fileFilter)
-        => $"No compilation unit found for --file {fileFilter}";
-
-    private static string GetNoCompilationUnitsMessageWithCSharp()
-        => "No compilation units in project.";
-
-    private static string GetPositionUsageMessageWithCSharp(string subcommand)
-        => $"Usage: nlc query {subcommand} --file <path> --pos <line>:<col>";
-
-    private static string GetInvalidPositionMessageWithCSharp(string position)
-        => $"Invalid position format: {position}. Expected <line>:<col> (e.g. 5:12)";
-
-    private static string GetNoSymbolAtPositionMessageWithCSharp(string file, string lineText, string columnText)
-        => $"No symbol found at {file}:{lineText}:{columnText}";
-
-    private static string GetNoTypeInformationAtPositionMessageWithCSharp(string file, string lineText, string columnText)
-        => $"No type information found at {file}:{lineText}:{columnText}";
-
-    private static string GetNoDefinitionAtPositionMessageWithCSharp(string file, string lineText, string columnText)
-        => $"No definition found at {file}:{lineText}:{columnText}";
-
-    private static string GetNoInterfaceAtPositionMessageWithCSharp(string file, string lineText, string columnText)
-        => $"No interface found at {file}:{lineText}:{columnText}";
-
-    private static string GetPerformanceJsonOnlyMessageWithCSharp()
-        => "Performance facts are only available as JSON output.";
-
-    private static string GetTrustedJsonOnlyMessageWithCSharp()
-        => "Trusted-site reports are only available as JSON output.";
-
-    private static string GetImplementorsUsageMessageWithCSharp()
-        => "Usage: nlc query implementors --name <interface>\n       nlc query implementors --file <path> --pos <line>:<col>";
-
-    private static string GetBatchJsonOnlyMessageWithCSharp()
-        => "Batch queries only support JSON output.";
-
-    private static string GetBatchUsageMessageWithCSharp()
-        => "Usage: nlc query batch --requests <path-to-json>";
-
-    private static string GetEmptyBatchMessageWithCSharp()
-        => "Batch request file did not contain any requests.";
-
-    private static string GetOutlineUsageMessageWithCSharp()
-        => "Usage: nlc query outline <file>";
-
-    private static string GetFileNotFoundMessageWithCSharp(string filePath)
-        => $"File not found: {filePath}";
-
-    private static string GetDefinitionUsageMessageWithCSharp()
-        => "Usage: nlc query definition --file <path> --pos <line>:<col>\n       nlc query definition --name <name>";
-
-    private static string GetInspectCompactTextUnsupportedMessageWithCSharp()
-        => "--compact/--summary is only supported with JSON output.";
-
-    private static string GetReferencesUsageMessageWithCSharp()
-        => "Usage: nlc query references --file <path> --pos <line>:<col>\n\nThis is a semantic operation. Position-based only — no name-based shortcut.";
-
-    private static string GetSemanticReferencesUnavailableMessageWithCSharp()
-        => "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. "
-           + "No name-based or text-based fallback was used.";
-
-    private static string GetDocUsageMessageWithCSharp()
-        => "Usage: nlc query doc <type-or-member>\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc query doc Console\n"
-           + "  nlc query doc Console.WriteLine\n"
-           + "  nlc query doc List\n"
-           + "  nlc query doc System.IO.File";
-
-    private static string GetNoDocumentationMessageWithCSharp(string query)
-        => $"No documentation found for '{query}'.";
-
-    private static string GetProjectDirectoryNotFoundMessageWithCSharp(string projectDir)
-        => $"Project directory not found: {projectDir}";
-
-    private static string GetFailedAnalyzeProjectMessageWithCSharp(string message)
-        => $"Failed to analyze project: {message}";
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
