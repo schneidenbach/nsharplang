@@ -226,14 +226,10 @@ public static class PackCommand
             : throw new InvalidOperationException("N# pack option-summary kernel is unavailable.");
 
     internal static PackVersionSourceKind GetEffectiveVersionSource(string? versionOverride, string? projectVersion)
-        => PackCommandKernels.TryGetEffectiveVersionSource(versionOverride, projectVersion, out var versionSource)
-            ? versionSource
-            : throw new InvalidOperationException("N# pack version-source kernel is unavailable.");
+        => PackCommandKernels.GetEffectiveVersionSource(versionOverride, projectVersion);
 
     internal static PackOutputModeKind GetOutputMode(bool json)
-        => PackCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : throw new InvalidOperationException("N# pack output-mode kernel is unavailable.");
+        => PackCommandKernels.GetOutputMode(json);
 
     static void WriteJson(Action<Utf8JsonWriter> write)
     {

@@ -72,58 +72,27 @@ internal static class PackCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out PackOutputModeKind outputMode)
+    internal static PackOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.PackOutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# pack output-mode kernel is unavailable.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.PackOutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (PackOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (PackOutputModeKind)code;
     }
 
-    internal static bool TryGetEffectiveVersionSource(
+    internal static PackVersionSourceKind GetEffectiveVersionSource(
         string? versionOverride,
-        string? projectVersion,
-        out PackVersionSourceKind versionSource)
+        string? projectVersion)
     {
-        versionSource = default;
+        var result = RequiredBindings.PackEffectiveVersionSource(
+            versionOverride == null ? 0 : 1,
+            versionOverride ?? string.Empty,
+            projectVersion ?? string.Empty);
+        if (result is < 0 or > 2)
+            throw new InvalidOperationException("N# pack version-source kernel is unavailable.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.PackEffectiveVersionSource(
-                versionOverride == null ? 0 : 1,
-                versionOverride ?? string.Empty,
-                projectVersion ?? string.Empty);
-            if (result is < 0 or > 2)
-                return false;
-
-            versionSource = (PackVersionSourceKind)result;
-            return true;
-        }
-        catch
-        {
-            versionSource = default;
-            return false;
-        }
+        return (PackVersionSourceKind)result;
     }
 
     internal static string GetHelpText()
@@ -194,15 +163,15 @@ internal static class PackCommandKernels
 
     private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            throw new InvalidOperationException("N# pack kernels are unavailable.");
-
+        var bindings = RequiredBindings;
         var message = getMessage(bindings);
         return !string.IsNullOrEmpty(message)
             ? message
             : throw new InvalidOperationException("N# pack kernel returned empty text.");
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# pack kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

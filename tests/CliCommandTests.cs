@@ -3997,11 +3997,11 @@ Exit codes:
         Assert.True(PackCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(PackCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
-        Assert.True(PackCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = PackCommandKernels.GetOutputMode(json: false);
         Assert.Equal(PackOutputModeKind.Text, textMode);
         Assert.Equal(PackOutputModeKind.Text, PackCommand.GetOutputMode(json: false));
 
-        Assert.True(PackCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = PackCommandKernels.GetOutputMode(json: true);
         Assert.Equal(PackOutputModeKind.Json, jsonMode);
         Assert.Equal(PackOutputModeKind.Json, PackCommand.GetOutputMode(json: true));
 
@@ -4082,19 +4082,19 @@ Exit codes:
     [Fact]
     public void PackCommandKernels_SelectsEffectiveVersionSource()
     {
-        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, null, out var missing));
+        var missing = PackCommandKernels.GetEffectiveVersionSource(null, null);
         Assert.Equal(PackVersionSourceKind.Missing, missing);
 
-        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource("2.0.0", "1.0.0", out var fromOverride));
+        var fromOverride = PackCommandKernels.GetEffectiveVersionSource("2.0.0", "1.0.0");
         Assert.Equal(PackVersionSourceKind.Override, fromOverride);
 
-        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(" ", "1.0.0", out var blankOverride));
+        var blankOverride = PackCommandKernels.GetEffectiveVersionSource(" ", "1.0.0");
         Assert.Equal(PackVersionSourceKind.Missing, blankOverride);
 
-        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, "1.0.0", out var fromProject));
+        var fromProject = PackCommandKernels.GetEffectiveVersionSource(null, "1.0.0");
         Assert.Equal(PackVersionSourceKind.Project, fromProject);
 
-        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, " ", out var blankProject));
+        var blankProject = PackCommandKernels.GetEffectiveVersionSource(null, " ");
         Assert.Equal(PackVersionSourceKind.Missing, blankProject);
 
         Assert.Equal(PackVersionSourceKind.Override, PackCommand.GetEffectiveVersionSource("2.0.0", "1.0.0"));
