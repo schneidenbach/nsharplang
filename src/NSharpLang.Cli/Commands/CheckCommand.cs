@@ -43,7 +43,7 @@ public static class CheckCommand
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
             }
 
-            var backend = CompilationBackendSelectionKernels.Resolve(arguments.BackendOption, projectConfig);
+            _ = CompilationBackendSelectionKernels.Resolve(arguments.BackendOption, projectConfig);
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
@@ -58,7 +58,7 @@ public static class CheckCommand
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
-                var verificationDiagnostics = VerifyBackendOutput(projectDir, backend, projectConfig);
+                var verificationDiagnostics = VerifyIlOutput(projectDir, projectConfig);
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
@@ -121,19 +121,6 @@ public static class CheckCommand
                 Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
             return EmitError(useText, CheckCommandKernels.GetFailedMessage(ex.Message), projectDir);
         }
-    }
-
-    /// <summary>
-    /// Verifies that the configured backend can emit a valid assembly.
-    /// </summary>
-    private static List<DiagnosticResult> VerifyBackendOutput(string projectDir, CompilationBackend backend, ProjectConfig? config)
-    {
-        if (backend != CompilationBackend.Il)
-        {
-            throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-        }
-
-        return VerifyIlOutput(projectDir, config);
     }
 
     private static List<DiagnosticResult> VerifyIlOutput(string projectDir, ProjectConfig? config)

@@ -127,11 +127,7 @@ partial class Program
                     ? Path.GetFullPath(buildOptions.ProjectOption)
                     : Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, currentProjectConfig);
-                if (backend != CompilationBackend.Il)
-                {
-                    throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-                }
+                _ = CompilationBackendSelectionKernels.Resolve(buildOptions.BackendOption, currentProjectConfig);
 
                 var buildResult = RunBuildEmittingPerfReport(
                     buildOptions.PerfReport,
@@ -369,11 +365,7 @@ partial class Program
             {
                 var projectRoot = Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = CompilationBackendSelectionKernels.Resolve(backendOption, currentProjectConfig);
-                if (backend != CompilationBackend.Il)
-                {
-                    throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-                }
+                _ = CompilationBackendSelectionKernels.Resolve(backendOption, currentProjectConfig);
 
                 return RunWithIlBackend(projectRoot, cliDefines);
             }
@@ -424,11 +416,7 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            var backend = CompilationBackendSelectionKernels.Resolve(backendOption, config);
-            if (backend != CompilationBackend.Il)
-            {
-                throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-            }
+            _ = CompilationBackendSelectionKernels.Resolve(backendOption, config);
 
             var configuration = publishArguments.Configuration;
             var output = publishArguments.Output;
