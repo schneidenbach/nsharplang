@@ -41,28 +41,13 @@ internal static class ProgramCommandKernels
 {
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetCommandKind(string[] args, out ProgramCommandKind commandKind)
+    internal static ProgramCommandKind GetCommandKind(string[] args)
     {
-        commandKind = ProgramCommandKind.Unknown;
+        var value = RequiredBindings.CommandKind(args);
+        if (!Enum.IsDefined(typeof(ProgramCommandKind), value))
+            throw new InvalidOperationException("N# dogfood compiler services rejected the top-level CLI command routing result.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var value = bindings.CommandKind(args);
-            if (!Enum.IsDefined(typeof(ProgramCommandKind), value))
-                return false;
-
-            commandKind = (ProgramCommandKind)value;
-            return true;
-        }
-        catch
-        {
-            commandKind = ProgramCommandKind.Unknown;
-            return false;
-        }
+        return (ProgramCommandKind)value;
     }
 
     internal static string GetVersionText(string version)

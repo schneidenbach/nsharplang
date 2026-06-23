@@ -20,19 +20,19 @@ public class CliCommandTests
     [Fact]
     public void ProgramCommandKernels_SummarizesTopLevelCommands()
     {
-        Assert.True(ProgramCommandKernels.TryGetCommandKind(Array.Empty<string>(), out var empty));
+        var empty = ProgramCommandKernels.GetCommandKind(Array.Empty<string>());
         Assert.Equal(ProgramCommandKind.Help, empty);
 
-        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "BUILD", "--help" }, out var build));
+        var build = ProgramCommandKernels.GetCommandKind(new[] { "BUILD", "--help" });
         Assert.Equal(ProgramCommandKind.Build, build);
 
-        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "--VERSION" }, out var longVersion));
+        var longVersion = ProgramCommandKernels.GetCommandKind(new[] { "--VERSION" });
         Assert.Equal(ProgramCommandKind.Version, longVersion);
 
-        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "-V" }, out var shortVersion));
+        var shortVersion = ProgramCommandKernels.GetCommandKind(new[] { "-V" });
         Assert.Equal(ProgramCommandKind.Version, shortVersion);
 
-        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "-v" }, out var lowerShortVersion));
+        var lowerShortVersion = ProgramCommandKernels.GetCommandKind(new[] { "-v" });
         Assert.Equal(ProgramCommandKind.Unknown, lowerShortVersion);
 
         Assert.Equal("nlc 1.2.3", ProgramCommandKernels.GetVersionText("1.2.3"));

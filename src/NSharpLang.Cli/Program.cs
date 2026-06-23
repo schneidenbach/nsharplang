@@ -91,12 +91,7 @@ partial class Program
     }
 
     internal static ProgramCommandKind GetCommandKind(string[] args)
-    {
-        if (ProgramCommandKernels.TryGetCommandKind(args, out var commandKind))
-            return commandKind;
-
-        throw new InvalidOperationException("N# dogfood compiler services are required for top-level CLI command routing.");
-    }
+        => ProgramCommandKernels.GetCommandKind(args);
 
     private static string GetCommandNameForError(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLower();
