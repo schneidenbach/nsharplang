@@ -82,7 +82,7 @@ public static class RestoreCommand
                     config.TargetFramework,
                     outputType,
                     projectName,
-                    config.EffectiveBackend.ToConfigValue(),
+                    "il",
                     config.TestFramework,
                     baseSdk,
                     projectReferences),

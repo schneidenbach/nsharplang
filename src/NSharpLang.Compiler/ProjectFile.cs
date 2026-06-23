@@ -32,7 +32,7 @@ public class ProjectConfig
     /// <summary>
     /// Compilation backend: "il" (default and only supported executable backend).
     /// </summary>
-    public string Backend { get; set; } = CompilationBackend.Il.ToConfigValue();
+    public string Backend { get; set; } = "il";
 
     /// <summary>
     /// Output type: "exe" or "library"
@@ -611,7 +611,7 @@ public class ProjectFileParser
         return new ProjectConfig
         {
             Name = projectName,
-            Backend = CompilationBackend.Il.ToConfigValue(),
+            Backend = "il",
             OutputType = "exe",
             TargetFramework = "net10.0",
             Language = new LanguageConfig()
