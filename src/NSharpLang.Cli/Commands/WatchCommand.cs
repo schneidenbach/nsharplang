@@ -19,7 +19,7 @@ public static class WatchCommand
 
         var targetSummary = WatchCommandKernels.GetTargetSummary(args);
         var targetNameForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
-        if (targetSummary.TargetKind == WatchTargetKind.Unknown)
+        if (targetSummary.TargetKind == 0)
             return Error(WatchCommandKernels.GetUnsupportedTargetMessage(targetNameForError));
 
         var watchedCommand = WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind);

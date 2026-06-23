@@ -2855,16 +2855,16 @@ func Main() {
     public void WatchCommandKernels_SummarizesTargets()
     {
         var build = WatchCommandKernels.GetTargetSummary(new[] { "BUILD", "--max-runs", "1" });
-        Assert.Equal(WatchTargetKind.Build, build.TargetKind);
+        Assert.Equal(2, build.TargetKind);
 
         var unknown = WatchCommandKernels.GetTargetSummary(new[] { "serve", "--max-runs", "1" });
-        Assert.Equal(WatchTargetKind.Unknown, unknown.TargetKind);
-        Assert.Equal("check", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Check));
-        Assert.Equal("build", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Build));
-        Assert.Equal("test", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Test));
-        Assert.Equal("lint", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Lint));
-        Assert.Equal("format", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Format));
-        Assert.Equal(string.Empty, WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Unknown));
+        Assert.Equal(0, unknown.TargetKind);
+        Assert.Equal("check", WatchCommandKernels.GetTargetCommandName(1));
+        Assert.Equal("build", WatchCommandKernels.GetTargetCommandName(2));
+        Assert.Equal("test", WatchCommandKernels.GetTargetCommandName(3));
+        Assert.Equal("lint", WatchCommandKernels.GetTargetCommandName(4));
+        Assert.Equal("format", WatchCommandKernels.GetTargetCommandName(5));
+        Assert.Equal(string.Empty, WatchCommandKernels.GetTargetCommandName(0));
         Assert.Equal(
             "Unsupported watch target 'serve'. Expected check, build, test, lint, or format.",
             WatchCommandKernels.GetUnsupportedTargetMessage("serve"));

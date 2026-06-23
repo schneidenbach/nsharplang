@@ -8,17 +8,7 @@ internal readonly record struct WatchOptionSummary(
     string? MaxRunsOption,
     bool ShowHelp);
 
-internal enum WatchTargetKind
-{
-    Unknown = 0,
-    Check = 1,
-    Build = 2,
-    Test = 3,
-    Lint = 4,
-    Format = 5
-}
-
-internal readonly record struct WatchTargetSummary(WatchTargetKind TargetKind);
+internal readonly record struct WatchTargetSummary(int TargetKind);
 
 internal static class WatchCommandKernels
 {
@@ -44,7 +34,7 @@ internal static class WatchCommandKernels
         if (targetKindValue < 0 || targetKindValue > 5)
             throw new InvalidOperationException("N# watch target summary kernel rejected the arguments.");
 
-        return new WatchTargetSummary((WatchTargetKind)targetKindValue);
+        return new WatchTargetSummary(targetKindValue);
     }
 
     internal static WatchOptionSummary GetOptionSummary(string[] args)
@@ -100,8 +90,8 @@ internal static class WatchCommandKernels
         return result[0];
     }
 
-    internal static string GetTargetCommandName(WatchTargetKind targetKind)
-        => RequiredBindings.WatchTargetCommandName((int)targetKind);
+    internal static string GetTargetCommandName(int targetKind)
+        => RequiredBindings.WatchTargetCommandName(targetKind);
 
     internal static string GetHelpText()
         => RequiredBindings.WatchHelpText();
