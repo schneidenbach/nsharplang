@@ -10,16 +10,8 @@ internal static class GeneratedOutputDirectoryDeduplicator
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryDeduplicate(
-        IReadOnlyList<string> directories,
-        out List<string> distinctDirectories)
+    internal static List<string> Deduplicate(IReadOnlyList<string> directories)
     {
-        distinctDirectories = new List<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var directoryCount = directories.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(directoryCount);
@@ -40,37 +32,26 @@ internal static class GeneratedOutputDirectoryDeduplicator
             }
 
             scratch.EnsureRankCapacity(uniqueRankCount);
-            var resultCount = bindings.StableDistinctRankIndices(
+            var resultCount = RequiredBindings.StableDistinctRankIndices(
                 scratch.Ranks,
                 uniqueRankCount,
                 scratch.SeenRanks,
                 scratch.ResultIndices);
 
             if (resultCount < 0 || resultCount > directoryCount || resultCount > scratch.ResultIndices.Length)
-            {
-                distinctDirectories = new List<string>();
-                return false;
-            }
+                throw new InvalidOperationException("N# generated output directory deduplication kernel rejected the directories.");
 
-            distinctDirectories = new List<string>(resultCount);
+            var distinctDirectories = new List<string>(resultCount);
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= directoryCount)
-                {
-                    distinctDirectories = new List<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# generated output directory deduplication kernel rejected the directories.");
 
                 distinctDirectories.Add(directories[sourceIndex]);
             }
 
-            return true;
-        }
-        catch
-        {
-            distinctDirectories = new List<string>();
-            return false;
+            return distinctDirectories;
         }
         finally
         {
@@ -78,77 +59,35 @@ internal static class GeneratedOutputDirectoryDeduplicator
         }
     }
 
-    internal static bool TryGetSourceBasePathLength(string relativeSourcePath, out int basePathLength)
+    internal static int GetSourceBasePathLength(string relativeSourcePath)
     {
-        basePathLength = -1;
+        var result = RequiredBindings.GeneratedSourceBasePathLength(relativeSourcePath);
+        if (result < -1 || result > relativeSourcePath.Length)
+            throw new InvalidOperationException("N# generated source base-path length kernel rejected the path.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.GeneratedSourceBasePathLength(relativeSourcePath);
-            if (result < -1 || result > relativeSourcePath.Length)
-                return false;
-
-            basePathLength = result;
-            return true;
-        }
-        catch
-        {
-            basePathLength = -1;
-            return false;
-        }
+        return result;
     }
 
-    internal static bool TryShouldSkipSourcePath(string relativeSourcePath, out bool shouldSkip)
+    internal static bool ShouldSkipSourcePath(string relativeSourcePath)
     {
-        shouldSkip = false;
+        var result = RequiredBindings.ShouldSkipGeneratedSourcePath(relativeSourcePath);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# generated source skip kernel rejected the path.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.ShouldSkipGeneratedSourcePath(relativeSourcePath);
-            if (result is not 0 and not 1)
-                return false;
-
-            shouldSkip = result == 1;
-            return true;
-        }
-        catch
-        {
-            shouldSkip = false;
-            return false;
-        }
+        return result == 1;
     }
 
-    internal static bool TryGetGeneratedOutputBasePathLength(string relativeGeneratedPath, out int basePathLength)
+    internal static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
     {
-        basePathLength = -1;
+        var result = RequiredBindings.GeneratedOutputBasePathLength(relativeGeneratedPath);
+        if (result < -1 || result > relativeGeneratedPath.Length)
+            throw new InvalidOperationException("N# generated output base-path length kernel rejected the path.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.GeneratedOutputBasePathLength(relativeGeneratedPath);
-            if (result < -1 || result > relativeGeneratedPath.Length)
-                return false;
-
-            basePathLength = result;
-            return true;
-        }
-        catch
-        {
-            basePathLength = -1;
-            return false;
-        }
+        return result;
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# generated output cleanup kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

@@ -305,11 +305,7 @@ partial class Program
         var nsharpDirCandidates = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
             .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
             .ToArray();
-        var nsharpDirs = GeneratedOutputDirectoryDeduplicator.TryDeduplicate(
-                nsharpDirCandidates,
-                out var dogfoodNsharpDirs)
-            ? dogfoodNsharpDirs
-            : throw new InvalidOperationException("N# generated output directory deduplication kernel rejected the directories.");
+        var nsharpDirs = GeneratedOutputDirectoryDeduplicator.Deduplicate(nsharpDirCandidates);
         foreach (var nsharpDir in nsharpDirs)
         {
             if (!Directory.Exists(nsharpDir))
@@ -330,28 +326,13 @@ partial class Program
     }
 
     static int GetGeneratedSourceBasePathLength(string relativeSourcePath)
-    {
-        if (GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(relativeSourcePath, out var basePathLength))
-            return basePathLength;
-
-        throw new InvalidOperationException("N# generated source base-path length kernel rejected the path.");
-    }
+        => GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength(relativeSourcePath);
 
     static bool ShouldSkipGeneratedSourcePath(string relativeSourcePath)
-    {
-        if (GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(relativeSourcePath, out var shouldSkip))
-            return shouldSkip;
-
-        throw new InvalidOperationException("N# generated source skip kernel rejected the path.");
-    }
+        => GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath(relativeSourcePath);
 
     static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
-    {
-        if (GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(relativeGeneratedPath, out var basePathLength))
-            return basePathLength;
-
-        throw new InvalidOperationException("N# generated output base-path length kernel rejected the path.");
-    }
+        => GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength(relativeGeneratedPath);
 
     static string CreateTempBuildDirectory()
     {

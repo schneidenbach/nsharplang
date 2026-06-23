@@ -437,56 +437,32 @@ func Main() {
     public void GeneratedOutputDirectoryDeduplicator_DeduplicatesStaleGeneratedDirectories()
     {
         var duplicateDirs = new[] { "obj/Debug/net10.0/nsharp", "obj/Debug/net10.0/nsharp" };
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryDeduplicate(
-            duplicateDirs,
-            out var distinctDirs));
+        var distinctDirs = GeneratedOutputDirectoryDeduplicator.Deduplicate(duplicateDirs);
         Assert.Equal(new[] { "obj/Debug/net10.0/nsharp" }, distinctDirs);
 
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
-            "src/Program.nl",
-            out var sourceBaseLength));
+        var sourceBaseLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength("src/Program.nl");
         Assert.Equal("src/Program".Length, sourceBaseLength);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
-            "src/Calculator.tests.nl",
-            out var testSourceBaseLength));
+        var testSourceBaseLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength("src/Calculator.tests.nl");
         Assert.Equal("src/Calculator".Length, testSourceBaseLength);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
-            "src/Calculator.TESTS.NL",
-            out var uppercaseTestSourceBaseLength));
+        var uppercaseTestSourceBaseLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength("src/Calculator.TESTS.NL");
         Assert.Equal("src/Calculator".Length, uppercaseTestSourceBaseLength);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
-            "src/README.md",
-            out var nonSourceBaseLength));
+        var nonSourceBaseLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength("src/README.md");
         Assert.Equal(-1, nonSourceBaseLength);
 
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
-            "obj/Debug/Generated.nl",
-            out var skipObjSource));
+        var skipObjSource = GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath("obj/Debug/Generated.nl");
         Assert.True(skipObjSource);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
-            "BIN\\Debug\\Generated.nl",
-            out var skipBinSource));
+        var skipBinSource = GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath("BIN\\Debug\\Generated.nl");
         Assert.True(skipBinSource);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
-            "src/obj/Generated.nl",
-            out var keepNestedObjSource));
+        var keepNestedObjSource = GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath("src/obj/Generated.nl");
         Assert.False(keepNestedObjSource);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
-            "object/Generated.nl",
-            out var keepObjectSource));
+        var keepObjectSource = GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath("object/Generated.nl");
         Assert.False(keepObjectSource);
 
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
-            "Program.g.cs",
-            out var generatedBaseLength));
+        var generatedBaseLength = GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength("Program.g.cs");
         Assert.Equal("Program".Length, generatedBaseLength);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
-            "nested/Calculator.G.CS",
-            out var uppercaseGeneratedBaseLength));
+        var uppercaseGeneratedBaseLength = GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength("nested/Calculator.G.CS");
         Assert.Equal("nested/Calculator".Length, uppercaseGeneratedBaseLength);
-        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
-            "Program.cs",
-            out var nonGeneratedBaseLength));
+        var nonGeneratedBaseLength = GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength("Program.cs");
         Assert.Equal(-1, nonGeneratedBaseLength);
 
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-stale-generated-{Guid.NewGuid():N}");
