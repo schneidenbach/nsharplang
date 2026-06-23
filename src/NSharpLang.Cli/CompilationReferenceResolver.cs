@@ -539,11 +539,11 @@ internal static class CompilationReferenceResolver
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Cast<string>()
                 .ToArray();
-            var bestVersion = SelectBestInstalledNuGetVersion(installedVersions);
 
-            if (!string.IsNullOrWhiteSpace(bestVersion))
+            var bestVersionIndex = CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex(installedVersions);
+            if (bestVersionIndex >= 0)
             {
-                return Path.Combine(packageDirectory, bestVersion);
+                return Path.Combine(packageDirectory, installedVersions[bestVersionIndex]);
             }
         }
 
@@ -558,12 +558,6 @@ internal static class CompilationReferenceResolver
         return versionDirectory;
     }
 
-    private static string? SelectBestInstalledNuGetVersion(string[] versions)
-    {
-        var dogfoodIndex = CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex(versions);
-        return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
-    }
-
     private static string GetLatestPackageVersion(string packageName)
     {
         var packageId = packageName.ToLowerInvariant();
@@ -576,14 +570,11 @@ internal static class CompilationReferenceResolver
             .Cast<string>()
             .ToArray();
 
-        return SelectLatestNuGetVersion(versions)
-            ?? throw new InvalidOperationException($"Package '{packageName}' has no published versions on NuGet.org.");
-    }
+        var latestVersionIndex = CompilationReferenceResolverKernels.SelectLatestNuGetVersionIndex(versions);
+        if (latestVersionIndex >= 0)
+            return versions[latestVersionIndex];
 
-    private static string? SelectLatestNuGetVersion(string[] versions)
-    {
-        var dogfoodIndex = CompilationReferenceResolverKernels.SelectLatestNuGetVersionIndex(versions);
-        return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
+        throw new InvalidOperationException($"Package '{packageName}' has no published versions on NuGet.org.");
     }
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
@@ -670,9 +661,11 @@ internal static class CompilationReferenceResolver
         {
             var scores = new int[dependencyGroups.Length];
             for (var i = 0; i < dependencyGroups.Length; i++)
-                scores[i] = GetFrameworkCompatibilityScore(dependencyGroups[i].TargetFramework, targetFramework);
+                scores[i] = CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(
+                    dependencyGroups[i].TargetFramework,
+                    targetFramework);
 
-            var bestGroupIndex = SelectBestFrameworkScoreIndex(scores);
+            var bestGroupIndex = CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
             dependencies = bestGroupIndex >= 0
                 ? dependencyGroups[bestGroupIndex].Dependencies
                 : Array.Empty<XElement>();
@@ -681,7 +674,8 @@ internal static class CompilationReferenceResolver
         return dependencies
             .Select(element => new PackageDependency(
                 (string?)element.Attribute("id") ?? string.Empty,
-                NormalizeNuGetDependencyVersion((string?)element.Attribute("version"))))
+                CompilationReferenceResolverKernels.NormalizeNuGetDependencyVersion(
+                    (string?)element.Attribute("version"))))
             .Where(dependency => !string.IsNullOrWhiteSpace(dependency.Id))
             .ToArray();
     }
@@ -700,9 +694,11 @@ internal static class CompilationReferenceResolver
         var candidateDirectories = Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly);
         var scores = new int[candidateDirectories.Length];
         for (var i = 0; i < candidateDirectories.Length; i++)
-            scores[i] = GetFrameworkCompatibilityScore(Path.GetFileName(candidateDirectories[i]), targetFramework);
+            scores[i] = CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(
+                Path.GetFileName(candidateDirectories[i]),
+                targetFramework);
 
-        var bestDirectoryIndex = SelectBestFrameworkScoreIndex(scores);
+        var bestDirectoryIndex = CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
         var bestDirectory = bestDirectoryIndex >= 0
             ? candidateDirectories[bestDirectoryIndex]
             : null;
@@ -713,12 +709,6 @@ internal static class CompilationReferenceResolver
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
     }
-
-    private static int SelectBestFrameworkScoreIndex(int[] scores)
-        => CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
-
-    private static string? NormalizeNuGetDependencyVersion(string? version)
-        => CompilationReferenceResolverKernels.NormalizeNuGetDependencyVersion(version);
 
     private static void AddDllReference(ProjectConfig config, string assemblyPath)
     {
@@ -759,7 +749,7 @@ internal static class CompilationReferenceResolver
 
     private static string? FindSharedFrameworkDirectory(string frameworkName, string targetFramework)
     {
-        var targetVersion = ParseTargetFrameworkVersion(targetFramework);
+        var targetVersion = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
         foreach (var sharedRoot in EnumerateDotnetSharedRoots())
         {
             var frameworkRoot = Path.Combine(sharedRoot, frameworkName);
@@ -791,13 +781,13 @@ internal static class CompilationReferenceResolver
 
     private static string SelectSharedFrameworkDirectory(
         FrameworkCandidate[] candidates,
-        (int Major, int Minor)? targetVersion)
+        (bool Parsed, int Major, int Minor) targetVersion)
     {
         var versions = new Version[candidates.Length];
         for (var i = 0; i < candidates.Length; i++)
             versions[i] = candidates[i].Version;
 
-        var targetMajor = targetVersion.HasValue ? targetVersion.Value.Major : (int?)null;
+        var targetMajor = targetVersion.Parsed ? targetVersion.Major : (int?)null;
         var dogfoodIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkCandidateIndex(
             versions,
             targetMajor);
@@ -836,15 +826,6 @@ internal static class CompilationReferenceResolver
                 yield return root;
             }
         }
-    }
-
-    private static int GetFrameworkCompatibilityScore(string? assetFramework, string targetFramework)
-        => CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(assetFramework, targetFramework);
-
-    private static (int Major, int Minor)? ParseTargetFrameworkVersion(string targetFramework)
-    {
-        var parsed = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
-        return parsed.Parsed ? (parsed.Major, parsed.Minor) : null;
     }
 
     private static Version? TryParseVersion(string? value)
