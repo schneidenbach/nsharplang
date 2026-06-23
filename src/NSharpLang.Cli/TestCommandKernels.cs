@@ -33,9 +33,6 @@ internal static class TestCommandKernels
         if (outcomeCount < 0 || outcomeCount > outcomeRanks.Length)
             return false;
 
-        if (outcomeCount == 0)
-            return true;
-
         var summaryCounts = t_summaryCounts ??= new int[4];
         try
         {

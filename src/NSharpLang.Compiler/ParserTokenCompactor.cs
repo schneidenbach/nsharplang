@@ -19,9 +19,6 @@ internal static class ParserTokenCompactor
             return false;
 
         var tokenCount = tokens.Count;
-        if (tokenCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(tokenCount);
 

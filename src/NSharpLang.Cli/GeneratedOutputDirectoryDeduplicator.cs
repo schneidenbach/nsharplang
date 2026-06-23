@@ -21,9 +21,6 @@ internal static class GeneratedOutputDirectoryDeduplicator
             return false;
 
         var directoryCount = directories.Count;
-        if (directoryCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(directoryCount);
 

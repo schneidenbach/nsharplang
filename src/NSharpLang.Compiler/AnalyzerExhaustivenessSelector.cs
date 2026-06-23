@@ -25,9 +25,6 @@ internal static class AnalyzerExhaustivenessSelector
             return false;
 
         var memberCount = members.Count;
-        if (memberCount == 0)
-            return true;
-
         var scratch = t_missingEnumMemberScratch ??= new MissingEnumMemberScratch();
         scratch.EnsureCapacity(memberCount);
 
@@ -100,9 +97,6 @@ internal static class AnalyzerExhaustivenessSelector
 
         if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
             return false;
-
-        if (count == 0)
-            return true;
 
         var scratch = t_missingUnionCaseScratch ??= new MissingUnionCaseScratch();
         scratch.EnsureCapacity(count);
