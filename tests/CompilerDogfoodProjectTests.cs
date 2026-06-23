@@ -15456,6 +15456,11 @@ func main(): int {
             1,
             static (_, _, _, _, _) => 2,
             out _));
+
+        Assert.Throws<InvalidOperationException>(() => OverloadCandidateSelector.TrySelectBest(
+            1,
+            static (_, _, _, _, _) => throw new InvalidOperationException("selector fill failed"),
+            out _));
     }
 
     [Fact]

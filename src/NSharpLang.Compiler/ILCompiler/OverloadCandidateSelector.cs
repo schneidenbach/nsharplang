@@ -31,37 +31,29 @@ internal static class OverloadCandidateSelector
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(candidateCapacity);
 
-        try
-        {
-            var count = fillColumns(
-                scratch.ValidFlags,
-                scratch.Scores,
-                scratch.GenericFlags,
-                scratch.ParamsFlags,
-                scratch.DefaultsUsed);
+        var count = fillColumns(
+            scratch.ValidFlags,
+            scratch.Scores,
+            scratch.GenericFlags,
+            scratch.ParamsFlags,
+            scratch.DefaultsUsed);
 
-            if (count < 0 || count > candidateCapacity)
-                return false;
-
-            var index = bindings.OverloadSelectBestCandidate(
-                scratch.ValidFlags,
-                scratch.Scores,
-                scratch.GenericFlags,
-                scratch.ParamsFlags,
-                scratch.DefaultsUsed,
-                count);
-
-            if (index < -1 || index >= count)
-                return false;
-
-            selectedIndex = index;
-            return true;
-        }
-        catch
-        {
-            selectedIndex = -1;
+        if (count < 0 || count > candidateCapacity)
             return false;
-        }
+
+        var index = bindings.OverloadSelectBestCandidate(
+            scratch.ValidFlags,
+            scratch.Scores,
+            scratch.GenericFlags,
+            scratch.ParamsFlags,
+            scratch.DefaultsUsed,
+            count);
+
+        if (index < -1 || index >= count)
+            return false;
+
+        selectedIndex = index;
+        return true;
     }
 
     internal delegate int ColumnFiller(

@@ -7570,9 +7570,9 @@ public partial class ILCompiler
 
     /// <summary>
     /// Selects the winning declared-method candidate index using the exact four-level tie-break
-    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie). When the N#
-    /// dogfood ranking kernel is available it runs the ranking over compact primitive columns;
-    /// otherwise it falls back to the equivalent inline C# scan.
+    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie). The N#
+    /// dogfood ranking kernel owns the product route once available; clean bootstrap can still
+    /// use the inline C# scan while producing the first dogfood assembly.
     /// </summary>
     private static int SelectBestDeclaredMethodCandidate(List<BoundDeclaredMethodCandidate> candidates)
     {
