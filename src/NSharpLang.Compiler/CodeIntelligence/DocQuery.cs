@@ -324,13 +324,12 @@ public class DocQuery
 
         if (strippedName.Contains('.'))
         {
-            var suffixMatches = _typesByQualifiedName
+            var suffixMatches = DeduplicateTypeCandidates(_typesByQualifiedName
                 .Where(kvp => kvp.Key.EndsWith($".{strippedName}", StringComparison.OrdinalIgnoreCase))
                 .SelectMany(kvp => kvp.Value)
-                .Distinct()
-                .ToList();
+                .ToArray());
 
-            if (suffixMatches.Count > 0)
+            if (suffixMatches.Length > 0)
             {
                 return CacheType(name, SelectBestType(name, suffixMatches));
             }
@@ -957,9 +956,9 @@ public class DocQuery
             }
         }
 
-        _referencePackDirectories = directories
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        _referencePackDirectories = DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(directories, out var dogfoodDirectories)
+            ? dogfoodDirectories.ToList()
+            : throw new InvalidOperationException("N# doc query reference-pack directory deduplication kernel rejected the directories.");
 
         return _referencePackDirectories;
     }
