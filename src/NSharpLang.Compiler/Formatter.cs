@@ -99,18 +99,8 @@ public class Formatter
             sb.AppendLine();
         }
 
-        // Sort imports: System.* first, then alphabetical. The N# dogfood kernel
-        // performs the same stable ordering over compact rank/flag arrays without the
-        // per-call LINQ projection/materialization; fall back to the LINQ shape if the
-        // dogfood assembly is unavailable or declines.
-        var sortedImports = FormatterImportOrderer.TryOrderBySystemThenNamespace(
-                ast.Imports,
-                out var dogfoodSortedImports)
-            ? dogfoodSortedImports
-            : ast.Imports
-                .OrderByDescending(i => i.Namespace.StartsWith("System"))
-                .ThenBy(i => i.Namespace)
-                .ToList();
+        if (!FormatterImportOrderer.TryOrderBySystemThenNamespace(ast.Imports, out var sortedImports))
+            throw new InvalidOperationException("N# formatter import-order kernel rejected the imports.");
 
         // Format imports
         foreach (var import in sortedImports)
