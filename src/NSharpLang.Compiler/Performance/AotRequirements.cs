@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace NSharpLang.Compiler.Performance;
 
@@ -52,34 +51,14 @@ public sealed class AotRequirements
     /// </summary>
     public static AotRequirements FromBlockers(IEnumerable<AotBlocker> blockers)
     {
-        var blockerList = blockers as IReadOnlyList<AotBlocker> ?? blockers.ToArray();
+        var blockerList = blockers as IReadOnlyList<AotBlocker> ?? new List<AotBlocker>(blockers);
+        if (blockerList.Count == 0)
+            return Empty;
+
         if (AotRequirementSelector.TryBuildRequirements(blockerList, out var dogfoodRequirements))
             return dogfoodRequirements;
 
-        var grouped = blockerList
-            .Where(blocker => blocker.IsOnPublicSurface && !string.IsNullOrEmpty(blocker.EnclosingDeclaration))
-            .GroupBy(blocker => blocker.EnclosingDeclaration!, StringComparer.Ordinal);
-
-        var map = new Dictionary<string, Annotation>(StringComparer.Ordinal);
-        foreach (var group in grouped)
-        {
-            var requiresUnreferenced = group.Any(b => b.Kind == AotSafetyKind.MetadataRequired);
-            var requiresDynamic = group.Any(b => b.Kind is AotSafetyKind.DynamicCodeRequired or AotSafetyKind.ExpressionTreeRequired);
-
-            // A single, stable message that explains the public-API contract.
-            var constructs = group
-                .Select(b => b.Construct)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(c => c, StringComparer.Ordinal)
-                .Take(3);
-
-            map[group.Key] = new Annotation(
-                requiresUnreferenced,
-                requiresDynamic,
-                CreateAnnotationMessage(constructs));
-        }
-
-        return new AotRequirements(map);
+        throw new InvalidOperationException("N# AOT requirement selector kernels are required.");
     }
 
     internal static string CreateAnnotationMessage(IEnumerable<string> constructs) =>
