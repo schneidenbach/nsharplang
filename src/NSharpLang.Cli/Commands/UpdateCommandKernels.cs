@@ -18,9 +18,10 @@ internal static class UpdateCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[3];
         var code = RequiredBindings.UpdateArgumentSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var targetPackage))
+        if (code != 0)
             throw new InvalidOperationException("N# update argument summary kernel rejected the arguments.");
 
+        var targetPackage = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new UpdateArgumentSummary(
             targetPackage,
             resultIndices[1] != 0,
@@ -134,17 +135,4 @@ internal static class UpdateCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# update command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

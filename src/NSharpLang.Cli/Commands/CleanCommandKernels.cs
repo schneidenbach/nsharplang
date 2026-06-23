@@ -18,9 +18,10 @@ internal static class CleanCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[3];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+        if (code != 0)
             throw new InvalidOperationException("N# clean option summary kernel rejected the arguments.");
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new CleanOptionSummary(
             projectOption,
             resultIndices[1] != 0,
@@ -107,17 +108,4 @@ internal static class CleanCommandKernels
         CliCleanClearedNuGetCachesMessage CleanClearedNuGetCachesMessage,
         CliCleanClearNuGetCachesFailedMessage CleanClearNuGetCachesFailedMessage,
         CliCleanFailedMessage CleanFailedMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

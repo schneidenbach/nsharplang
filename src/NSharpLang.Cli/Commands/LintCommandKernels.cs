@@ -30,9 +30,10 @@ internal static class LintCommandKernels
     {
         var resultIndices = t_optionResultIndices ??= new int[4];
         var code = RequiredBindings.LintOptionSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+        if (code != 0)
             throw new InvalidOperationException("N# lint option summary kernel rejected the arguments.");
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new LintOptionSummary(
             projectOption,
             resultIndices[1] != 0,
@@ -207,19 +208,6 @@ internal static class LintCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# lint command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 
     private sealed class Scratch
     {

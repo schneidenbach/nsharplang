@@ -24,9 +24,10 @@ internal static class AuditCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[3];
         var code = RequiredBindings.OptionSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+        if (code != 0)
             throw new InvalidOperationException("N# audit option summary kernel rejected the arguments.");
 
+        var projectOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new AuditOptionSummary(
             projectOption,
             resultIndices[1] != 0,
@@ -144,17 +145,4 @@ internal static class AuditCommandKernels
         CliAuditVulnerabilityLine AuditVulnerabilityLine,
         CliAuditVulnerabilityUrlLine AuditVulnerabilityUrlLine,
         CliAuditParseFailureMessage AuditParseFailureMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

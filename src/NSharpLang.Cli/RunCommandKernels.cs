@@ -17,9 +17,10 @@ internal static class RunCommandKernels
     {
         var resultIndices = t_optionSummaryIndices ??= new int[2];
         var code = RequiredBindings.RunOptionSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var backendOption))
+        if (code != 0)
             throw new InvalidOperationException("N# run option summary kernel rejected the arguments.");
 
+        var backendOption = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new RunOptionSummary(
             backendOption,
             resultIndices[1] != 0);
@@ -129,17 +130,4 @@ internal static class RunCommandKernels
         CliRunSingleFileBackendStartMessage RunSingleFileBackendStartMessage,
         CliRunLibrarySourceFileMessage RunLibrarySourceFileMessage,
         CliRunFailedMessage RunFailedMessage);
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }

@@ -24,9 +24,10 @@ internal static class RemoveCommandKernels
     {
         var resultIndices = t_resultIndices ??= new int[2];
         var code = RequiredBindings.RemoveArgumentSummary(args, resultIndices);
-        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var packageOperand))
+        if (code != 0)
             throw new InvalidOperationException("N# remove argument summary kernel rejected the arguments.");
 
+        var packageOperand = resultIndices[0] == -1 ? null : args[resultIndices[0]];
         return new RemoveArgumentSummary(
             packageOperand,
             resultIndices[1] != 0);
@@ -123,17 +124,4 @@ internal static class RemoveCommandKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# remove command kernels are unavailable.");
-
-    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
-    {
-        value = null;
-        if (index == -1)
-            return true;
-
-        if (index < 0 || index >= args.Length)
-            return false;
-
-        value = args[index];
-        return true;
-    }
 }
