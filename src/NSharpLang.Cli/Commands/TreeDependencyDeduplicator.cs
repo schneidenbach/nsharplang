@@ -22,9 +22,6 @@ internal static class TreeDependencyDeduplicator
         if (bindings == null)
             return false;
 
-        if (dependencies.Length == 0)
-            return true;
-
         var dependencyCount = dependencies.Length;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureInputCapacity(dependencyCount);
@@ -86,9 +83,6 @@ internal static class TreeDependencyDeduplicator
             return false;
 
         var frameworkCount = targetFrameworks.Count;
-        if (frameworkCount == 0)
-            return true;
-
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(frameworkCount);
 

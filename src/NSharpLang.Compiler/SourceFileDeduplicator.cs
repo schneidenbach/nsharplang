@@ -21,9 +21,6 @@ internal static class SourceFileDeduplicator
             return false;
 
         var count = sourceFiles.Count;
-        if (count == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch(StringComparer.OrdinalIgnoreCase);
         scratch.EnsureCapacity(count);
 
