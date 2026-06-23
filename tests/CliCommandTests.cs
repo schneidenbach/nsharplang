@@ -4302,9 +4302,7 @@ Exit codes:
 
         static void AssertNormalized(string? version, string? expectedVersion)
         {
-            Assert.True(CompilationReferenceResolverKernels.TryNormalizeNuGetDependencyVersion(
-                version,
-                out var normalizedVersion));
+            var normalizedVersion = CompilationReferenceResolverKernels.NormalizeNuGetDependencyVersion(version);
             Assert.Equal(expectedVersion, normalizedVersion);
         }
     }

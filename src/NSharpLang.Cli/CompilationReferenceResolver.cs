@@ -734,12 +734,7 @@ internal static class CompilationReferenceResolver
         => CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
 
     private static string? NormalizeNuGetDependencyVersion(string? version)
-    {
-        if (CompilationReferenceResolverKernels.TryNormalizeNuGetDependencyVersion(version, out var dogfoodVersion))
-            return dogfoodVersion;
-
-        throw new InvalidOperationException("N# reference resolver kernel rejected NuGet dependency-version normalization.");
-    }
+        => CompilationReferenceResolverKernels.NormalizeNuGetDependencyVersion(version);
 
     private static void AddDllReference(ProjectConfig config, string assemblyPath)
     {

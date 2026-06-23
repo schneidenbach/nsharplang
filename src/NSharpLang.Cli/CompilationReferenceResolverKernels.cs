@@ -145,38 +145,24 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
-    internal static bool TryNormalizeNuGetDependencyVersion(string? version, out string? normalizedVersion)
+    internal static string? NormalizeNuGetDependencyVersion(string? version)
     {
-        normalizedVersion = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var source = version ?? string.Empty;
         var result = t_nuGetDependencyVersionRangeResult ??= new int[2];
-        try
-        {
-            var code = bindings.NuGetDependencyVersionRange(source, result);
-            if (code == 0)
-                return true;
 
-            if (code != 1)
-                return false;
+        var code = RequiredBindings.NuGetDependencyVersionRange(source, result);
+        if (code == 0)
+            return null;
 
-            var start = result[0];
-            var length = result[1];
-            if (start < 0 || length <= 0 || start > source.Length || start + length > source.Length)
-                return false;
+        if (code != 1)
+            throw new InvalidOperationException("N# reference resolver dependency-version kernel returned an invalid code.");
 
-            normalizedVersion = source.Substring(start, length);
-            return true;
-        }
-        catch
-        {
-            normalizedVersion = null;
-            return false;
-        }
+        var start = result[0];
+        var length = result[1];
+        if (start < 0 || length <= 0 || start > source.Length || start + length > source.Length)
+            throw new InvalidOperationException("N# reference resolver dependency-version kernel returned an invalid range.");
+
+        return source.Substring(start, length);
     }
 
     internal static bool TrySelectSharedFrameworkCandidateIndex(
