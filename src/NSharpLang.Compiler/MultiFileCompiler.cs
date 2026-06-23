@@ -964,13 +964,13 @@ public class MultiFileCompiler
             }
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission with NO C# AST). General user code may
-            // still decline to the C# ILCompiler while the language surface converges, but shipped compiler-service
-            // dogfood sources are the replacement compiler/tooling path and must not silently fall back.
+            // still decline to the C# ILCompiler while the language surface converges, but shipped dogfood sources
+            // are the replacement compiler/tooling path and must not silently fall back.
             else if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
-                if (RequiresColumnarCompilerServiceEmission(assemblyName))
+                if (RequiresColumnarDogfoodEmission(assemblyName))
                 {
-                    AddRequiredColumnarCompilerServiceEmissionError(assemblyName);
+                    AddRequiredColumnarDogfoodEmissionError(assemblyName);
                 }
                 else
                 {
@@ -1034,7 +1034,7 @@ public class MultiFileCompiler
         return true;
     }
 
-    private bool RequiresColumnarCompilerServiceEmission(string assemblyName)
+    private bool RequiresColumnarDogfoodEmission(string assemblyName)
     {
         if (!string.Equals(assemblyName, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal))
             return false;
@@ -1042,36 +1042,25 @@ public class MultiFileCompiler
             return false;
 
         // Clean bootstrap still needs the C# compiler to produce the first dogfood assembly.
-        // Once a dogfood assembly is available, compiler-service product sources must stay columnar-owned.
+        // Once a dogfood assembly is available, dogfood product sources must stay columnar-owned.
         if (DogfoodKernelLoader.TryGetProgramType() == null)
             return false;
 
-        var compilerServicesDir = Path.GetFullPath(Path.Combine(_projectRoot, "CompilerServices"));
-        return _sourceFiles.All(sourceFile => IsUnderDirectory(Path.GetFullPath(sourceFile), compilerServicesDir));
+        return true;
     }
 
-    private void AddRequiredColumnarCompilerServiceEmissionError(string assemblyName)
+    private void AddRequiredColumnarDogfoodEmissionError(string assemblyName)
     {
         _allErrors.Add(new CompilerError(
             ErrorCode.InvalidSyntax,
-            $"Columnar compiler-service emission is required for '{assemblyName}', but the columnar backend declined.",
+            $"Columnar dogfood emission is required for '{assemblyName}', but the columnar backend declined.",
             0,
             0,
             ErrorSeverity.Error)
         {
-            HumanExplanation = "The shipped N# compiler-service dogfood sources are not allowed to fall back to the C# ILCompiler.",
-            Suggestion = "Port the rejected source shape to the columnar backend, or move parity-only probes out of the shipped compiler-service source set."
+            HumanExplanation = "The shipped N# dogfood sources are not allowed to fall back to the C# ILCompiler.",
+            Suggestion = "Port the rejected source shape to the columnar backend, or move parity-only probes out of the shipped dogfood source set."
         });
-    }
-
-    private static bool IsUnderDirectory(string path, string directory)
-    {
-        var relative = Path.GetRelativePath(directory, path);
-        return relative.Length > 0
-            && relative != ".."
-            && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
-            && !Path.IsPathRooted(relative);
     }
 
     private static bool ContainsSoaRecordDeclaration(IEnumerable<Declaration> declarations)

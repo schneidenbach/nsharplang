@@ -13524,20 +13524,19 @@ func outer(x: int): int {
     }
 
     [Fact]
-    public void Stage5_CompilerServiceDogfood_DoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void Stage5_DogfoodAssembly_DoesNotFallbackToCSharpWhenColumnarDeclines()
     {
         // The same unsupported foreach still compiles for ordinary user code through the temporary C# fallback.
-        // For shipped compiler-service dogfood sources, that fallback would keep C# codegen owning the replacement
+        // For shipped dogfood sources, that fallback would keep C# codegen owning the replacement
         // compiler/tooling path, so MultiFileCompiler must fail instead of silently emitting through ILCompiler.
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-required-columnar-{Guid.NewGuid():N}");
-        var servicesDir = Path.Combine(projectRoot, "CompilerServices");
-        var sourcePath = Path.Combine(servicesDir, "Rejected.nl");
+        var sourcePath = Path.Combine(projectRoot, "Rejected.nl");
         var outputPath = Path.Combine(projectRoot, "bin", "NSharpLang.Compiler.Dogfood.dll");
         var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
 
         try
         {
-            Directory.CreateDirectory(servicesDir);
+            Directory.CreateDirectory(projectRoot);
             File.WriteAllText(sourcePath, source);
             Assert.False(RouteColumnarProgram(source).Ok);
 
@@ -13551,7 +13550,7 @@ func outer(x: int): int {
             Assert.False(result.Success);
             Assert.Null(result.OutputAssemblyPath);
             Assert.Contains(result.Errors, error =>
-                error.Message.Contains("Columnar compiler-service emission is required", StringComparison.Ordinal));
+                error.Message.Contains("Columnar dogfood emission is required", StringComparison.Ordinal));
         }
         finally
         {
