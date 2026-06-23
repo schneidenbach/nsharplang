@@ -46,6 +46,9 @@ func FormatterImportOrderIndicesCore(
     temp: &FormatterImportIndexTable,
     result: &FormatterImportIndexTable): int {
     count := FormatterImportOrderMinInt(keys.SystemFlags.Length, keys.NameRanks.Length)
+    if count == 0 {
+        return 0
+    }
 
     if count > temp.Indices.Length || count > result.Indices.Length {
         return -1

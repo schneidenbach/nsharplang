@@ -28,9 +28,6 @@ internal static class ProjectSourceFileFilter
             return false;
 
         var fileCount = files.Length;
-        if (fileCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(fileCount);
 

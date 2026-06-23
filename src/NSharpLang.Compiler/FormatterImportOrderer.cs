@@ -22,9 +22,6 @@ internal static class FormatterImportOrderer
             return false;
 
         var count = imports.Count;
-        if (count == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(count);
 
