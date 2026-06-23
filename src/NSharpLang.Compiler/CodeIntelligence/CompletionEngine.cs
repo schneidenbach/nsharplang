@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.SourceGenerators;
 
@@ -104,31 +103,16 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.Unknown);
         }
 
-        if (CompletionEngineKernels.TryClassifyCompletionReceiver(
-                beforeCursor,
-                out var dogfoodMemberAccess,
-                out var dogfoodReceiver))
+        var completionReceiver = CompletionEngineKernels.ClassifyCompletionReceiver(beforeCursor);
+        if (completionReceiver.IsMemberAccess)
         {
-            if (dogfoodMemberAccess)
-            {
-                return GetMemberAccessCompletions(
-                    cu,
-                    semanticModel,
-                    beforeCursor,
-                    line,
-                    col,
-                    snapshot,
-                    dogfoodReceiver,
-                    hasPrecomputedReceiver: true);
-            }
-
-            return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords, line, col);
-        }
-
-        // Detect context
-        if (IsMemberAccessContext(beforeCursor))
-        {
-            return GetMemberAccessCompletions(cu, semanticModel, beforeCursor, line, col, snapshot);
+            return GetMemberAccessCompletions(
+                cu,
+                semanticModel,
+                completionReceiver.Receiver,
+                line,
+                col,
+                snapshot);
         }
 
         // General identifier context
@@ -161,17 +145,13 @@ public class CompletionEngine
     private CompletionResult GetMemberAccessCompletions(
         CompilationUnit cu,
         SemanticModel? semanticModel,
-        string beforeCursor,
+        string? precomputedReceiver,
         int line,
         int col,
-        ProjectSnapshot snapshot,
-        string? precomputedReceiver = null,
-        bool hasPrecomputedReceiver = false)
+        ProjectSnapshot snapshot)
     {
         var memberAccess = FindMemberAccessAtPosition(cu, line, col);
-        var receiver = hasPrecomputedReceiver
-            ? precomputedReceiver ?? FormatReceiverExpression(memberAccess?.Object)
-            : ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
+        var receiver = precomputedReceiver ?? FormatReceiverExpression(memberAccess?.Object);
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 
@@ -607,10 +587,7 @@ public class CompletionEngine
 
     private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
     {
-        if (!CompletionEngineKernels.TryGroupReflectionMethodsByName(methods, out var grouping)
-            || grouping == null)
-            throw new InvalidOperationException("N# completion method grouping kernel rejected the methods.");
-
+        var grouping = CompletionEngineKernels.GroupReflectionMethodsByName(methods);
         for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
         {
             AddMethodCompletionItem(
@@ -929,117 +906,6 @@ public class CompletionEngine
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private static bool IsMemberAccessContext(string beforeCursor)
-    {
-        var trimmed = beforeCursor.TrimEnd();
-        // Direct: cursor is right after dot — "people."
-        if (trimmed.EndsWith(".")) return true;
-
-        // Indirect: cursor is after "receiver.partial" — find the last dot
-        // This handles the case where an LLM queries at a position like people.Add(
-        var lastDot = trimmed.LastIndexOf('.');
-        if (lastDot > 0)
-        {
-            // Check that text before the dot is an identifier (not inside a string)
-            var beforeDot = trimmed.Substring(0, lastDot).TrimEnd();
-            if (beforeDot.Length > 0 && (char.IsLetterOrDigit(beforeDot[^1]) || beforeDot[^1] == '_'))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static string? ExtractReceiver(string beforeCursor)
-    {
-        var trimmed = beforeCursor.TrimEnd();
-        var dotIndex = FindLastTopLevelDot(trimmed);
-        if (dotIndex < 0) return null;
-
-        // Get the part before the dot
-        var withoutDot = trimmed.Substring(0, dotIndex).TrimEnd();
-        return ExtractExpressionSuffix(withoutDot);
-    }
-
-    private static string? ExtractExpressionSuffix(string text)
-    {
-        if (TryExtractLiteralExpressionSuffix(text, out var literalReceiver))
-        {
-            return literalReceiver;
-        }
-
-        var end = text.Length;
-        var start = end - 1;
-        var parenDepth = 0;
-        var consumed = false;
-
-        while (start >= 0)
-        {
-            var current = text[start];
-            if (current == ')')
-            {
-                parenDepth++;
-                consumed = true;
-                start--;
-                continue;
-            }
-
-            if (current == '(')
-            {
-                if (parenDepth == 0)
-                {
-                    break;
-                }
-
-                parenDepth--;
-                start--;
-                continue;
-            }
-
-            if (parenDepth > 0)
-            {
-                start--;
-                continue;
-            }
-
-            if (char.IsLetterOrDigit(current) || current == '_' || current == '.')
-            {
-                consumed = true;
-                start--;
-                continue;
-            }
-
-            break;
-        }
-
-        if (!consumed || parenDepth != 0)
-        {
-            return null;
-        }
-
-        start++;
-        return start < end ? NormalizeReceiverCalls(text[start..end]) : null;
-    }
-
-    private static bool TryExtractLiteralExpressionSuffix(string text, out string literalReceiver)
-    {
-        literalReceiver = string.Empty;
-        var tokens = TokenizeCompletionPrefix(text);
-        if (tokens.Count == 0 || !IsLiteralReceiverToken(tokens[^1].Type))
-        {
-            return false;
-        }
-
-        var token = tokens[^1];
-        var tokenStart = Math.Clamp(token.Column - 1, 0, text.Length);
-        literalReceiver = text[tokenStart..].Trim();
-        if (literalReceiver.Length == 0)
-        {
-            literalReceiver = token.Value;
-        }
-
-        return IsCompleteLiteralReceiverToken(token, literalReceiver);
-    }
-
     private static TypeInfo? TryResolveLiteralReceiverType(string receiver)
     {
         var tokens = TokenizeCompletionPrefix(receiver);
@@ -1078,16 +944,6 @@ public class CompletionEngine
         }
     }
 
-    private static bool IsLiteralReceiverToken(TokenType type)
-        => type is TokenType.StringLiteral
-            or TokenType.TripleQuoteStringLiteral
-            or TokenType.InterpolatedRawStringLiteral
-            or TokenType.CharLiteral
-            or TokenType.IntLiteral
-            or TokenType.FloatLiteral
-            or TokenType.True
-            or TokenType.False;
-
     private static bool IsCompleteLiteralReceiverToken(Token token, string sourceSuffix)
         => token.Type switch
         {
@@ -1097,41 +953,6 @@ public class CompletionEngine
             TokenType.CharLiteral => token.IsTerminated,
             _ => true
         };
-
-    private static string NormalizeReceiverCalls(string expression)
-    {
-        var builder = new StringBuilder(expression.Length);
-        for (var index = 0; index < expression.Length; index++)
-        {
-            var current = expression[index];
-            builder.Append(current);
-            if (current != '(')
-            {
-                continue;
-            }
-
-            var parenDepth = 1;
-            index++;
-            while (index < expression.Length && parenDepth > 0)
-            {
-                if (expression[index] == '(')
-                {
-                    parenDepth++;
-                }
-                else if (expression[index] == ')')
-                {
-                    parenDepth--;
-                }
-
-                index++;
-            }
-
-            builder.Append(')');
-            index--;
-        }
-
-        return builder.ToString();
-    }
 
     private static int FindCallOpenParen(string expression)
     {
@@ -1412,8 +1233,7 @@ public class CompletionEngine
         List<CompletionItem> items,
         Dictionary<string, List<CompletionItem>> completions)
     {
-        if (!CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(items, completions))
-            throw new InvalidOperationException("N# completion item grouping kernel rejected the items.");
+        CompletionEngineKernels.AddGroupedCompletionItemsByKind(items, completions);
     }
 
     internal static string PluralizeCompletionKind(string kind) => kind switch

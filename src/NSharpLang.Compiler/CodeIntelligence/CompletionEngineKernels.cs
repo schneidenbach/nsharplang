@@ -15,69 +15,45 @@ internal static class CompletionEngineKernels
     [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
 
-    internal static bool TryClassifyCompletionReceiver(
-        string beforeCursor,
-        out bool isMemberAccess,
-        out string? receiver)
+    internal static (bool IsMemberAccess, string? Receiver) ClassifyCompletionReceiver(string beforeCursor)
     {
-        isMemberAccess = false;
-        receiver = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
+        var scratch = t_completionReceiverScratch ??= new CompletionReceiverScratch();
+        scratch.Prefixes[0] = beforeCursor;
+        scratch.Contexts[0] = 0;
+        scratch.Receivers[0] = string.Empty;
 
         try
         {
-            var scratch = t_completionReceiverScratch ??= new CompletionReceiverScratch();
-            scratch.Prefixes[0] = beforeCursor;
-            scratch.Contexts[0] = 0;
-            scratch.Receivers[0] = string.Empty;
-
             var classified = bindings.CompletionReceivers(
                 scratch.Prefixes,
                 scratch.Contexts,
                 scratch.Receivers);
 
             if (classified != 1)
-            {
-                scratch.Prefixes[0] = string.Empty;
-                scratch.Receivers[0] = string.Empty;
-                return false;
-            }
+                throw new InvalidOperationException("N# completion receiver kernel rejected the prefix.");
 
-            isMemberAccess = scratch.Contexts[0] != 0;
-            receiver = scratch.Receivers[0].Length > 0 ? scratch.Receivers[0] : null;
-            scratch.Prefixes[0] = string.Empty;
-            scratch.Receivers[0] = string.Empty;
-            return true;
+            return (
+                scratch.Contexts[0] != 0,
+                scratch.Receivers[0].Length > 0 ? scratch.Receivers[0] : null);
         }
-        catch
+        finally
         {
-            if (t_completionReceiverScratch is { } scratch)
-            {
-                scratch.Prefixes[0] = string.Empty;
-                scratch.Contexts[0] = 0;
-                scratch.Receivers[0] = string.Empty;
-            }
-
-            isMemberAccess = false;
-            receiver = null;
-            return false;
+            scratch.Prefixes[0] = string.Empty;
+            scratch.Contexts[0] = 0;
+            scratch.Receivers[0] = string.Empty;
         }
     }
 
-    internal static bool TryAddGroupedCompletionItemsByKind(
+    internal static void AddGroupedCompletionItemsByKind(
         IReadOnlyList<CompletionItem> items,
         Dictionary<string, List<CompletionItem>> completions)
     {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var count = items.Count;
         if (count == 0)
-            return true;
+            return;
 
         var scratch = t_completionItemGroupingScratch ??= new CompletionItemGroupingScratch();
         scratch.EnsureCapacity(count);
@@ -100,7 +76,7 @@ internal static class CompletionEngineKernels
                 scratch.ResultIndices);
 
             if (groupCount < 0 || groupCount > count)
-                return false;
+                throw new InvalidOperationException("N# completion item grouping kernel rejected the items.");
 
             var total = 0;
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
@@ -108,19 +84,19 @@ internal static class CompletionEngineKernels
                 var start = scratch.ResultStarts[groupIndex];
                 var itemCount = scratch.ResultCounts[groupIndex];
                 if (start < 0 || itemCount < 0 || start + itemCount > count)
-                    return false;
+                    throw new InvalidOperationException("N# completion item grouping kernel emitted an invalid group range.");
 
                 total += itemCount;
             }
 
             if (total != count)
-                return false;
+                throw new InvalidOperationException("N# completion item grouping kernel emitted an incomplete grouping.");
 
             for (var resultIndex = 0; resultIndex < count; resultIndex++)
             {
                 var sourceIndex = scratch.ResultIndices[resultIndex];
                 if (sourceIndex < 0 || sourceIndex >= count)
-                    return false;
+                    throw new InvalidOperationException("N# completion item grouping kernel emitted an invalid item index.");
             }
 
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
@@ -139,12 +115,6 @@ internal static class CompletionEngineKernels
 
                 completions[CompletionEngine.PluralizeCompletionKind(kind)] = groupItems;
             }
-
-            return true;
-        }
-        catch
-        {
-            return false;
         }
         finally
         {
@@ -152,22 +122,13 @@ internal static class CompletionEngineKernels
         }
     }
 
-    internal static bool TryGroupReflectionMethodsByName(
-        MethodInfo[] methods,
-        out CompletionMethodGrouping? grouping)
+    internal static CompletionMethodGrouping GroupReflectionMethodsByName(MethodInfo[] methods)
     {
-        grouping = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var count = methods.Length;
         if (count == 0)
-        {
-            grouping = new CompletionMethodGrouping(0, Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
-            return true;
-        }
+            return new CompletionMethodGrouping(0, Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
 
         var scratch = t_completionMethodGroupingScratch ??= new CompletionMethodGroupingScratch();
         scratch.EnsureCapacity(count);
@@ -201,7 +162,7 @@ internal static class CompletionEngineKernels
                 scratch.ResultCounts);
 
             if (groupCount < 0 || groupCount > count)
-                return false;
+                throw new InvalidOperationException("N# completion method grouping kernel rejected the methods.");
 
             var total = 0;
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
@@ -216,26 +177,20 @@ internal static class CompletionEngineKernels
                     || nameId >= scratch.NameCounts.Length
                     || scratch.IncludeFlags[firstIndex] == 0)
                 {
-                    return false;
+                    throw new InvalidOperationException("N# completion method grouping kernel emitted an invalid group.");
                 }
 
                 total += methodCount;
             }
 
             if (total != includedCount)
-                return false;
+                throw new InvalidOperationException("N# completion method grouping kernel emitted an incomplete grouping.");
 
-            grouping = new CompletionMethodGrouping(
+            return new CompletionMethodGrouping(
                 groupCount,
                 scratch.ResultNameIds,
                 scratch.ResultFirstIndices,
                 scratch.ResultCounts);
-            return true;
-        }
-        catch
-        {
-            grouping = null;
-            return false;
         }
         finally
         {
@@ -245,6 +200,10 @@ internal static class CompletionEngineKernels
 
     internal static bool IsIncludedCompletionMethod(MethodInfo method) =>
         !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
+
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# completion engine kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

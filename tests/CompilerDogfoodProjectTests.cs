@@ -14796,19 +14796,15 @@ func documented(): int {
             out var pastEndPrefix));
         Assert.Equal("    value := input.Count", pastEndPrefix);
 
-        Assert.True(CompletionEngineKernels.TryClassifyCompletionReceiver(
-            "    factory.Create(name).",
-            out var isCompletionReceiverMemberAccess,
-            out var completionReceiver));
+        var completionReceiver = CompletionEngineKernels.ClassifyCompletionReceiver("    factory.Create(name).");
+        var isCompletionReceiverMemberAccess = completionReceiver.IsMemberAccess;
         Assert.True(isCompletionReceiverMemberAccess);
-        Assert.Equal("factory.Create()", completionReceiver);
+        Assert.Equal("factory.Create()", completionReceiver.Receiver);
 
-        Assert.True(CompletionEngineKernels.TryClassifyCompletionReceiver(
-            "    return value",
-            out var isIdentifierCompletionMemberAccess,
-            out var identifierCompletionReceiver));
+        var identifierCompletionReceiver = CompletionEngineKernels.ClassifyCompletionReceiver("    return value");
+        var isIdentifierCompletionMemberAccess = identifierCompletionReceiver.IsMemberAccess;
         Assert.False(isIdentifierCompletionMemberAccess);
-        Assert.Null(identifierCompletionReceiver);
+        Assert.Null(identifierCompletionReceiver.Receiver);
 
         var completionItems = new List<CompletionItem>
         {
@@ -14819,7 +14815,7 @@ func documented(): int {
             new("Count", "property", "int", null, null, false)
         };
         var groupedCompletions = new Dictionary<string, List<CompletionItem>>();
-        Assert.True(CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(completionItems, groupedCompletions));
+        CompletionEngineKernels.AddGroupedCompletionItemsByKind(completionItems, groupedCompletions);
         Assert.Equal(new[] { "methods", "properties", "fields" }, groupedCompletions.Keys.ToArray());
         Assert.Equal(new[] { "WriteLine", "ToString" }, groupedCompletions["methods"].Select(static item => item.Name));
         Assert.Equal(new[] { "Length", "Count" }, groupedCompletions["properties"].Select(static item => item.Name));
@@ -14827,8 +14823,7 @@ func documented(): int {
 
         var completionMethods = typeof(CompletionMethodGroupingFixture).GetMethods(
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
-        Assert.True(CompletionEngineKernels.TryGroupReflectionMethodsByName(completionMethods, out var methodGrouping));
-        Assert.NotNull(methodGrouping);
+        var methodGrouping = CompletionEngineKernels.GroupReflectionMethodsByName(completionMethods);
         var expectedMethodGroups = completionMethods
             .Where(static method => !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object")
             .GroupBy(static method => method.Name)
@@ -21188,60 +21183,42 @@ func main() {
         MethodInfo codeIntelligenceCompletionReceiverChecksumInto,
         MethodInfo codeIntelligenceCompletionReceiversInto)
     {
-        var isMemberAccessContext = typeof(CompletionEngine).GetMethod(
-                "IsMemberAccessContext",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("CompletionEngine did not emit IsMemberAccessContext.");
-        var extractReceiver = typeof(CompletionEngine).GetMethod(
-                "ExtractReceiver",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("CompletionEngine did not emit ExtractReceiver.");
-
-        var prefixes = new[]
+        (string Prefix, int Context, string Receiver)[] cases =
         {
-            "people.",
-            "people.Add",
-            "factory.Create(name).",
-            "factory.Create(name, other.Value).Co",
-            "System.Console.",
-            "message.ToUpper().",
-            "message.ToUpper().Len",
-            "    \"abc\".",
-            "    $\"hello {name}\".",
-            "    \"a.b\".Len",
-            "    \"\"\"hello\"\"\".",
-            "    \"unterminated.",
-            "    true.",
-            "    false.ToString().",
-            "    42.",
-            "    1.5.",
-            "    0xCAFE.",
-            "    'x'.",
-            "    return people",
-            "    name",
-            "    call(value.withDot).",
-            "    namespace.Type.Member",
-            "    Console.WriteLine(factory.Create(name, other.Value)).",
-            "    items.Where(item => item.Enabled).",
-            "/// <summary>A representative lexer service input.</summary>.0xCAFE.",
-            "    résumé.Count"
+            ("people.", 1, "people"),
+            ("people.Add", 1, "people"),
+            ("factory.Create(name).", 1, "factory.Create()"),
+            ("factory.Create(name, other.Value).Co", 0, string.Empty),
+            ("System.Console.", 1, "System.Console"),
+            ("message.ToUpper().", 1, "message.ToUpper()"),
+            ("message.ToUpper().Len", 0, string.Empty),
+            ("    \"abc\".", 1, "\"abc\""),
+            ("    $\"hello {name}\".", 1, "$\"hello {name}\""),
+            ("    \"a.b\".Len", 0, string.Empty),
+            ("    \"\"\"hello\"\"\".", 1, "\"\"\"hello\"\"\""),
+            ("    \"unterminated.", 1, "unterminated"),
+            ("    true.", 1, "true"),
+            ("    false.ToString().", 1, "false.ToString()"),
+            ("    42.", 1, "42"),
+            ("    1.5.", 1, "1.5"),
+            ("    0xCAFE.", 1, "0xCAFE"),
+            ("    'x'.", 1, "'x'"),
+            ("    return people", 0, string.Empty),
+            ("    name", 0, string.Empty),
+            ("    call(value.withDot).", 1, "call()"),
+            ("    namespace.Type.Member", 1, "namespace.Type"),
+            ("    Console.WriteLine(factory.Create(name, other.Value)).", 1, "Console.WriteLine()"),
+            ("    items.Where(item => item.Enabled).", 1, "items.Where()"),
+            ("/// <summary>A representative lexer service input.</summary>.0xCAFE.", 1, ".0xCAFE"),
+            ("    résumé.Count", 1, "résumé")
         };
 
-        var expectedContexts = new int[prefixes.Length];
-        var expectedReceivers = Enumerable.Repeat(string.Empty, prefixes.Length).ToArray();
-        var expectedChecksum = prefixes.Length;
-
-        for (var i = 0; i < prefixes.Length; i++)
-        {
-            var isMemberAccess = (bool)(isMemberAccessContext.Invoke(null, new object[] { prefixes[i] }) ?? false);
-            var receiver = isMemberAccess
-                ? (string?)extractReceiver.Invoke(null, new object[] { prefixes[i] }) ?? string.Empty
-                : string.Empty;
-
-            expectedContexts[i] = isMemberAccess ? 1 : 0;
-            expectedReceivers[i] = receiver;
-            expectedChecksum += expectedContexts[i] * 31 + receiver.Length * 17;
-        }
+        var prefixes = cases.Select(static item => item.Prefix).ToArray();
+        var expectedContexts = cases.Select(static item => item.Context).ToArray();
+        var expectedReceivers = cases.Select(static item => item.Receiver).ToArray();
+        var expectedChecksum = expectedContexts.Length;
+        for (var i = 0; i < expectedContexts.Length; i++)
+            expectedChecksum += expectedContexts[i] * 31 + expectedReceivers[i].Length * 17;
 
         var checksumContexts = new int[prefixes.Length];
         var checksumReceivers = Enumerable.Repeat(string.Empty, prefixes.Length).ToArray();
