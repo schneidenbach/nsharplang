@@ -391,7 +391,7 @@ func Main() {
             NewDependency("microsoft.aspnetcore.app", "framework", null)
         };
 
-        Assert.True(TreeDependencyDeduplicator.TryDeduplicate(dependencies, out var helperActual));
+        var helperActual = TreeDependencyDeduplicator.Deduplicate(dependencies);
         var commandActual = TreeCommand.Deduplicate(dependencies);
 
         var expected = new[]
@@ -423,9 +423,7 @@ func Main() {
             "NET9.0"
         };
 
-        Assert.True(TreeDependencyDeduplicator.TryDeduplicateTargetFrameworks(
-            frameworks,
-            out var dogfoodFrameworks));
+        var dogfoodFrameworks = TreeDependencyDeduplicator.DeduplicateTargetFrameworks(frameworks);
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0" }, dogfoodFrameworks);
         Assert.Equal("unknown", TreeCommand.FormatTargetFrameworks(Array.Empty<string>()));
         Assert.Equal("net10.0,net9.0,net8.0", TreeCommand.FormatTargetFrameworks(frameworks));

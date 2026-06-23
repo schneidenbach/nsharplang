@@ -217,10 +217,7 @@ public static class TreeCommand
     internal static TreeDependency[] Deduplicate(IEnumerable<TreeDependency> dependencies)
     {
         var dependencyArray = dependencies as TreeDependency[] ?? dependencies.ToArray();
-        if (TreeDependencyDeduplicator.TryDeduplicate(dependencyArray, out var orderedDependencies))
-            return orderedDependencies;
-
-        throw new InvalidOperationException("N# tree dependency deduplication kernel rejected the dependencies.");
+        return TreeDependencyDeduplicator.Deduplicate(dependencyArray);
     }
 
     internal static string FormatTargetFrameworks(IReadOnlyList<string> targetFrameworks)
@@ -228,12 +225,7 @@ public static class TreeCommand
         if (targetFrameworks.Count == 0)
             return "unknown";
 
-        var distinctFrameworks = TreeDependencyDeduplicator.TryDeduplicateTargetFrameworks(
-                targetFrameworks,
-                out var dogfoodFrameworks)
-            ? dogfoodFrameworks
-            : throw new InvalidOperationException("N# tree target-framework deduplication kernel rejected the frameworks.");
-
+        var distinctFrameworks = TreeDependencyDeduplicator.DeduplicateTargetFrameworks(targetFrameworks);
         return string.Join(",", distinctFrameworks);
     }
 

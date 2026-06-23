@@ -12,16 +12,9 @@ internal static class TreeDependencyDeduplicator
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryDeduplicate(
-        TreeCommand.TreeDependency[] dependencies,
-        out TreeCommand.TreeDependency[] orderedDependencies)
+    internal static TreeCommand.TreeDependency[] Deduplicate(TreeCommand.TreeDependency[] dependencies)
     {
-        orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var dependencyCount = dependencies.Length;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureInputCapacity(dependencyCount);
@@ -44,27 +37,21 @@ internal static class TreeDependencyDeduplicator
                 scratch.ResultIndices);
 
             if (orderedCount < 0 || orderedCount > dependencyCount || orderedCount > scratch.ResultIndices.Length)
-                return false;
+                throw new InvalidOperationException("N# tree dependency deduplication kernel rejected the dependencies.");
 
-            orderedDependencies = new TreeCommand.TreeDependency[orderedCount];
+            var orderedDependencies = new TreeCommand.TreeDependency[orderedCount];
             for (var i = 0; i < orderedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= dependencyCount)
                 {
-                    orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
-                    return false;
+                    throw new InvalidOperationException("N# tree dependency deduplication kernel returned an invalid source index.");
                 }
 
                 orderedDependencies[i] = dependencies[sourceIndex];
             }
 
-            return true;
-        }
-        catch
-        {
-            orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
-            return false;
+            return orderedDependencies;
         }
         finally
         {
@@ -72,16 +59,9 @@ internal static class TreeDependencyDeduplicator
         }
     }
 
-    internal static bool TryDeduplicateTargetFrameworks(
-        IReadOnlyList<string> targetFrameworks,
-        out string[] distinctFrameworks)
+    internal static string[] DeduplicateTargetFrameworks(IReadOnlyList<string> targetFrameworks)
     {
-        distinctFrameworks = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var frameworkCount = targetFrameworks.Count;
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(frameworkCount);
@@ -110,29 +90,22 @@ internal static class TreeDependencyDeduplicator
 
             if (resultCount < 0 || resultCount > frameworkCount || resultCount > scratch.ResultIndices.Length)
             {
-                distinctFrameworks = Array.Empty<string>();
-                return false;
+                throw new InvalidOperationException("N# tree target-framework deduplication kernel rejected the frameworks.");
             }
 
-            distinctFrameworks = new string[resultCount];
+            var distinctFrameworks = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= frameworkCount)
                 {
-                    distinctFrameworks = Array.Empty<string>();
-                    return false;
+                    throw new InvalidOperationException("N# tree target-framework deduplication kernel returned an invalid source index.");
                 }
 
                 distinctFrameworks[i] = targetFrameworks[sourceIndex];
             }
 
-            return true;
-        }
-        catch
-        {
-            distinctFrameworks = Array.Empty<string>();
-            return false;
+            return distinctFrameworks;
         }
         finally
         {
@@ -214,6 +187,9 @@ internal static class TreeDependencyDeduplicator
     private sealed record Bindings(
         CliTreeDependencyDeduplicateIndicesInto DeduplicateIndices,
         CliStableDistinctRankIndicesInto StableDistinctRankIndices);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# tree dependency kernels are unavailable.");
 
     private sealed class Scratch
     {
