@@ -66,11 +66,7 @@ public static class CleanCommand
             .Concat(ArtifactDirectories.Select(name => Path.Combine(projectRoot, name)))
             .Where(Directory.Exists)
             .ToArray();
-        var directories = CleanArtifactDirectoryOrderer.TryOrder(
-            existingDirectories,
-            out var dogfoodDirectories)
-            ? dogfoodDirectories
-            : throw new InvalidOperationException("N# clean artifact directory order kernel rejected the directories.");
+        var directories = CleanArtifactDirectoryOrderer.Order(existingDirectories);
 
         foreach (var dir in directories)
         {

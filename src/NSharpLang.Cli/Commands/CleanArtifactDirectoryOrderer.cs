@@ -17,16 +17,9 @@ internal static class CleanArtifactDirectoryOrderer
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryOrder(
-        IReadOnlyList<string> directories,
-        out string[] orderedDirectories)
+    internal static string[] Order(IReadOnlyList<string> directories)
     {
-        orderedDirectories = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var directoryCount = directories.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureInputCapacity(directoryCount);
@@ -38,12 +31,8 @@ internal static class CleanArtifactDirectoryOrderer
             for (var i = 0; i < directoryCount; i++)
             {
                 var directory = directories[i];
-                if (!TryGetArtifactDirectoryKindRank(directory, bindings, out scratch.KindRanks[i]) ||
-                    !TryIsUnderNodeModulesDirectory(directory, bindings, out var isUnderNodeModules))
-                {
-                    return false;
-                }
-
+                scratch.KindRanks[i] = GetArtifactDirectoryKindRank(directory, bindings);
+                var isUnderNodeModules = IsUnderNodeModulesDirectory(directory, bindings);
                 scratch.NodeModuleFlags[i] = isUnderNodeModules ? 1 : 0;
                 scratch.PathLengths[i] = directory.Length;
                 scratch.AddPath(directory);
@@ -70,27 +59,19 @@ internal static class CleanArtifactDirectoryOrderer
                 scratch.ResultIndices);
 
             if (orderedCount < 0 || orderedCount > directoryCount || orderedCount > scratch.ResultIndices.Length)
-                return false;
+                throw new InvalidOperationException("N# clean artifact directory order kernel returned an invalid result count.");
 
-            orderedDirectories = new string[orderedCount];
+            var orderedDirectories = new string[orderedCount];
             for (var i = 0; i < orderedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= directoryCount)
-                {
-                    orderedDirectories = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# clean artifact directory order kernel returned an invalid directory index.");
 
                 orderedDirectories[i] = directories[sourceIndex];
             }
 
-            return true;
-        }
-        catch
-        {
-            orderedDirectories = Array.Empty<string>();
-            return false;
+            return orderedDirectories;
         }
         finally
         {
@@ -98,49 +79,25 @@ internal static class CleanArtifactDirectoryOrderer
         }
     }
 
-    private static bool TryGetArtifactDirectoryKindRank(string path, Bindings bindings, out int kindRank)
+    private static int GetArtifactDirectoryKindRank(string path, Bindings bindings)
     {
-        kindRank = 0;
+        var code = bindings.ArtifactDirectoryKindRank(path);
+        if (code < 0 || code > ArtifactDirectories.Length)
+            throw new InvalidOperationException("N# clean artifact directory kind kernel returned an invalid rank.");
 
-        try
-        {
-            var code = bindings.ArtifactDirectoryKindRank(path);
-            if (code < 0 || code > ArtifactDirectories.Length)
-                return false;
-
-            kindRank = code;
-            return true;
-        }
-        catch
-        {
-            kindRank = 0;
-            return false;
-        }
+        return code;
     }
 
-    private static bool TryIsUnderNodeModulesDirectory(string path, Bindings bindings, out bool isUnderNodeModules)
+    private static bool IsUnderNodeModulesDirectory(string path, Bindings bindings)
     {
-        isUnderNodeModules = false;
-
-        try
-        {
-            var code = bindings.IsUnderNodeModulesDirectory(path);
-            if (code == 0)
-                return true;
-
-            if (code == 1)
-            {
-                isUnderNodeModules = true;
-                return true;
-            }
-
+        var code = bindings.IsUnderNodeModulesDirectory(path);
+        if (code == 0)
             return false;
-        }
-        catch
-        {
-            isUnderNodeModules = false;
-            return false;
-        }
+
+        if (code == 1)
+            return true;
+
+        throw new InvalidOperationException("N# clean node_modules directory kernel returned an invalid code.");
     }
 
     private static Bindings? LoadBindings()
@@ -154,6 +111,10 @@ internal static class CleanArtifactDirectoryOrderer
             DogfoodKernelLoader.CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(
                 programType,
                 "CliCleanArtifactDirectoryIndicesInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value
+            ?? throw new InvalidOperationException("N# clean artifact directory order kernels are unavailable.");
 
     private delegate int CliCleanArtifactDirectoryKindRank(string path);
 

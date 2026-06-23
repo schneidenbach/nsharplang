@@ -515,7 +515,7 @@ func Main() {
             "/repo/obj"
         };
 
-        Assert.True(CleanArtifactDirectoryOrderer.TryOrder(directories, out var actual));
+        var actual = CleanArtifactDirectoryOrderer.Order(directories);
         Assert.Equal(expected, actual);
     }
 
