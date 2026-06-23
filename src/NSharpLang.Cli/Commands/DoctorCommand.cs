@@ -15,7 +15,10 @@ public static class DoctorCommand
     {
         var options = DoctorCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(DoctorCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var outputMode = DoctorCommandKernels.GetOutputMode(options.Json);
         var requireVscode = options.RequireVscode;
@@ -189,12 +192,6 @@ public static class DoctorCommand
         {
             return ProcessResult.Failed(ex.Message);
         }
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(DoctorCommandKernels.GetHelpText());
-        return 0;
     }
 
     private sealed record DoctorCheck(string Name, string Status, string Detail, bool Required)

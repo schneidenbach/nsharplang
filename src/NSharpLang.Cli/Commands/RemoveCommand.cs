@@ -10,7 +10,10 @@ public static class RemoveCommand
     {
         var arguments = RemoveCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(RemoveCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var packageName = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(packageName))
@@ -60,12 +63,6 @@ public static class RemoveCommand
         RestoreCommand.Restore(projectRoot, quiet: true);
 
         Console.WriteLine(RemoveCommandKernels.GetRemovedMessage(packageName));
-        return 0;
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(RemoveCommandKernels.GetHelpText());
         return 0;
     }
 

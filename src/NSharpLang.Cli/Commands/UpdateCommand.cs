@@ -11,7 +11,10 @@ public static class UpdateCommand
     {
         var arguments = UpdateCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(UpdateCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var projectRoot = Directory.GetCurrentDirectory();
         var projectYml = Path.Combine(projectRoot, "project.yml");
@@ -125,12 +128,6 @@ public static class UpdateCommand
         {
             return Error(UpdateCommandKernels.GetFailedMessage(ex.Message));
         }
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(UpdateCommandKernels.GetHelpText());
-        return 0;
     }
 
     internal static List<Reference> FilterNuGetDependencies(

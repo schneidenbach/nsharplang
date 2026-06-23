@@ -12,7 +12,10 @@ public static class AddCommand
     {
         var arguments = AddCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(AddCommandKernels.GetHelpText());
+            return 0;
+        }
 
         if (args.Length == 0)
             return Error(AddCommandKernels.GetUsageMessage());
@@ -158,12 +161,6 @@ public static class AddCommand
         }
 
         return null;
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(AddCommandKernels.GetHelpText());
-        return 0;
     }
 
     static int Error(string message)

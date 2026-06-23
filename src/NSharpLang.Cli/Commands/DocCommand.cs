@@ -24,7 +24,10 @@ public static class DocCommand
     {
         var options = DocCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(DocCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var outputMode = DocCommandKernels.GetOutputMode(options.Json);
         var openAfterGenerate = options.Open;
@@ -74,13 +77,6 @@ public static class DocCommand
         {
             return EmitError(outputMode, projectRoot, DocCommandKernels.GetGenerationFailedMessage(ex.Message));
         }
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(DocCommandKernels.GetHelpText());
-
-        return 0;
     }
 
     private static int EmitError(DocOutputModeKind outputMode, string projectRoot, string message)

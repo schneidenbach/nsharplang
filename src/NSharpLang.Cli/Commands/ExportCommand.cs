@@ -16,7 +16,8 @@ public static class ExportCommand
         var targetSummary = ExportCommandKernels.GetTargetSummary(args);
         if (targetSummary.ShowHelp)
         {
-            return ShowHelp();
+            Console.WriteLine(ExportCommandKernels.GetHelpText());
+            return 0;
         }
 
         return targetSummary.TargetKind switch
@@ -31,7 +32,8 @@ public static class ExportCommand
         var options = ExportCommandKernels.GetCSharpOptionSummary(args);
         if (options.ShowHelp)
         {
-            return ShowCSharpHelp();
+            Console.WriteLine(ExportCommandKernels.GetCSharpHelpText());
+            return 0;
         }
 
         var outputPath = options.OutputOption;
@@ -154,20 +156,6 @@ public static class ExportCommand
             EmitDiagnostics(ex.Errors);
             return 1;
         }
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(ExportCommandKernels.GetHelpText());
-
-        return 0;
-    }
-
-    private static int ShowCSharpHelp()
-    {
-        Console.WriteLine(ExportCommandKernels.GetCSharpHelpText());
-
-        return 0;
     }
 
     private static string? FindContainingProjectRoot(string path)

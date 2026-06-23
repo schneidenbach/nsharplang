@@ -13,7 +13,10 @@ public static class LintCommand
     {
         var options = LintCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(LintCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var useJson = LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == LintOutputModeKind.Json;
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
@@ -180,13 +183,6 @@ public static class LintCommand
         {
             return EmitError(useJson, LintCommandKernels.GetFailedMessage(ex.Message), projectRoot);
         }
-    }
-
-    public static int ShowHelp()
-    {
-        Console.WriteLine(LintCommandKernels.GetHelpText());
-
-        return 0;
     }
 
     private static int EmitError(bool useJson, string message, string? projectRoot = null)

@@ -19,7 +19,7 @@ public static class RestoreCommand
         var options = RestoreCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
         {
-            ShowHelp();
+            Console.WriteLine(RestoreCommandKernels.GetHelpText());
             return 0;
         }
 
@@ -123,11 +123,6 @@ public static class RestoreCommand
             Console.Error.WriteLine(RestoreCommandKernels.GetFailedMessage(ex.Message));
             return false;
         }
-    }
-
-    static void ShowHelp()
-    {
-        Console.WriteLine(RestoreCommandKernels.GetHelpText());
     }
 
 }

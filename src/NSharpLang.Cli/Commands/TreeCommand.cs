@@ -22,9 +22,12 @@ public static class TreeCommand
     {
         var options = TreeCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(TreeCommandKernels.GetHelpText());
+            return 0;
+        }
 
-        var projectRoot = GetProjectRoot(options);
+        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
         var outputMode = TreeCommandKernels.GetOutputMode(options.Json);
         var maxDepth = TreeCommandKernels.GetMaxDepth(args, int.MaxValue);
 
@@ -285,15 +288,6 @@ public static class TreeCommand
 
     static string FormatDependency(TreeDependency dependency)
         => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
-
-    private static string GetProjectRoot(TreeOptionSummary options)
-        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(TreeCommandKernels.GetHelpText());
-        return 0;
-    }
 
     static int Error(string message, TreeOutputModeKind outputMode = TreeOutputModeKind.Text, string? projectRoot = null)
     {

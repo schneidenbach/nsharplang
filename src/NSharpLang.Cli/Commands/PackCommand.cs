@@ -18,7 +18,10 @@ public static class PackCommand
     {
         var options = PackCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(PackCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
         var outputDir = options.OutputDir;
@@ -240,9 +243,4 @@ public static class PackCommand
         });
     }
 
-    static int ShowHelp()
-    {
-        Console.WriteLine(PackCommandKernels.GetHelpText());
-        return 0;
-    }
 }

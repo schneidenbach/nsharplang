@@ -18,7 +18,10 @@ public static class CleanCommand
     {
         var options = CleanCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(CleanCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
         var cleanAll = options.CleanAll;
@@ -93,12 +96,6 @@ public static class CleanCommand
             return 0;
 
         return Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage($"{result.Stderr}{result.Stdout}".Trim()));
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(CleanCommandKernels.GetHelpText());
-        return 0;
     }
 
     private static int Error(string message)

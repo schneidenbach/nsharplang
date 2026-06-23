@@ -15,12 +15,17 @@ public static class CheckCommand
     {
         var arguments = CheckCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(CheckCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var outputMode = CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
         var useText = outputMode is CheckOutputModeKind.Text or CheckOutputModeKind.InvalidSystemsReportText;
         var aot = arguments.Aot;
-        var projectDir = GetProjectDir(arguments);
+        var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)
+            ? Path.GetFullPath(arguments.ProjectOption)
+            : Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectDir))
         {
@@ -181,21 +186,6 @@ public static class CheckCommand
         return compiler.BuildAotDiagnostics(asError: true)
             .Select(error => CodeIntelligenceService.ToDiagnosticResult(error, projectDir))
             .ToList();
-    }
-
-    public static int ShowHelp()
-    {
-        Console.WriteLine(CheckCommandKernels.GetHelpText());
-
-        return 0;
-    }
-
-    private static string GetProjectDir(CheckArgumentSummary arguments)
-    {
-        if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
-            return Path.GetFullPath(arguments.ProjectOption);
-
-        return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

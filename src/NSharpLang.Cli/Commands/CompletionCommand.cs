@@ -12,7 +12,10 @@ public static class CompletionCommand
     {
         var options = CompletionCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(CompletionCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var shellForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
         return options.ShellKind switch
@@ -27,12 +30,6 @@ public static class CompletionCommand
     private static int WriteScript(string script)
     {
         Console.Write(script);
-        return 0;
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(CompletionCommandKernels.GetHelpText());
         return 0;
     }
 

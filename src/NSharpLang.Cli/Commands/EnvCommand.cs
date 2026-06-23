@@ -12,7 +12,10 @@ public static class EnvCommand
     {
         var options = EnvCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(EnvCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var outputMode = EnvCommandKernels.GetOutputMode(options.Json);
 
@@ -115,10 +118,4 @@ public static class EnvCommand
         }
     }
 
-    static int ShowHelp()
-    {
-        Console.WriteLine(EnvCommandKernels.GetHelpText());
-
-        return 0;
-    }
 }

@@ -34,13 +34,18 @@ public static class FixCommand
     {
         var arguments = FixCommandArgumentKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(FixCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var dryRun = arguments.DryRun;
         var useText = FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText) == FixOutputModeKind.Text;
         var includeReviewNeeded = arguments.IncludeReviewNeeded;
         var fileArg = arguments.FileOption;
-        var projectDir = GetProjectDir(arguments);
+        var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)
+            ? Path.GetFullPath(arguments.ProjectOption)
+            : Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectDir))
         {
@@ -158,13 +163,6 @@ public static class FixCommand
         }
     }
 
-    public static int ShowHelp()
-    {
-        Console.WriteLine(FixCommandKernels.GetHelpText());
-
-        return 0;
-    }
-
     private static void OutputText(
         List<FixEntry> results,
         List<FixEntry> applied,
@@ -269,14 +267,6 @@ public static class FixCommand
         };
 
         return new FixEntry(relativeFile, fix.DiagnosticCode, fix.Title, fix.Edits, safetyStr);
-    }
-
-    private static string GetProjectDir(FixArgumentSummary arguments)
-    {
-        if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
-            return Path.GetFullPath(arguments.ProjectOption);
-
-        return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

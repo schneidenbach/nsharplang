@@ -21,7 +21,10 @@ public static class TidyCommand
     {
         var options = TidyCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(TidyCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         var fix = options.Fix;
@@ -280,15 +283,6 @@ public static class TidyCommand
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
         Console.WriteLine(JsonSerializer.Serialize(value, options));
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(TidyCommandKernels.GetHelpText());
-
-        return 0;
     }
 
     // ── Types ─────────────────────────────────────────────────────────────

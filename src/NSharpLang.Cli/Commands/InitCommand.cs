@@ -9,7 +9,10 @@ public static class InitCommand
     {
         var options = InitCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
-            return ShowHelp();
+        {
+            Console.WriteLine(InitCommandKernels.GetHelpText());
+            return 0;
+        }
 
         var projectRoot = Directory.GetCurrentDirectory();
         var force = options.Force;
@@ -55,13 +58,6 @@ public static class InitCommand
         {
             return Error(InitCommandKernels.GetFailedMessage(ex.Message));
         }
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine(InitCommandKernels.GetHelpText());
-
-        return 0;
     }
 
     static int Error(string message)
