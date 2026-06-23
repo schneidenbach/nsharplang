@@ -34,9 +34,8 @@ internal static class TidyCommandKernels
 
     internal static TidyOptionSummary GetOptionSummary(string[] args)
     {
-        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy option summary kernels are unavailable.");
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        var code = bindings.OptionSummary(args, resultIndices);
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
         if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
             throw new InvalidOperationException("N# tidy option summary kernel rejected the arguments.");
 
@@ -49,168 +48,111 @@ internal static class TidyCommandKernels
 
     internal static TidyOutputModeKind GetOutputMode(bool json)
     {
-        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy output mode kernels are unavailable.");
-        var code = bindings.OutputMode(json ? 1 : 0);
+        var code = RequiredBindings.OutputMode(json ? 1 : 0);
         if (code is < 1 or > 2)
             throw new InvalidOperationException("N# tidy output mode kernel rejected the value.");
 
         return (TidyOutputModeKind)code;
     }
 
-    internal static bool TryGetImportedNamespace(string line, out string? importedNamespace)
+    internal static string? GetImportedNamespace(string line)
     {
-        importedNamespace = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var span = t_importNamespaceSpan ??= new int[3];
-        try
-        {
-            var code = bindings.ImportNamespaceSpan(line, span);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.ImportNamespaceSpan(line, span);
+        if (code != 0)
+            throw new InvalidOperationException("N# tidy import namespace kernel rejected the line.");
 
-            var hasImport = span[0];
-            if (hasImport == 0)
-                return true;
+        var hasImport = span[0];
+        if (hasImport == 0)
+            return null;
 
-            if (hasImport != 1)
-                return false;
+        if (hasImport != 1)
+            throw new InvalidOperationException("N# tidy import namespace kernel returned an invalid presence flag.");
 
-            var start = span[1];
-            var length = span[2];
-            if (start < 0 || length <= 0 || start + length > line.Length)
-                return false;
+        var start = span[1];
+        var length = span[2];
+        if (start < 0 || length <= 0 || start + length > line.Length)
+            throw new InvalidOperationException("N# tidy import namespace kernel returned an invalid span.");
 
-            importedNamespace = line.Substring(start, length);
-            return true;
-        }
-        catch
-        {
-            importedNamespace = null;
-            return false;
-        }
+        return line.Substring(start, length);
     }
 
-    internal static bool TrySelectPossiblyUnusedDependencies<T>(
+    internal static List<T> SelectPossiblyUnusedDependencies<T>(
         IReadOnlyList<T> results,
-        Func<T, string> statusSelector,
-        out List<T> possiblyUnused)
+        Func<T, string> statusSelector)
     {
-        possiblyUnused = new List<T>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultCount = results.Count;
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureCapacity(resultCount);
 
-        try
+        for (var i = 0; i < resultCount; i++)
         {
-            for (var i = 0; i < resultCount; i++)
-            {
-                scratch.StatusRanks[i] = GetStatusRank(statusSelector(results[i]));
-            }
-
-            var possiblyUnusedCount = bindings.StatusFilter(
-                scratch.StatusRanks,
-                PossiblyUnusedStatusRank,
-                scratch.ResultIndices);
-
-            if (possiblyUnusedCount < 0 ||
-                possiblyUnusedCount > resultCount ||
-                possiblyUnusedCount > scratch.ResultIndices.Length)
-            {
-                possiblyUnused = new List<T>();
-                return false;
-            }
-
-            possiblyUnused = new List<T>(possiblyUnusedCount);
-            for (var i = 0; i < possiblyUnusedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 ||
-                    sourceIndex >= resultCount ||
-                    scratch.StatusRanks[sourceIndex] != PossiblyUnusedStatusRank)
-                {
-                    possiblyUnused = new List<T>();
-                    return false;
-                }
-
-                possiblyUnused.Add(results[sourceIndex]);
-            }
-
-            return true;
+            scratch.StatusRanks[i] = GetStatusRank(statusSelector(results[i]));
         }
-        catch
+
+        var possiblyUnusedCount = RequiredBindings.StatusFilter(
+            scratch.StatusRanks,
+            PossiblyUnusedStatusRank,
+            scratch.ResultIndices);
+
+        if (possiblyUnusedCount < 0 ||
+            possiblyUnusedCount > resultCount ||
+            possiblyUnusedCount > scratch.ResultIndices.Length)
         {
-            possiblyUnused = new List<T>();
-            return false;
+            throw new InvalidOperationException("N# tidy dependency status filter kernel rejected the results.");
         }
+
+        var possiblyUnused = new List<T>(possiblyUnusedCount);
+        for (var i = 0; i < possiblyUnusedCount; i++)
+        {
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 ||
+                sourceIndex >= resultCount ||
+                scratch.StatusRanks[sourceIndex] != PossiblyUnusedStatusRank)
+            {
+                throw new InvalidOperationException("N# tidy dependency status filter kernel returned an invalid source index.");
+            }
+
+            possiblyUnused.Add(results[sourceIndex]);
+        }
+
+        return possiblyUnused;
     }
 
-    internal static bool TrySummarizeDependencyStatuses<T>(
+    internal static (int PossiblyUnusedCount, int UnknownCount) SummarizeDependencyStatuses<T>(
         IReadOnlyList<T> results,
-        Func<T, string> statusSelector,
-        out (int PossiblyUnusedCount, int UnknownCount) summary)
+        Func<T, string> statusSelector)
     {
-        summary = (0, 0);
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultCount = results.Count;
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureCapacity(resultCount);
 
-        try
+        for (var i = 0; i < resultCount; i++)
         {
-            for (var i = 0; i < resultCount; i++)
-            {
-                scratch.StatusRanks[i] = GetStatusRank(statusSelector(results[i]));
-            }
-
-            var summarizedCount = bindings.StatusSummary(
-                scratch.StatusRanks,
-                scratch.SummaryCounts);
-
-            if (summarizedCount != resultCount ||
-                scratch.SummaryCounts[0] < 0 ||
-                scratch.SummaryCounts[1] < 0 ||
-                scratch.SummaryCounts[0] > resultCount ||
-                scratch.SummaryCounts[1] > resultCount ||
-                scratch.SummaryCounts[0] + scratch.SummaryCounts[1] > resultCount)
-            {
-                summary = (0, 0);
-                return false;
-            }
-
-            summary = (scratch.SummaryCounts[0], scratch.SummaryCounts[1]);
-            return true;
+            scratch.StatusRanks[i] = GetStatusRank(statusSelector(results[i]));
         }
-        catch
+
+        var summarizedCount = RequiredBindings.StatusSummary(
+            scratch.StatusRanks,
+            scratch.SummaryCounts);
+
+        if (summarizedCount != resultCount ||
+            scratch.SummaryCounts[0] < 0 ||
+            scratch.SummaryCounts[1] < 0 ||
+            scratch.SummaryCounts[0] > resultCount ||
+            scratch.SummaryCounts[1] > resultCount ||
+            scratch.SummaryCounts[0] + scratch.SummaryCounts[1] > resultCount)
         {
-            summary = (0, 0);
-            return false;
+            throw new InvalidOperationException("N# tidy dependency status summary kernel rejected the results.");
         }
+
+        return (scratch.SummaryCounts[0], scratch.SummaryCounts[1]);
     }
 
-    internal static bool TryClassifyDependencyStatusRanks(
+    internal static int[] ClassifyDependencyStatusRanks(
         IReadOnlyList<Reference> dependencies,
-        IReadOnlyCollection<string> importedNamespaces,
-        out int[] statusRanks)
+        IReadOnlyCollection<string> importedNamespaces)
     {
-        statusRanks = Array.Empty<int>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var dependencyCount = dependencies.Count;
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureClassificationCapacity(dependencyCount, importedNamespaces.Count);
@@ -221,7 +163,7 @@ internal static class TidyCommandKernels
             {
                 var packageName = dependencies[i].Nuget;
                 if (packageName == null)
-                    return false;
+                    throw new InvalidOperationException("N# tidy dependency classifier kernel received a non-NuGet dependency.");
 
                 scratch.PackageNames[i] = packageName;
             }
@@ -233,35 +175,25 @@ internal static class TidyCommandKernels
                 importIndex++;
             }
 
-            var classifiedCount = bindings.DependencyStatusRanks(
+            var classifiedCount = RequiredBindings.DependencyStatusRanks(
                 scratch.PackageNames,
                 scratch.ImportNamespaces,
                 scratch.StatusRanks);
 
             if (classifiedCount != dependencyCount)
-            {
-                return false;
-            }
+                throw new InvalidOperationException("N# tidy dependency classifier kernel rejected the inputs.");
 
-            statusRanks = new int[dependencyCount];
+            var statusRanks = new int[dependencyCount];
             for (var i = 0; i < dependencyCount; i++)
             {
                 var rank = scratch.StatusRanks[i];
                 if (rank is < 1 or > 3)
-                {
-                    statusRanks = Array.Empty<int>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# tidy dependency classifier kernel produced an invalid status rank.");
 
                 statusRanks[i] = rank;
             }
 
-            return true;
-        }
-        catch
-        {
-            statusRanks = Array.Empty<int>();
-            return false;
+            return statusRanks;
         }
         finally
         {
@@ -269,20 +201,13 @@ internal static class TidyCommandKernels
         }
     }
 
-    internal static bool TryFilterRemovalLines(
+    internal static string[] FilterRemovalLines(
         IReadOnlyList<string> lines,
-        IReadOnlyList<string> packageNames,
-        out string[] filteredLines)
+        IReadOnlyList<string> packageNames)
     {
-        filteredLines = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var lineCount = lines.Count;
         if (lineCount == 0)
-            return true;
+            return Array.Empty<string>();
 
         var packageCount = packageNames.Count;
         var scratch = t_removalLineScratch ??= new RemovalLineScratch();
@@ -294,7 +219,7 @@ internal static class TidyCommandKernels
             {
                 var line = lines[i];
                 if (line == null)
-                    return false;
+                    throw new InvalidOperationException("N# tidy dependency removal kernel received a null line.");
 
                 scratch.Lines[i] = line;
             }
@@ -303,25 +228,25 @@ internal static class TidyCommandKernels
             {
                 var packageName = packageNames[i];
                 if (packageName == null)
-                    return false;
+                    throw new InvalidOperationException("N# tidy dependency removal kernel received a null package name.");
 
                 scratch.PackageNames[i] = packageName;
             }
 
-            var processedCount = bindings.RemovalLineKeepFlags(
+            var processedCount = RequiredBindings.RemovalLineKeepFlags(
                 scratch.Lines,
                 scratch.PackageNames,
                 scratch.KeepFlags);
 
             if (processedCount != lineCount)
-                return false;
+                throw new InvalidOperationException("N# tidy dependency removal kernel rejected the inputs.");
 
             var keptCount = 0;
             for (var i = 0; i < lineCount; i++)
             {
                 var flag = scratch.KeepFlags[i];
                 if (flag is not 0 and not 1)
-                    return false;
+                    throw new InvalidOperationException("N# tidy dependency removal kernel returned an invalid keep flag.");
 
                 keptCount += flag;
             }
@@ -337,13 +262,7 @@ internal static class TidyCommandKernels
                 resultIndex++;
             }
 
-            filteredLines = result;
-            return true;
-        }
-        catch
-        {
-            filteredLines = Array.Empty<string>();
-            return false;
+            return result;
         }
         finally
         {
@@ -410,7 +329,7 @@ internal static class TidyCommandKernels
 
     private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy message kernels are unavailable.");
+        var bindings = RequiredBindings;
         var message = getMessage(bindings);
         return !string.IsNullOrEmpty(message)
             ? message
@@ -583,6 +502,9 @@ internal static class TidyCommandKernels
         CliTidyUnknownReasonMessage UnknownReasonMessage,
         CliTidyUsedReasonMessage UsedReasonMessage,
         CliTidyPossiblyUnusedReasonMessage PossiblyUnusedReasonMessage);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# tidy command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

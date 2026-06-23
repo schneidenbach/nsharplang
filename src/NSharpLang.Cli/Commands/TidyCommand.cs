@@ -106,12 +106,9 @@ public static class TidyCommand
         // Apply fixes if requested
         if (fix)
         {
-            var toRemove = TidyCommandKernels.TrySelectPossiblyUnusedDependencies(
+            var toRemove = TidyCommandKernels.SelectPossiblyUnusedDependencies(
                     results,
-                    static result => result.Status,
-                    out var dogfoodToRemove)
-                ? dogfoodToRemove
-                : throw new InvalidOperationException("N# tidy dependency status filter kernel rejected the results.");
+                    static result => result.Status);
             if (toRemove.Count == 0)
             {
                 if (outputMode == TidyOutputModeKind.Text) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
@@ -170,26 +167,21 @@ public static class TidyCommand
                 nugetDependencies.Add(dep);
         }
 
-        if (TidyCommandKernels.TryClassifyDependencyStatusRanks(
+        var statusRanks = TidyCommandKernels.ClassifyDependencyStatusRanks(
                 nugetDependencies,
-                importedNamespaces,
-                out var statusRanks))
+                importedNamespaces);
+        var results = new List<DependencyStatus>(nugetDependencies.Count);
+        for (var i = 0; i < nugetDependencies.Count; i++)
         {
-            var results = new List<DependencyStatus>(nugetDependencies.Count);
-            for (var i = 0; i < nugetDependencies.Count; i++)
-            {
-                var dep = nugetDependencies[i];
-                var status = CreateDependencyStatusFromRank(dep.Nuget!, dep.Version, statusRanks[i]);
-                if (status == null)
-                    throw new InvalidOperationException("N# tidy dependency classifier kernel produced an invalid status rank.");
+            var dep = nugetDependencies[i];
+            var status = CreateDependencyStatusFromRank(dep.Nuget!, dep.Version, statusRanks[i]);
+            if (status == null)
+                throw new InvalidOperationException("N# tidy dependency classifier kernel produced an invalid status rank.");
 
-                results.Add(status);
-            }
-
-            return results;
+            results.Add(status);
         }
 
-        throw new InvalidOperationException("N# tidy dependency classifier kernel rejected the inputs.");
+        return results;
     }
 
     private static DependencyStatus? CreateDependencyStatusFromRank(
@@ -228,30 +220,19 @@ public static class TidyCommand
     private static void RemoveDependencies(string projectYml, List<string> packageNames)
     {
         var lines = File.ReadAllLines(projectYml);
-        if (TidyCommandKernels.TryFilterRemovalLines(lines, packageNames, out var dogfoodFiltered))
-        {
-            File.WriteAllLines(projectYml, dogfoodFiltered);
-            return;
-        }
-
-        throw new InvalidOperationException("N# tidy dependency removal kernel rejected the inputs.");
+        File.WriteAllLines(projectYml, TidyCommandKernels.FilterRemovalLines(lines, packageNames));
     }
 
     // ── Output ────────────────────────────────────────────────────────────
 
     private static TidyDependencySummary SummarizeDependencies(IReadOnlyList<DependencyStatus> results)
     {
-        if (TidyCommandKernels.TrySummarizeDependencyStatuses(
+        var dogfoodSummary = TidyCommandKernels.SummarizeDependencyStatuses(
                 results,
-                static result => result.Status,
-                out var dogfoodSummary))
-        {
-            return new TidyDependencySummary(
-                dogfoodSummary.PossiblyUnusedCount,
-                dogfoodSummary.UnknownCount);
-        }
-
-        throw new InvalidOperationException("N# tidy dependency status summary kernel rejected the results.");
+                static result => result.Status);
+        return new TidyDependencySummary(
+            dogfoodSummary.PossiblyUnusedCount,
+            dogfoodSummary.UnknownCount);
     }
 
     private static void PrintTable(
@@ -310,12 +291,7 @@ public static class TidyCommand
         => TidyCommandKernels.GetOutputMode(json);
 
     internal static string? GetImportedNamespace(string line)
-    {
-        if (TidyCommandKernels.TryGetImportedNamespace(line, out var importedNamespace))
-            return importedNamespace;
-
-        throw new InvalidOperationException("N# tidy import namespace kernel rejected the line.");
-    }
+        => TidyCommandKernels.GetImportedNamespace(line);
 
     private static int ShowHelp()
     {

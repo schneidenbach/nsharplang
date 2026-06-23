@@ -4747,15 +4747,13 @@ dependencies:
         Assert.Equal(TidyOutputModeKind.Json, jsonMode);
         Assert.Equal(TidyOutputModeKind.Json, TidyCommand.GetOutputMode(json: true));
 
-        Assert.True(TidyCommandKernels.TryGetImportedNamespace(
-            "  import  Newtonsoft.Json.Linq // trailing comment",
-            out var importedNamespace));
+        var importedNamespace = TidyCommandKernels.GetImportedNamespace(
+            "  import  Newtonsoft.Json.Linq // trailing comment");
         Assert.Equal("Newtonsoft.Json.Linq", importedNamespace);
         Assert.Equal("System.Text", TidyCommand.GetImportedNamespace("\timport System.Text;"));
 
-        Assert.True(TidyCommandKernels.TryGetImportedNamespace(
-            "import\tSystem.Text",
-            out var tabAfterKeyword));
+        var tabAfterKeyword = TidyCommandKernels.GetImportedNamespace(
+            "import\tSystem.Text");
         Assert.Null(tabAfterKeyword);
         Assert.Null(TidyCommand.GetImportedNamespace("print \"import System.Text\""));
         Assert.Null(TidyCommand.GetImportedNamespace("import ;"));
@@ -4853,24 +4851,21 @@ dependencies:
             "Microsoft.Extensions.Logging"
         };
 
-        Assert.True(TidyCommandKernels.TryClassifyDependencyStatusRanks(
+        var statusRanks = TidyCommandKernels.ClassifyDependencyStatusRanks(
             references,
-            imports,
-            out var statusRanks));
+            imports);
         Assert.Equal(new[] { 2, 1, 3, 2, 1 }, statusRanks);
 
-        Assert.True(TidyCommandKernels.TrySelectPossiblyUnusedDependencies(
+        var actual = TidyCommandKernels.SelectPossiblyUnusedDependencies(
             dependencies,
-            static dependency => dependency.Status,
-            out var actual));
+            static dependency => dependency.Status);
         Assert.Equal(
             dependencies.Where(dependency => dependency.Status == "possibly-unused"),
             actual);
 
-        Assert.True(TidyCommandKernels.TrySummarizeDependencyStatuses(
+        var summary = TidyCommandKernels.SummarizeDependencyStatuses(
             dependencies,
-            static dependency => dependency.Status,
-            out var summary));
+            static dependency => dependency.Status);
         Assert.Equal(2, summary.PossiblyUnusedCount);
         Assert.Equal(1, summary.UnknownCount);
 
@@ -4882,10 +4877,9 @@ dependencies:
         {
             "Résumé.Json"
         };
-        Assert.True(TidyCommandKernels.TryClassifyDependencyStatusRanks(
+        var nonAsciiStatusRanks = TidyCommandKernels.ClassifyDependencyStatusRanks(
             nonAsciiReferences,
-            nonAsciiImports,
-            out var nonAsciiStatusRanks));
+            nonAsciiImports);
         Assert.Equal(new[] { 2 }, nonAsciiStatusRanks);
 
         static TidyDependency NewDependency(string name, string status) => new(name, status);
@@ -5063,10 +5057,9 @@ dependencies:
             "Unused.Package"
         };
 
-        Assert.True(TidyCommandKernels.TryFilterRemovalLines(
+        var filteredLines = TidyCommandKernels.FilterRemovalLines(
             lines,
-            packageNames,
-            out var filteredLines));
+            packageNames);
 
         Assert.Equal(
             new[]
@@ -5079,10 +5072,9 @@ dependencies:
             },
             filteredLines);
 
-        Assert.True(TidyCommandKernels.TryFilterRemovalLines(
+        var nonAsciiFilteredLines = TidyCommandKernels.FilterRemovalLines(
             new[] { "  - R\u00e9sum\u00e9.Package", "  - Keep.Package" },
-            new[] { "R\u00e9sum\u00e9.Package" },
-            out var nonAsciiFilteredLines));
+            new[] { "R\u00e9sum\u00e9.Package" });
         Assert.Equal(new[] { "  - Keep.Package" }, nonAsciiFilteredLines);
     }
 
