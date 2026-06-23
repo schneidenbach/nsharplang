@@ -15536,7 +15536,7 @@ func main(): int {
             "Beta",
             "alpha"
         };
-        Assert.True(CompilationStubNamespaceOrderer.TryDistinctOrderOrdinal(names, out var orderedNames));
+        var orderedNames = CompilationStubNamespaceOrderer.DistinctOrderOrdinal(names);
 
         Assert.Equal(new[]
         {

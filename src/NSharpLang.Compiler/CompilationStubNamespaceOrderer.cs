@@ -10,20 +10,13 @@ internal static class CompilationStubNamespaceOrderer
     [ThreadStatic]
     private static Scratch? t_scratch;
 
-    internal static bool TryDistinctOrderOrdinal(
-        IReadOnlyList<string> namespaceNames,
-        out string[] orderedNamespaceNames)
+    internal static string[] DistinctOrderOrdinal(IReadOnlyList<string> namespaceNames)
     {
-        orderedNamespaceNames = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var count = namespaceNames.Count;
         if (count == 0)
-            return true;
+            return Array.Empty<string>();
 
+        var bindings = RequiredBindings;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(count);
 
@@ -35,8 +28,7 @@ internal static class CompilationStubNamespaceOrderer
                 var namespaceName = namespaceNames[i];
                 if (namespaceName == null)
                 {
-                    orderedNamespaceNames = Array.Empty<string>();
-                    return false;
+                    throw new InvalidOperationException("N# compilation stub namespace ordering kernel rejected the namespace table.");
                 }
 
                 scratch.Values[i] = namespaceName;
@@ -56,10 +48,7 @@ internal static class CompilationStubNamespaceOrderer
                 scratch.ResultRanks);
 
             if (orderedCount < 0 || orderedCount > scratch.UniqueValueCount || orderedCount > scratch.ResultRanks.Length)
-            {
-                orderedNamespaceNames = Array.Empty<string>();
-                return false;
-            }
+                throw new InvalidOperationException("N# compilation stub namespace ordering kernel rejected the namespace table.");
 
             var result = new string[orderedCount];
             for (var i = 0; i < orderedCount; i++)
@@ -67,21 +56,12 @@ internal static class CompilationStubNamespaceOrderer
                 var rank = scratch.ResultRanks[i];
                 var valueIndex = rank - 1;
                 if (valueIndex < 0 || valueIndex >= scratch.UniqueValueCount)
-                {
-                    orderedNamespaceNames = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# compilation stub namespace ordering kernel rejected the namespace table.");
 
                 result[i] = scratch.UniqueValues[valueIndex];
             }
 
-            orderedNamespaceNames = result;
-            return true;
-        }
-        catch
-        {
-            orderedNamespaceNames = Array.Empty<string>();
-            return false;
+            return result;
         }
         finally
         {
@@ -95,6 +75,9 @@ internal static class CompilationStubNamespaceOrderer
             DogfoodKernelLoader.CreateDelegate<ReferenceFileSummaryRanksInto>(
                 programType,
                 "ReferenceFileSummaryRanksInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# compilation stub namespace ordering kernels are unavailable.");
 
     private delegate int ReferenceFileSummaryRanksInto(
         int[] fileRanks,

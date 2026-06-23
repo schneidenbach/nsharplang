@@ -174,17 +174,7 @@ public static class CompilationStubEmitter
                 }
             }
 
-            IEnumerable<string> orderedNamespaceNames;
-            if (CompilationStubNamespaceOrderer.TryDistinctOrderOrdinal(namespaceNames, out var dogfoodNamespaceNames))
-            {
-                orderedNamespaceNames = dogfoodNamespaceNames;
-            }
-            else
-            {
-                orderedNamespaceNames = namespaceNames
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal);
-            }
+            var orderedNamespaceNames = CompilationStubNamespaceOrderer.DistinctOrderOrdinal(namespaceNames);
             foreach (var namespaceName in orderedNamespaceNames)
             {
                 usingDirectives.Add($"using {namespaceName};");
