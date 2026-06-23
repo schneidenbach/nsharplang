@@ -15414,6 +15414,11 @@ func main(): int {
             IsTwoArmAnonymousUnion,
             out var noShimResult));
         Assert.False(noShimResult);
+
+        Assert.Throws<InvalidOperationException>(() => AnonymousUnionShimSelector.TryDeclaresShims(
+            eligibleParameters,
+            _ => throw new InvalidOperationException("anonymous union shim predicate failed"),
+            out _));
     }
 
     [Fact]

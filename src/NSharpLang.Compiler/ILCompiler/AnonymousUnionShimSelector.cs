@@ -26,37 +26,29 @@ internal static class AnonymousUnionShimSelector
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(parameterCount);
 
-        try
+        var unionParameterCount = 0;
+        for (var i = 0; i < parameterCount; i++)
         {
-            var unionParameterCount = 0;
-            for (var i = 0; i < parameterCount; i++)
+            var parameter = parameters[i];
+            if (!isTwoArmAnonymousUnion(parameter.Type))
             {
-                var parameter = parameters[i];
-                if (!isTwoArmAnonymousUnion(parameter.Type))
-                {
-                    continue;
-                }
-
-                var hasDisallowedModifier =
-                    parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params;
-                scratch.ParameterFlags[unionParameterCount] = hasDisallowedModifier ? 2 : 1;
-                unionParameterCount++;
+                continue;
             }
 
-            var result = bindings.AnonymousUnionDeclaresPublicShim(
-                scratch.ParameterFlags,
-                unionParameterCount);
-            if (result is not 0 and not 1)
-                return false;
+            var hasDisallowedModifier =
+                parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params;
+            scratch.ParameterFlags[unionParameterCount] = hasDisallowedModifier ? 2 : 1;
+            unionParameterCount++;
+        }
 
-            declaresShims = result != 0;
-            return true;
-        }
-        catch
-        {
-            declaresShims = false;
+        var result = bindings.AnonymousUnionDeclaresPublicShim(
+            scratch.ParameterFlags,
+            unionParameterCount);
+        if (result is not 0 and not 1)
             return false;
-        }
+
+        declaresShims = result != 0;
+        return true;
     }
 
     private static Bindings? LoadBindings()
