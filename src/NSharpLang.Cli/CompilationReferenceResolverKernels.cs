@@ -38,9 +38,6 @@ internal static class CompilationReferenceResolverKernels
             return false;
 
         var referenceCount = references.Count;
-        if (referenceCount == 0)
-            return true;
-
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
             return false;
@@ -231,9 +228,6 @@ internal static class CompilationReferenceResolverKernels
             return false;
 
         var count = versions.Count;
-        if (count == 0)
-            return true;
-
         var scratch = t_sharedFrameworkCandidateScratch ??= new SharedFrameworkCandidateScratch();
         scratch.EnsureCapacity(count);
 

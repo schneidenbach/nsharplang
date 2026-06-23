@@ -20,9 +20,6 @@ internal static class PositionalArgumentKernels
         if (bindings == null)
             return false;
 
-        if (args.Length == 0)
-            return true;
-
         var resultIndices = t_resultIndices;
         if (resultIndices == null || resultIndices.Length < args.Length)
         {
@@ -35,9 +32,6 @@ internal static class PositionalArgumentKernels
             var count = bindings.PositionalArgIndices(args, optionsWithValues, resultIndices);
             if (count < 0 || count > args.Length)
                 return false;
-
-            if (count == 0)
-                return true;
 
             positionalArgs = new string[count];
             for (var i = 0; i < count; i++)

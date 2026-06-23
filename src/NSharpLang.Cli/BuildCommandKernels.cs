@@ -21,9 +21,6 @@ internal static class BuildCommandKernels
         if (bindings == null)
             return false;
 
-        if (args.Length == 0)
-            return true;
-
         var scratch = t_operandScratch ??= new OperandScratch();
         scratch.EnsureCapacity(args.Length);
 

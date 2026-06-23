@@ -53,9 +53,6 @@ internal static class RestoreCommandKernels
             return false;
 
         var referenceCount = projectReferences.Count;
-        if (referenceCount == 0)
-            return true;
-
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(referenceCount);
 
@@ -125,9 +122,6 @@ internal static class RestoreCommandKernels
             return false;
 
         var referenceCount = references.Count;
-        if (referenceCount == 0)
-            return true;
-
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
             return false;
