@@ -225,12 +225,7 @@ public static class LintCommand
         IReadOnlyList<CompilerError> errors,
         ErrorSeverity severity)
     {
-        return CompilerErrorSeverityFilter.TryFilter(
-            errors,
-            severity,
-            out var filteredErrors)
-            ? filteredErrors
-            : throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
+        return CompilerErrorSeverityFilter.Filter(errors, severity);
     }
 
     private static string? ExtractSourceLine(string source, int line) =>

@@ -11,63 +11,42 @@ internal static class CompilerErrorSeverityFilter
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFilter(
+    internal static List<CompilerError> Filter(
         IReadOnlyList<CompilerError> errors,
-        ErrorSeverity severity,
-        out List<CompilerError> filteredErrors)
+        ErrorSeverity severity)
     {
-        filteredErrors = new List<CompilerError>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var targetRank = GetSeverityRank(severity);
         if (targetRank == 0)
-            return false;
+            throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the severity.");
 
         var errorCount = errors.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(errorCount);
 
-        try
+        for (var i = 0; i < errorCount; i++)
         {
-            for (var i = 0; i < errorCount; i++)
-            {
-                scratch.SeverityRanks[i] = GetSeverityRank(errors[i].Severity);
-            }
-
-            var filteredCount = bindings.DiagnosticSeverityFilter(
-                scratch.SeverityRanks,
-                targetRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > errorCount || filteredCount > scratch.ResultIndices.Length)
-            {
-                filteredErrors = new List<CompilerError>();
-                return false;
-            }
-
-            filteredErrors = new List<CompilerError>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= errorCount)
-                {
-                    filteredErrors = new List<CompilerError>();
-                    return false;
-                }
-
-                filteredErrors.Add(errors[sourceIndex]);
-            }
-
-            return true;
+            scratch.SeverityRanks[i] = GetSeverityRank(errors[i].Severity);
         }
-        catch
+
+        var filteredCount = RequiredBindings.DiagnosticSeverityFilter(
+            scratch.SeverityRanks,
+            targetRank,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > errorCount || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
+
+        var filteredErrors = new List<CompilerError>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            filteredErrors = new List<CompilerError>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= errorCount)
+                throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
+
+            filteredErrors.Add(errors[sourceIndex]);
         }
+
+        return filteredErrors;
     }
 
     private static Bindings? LoadBindings()
@@ -90,6 +69,9 @@ internal static class CompilerErrorSeverityFilter
         int[] resultIndices);
 
     private sealed record Bindings(DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# diagnostic severity filter kernels are unavailable.");
 
     private sealed class Scratch
     {

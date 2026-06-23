@@ -80,10 +80,7 @@ public static class QueryCommand
         // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
         if (!string.IsNullOrWhiteSpace(filterPattern))
         {
-            if (!QuerySymbolNameFilter.TryFilter(results, filterPattern, 200, out var filteredResults))
-                throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
-
-            results = filteredResults;
+            results = QuerySymbolNameFilter.Filter(results, filterPattern, 200);
         }
 
         if (outputMode == QueryTextJsonOutputModeKind.Text)

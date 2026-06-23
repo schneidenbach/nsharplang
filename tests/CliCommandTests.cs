@@ -4567,20 +4567,14 @@ dependencies:
             NewError("aot error", ErrorSeverity.Error)
         };
 
-        Assert.True(CompilerErrorSeverityFilter.TryFilter(
-            errors,
-            ErrorSeverity.Error,
-            out var actualErrors));
+        var actualErrors = CompilerErrorSeverityFilter.Filter(errors, ErrorSeverity.Error);
         Assert.Equal(
-            errors.Where(error => error.Severity == ErrorSeverity.Error),
+            new[] { errors[1], errors[2], errors[4] },
             actualErrors);
 
-        Assert.True(CompilerErrorSeverityFilter.TryFilter(
-            errors,
-            ErrorSeverity.Warning,
-            out var actualWarnings));
+        var actualWarnings = CompilerErrorSeverityFilter.Filter(errors, ErrorSeverity.Warning);
         Assert.Equal(
-            errors.Where(error => error.Severity == ErrorSeverity.Warning),
+            new[] { errors[0], errors[3] },
             actualWarnings);
 
         static CompilerError NewError(string message, ErrorSeverity severity) =>
@@ -4599,38 +4593,35 @@ dependencies:
             NewSymbol("CurrentUser")
         };
 
-        Assert.True(QuerySymbolNameFilter.TryFilter(
+        var substringMatches = QuerySymbolNameFilter.Filter(
             symbols,
             "user",
-            200,
-            out var substringMatches));
+            200);
         Assert.Equal(
             new[] { "UserService", "UserQuery", "CurrentUser" },
             substringMatches.Select(symbol => symbol.Name));
 
-        Assert.True(QuerySymbolNameFilter.TryFilter(
+        var globMatches = QuerySymbolNameFilter.Filter(
             symbols,
             "*Service",
-            200,
-            out var globMatches));
+            200);
         Assert.Equal(
             new[] { "UserService", "OrderService" },
             globMatches.Select(symbol => symbol.Name));
 
-        Assert.True(QuerySymbolNameFilter.TryFilter(
+        var limitedMatches = QuerySymbolNameFilter.Filter(
             symbols,
             "*",
-            2,
-            out var limitedMatches));
+            2);
         Assert.Equal(
             new[] { "UserService", "OrderService" },
             limitedMatches.Select(symbol => symbol.Name));
 
-        Assert.False(QuerySymbolNameFilter.TryFilter(
-            new[] { NewSymbol("café") },
-            "caf*",
-            200,
-            out _));
+        Assert.Throws<InvalidOperationException>(() =>
+            QuerySymbolNameFilter.Filter(
+                new[] { NewSymbol("café") },
+                "caf*",
+                200));
 
         static SymbolResult NewSymbol(string name) =>
             new(

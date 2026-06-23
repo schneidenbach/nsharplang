@@ -167,12 +167,7 @@ public static class CheckCommand
         ErrorSeverity severity)
     {
         var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
-        return CompilerErrorSeverityFilter.TryFilter(
-            errorList,
-            severity,
-            out var filteredErrors)
-            ? filteredErrors
-            : throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
+        return CompilerErrorSeverityFilter.Filter(errorList, severity);
     }
 
     /// <summary>

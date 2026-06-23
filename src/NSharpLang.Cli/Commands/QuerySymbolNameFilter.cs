@@ -11,23 +11,16 @@ internal static class QuerySymbolNameFilter
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFilter(
+    internal static List<SymbolResult> Filter(
         IReadOnlyList<SymbolResult> symbols,
         string pattern,
-        int limit,
-        out List<SymbolResult> filteredSymbols)
+        int limit)
     {
-        filteredSymbols = new List<SymbolResult>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         if (limit <= 0)
-            return true;
+            return new List<SymbolResult>();
 
         if (!IsAscii(pattern))
-            return false;
+            throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
 
         var useGlob = pattern.Contains('*');
         var symbolCount = symbols.Count;
@@ -35,58 +28,44 @@ internal static class QuerySymbolNameFilter
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(symbolCount, resultCapacity);
 
-        try
+        for (var i = 0; i < symbolCount; i++)
         {
-            for (var i = 0; i < symbolCount; i++)
+            var name = symbols[i].Name;
+            if (!IsAscii(name))
             {
-                var name = symbols[i].Name;
-                if (!IsAscii(name))
-                {
-                    filteredSymbols = new List<SymbolResult>();
-                    return false;
-                }
-
-                scratch.Names[i] = name;
+                throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
             }
 
-            var filteredCount = useGlob
-                ? bindings.CliSymbolNameGlobFilterIndices(
-                    scratch.Names,
-                    pattern,
-                    resultCapacity,
-                    scratch.ResultIndices)
-                : bindings.CliSymbolNameSubstringFilterIndices(
-                    scratch.Names,
-                    pattern,
-                    resultCapacity,
-                    scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > resultCapacity || filteredCount > scratch.ResultIndices.Length)
-            {
-                filteredSymbols = new List<SymbolResult>();
-                return false;
-            }
-
-            filteredSymbols = new List<SymbolResult>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= symbolCount)
-                {
-                    filteredSymbols = new List<SymbolResult>();
-                    return false;
-                }
-
-                filteredSymbols.Add(symbols[sourceIndex]);
-            }
-
-            return true;
+            scratch.Names[i] = name;
         }
-        catch
+
+        var bindings = RequiredBindings;
+        var filteredCount = useGlob
+            ? bindings.CliSymbolNameGlobFilterIndices(
+                scratch.Names,
+                pattern,
+                resultCapacity,
+                scratch.ResultIndices)
+            : bindings.CliSymbolNameSubstringFilterIndices(
+                scratch.Names,
+                pattern,
+                resultCapacity,
+                scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > resultCapacity || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
+
+        var filteredSymbols = new List<SymbolResult>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            filteredSymbols = new List<SymbolResult>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= symbolCount)
+                throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
+
+            filteredSymbols.Add(symbols[sourceIndex]);
         }
+
+        return filteredSymbols;
     }
 
     private static Bindings? LoadBindings()
@@ -120,6 +99,9 @@ internal static class QuerySymbolNameFilter
     private sealed record Bindings(
         CliSymbolNameGlobFilterIndicesInto CliSymbolNameGlobFilterIndices,
         CliSymbolNameSubstringFilterIndicesInto CliSymbolNameSubstringFilterIndices);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# query symbol-name filter kernels are unavailable.");
 
     private sealed class Scratch
     {
