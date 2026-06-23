@@ -99,8 +99,7 @@ public class Formatter
             sb.AppendLine();
         }
 
-        if (!FormatterImportOrderer.TryOrderBySystemThenNamespace(ast.Imports, out var sortedImports))
-            throw new InvalidOperationException("N# formatter import-order kernel rejected the imports.");
+        var sortedImports = FormatterImportOrderer.OrderBySystemThenNamespace(ast.Imports);
 
         // Format imports
         foreach (var import in sortedImports)

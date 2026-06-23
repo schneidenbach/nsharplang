@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -11,15 +10,9 @@ internal static class FormatterImportOrderer
     [ThreadStatic]
     private static Scratch? t_scratch;
 
-    internal static bool TryOrderBySystemThenNamespace(
-        IReadOnlyList<ImportDirective> imports,
-        out List<ImportDirective> orderedImports)
+    internal static List<ImportDirective> OrderBySystemThenNamespace(IReadOnlyList<ImportDirective> imports)
     {
-        orderedImports = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var count = imports.Count;
         var scratch = t_scratch ??= new Scratch();
@@ -32,10 +25,7 @@ internal static class FormatterImportOrderer
             {
                 var ns = imports[i].Namespace;
                 if (ns == null)
-                {
-                    orderedImports = [];
-                    return false;
-                }
+                    throw new InvalidOperationException("N# formatter import-order kernel rejected a null namespace.");
 
                 // Match the production LINQ shape exactly: OrderByDescending uses the
                 // default (current-culture) StartsWith, ThenBy uses Comparer<string>.Default.
@@ -59,31 +49,19 @@ internal static class FormatterImportOrderer
                 scratch.ResultIndices);
 
             if (orderedCount != count)
-            {
-                orderedImports = [];
-                return false;
-            }
+                throw new InvalidOperationException("N# formatter import-order kernel returned an invalid result count.");
 
             var result = new List<ImportDirective>(count);
             for (var i = 0; i < count; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= count)
-                {
-                    orderedImports = [];
-                    return false;
-                }
+                    throw new InvalidOperationException("N# formatter import-order kernel returned an invalid import index.");
 
                 result.Add(imports[sourceIndex]);
             }
 
-            orderedImports = result;
-            return true;
-        }
-        catch
-        {
-            orderedImports = [];
-            return false;
+            return result;
         }
         finally
         {
@@ -96,6 +74,10 @@ internal static class FormatterImportOrderer
             DogfoodKernelLoader.CreateDelegate<FormatterImportOrderIndicesInto>(
                 programType,
                 "FormatterImportOrderIndicesInto")));
+
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# formatter import-order kernel is unavailable.");
 
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,

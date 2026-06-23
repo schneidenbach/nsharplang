@@ -15648,7 +15648,7 @@ class OtherZetaType {
             .ThenBy(i => i.Namespace)
             .ToList();
 
-        Assert.True(FormatterImportOrderer.TryOrderBySystemThenNamespace(imports, out var ordered));
+        var ordered = FormatterImportOrderer.OrderBySystemThenNamespace(imports);
 
         // Same references, in the same order as production LINQ (stable, reference-identical).
         Assert.Equal(expected.Count, ordered.Count);
@@ -15671,8 +15671,7 @@ class OtherZetaType {
 
         static List<ImportDirective> Invoke(List<ImportDirective> imports)
         {
-            Assert.True(FormatterImportOrderer.TryOrderBySystemThenNamespace(imports, out var ordered));
-            return ordered;
+            return FormatterImportOrderer.OrderBySystemThenNamespace(imports);
         }
 
         // First: a large list to grow the thread-static scratch buffers.
