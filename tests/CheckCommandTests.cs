@@ -473,6 +473,46 @@ func A() {
     }
 
     [Fact]
+    public void CheckCommand_AotVerificationDoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AotCheckRequiresColumnar
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func countChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            var messages = doc.RootElement.GetProperty("results")
+                .EnumerateArray()
+                .Select(result => result.GetProperty("message").GetString())
+                .ToArray();
+            Assert.Contains(messages, message =>
+                message?.Contains("Columnar AOT emission is required", StringComparison.Ordinal) == true);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_ProjectYmlNative_DoesNotCreateGeneratedCsproj()
     {
         var tempDir = CreateTempDir();

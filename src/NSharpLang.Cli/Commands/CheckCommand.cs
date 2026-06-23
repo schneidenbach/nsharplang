@@ -58,7 +58,7 @@ public static class CheckCommand
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
-                var verificationDiagnostics = VerifyIlOutput(projectDir, projectConfig);
+                var verificationDiagnostics = VerifyIlOutput(projectDir, projectConfig, aot);
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
@@ -123,7 +123,7 @@ public static class CheckCommand
         }
     }
 
-    private static List<DiagnosticResult> VerifyIlOutput(string projectDir, ProjectConfig? config)
+    private static List<DiagnosticResult> VerifyIlOutput(string projectDir, ProjectConfig? config, bool aotMode)
     {
         var results = new List<DiagnosticResult>();
         config ??= ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
@@ -134,6 +134,7 @@ public static class CheckCommand
             Directory.CreateDirectory(tempDir);
             var outputPath = Path.Combine(tempDir, $"{CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config)}.dll");
             var compiler = new MultiFileCompiler(projectDir, config);
+            compiler.AotMode = aotMode;
             var compileResult = compiler.CompileToIlAssembly(
                 CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config),
                 outputPath);
