@@ -23,9 +23,6 @@ internal static class AnonymousUnionShimSelector
             return false;
 
         var parameterCount = parameters.Count;
-        if (parameterCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(parameterCount);
 

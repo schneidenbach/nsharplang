@@ -23,9 +23,6 @@ internal static class AotRequirementSelector
             return false;
 
         var blockerCount = blockers.Count;
-        if (blockerCount == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureBlockerCapacity(blockerCount);
 
@@ -47,9 +44,6 @@ internal static class AotRequirementSelector
                 scratch.KindIds[i] = GetAotSafetyKindId(blocker.Kind);
                 scratch.AddConstruct(blocker.Construct);
             }
-
-            if (scratch.UniqueDeclarationCount == 0)
-                return true;
 
             scratch.BuildConstructRanks();
             for (var i = 0; i < blockerCount; i++)

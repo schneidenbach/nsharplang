@@ -29,9 +29,6 @@ internal static class ILTypeTableSelector
             return false;
 
         var typeCount = types.Count;
-        if (typeCount == 0)
-            return true;
-
         var scratch = t_firstDistinctTypeKeyScratch ??= new FirstDistinctTypeKeyScratch();
         scratch.EnsureCapacity(typeCount);
 
@@ -204,9 +201,6 @@ internal static class ILTypeTableSelector
         {
             if (!scratch.Load(types, getTypeKey))
                 return false;
-
-            if (scratch.Count == 0)
-                return true;
 
             var orderedCount = bindings.TypeCreationOrderIndices(
                 scratch.Keys,
