@@ -297,27 +297,19 @@ func Main() {
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = TreeCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("2", summary.DepthOption);
-        Assert.True(summary.Json);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValue = TreeCommand.GetOptionSummary(new[] { "--project", "--json", "--depth", "--help" });
+        var permissiveValue = TreeCommandKernels.GetOptionSummary(new[] { "--project", "--json", "--depth", "--help" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.Equal("--help", permissiveValue.DepthOption);
         Assert.True(permissiveValue.Json);
         Assert.True(permissiveValue.ShowHelp);
 
-        Assert.True(TreeCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(TreeCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
 
         var textMode = TreeCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TreeOutputModeKind.Text, textMode);
-        Assert.Equal(TreeOutputModeKind.Text, TreeCommand.GetOutputMode(json: false));
 
         var jsonMode = TreeCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TreeOutputModeKind.Json, jsonMode);
-        Assert.Equal(TreeOutputModeKind.Json, TreeCommand.GetOutputMode(json: true));
 
         var helpText = TreeCommandKernels.GetHelpText();
         Assert.Contains("N# Dependency Tree", helpText);
@@ -529,17 +521,12 @@ func Main() {
         Assert.True(dogfoodSummary.CleanAll);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = CleanCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.True(summary.CleanAll);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValue = CleanCommand.GetOptionSummary(new[] { "--project", "--all" });
+        var permissiveValue = CleanCommandKernels.GetOptionSummary(new[] { "--project", "--all" });
         Assert.Equal("--all", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.CleanAll);
         Assert.False(permissiveValue.ShowHelp);
 
-        Assert.True(CleanCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(CleanCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
 
         var helpText = CleanCommandKernels.GetHelpText();
         Assert.Contains("N# Clean", helpText);
@@ -602,24 +589,21 @@ func Main() {
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = DaemonCommand.GetOptionSummary(args);
-        Assert.Equal(dogfoodSummary, summary);
-
-        var help = DaemonCommand.GetOptionSummary(new[] { "start", "--project", "samples/demo", "--help" });
+        var help = DaemonCommandKernels.GetOptionSummary(new[] { "start", "--project", "samples/demo", "--help" });
         Assert.Equal(DaemonSubcommandKind.Start, help.SubcommandKind);
         Assert.Equal("samples/demo", help.ProjectOption);
         Assert.True(help.ShowHelp);
 
-        var permissiveValue = DaemonCommand.GetOptionSummary(new[] { "run", "--project", "--help" });
+        var permissiveValue = DaemonCommandKernels.GetOptionSummary(new[] { "run", "--project", "--help" });
         Assert.Equal(DaemonSubcommandKind.Run, permissiveValue.SubcommandKind);
         Assert.Equal("--help", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.ShowHelp);
 
-        var unknown = DaemonCommand.GetOptionSummary(new[] { "bogus" });
+        var unknown = DaemonCommandKernels.GetOptionSummary(new[] { "bogus" });
         Assert.Equal(DaemonSubcommandKind.Unknown, unknown.SubcommandKind);
         Assert.False(unknown.ShowHelp);
 
-        Assert.True(DaemonCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.True(DaemonCommandKernels.GetOptionSummary(Array.Empty<string>()).ShowHelp);
 
         var helpText = DaemonCommandKernels.GetHelpText();
         Assert.Contains("N# Analysis Daemon", helpText);
@@ -651,21 +635,15 @@ func Main() {
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = EnvCommand.GetOptionSummary(args);
-        Assert.True(summary.Json);
-        Assert.True(summary.ShowHelp);
-
-        Assert.True(EnvCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(EnvCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
-        Assert.True(EnvCommand.GetOptionSummary(new[] { "--json" }).Json);
+        Assert.True(EnvCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(EnvCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(EnvCommandKernels.GetOptionSummary(new[] { "--json" }).Json);
 
         var textMode = EnvCommandKernels.GetOutputMode(json: false);
         Assert.Equal(EnvOutputModeKind.Text, textMode);
-        Assert.Equal(EnvOutputModeKind.Text, EnvCommand.GetOutputMode(json: false));
 
         var jsonMode = EnvCommandKernels.GetOutputMode(json: true);
         Assert.Equal(EnvOutputModeKind.Json, jsonMode);
-        Assert.Equal(EnvOutputModeKind.Json, EnvCommand.GetOutputMode(json: true));
 
         var helpText = EnvCommandKernels.GetHelpText();
         Assert.Contains("N# Environment Info", helpText);
@@ -733,23 +711,15 @@ func Main() {
         Assert.True(dogfoodSummary.SkipVscode);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = DoctorCommand.GetOptionSummary(args);
-        Assert.True(summary.Json);
-        Assert.True(summary.RequireVscode);
-        Assert.True(summary.SkipVscode);
-        Assert.True(summary.ShowHelp);
-
-        Assert.True(DoctorCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(DoctorCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
-        Assert.True(DoctorCommand.GetOptionSummary(new[] { "--json" }).Json);
+        Assert.True(DoctorCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(DoctorCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(DoctorCommandKernels.GetOptionSummary(new[] { "--json" }).Json);
 
         var textMode = DoctorCommandKernels.GetOutputMode(json: false);
         Assert.Equal(DoctorOutputModeKind.Text, textMode);
-        Assert.Equal(DoctorOutputModeKind.Text, DoctorCommand.GetOutputMode(json: false));
 
         var jsonMode = DoctorCommandKernels.GetOutputMode(json: true);
         Assert.Equal(DoctorOutputModeKind.Json, jsonMode);
-        Assert.Equal(DoctorOutputModeKind.Json, DoctorCommand.GetOutputMode(json: true));
 
         var helpText = DoctorCommandKernels.GetHelpText();
         Assert.Contains("N# Doctor", helpText);
@@ -804,26 +774,19 @@ func Main() {
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = AuditCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.True(summary.Json);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValue = AuditCommand.GetOptionSummary(new[] { "--project", "--json" });
+        var permissiveValue = AuditCommandKernels.GetOptionSummary(new[] { "--project", "--json" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.Json);
         Assert.False(permissiveValue.ShowHelp);
 
-        Assert.True(AuditCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(AuditCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(AuditCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(AuditCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = AuditCommandKernels.GetOutputMode(json: false);
         Assert.Equal(AuditOutputModeKind.Text, textMode);
-        Assert.Equal(AuditOutputModeKind.Text, AuditCommand.GetOutputMode(json: false));
 
         var jsonMode = AuditCommandKernels.GetOutputMode(json: true);
         Assert.Equal(AuditOutputModeKind.Json, jsonMode);
-        Assert.Equal(AuditOutputModeKind.Json, AuditCommand.GetOutputMode(json: true));
 
         var helpText = AuditCommandKernels.GetHelpText();
         Assert.Contains("N# Security Audit", helpText);
@@ -901,20 +864,14 @@ func Main() {
         Assert.True(dogfoodSummary.Force);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = InitCommand.GetOptionSummary(args);
-        Assert.Equal("MyLib", summary.NameOption);
-        Assert.Equal("library", summary.TypeOption);
-        Assert.True(summary.Force);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValue = InitCommand.GetOptionSummary(new[] { "--name", "--force", "--type", "--help" });
+        var permissiveValue = InitCommandKernels.GetOptionSummary(new[] { "--name", "--force", "--type", "--help" });
         Assert.Equal("--force", permissiveValue.NameOption);
         Assert.Equal("--help", permissiveValue.TypeOption);
         Assert.True(permissiveValue.Force);
         Assert.True(permissiveValue.ShowHelp);
 
-        Assert.True(InitCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(InitCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(InitCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(InitCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var helpText = InitCommandKernels.GetHelpText();
         Assert.Contains("N# Init", helpText);
@@ -4073,8 +4030,8 @@ Exit codes:
         var shortHelp = RestoreCommandKernels.GetOptionSummary(new[] { "-h" });
         Assert.True(shortHelp.ShowHelp);
 
-        Assert.False(RestoreCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.False(RestoreCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.False(RestoreCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.False(RestoreCommandKernels.GetOptionSummary(Array.Empty<string>()).ShowHelp);
 
         var helpText = RestoreCommandKernels.GetHelpText();
         Assert.Contains("N# Restore", helpText);
@@ -6249,13 +6206,13 @@ func Main() {
         Assert.Equal(CompletionShellKind.Fish, fish.ShellKind);
         Assert.False(fish.ShowHelp);
 
-        var unknown = CompletionCommand.GetOptionSummary(new[] { "PowerShell" });
+        var unknown = CompletionCommandKernels.GetOptionSummary(new[] { "PowerShell" });
         Assert.Equal(CompletionShellKind.Unknown, unknown.ShellKind);
         Assert.False(unknown.ShowHelp);
 
-        Assert.True(CompletionCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
-        Assert.True(CompletionCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(CompletionCommand.GetOptionSummary(new[] { "-h" }).ShowHelp);
+        Assert.True(CompletionCommandKernels.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.True(CompletionCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(CompletionCommandKernels.GetOptionSummary(new[] { "-h" }).ShowHelp);
 
         var helpText = CompletionCommandKernels.GetHelpText();
         Assert.Contains("N# Shell Completion", helpText);

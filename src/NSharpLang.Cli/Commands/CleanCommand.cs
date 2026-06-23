@@ -16,7 +16,7 @@ public static class CleanCommand
 
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = CleanCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
@@ -94,9 +94,6 @@ public static class CleanCommand
 
         return Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage($"{result.Stderr}{result.Stdout}".Trim()));
     }
-
-    internal static CleanOptionSummary GetOptionSummary(string[] args)
-        => CleanCommandKernels.GetOptionSummary(args);
 
     private static string GetProjectRoot(CleanOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

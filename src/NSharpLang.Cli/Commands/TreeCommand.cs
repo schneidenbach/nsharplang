@@ -20,13 +20,13 @@ public static class TreeCommand
 
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = TreeCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
         var projectRoot = GetProjectRoot(options);
-        var outputMode = GetOutputMode(options.Json);
-        var maxDepth = GetMaxDepth(args, options);
+        var outputMode = TreeCommandKernels.GetOutputMode(options.Json);
+        var maxDepth = TreeCommandKernels.GetMaxDepth(args, int.MaxValue);
 
         if (!Directory.Exists(projectRoot))
             return Error(TreeCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot), outputMode, projectRoot);
@@ -286,17 +286,8 @@ public static class TreeCommand
     static string FormatDependency(TreeDependency dependency)
         => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
 
-    internal static TreeOptionSummary GetOptionSummary(string[] args)
-        => TreeCommandKernels.GetOptionSummary(args);
-
-    internal static TreeOutputModeKind GetOutputMode(bool json)
-        => TreeCommandKernels.GetOutputMode(json);
-
     private static string GetProjectRoot(TreeOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
-
-    private static int GetMaxDepth(string[] args, TreeOptionSummary options)
-        => TreeCommandKernels.GetMaxDepth(args, int.MaxValue);
 
     static int ShowHelp()
     {

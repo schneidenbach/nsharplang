@@ -10,11 +10,11 @@ public static class EnvCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = EnvCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
-        var outputMode = GetOutputMode(options.Json);
+        var outputMode = EnvCommandKernels.GetOutputMode(options.Json);
 
         var nlcVersion = Program.GetVersion();
         var dotnetVersion = RunCapture("--version")?.Trim() ?? "unknown";
@@ -114,12 +114,6 @@ public static class EnvCommand
             return null;
         }
     }
-
-    internal static EnvOptionSummary GetOptionSummary(string[] args)
-        => EnvCommandKernels.GetOptionSummary(args);
-
-    internal static EnvOutputModeKind GetOutputMode(bool json)
-        => EnvCommandKernels.GetOutputMode(json);
 
     static int ShowHelp()
     {

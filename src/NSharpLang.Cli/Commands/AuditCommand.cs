@@ -8,12 +8,12 @@ public static class AuditCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = AuditCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
         var projectRoot = GetProjectRoot(options);
-        var outputMode = GetOutputMode(options.Json);
+        var outputMode = AuditCommandKernels.GetOutputMode(options.Json);
 
         if (!Directory.Exists(projectRoot))
             return Error(AuditCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
@@ -153,12 +153,6 @@ public static class AuditCommand
             Console.WriteLine(AuditCommandKernels.GetParseFailureMessage());
         }
     }
-
-    internal static AuditOptionSummary GetOptionSummary(string[] args)
-        => AuditCommandKernels.GetOptionSummary(args);
-
-    internal static AuditOutputModeKind GetOutputMode(bool json)
-        => AuditCommandKernels.GetOutputMode(json);
 
     private static string GetProjectRoot(AuditOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

@@ -13,11 +13,11 @@ public static class DoctorCommand
 
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = DoctorCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
-        var outputMode = GetOutputMode(options.Json);
+        var outputMode = DoctorCommandKernels.GetOutputMode(options.Json);
         var requireVscode = options.RequireVscode;
         var skipVscode = options.SkipVscode;
         var checks = new List<DoctorCheck>();
@@ -190,12 +190,6 @@ public static class DoctorCommand
             return ProcessResult.Failed(ex.Message);
         }
     }
-
-    internal static DoctorOptionSummary GetOptionSummary(string[] args)
-        => DoctorCommandKernels.GetOptionSummary(args);
-
-    internal static DoctorOutputModeKind GetOutputMode(bool json)
-        => DoctorCommandKernels.GetOutputMode(json);
 
     private static int ShowHelp()
     {

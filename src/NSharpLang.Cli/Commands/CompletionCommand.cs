@@ -10,7 +10,7 @@ public static class CompletionCommand
 
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = CompletionCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
@@ -22,9 +22,6 @@ public static class CompletionCommand
             _ => Error(CompletionCommandKernels.GetUnknownShellMessage(GetShellForError(args)))
         };
     }
-
-    internal static CompletionOptionSummary GetOptionSummary(string[] args)
-        => CompletionCommandKernels.GetOptionSummary(args);
 
     private static string GetShellForError(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();

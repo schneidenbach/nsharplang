@@ -16,7 +16,7 @@ public static class RestoreCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = RestoreCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
         {
             ShowHelp();
@@ -129,9 +129,6 @@ public static class RestoreCommand
     {
         Console.WriteLine(RestoreCommandKernels.GetHelpText());
     }
-
-    internal static RestoreOptionSummary GetOptionSummary(string[] args)
-        => RestoreCommandKernels.GetOptionSummary(args);
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
         => RestoreCommandKernels.DeduplicateProjectReferences(projectReferences);

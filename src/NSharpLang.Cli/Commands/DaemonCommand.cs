@@ -11,7 +11,7 @@ public static class DaemonCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = DaemonCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowDaemonHelp();
 
@@ -92,9 +92,6 @@ public static class DaemonCommand
         server.Run();
         return 0;
     }
-
-    internal static DaemonOptionSummary GetOptionSummary(string[] args)
-        => DaemonCommandKernels.GetOptionSummary(args);
 
     private static string GetProjectDir(DaemonOptionSummary options)
         => options.ProjectOption ?? Directory.GetCurrentDirectory();

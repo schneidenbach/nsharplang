@@ -7,7 +7,7 @@ public static class InitCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = InitCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
@@ -56,9 +56,6 @@ public static class InitCommand
             return Error(InitCommandKernels.GetFailedMessage(ex.Message));
         }
     }
-
-    internal static InitOptionSummary GetOptionSummary(string[] args)
-        => InitCommandKernels.GetOptionSummary(args);
 
     static int ShowHelp()
     {
