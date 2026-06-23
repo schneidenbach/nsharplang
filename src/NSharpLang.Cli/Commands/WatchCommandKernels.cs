@@ -174,132 +174,25 @@ internal static class WatchCommandKernels
     }
 
     internal static string GetTargetCommandName(WatchTargetKind targetKind)
-    {
-        if (TryGetMessage(bindings => bindings.WatchTargetCommandName((int)targetKind), out var message))
-            return message;
-
-        return GetTargetCommandNameWithCSharp(targetKind);
-    }
+        => RequiredBindings.WatchTargetCommandName((int)targetKind);
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.WatchHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.WatchHelpText();
 
     internal static string GetUnsupportedTargetMessage(string target)
-    {
-        if (TryGetMessage(bindings => bindings.WatchUnsupportedTargetMessage(target), out var message))
-            return message;
-
-        return GetUnsupportedTargetMessageWithCSharp(target);
-    }
+        => RequiredBindings.WatchUnsupportedTargetMessage(target);
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.WatchProjectDirectoryNotFoundMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectDirectoryNotFoundMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.WatchProjectDirectoryNotFoundMessage(projectRoot);
 
     internal static string GetPositiveIntExpectedMessage(string flag)
-    {
-        if (TryGetMessage(bindings => bindings.WatchPositiveIntExpectedMessage(flag), out var message))
-            return message;
-
-        return GetPositiveIntExpectedMessageWithCSharp(flag);
-    }
+        => RequiredBindings.WatchPositiveIntExpectedMessage(flag);
 
     internal static string GetStartedMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.WatchStartedMessage(projectRoot), out var message))
-            return message;
-
-        return GetStartedMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.WatchStartedMessage(projectRoot);
 
     internal static string GetChangeDetectedMessage(string timeText, string watchedCommand)
-    {
-        if (TryGetMessage(bindings => bindings.WatchChangeDetectedMessage(timeText, watchedCommand), out var message))
-            return message;
-
-        return GetChangeDetectedMessageWithCSharp(timeText, watchedCommand);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return message.Length > 0;
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch command text routes through CliWatch* kernels.
-    private static string GetTargetCommandNameWithCSharp(WatchTargetKind targetKind)
-        => targetKind switch
-        {
-            WatchTargetKind.Check => "check",
-            WatchTargetKind.Build => "build",
-            WatchTargetKind.Test => "test",
-            WatchTargetKind.Lint => "lint",
-            WatchTargetKind.Format => "format",
-            _ => string.Empty
-        };
-
-    private static string GetHelpTextWithCSharp()
-        => "N# Watch\n"
-           + "\n"
-           + "Usage: nlc watch <check|build|test|lint|format> [command-options]\n"
-           + "\n"
-           + "Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>      Project root directory to watch (default: current directory)\n"
-           + "  --debounce-ms <ms>   Debounce window before rerunning (default: 250)\n"
-           + "  --max-runs <count>   Exit after N command executions (useful for scripts and tests)\n"
-           + "  --help, -h           Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc watch check\n"
-           + "  nlc watch build\n"
-           + "  nlc watch test --filter AddPerson\n"
-           + "  nlc watch lint\n"
-           + "  nlc watch format --check\n"
-           + "  nlc watch check --project examples/16-task-cli --max-runs 2\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Watch finished and the last run succeeded\n"
-           + "  1  Invalid usage or the last watched run failed";
-
-    private static string GetUnsupportedTargetMessageWithCSharp(string target)
-        => $"Unsupported watch target '{target}'. Expected check, build, test, lint, or format.";
-
-    private static string GetProjectDirectoryNotFoundMessageWithCSharp(string projectRoot)
-        => $"Project directory not found: {projectRoot}";
-
-    private static string GetPositiveIntExpectedMessageWithCSharp(string flag)
-        => $"{flag} expects a positive integer.";
-
-    private static string GetStartedMessageWithCSharp(string projectRoot)
-        => $"Watching {projectRoot} for N# changes. Press Ctrl+C to stop.";
-
-    private static string GetChangeDetectedMessageWithCSharp(string timeText, string watchedCommand)
-        => $"Change detected at {timeText}. Re-running `nlc {watchedCommand}`.";
+        => RequiredBindings.WatchChangeDetectedMessage(timeText, watchedCommand);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -377,6 +270,9 @@ internal static class WatchCommandKernels
         CliWatchPositiveIntExpectedMessage WatchPositiveIntExpectedMessage,
         CliWatchStartedMessage WatchStartedMessage,
         CliWatchChangeDetectedMessage WatchChangeDetectedMessage);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# watch command kernels are unavailable.");
 
     internal static bool TryShouldTriggerForChangedPath(string path, out bool shouldTrigger)
     {

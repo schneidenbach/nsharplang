@@ -8,8 +8,6 @@ namespace NSharpLang.Cli.Commands;
 
 public static class WatchCommand
 {
-    private static readonly string[] WatchOptionsWithValues = { "--project", "--debounce-ms", "--max-runs" };
-
     public static int Execute(string[] args)
     {
         var options = GetOptionSummary(args);
@@ -134,91 +132,30 @@ public static class WatchCommand
     }
 
     internal static WatchOptionSummary GetOptionSummary(string[] args)
-        => WatchCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (WatchCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# watch option summary kernel rejected the arguments.");
+    }
 
     internal static WatchTargetSummary GetTargetSummary(string[] args)
-        => WatchCommandKernels.TryGetTargetSummary(args, out var summary)
-            ? summary
-            : GetTargetSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch target parsing routes through WatchCommandKernels.
-    private static WatchTargetSummary GetTargetSummaryWithCSharp(string[] args)
     {
-        if (args.Length == 0)
-            return new WatchTargetSummary(WatchTargetKind.Unknown);
+        if (WatchCommandKernels.TryGetTargetSummary(args, out var summary))
+            return summary;
 
-        return new WatchTargetSummary(args[0].ToLowerInvariant() switch
-        {
-            "check" => WatchTargetKind.Check,
-            "build" => WatchTargetKind.Build,
-            "test" => WatchTargetKind.Test,
-            "lint" => WatchTargetKind.Lint,
-            "format" => WatchTargetKind.Format,
-            _ => WatchTargetKind.Unknown
-        });
+        throw new InvalidOperationException("N# watch target summary kernel rejected the arguments.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch option parsing routes through WatchCommandKernels.
-    private static WatchOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionWithCSharp(args, "--project"),
-            GetOptionWithCSharp(args, "--debounce-ms"),
-            GetOptionWithCSharp(args, "--max-runs"),
-            args.Length == 0
-                || args[0] == "help"
-                || ContainsArgWithCSharp(args, "--help")
-                || ContainsArgWithCSharp(args, "-h"));
 
     private static string[] GetForwardedArgs(string[] args)
-    {
-        if (WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs))
-            return forwardedArgs;
-
-        return GetForwardedArgsWithCSharp(args);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch forwarding routes through WatchCommandKernels.
-    private static string[] GetForwardedArgsWithCSharp(string[] args)
-    {
-        var forwarded = new List<string>();
-
-        for (var i = 1; i < args.Length; i++)
-        {
-            if (WatchOptionsWithValues.Contains(args[i], StringComparer.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (args[i] == "--help" || args[i] == "-h")
-                continue;
-
-            forwarded.Add(args[i]);
-        }
-
-        return forwarded.ToArray();
-    }
+        => WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs)
+            ? forwardedArgs
+            : throw new InvalidOperationException("N# watch forwarded-argument kernel rejected the arguments.");
 
     internal static bool ShouldWatch(string path)
         => WatchCommandKernels.TryShouldTriggerForChangedPath(path, out var shouldWatch)
             ? shouldWatch
-            : ShouldWatchWithCSharp(path);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch change filtering routes through WatchCommandKernels.
-    private static bool ShouldWatchWithCSharp(string path)
-    {
-        var fileName = Path.GetFileName(path);
-        if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var extension = Path.GetExtension(path);
-        return extension.Equals(".nl", StringComparison.OrdinalIgnoreCase);
-    }
+            : throw new InvalidOperationException("N# watch changed-path kernel rejected the path.");
 
     private static int? ParsePositiveInt(string? value, int? defaultValue, string flag)
     {
@@ -234,17 +171,7 @@ public static class WatchCommand
             return null;
         }
 
-        return ParsePositiveIntWithCSharp(value, flag);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch numeric option parsing routes through WatchCommandKernels.
-    private static int? ParsePositiveIntWithCSharp(string value, string flag)
-    {
-        if (int.TryParse(value, out var parsed) && parsed > 0)
-            return parsed;
-
-        Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
-        return null;
+        throw new InvalidOperationException("N# watch positive-integer kernel rejected the value.");
     }
 
     private static string GetWatchedCommandName(WatchTargetKind targetKind)
@@ -252,25 +179,6 @@ public static class WatchCommand
 
     private static string GetUnsupportedTargetName(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
-
-    private static string? GetOptionWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
 
     private static int ShowHelp()
     {
