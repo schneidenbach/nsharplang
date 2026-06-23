@@ -1690,15 +1690,14 @@ func Main() {
                 new("symbols", Id: "alpha")
             };
 
-            Assert.True(BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds));
+            var duplicateIds = BatchQueryKernels.FindDuplicateRequestIds(requests);
             Assert.Equal(new[] { "alpha", "zeta" }, duplicateIds);
 
             var okWords = new[] { 1UL | (1UL << 2) | (1UL << 5) | (1UL << 63) };
-            Assert.True(BatchQueryKernels.TryCountResultSuccesses(okWords, 6, out var successCount));
+            var successCount = BatchQueryKernels.CountResultSuccesses(okWords, 6);
             Assert.Equal(3, successCount);
 
-            Assert.True(BatchQueryKernels.TryCountResultSuccesses(Array.Empty<ulong>(), 0, out successCount));
-            Assert.Equal(0, successCount);
+            Assert.Equal(0, BatchQueryKernels.CountResultSuccesses(Array.Empty<ulong>(), 0));
         }
         finally
         {

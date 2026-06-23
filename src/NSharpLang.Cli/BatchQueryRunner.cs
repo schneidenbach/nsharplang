@@ -117,12 +117,7 @@ internal static class BatchQueryRunner
     }
 
     private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
-    {
-        if (!BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds))
-            throw new InvalidOperationException("N# batch duplicate-id kernel rejected the requests.");
-
-        return duplicateIds;
-    }
+        => BatchQueryKernels.FindDuplicateRequestIds(requests);
 
     public static BatchQueryExecutionResult Execute(
         IReadOnlyList<BatchQueryRequest> requests,
@@ -148,9 +143,7 @@ internal static class BatchQueryRunner
             items.Add(new BatchQueryItemResult(i, request, ok, response));
         }
 
-        if (!BatchQueryKernels.TryCountResultSuccesses(okWords, items.Count, out var successCount))
-            throw new InvalidOperationException("N# batch success-count kernel rejected the results.");
-
+        var successCount = BatchQueryKernels.CountResultSuccesses(okWords, items.Count);
         var failureCount = items.Count - successCount;
         var envelope = new
         {

@@ -10,16 +10,9 @@ internal static class BatchQueryKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryFindDuplicateRequestIds(
-        IReadOnlyList<BatchQueryRequest> requests,
-        out string[] duplicateIds)
+    internal static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
     {
-        duplicateIds = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var requestCount = requests.Count;
         var scratch = t_duplicateIdScratch ??= new DuplicateIdScratch();
         scratch.EnsureCapacity(requestCount);
@@ -55,28 +48,22 @@ internal static class BatchQueryKernels
                 duplicateCount > scratch.UniqueIdCount ||
                 duplicateCount > scratch.ResultRanks.Length)
             {
-                return false;
+                throw new InvalidOperationException("N# batch duplicate-id kernel rejected the requests.");
             }
 
-            duplicateIds = new string[duplicateCount];
+            var duplicateIds = new string[duplicateCount];
             for (var i = 0; i < duplicateCount; i++)
             {
                 var rank = scratch.ResultRanks[i];
                 if (rank <= 0 || rank > scratch.UniqueIdCount)
                 {
-                    duplicateIds = Array.Empty<string>();
-                    return false;
+                    throw new InvalidOperationException("N# batch duplicate-id kernel returned an invalid rank.");
                 }
 
                 duplicateIds[i] = scratch.UniqueIds[rank - 1];
             }
 
-            return true;
-        }
-        catch
-        {
-            duplicateIds = Array.Empty<string>();
-            return false;
+            return duplicateIds;
         }
         finally
         {
@@ -84,37 +71,21 @@ internal static class BatchQueryKernels
         }
     }
 
-    internal static bool TryCountResultSuccesses(ulong[] okWords, int itemCount, out int successCount)
+    internal static int CountResultSuccesses(ulong[] okWords, int itemCount)
     {
-        successCount = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         if (itemCount < 0)
-            return false;
+            throw new InvalidOperationException("N# batch success-count kernel received a negative item count.");
 
         if (itemCount > (long)okWords.Length * 64)
-            return false;
+            throw new InvalidOperationException("N# batch success-count kernel received too few packed words.");
 
-        try
-        {
-            var count = bindings.ResultPackedSuccessCount(okWords, itemCount);
-            if (count < 0 || count > itemCount)
-            {
-                successCount = 0;
-                return false;
-            }
+        var count = bindings.ResultPackedSuccessCount(okWords, itemCount);
+        if (count < 0 || count > itemCount)
+            throw new InvalidOperationException("N# batch success-count kernel rejected the results.");
 
-            successCount = count;
-            return true;
-        }
-        catch
-        {
-            successCount = 0;
-            return false;
-        }
+        return count;
     }
 
     internal static string GetRequestsFileNotFoundMessage(string path)
