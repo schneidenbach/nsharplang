@@ -120,17 +120,11 @@ public class ProjectConfig
         // local agent worktrees that can mirror the repo and explode the project size.
         var allFiles = EnumerateSourceFiles(projectRoot).ToArray();
 
-        if (ProjectSourceFileFilter.TryFilter(
+        return ProjectSourceFileFilter.Filter(
             allFiles,
             projectRoot,
             Exclude.ToArray(),
-            includeTests,
-            out var dogfoodFiles))
-        {
-            return dogfoodFiles;
-        }
-
-        throw new InvalidOperationException("N# project source-file filter kernel rejected the project files.");
+            includeTests);
     }
 
     private static readonly HashSet<string> DefaultSkippedSourceDirectories = new(StringComparer.OrdinalIgnoreCase)

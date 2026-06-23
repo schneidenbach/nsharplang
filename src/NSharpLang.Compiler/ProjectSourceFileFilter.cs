@@ -9,23 +9,13 @@ internal static class ProjectSourceFileFilter
     [ThreadStatic]
     private static Scratch? t_scratch;
 
-    /// <summary>
-    /// Single-pass replacement for ProjectConfig.GetSourceFiles' post-enumeration filtering
-    /// (test-file filter + exclude-glob filter). Materializes the kept files preserving enumeration
-    /// order. Returns false when the dogfood assembly is unavailable or any input is unexpected.
-    /// </summary>
-    internal static bool TryFilter(
+    internal static string[] Filter(
         string[] files,
         string projectRoot,
         string[] excludePatterns,
-        bool includeTests,
-        out string[] filteredFiles)
+        bool includeTests)
     {
-        filteredFiles = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var fileCount = files.Length;
         var scratch = t_scratch ??= new Scratch();
@@ -37,7 +27,7 @@ internal static class ProjectSourceFileFilter
             {
                 var file = files[i];
                 if (file == null)
-                    return false;
+                    throw new InvalidOperationException("N# project source-file filter received a null source file.");
 
                 var relativePath = Path.GetRelativePath(projectRoot, file);
                 scratch.RelativePaths[i] = relativePath;
@@ -50,25 +40,19 @@ internal static class ProjectSourceFileFilter
                 scratch.ResultIndices);
 
             if (keptCount < 0 || keptCount > fileCount)
-                return false;
+                throw new InvalidOperationException("N# project source-file filter kernel returned an invalid file count.");
 
             var result = new string[keptCount];
             for (var i = 0; i < keptCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= fileCount)
-                    return false;
+                    throw new InvalidOperationException("N# project source-file filter kernel returned an invalid source index.");
 
                 result[i] = files[sourceIndex];
             }
 
-            filteredFiles = result;
-            return true;
-        }
-        catch
-        {
-            filteredFiles = Array.Empty<string>();
-            return false;
+            return result;
         }
         finally
         {
@@ -81,6 +65,10 @@ internal static class ProjectSourceFileFilter
             DogfoodKernelLoader.CreateDelegate<ProjectSourceFilterKeptIndicesInto>(
                 programType,
                 "ProjectSourceFilterKeptIndicesInto")));
+
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# project source-file filter kernel is unavailable.");
 
     private delegate int ProjectSourceFilterKeptIndicesInto(
         string[] relativePaths,

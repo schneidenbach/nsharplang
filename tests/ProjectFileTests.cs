@@ -867,10 +867,10 @@ testFramework: nunit
             var files = new[] { programFile, testFile, generatedFile, serviceFile };
             var excludes = new[] { "Generated/*.nl" };
 
-            Assert.True(ProjectSourceFileFilter.TryFilter(files, tempDir, excludes, includeTests: false, out var filteredFiles));
+            var filteredFiles = ProjectSourceFileFilter.Filter(files, tempDir, excludes, includeTests: false);
             Assert.Equal(new[] { programFile, serviceFile }, filteredFiles);
 
-            Assert.True(ProjectSourceFileFilter.TryFilter(files, tempDir, excludes, includeTests: true, out var filteredWithTests));
+            var filteredWithTests = ProjectSourceFileFilter.Filter(files, tempDir, excludes, includeTests: true);
             Assert.Equal(new[] { programFile, testFile, serviceFile }, filteredWithTests);
         }
         finally
