@@ -140,9 +140,6 @@ internal static class TidyCommandKernels
             return false;
 
         var resultCount = results.Count;
-        if (resultCount == 0)
-            return true;
-
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureCapacity(resultCount);
 
@@ -202,9 +199,6 @@ internal static class TidyCommandKernels
             return false;
 
         var resultCount = results.Count;
-        if (resultCount == 0)
-            return true;
-
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureCapacity(resultCount);
 
@@ -252,9 +246,6 @@ internal static class TidyCommandKernels
             return false;
 
         var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
         var scratch = t_dependencyStatusScratch ??= new DependencyStatusScratch();
         scratch.EnsureClassificationCapacity(dependencyCount, importedNamespaces.Count);
 

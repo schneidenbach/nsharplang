@@ -58,9 +58,6 @@ internal static class BatchQueryKernels
                 return false;
             }
 
-            if (duplicateCount == 0)
-                return true;
-
             duplicateIds = new string[duplicateCount];
             for (var i = 0; i < duplicateCount; i++)
             {

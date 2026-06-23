@@ -26,9 +26,6 @@ internal static class FixCommandKernels
             return false;
 
         var fixCount = fixes.Count;
-        if (fixCount == 0)
-            return true;
-
         var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
         scratch.EnsureCapacity(fixCount);
 
@@ -84,9 +81,6 @@ internal static class FixCommandKernels
             return false;
 
         var resultCount = results.Count;
-        if (resultCount == 0)
-            return true;
-
         var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
         scratch.EnsureCapacity(resultCount);
 
@@ -141,9 +135,6 @@ internal static class FixCommandKernels
             return false;
 
         var appliedCount = applied.Count;
-        if (appliedCount == 0)
-            return true;
-
         var scratch = t_appliedFileGroupingScratch ??= new AppliedFileGroupingScratch();
         scratch.EnsureCapacity(appliedCount);
 

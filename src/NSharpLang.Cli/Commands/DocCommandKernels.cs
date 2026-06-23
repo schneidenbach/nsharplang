@@ -185,9 +185,6 @@ internal static class DocCommandKernels
             return false;
 
         var symbolCount = symbols.Count;
-        if (symbolCount == 0)
-            return true;
-
         var scratch = t_symbolOrderScratch ??= new SymbolOrderScratch();
         scratch.EnsureCapacity(symbolCount);
 

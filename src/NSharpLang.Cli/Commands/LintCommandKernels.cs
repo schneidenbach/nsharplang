@@ -69,9 +69,6 @@ internal static class LintCommandKernels
         if (bindings == null)
             return false;
 
-        if (args.Length == 0)
-            return true;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(args.Length);
 
@@ -84,9 +81,6 @@ internal static class LintCommandKernels
 
             if (count < 0 || count > args.Length)
                 return false;
-
-            if (count == 0)
-                return true;
 
             files = new string[count];
             for (var i = 0; i < count; i++)

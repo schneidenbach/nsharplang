@@ -107,9 +107,6 @@ internal static class WatchCommandKernels
         if (bindings == null)
             return false;
 
-        if (args.Length <= 1)
-            return true;
-
         var resultIndices = t_resultIndices;
         if (resultIndices == null || resultIndices.Length < args.Length)
         {
@@ -122,9 +119,6 @@ internal static class WatchCommandKernels
             var count = bindings.WatchForwardedArgIndices(args, resultIndices);
             if (count < 0 || count > args.Length)
                 return false;
-
-            if (count == 0)
-                return true;
 
             forwardedArgs = new string[count];
             for (var i = 0; i < count; i++)

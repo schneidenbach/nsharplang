@@ -108,9 +108,6 @@ internal static class ExportCommandKernels
         if (bindings == null)
             return false;
 
-        if (args.Length == 0)
-            return true;
-
         var scratch = t_operandScratch ??= new OperandScratch();
         scratch.EnsureCapacity(args.Length);
 
@@ -151,9 +148,6 @@ internal static class ExportCommandKernels
             return false;
 
         var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
             return false;
@@ -216,9 +210,6 @@ internal static class ExportCommandKernels
             return false;
 
         var valueCount = values.Count;
-        if (valueCount == 0)
-            return true;
-
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(valueCount);
 
