@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -12,16 +11,8 @@ internal static class OutputFormatterReferenceFileKernels
     [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_inspectSummaryReferenceFileScratch;
 
-    internal static bool TryBuildInspectSummaryReferenceFiles(
-        IReadOnlyList<ReferenceResult> references,
-        out string[] referenceFiles)
+    internal static string[] BuildInspectSummaryReferenceFiles(IReadOnlyList<ReferenceResult> references)
     {
-        referenceFiles = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var referenceCount = references.Count;
         var scratch = t_inspectSummaryReferenceFileScratch ??= new ReferenceFileSummaryScratch();
         scratch.EnsureCapacity(referenceCount);
@@ -42,34 +33,26 @@ internal static class OutputFormatterReferenceFileKernels
                 scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
             }
 
-            var resultCount = bindings.ReferenceFileSummaryRanks(
+            var resultCount = RequiredBindings.ReferenceFileSummaryRanks(
                 scratch.FileRanks,
                 scratch.UniqueFileCount,
                 scratch.CountsByRank,
                 scratch.ResultRanks);
 
             if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
-                return false;
+                throw new InvalidOperationException("N# inspect summary reference-file kernel rejected the references.");
 
-            referenceFiles = new string[resultCount];
+            var referenceFiles = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var rank = scratch.ResultRanks[i];
                 if (rank <= 0 || rank > scratch.UniqueFileCount)
-                {
-                    referenceFiles = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# inspect summary reference-file kernel returned an invalid file rank.");
 
                 referenceFiles[i] = scratch.UniqueFiles[rank - 1];
             }
 
-            return true;
-        }
-        catch
-        {
-            referenceFiles = Array.Empty<string>();
-            return false;
+            return referenceFiles;
         }
         finally
         {
@@ -78,16 +61,8 @@ internal static class OutputFormatterReferenceFileKernels
         }
     }
 
-    internal static bool TryBuildDiagnosticClusterFiles(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        out string[] files)
+    internal static string[] BuildDiagnosticClusterFiles(IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        files = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var diagnosticCount = diagnostics.Count;
         var scratch = t_diagnosticClusterFileSummaryScratch ??=
             new ReferenceFileSummaryScratch(StringComparer.OrdinalIgnoreCase, StringComparer.OrdinalIgnoreCase);
@@ -109,34 +84,26 @@ internal static class OutputFormatterReferenceFileKernels
                 scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
             }
 
-            var resultCount = bindings.ReferenceFileSummaryRanks(
+            var resultCount = RequiredBindings.ReferenceFileSummaryRanks(
                 scratch.FileRanks,
                 scratch.UniqueFileCount,
                 scratch.CountsByRank,
                 scratch.ResultRanks);
 
             if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster file kernel rejected the diagnostics.");
 
-            files = new string[resultCount];
+            var files = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var rank = scratch.ResultRanks[i];
                 if (rank <= 0 || rank > scratch.UniqueFileCount)
-                {
-                    files = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# diagnostic cluster file kernel returned an invalid file rank.");
 
                 files[i] = scratch.UniqueFiles[rank - 1];
             }
 
-            return true;
-        }
-        catch
-        {
-            files = Array.Empty<string>();
-            return false;
+            return files;
         }
         finally
         {
@@ -150,6 +117,9 @@ internal static class OutputFormatterReferenceFileKernels
             DogfoodKernelLoader.CreateDelegate<ReferenceFileSummaryRanksInto>(
                 programType,
                 "ReferenceFileSummaryRanksInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# reference-file summary kernel is unavailable.");
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 

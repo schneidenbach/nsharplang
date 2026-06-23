@@ -934,12 +934,7 @@ public static class OutputFormatter
             ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
             : result.Symbol?.Definition;
 
-        if (!OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
-            result.References.Results,
-            out var referenceFiles))
-        {
-            throw new InvalidOperationException("N# inspect summary reference-file kernel rejected the references.");
-        }
+        var referenceFiles = OutputFormatterReferenceFileKernels.BuildInspectSummaryReferenceFiles(result.References.Results);
 
         var referenceSample = result.References.Results
             .Take(InspectSummaryReferenceSampleSize)
@@ -1101,8 +1096,7 @@ public static class OutputFormatter
         DiagnosticClusterTraits traits)
     {
         var root = ordered[0];
-        if (!OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(ordered, out var files))
-            throw new InvalidOperationException("N# diagnostic cluster file kernel rejected the diagnostics.");
+        var files = OutputFormatterReferenceFileKernels.BuildDiagnosticClusterFiles(ordered);
 
         return new DiagnosticCluster(
             Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),

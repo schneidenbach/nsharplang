@@ -14981,9 +14981,7 @@ func documented(): int {
             new(@"src\C.nl", 4, 1, 5, "C reference", IsDefinition: false),
             new("src/A.nl", 2, 8, 5, "duplicate A", IsDefinition: false)
         };
-        Assert.True(OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
-            summaryReferences,
-            out var referenceFiles));
+        var referenceFiles = OutputFormatterReferenceFileKernels.BuildInspectSummaryReferenceFiles(summaryReferences);
         Assert.Equal(
             summaryReferences
                 .Select(reference => reference.File.Replace('\\', '/'))
@@ -15000,9 +14998,7 @@ func documented(): int {
             BuildDiagnosticWithSeverity("error", 4) with { File = "src/C.nl" },
             BuildDiagnosticWithSeverity("error", 5) with { File = "src/b.NL" }
         };
-        Assert.True(OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(
-            clusterDiagnostics,
-            out var clusterFiles));
+        var clusterFiles = OutputFormatterReferenceFileKernels.BuildDiagnosticClusterFiles(clusterDiagnostics);
         Assert.Equal(
             clusterDiagnostics
                 .Select(diagnostic => diagnostic.File)
