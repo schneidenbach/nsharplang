@@ -113,17 +113,17 @@ public static class DocCommand
         if (OperatingSystem.IsMacOS())
         {
             fileName = "open";
-            arguments = Quote(path);
+            arguments = $"\"{path}\"";
         }
         else if (OperatingSystem.IsWindows())
         {
             fileName = "cmd";
-            arguments = $"/c start \"\" {Quote(path)}";
+            arguments = $"/c start \"\" \"{path}\"";
         }
         else
         {
             fileName = "xdg-open";
-            arguments = Quote(path);
+            arguments = $"\"{path}\"";
         }
 
         try
@@ -141,8 +141,6 @@ public static class DocCommand
             return false;
         }
     }
-
-    private static string Quote(string value) => $"\"{value}\"";
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }

@@ -28,7 +28,9 @@ public static class DaemonCommand
             case DaemonSubcommandKind.Status:
                 return StatusCommand(projectDir);
             case DaemonSubcommandKind.Run:
-                return RunCommand(projectDir); // Internal: runs the daemon in-process
+                var server = new DaemonServer(projectDir);
+                server.Run();
+                return 0;
             default:
                 Console.WriteLine(DaemonCommandKernels.GetHelpText());
                 return 0;
@@ -91,15 +93,4 @@ public static class DaemonCommand
         }
         return 0;
     }
-
-    /// <summary>
-    /// Run the daemon server in-process (called by StartDaemon as a background process).
-    /// </summary>
-    private static int RunCommand(string projectDir)
-    {
-        var server = new DaemonServer(projectDir);
-        server.Run();
-        return 0;
-    }
-
 }

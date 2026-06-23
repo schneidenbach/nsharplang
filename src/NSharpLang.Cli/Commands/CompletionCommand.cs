@@ -18,24 +18,21 @@ public static class CompletionCommand
         }
 
         var shellForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
-        return options.ShellKind switch
+        var script = options.ShellKind switch
         {
-            CompletionShellKind.Bash => WriteScript(BashScript),
-            CompletionShellKind.Zsh => WriteScript(ZshScript),
-            CompletionShellKind.Fish => WriteScript(FishScript),
-            _ => Error(CompletionCommandKernels.GetUnknownShellMessage(shellForError))
+            CompletionShellKind.Bash => BashScript,
+            CompletionShellKind.Zsh => ZshScript,
+            CompletionShellKind.Fish => FishScript,
+            _ => null
         };
-    }
 
-    private static int WriteScript(string script)
-    {
-        Console.Write(script);
-        return 0;
-    }
+        if (script != null)
+        {
+            Console.Write(script);
+            return 0;
+        }
 
-    private static int Error(string message)
-    {
-        Console.Error.WriteLine(message);
+        Console.Error.WriteLine(CompletionCommandKernels.GetUnknownShellMessage(shellForError));
         return 1;
     }
 
