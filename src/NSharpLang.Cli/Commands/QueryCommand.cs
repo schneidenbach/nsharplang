@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler;
@@ -81,13 +80,10 @@ public static class QueryCommand
         // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
         if (!string.IsNullOrWhiteSpace(filterPattern))
         {
-            results = QuerySymbolNameFilter.TryFilter(
-                    results,
-                    filterPattern,
-                    200,
-                    out var dogfoodResults)
-                ? dogfoodResults
-                : FilterSymbolsByNamePatternWithRegex(results, filterPattern);
+            if (!QuerySymbolNameFilter.TryFilter(results, filterPattern, 200, out var filteredResults))
+                throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
+
+            results = filteredResults;
         }
 
         if (outputMode == QueryTextJsonOutputModeKind.Text)
@@ -137,26 +133,6 @@ public static class QueryCommand
         // The AST is structured data; `ast` always emits the stable JSON envelope (LLM-first).
         Console.Write(OutputFormatter.AstToJson(units));
         return 0;
-    }
-
-    private static List<SymbolResult> FilterSymbolsByNamePatternWithRegex(
-        IReadOnlyList<SymbolResult> symbols,
-        string pattern)
-    {
-        var regex = BuildSymbolFilterRegex(pattern);
-        return symbols.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
-    }
-
-    private static Regex BuildSymbolFilterRegex(string pattern)
-    {
-        // If the pattern contains *, treat it as a glob: * -> .*
-        // Otherwise, treat it as a case-insensitive substring match
-        if (pattern.Contains('*'))
-        {
-            var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
-            return new Regex(regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
-        }
-        return new Regex(Regex.Escape(pattern), RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
     }
 
     private static int HoverCommand(string[] args, QueryOptions options)
