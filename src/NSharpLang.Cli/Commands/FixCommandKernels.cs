@@ -224,34 +224,52 @@ internal static class FixCommandKernels
     }
 
     internal static string GetHelpText()
-        => TryGetMessage(bindings => bindings.HelpText(), out var message)
-            ? message
-            : FallbackHelpText();
+    {
+        if (TryGetMessage(bindings => bindings.HelpText(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix help text kernel rejected the values.");
+    }
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectDir)
-        => TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectDir), out var message)
-            ? message
-            : FallbackProjectDirectoryNotFoundMessage(projectDir);
+    {
+        if (TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectDir), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix missing-project message kernel rejected the values.");
+    }
 
     internal static string GetFileNotFoundMessage(string filePath)
-        => TryGetMessage(bindings => bindings.FileNotFoundMessage(filePath), out var message)
-            ? message
-            : FallbackFileNotFoundMessage(filePath);
+    {
+        if (TryGetMessage(bindings => bindings.FileNotFoundMessage(filePath), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix missing-file message kernel rejected the values.");
+    }
 
     internal static string GetNoFilesFoundMessage()
-        => TryGetMessage(bindings => bindings.NoFilesFoundMessage(), out var message)
-            ? message
-            : FallbackNoFilesFoundMessage();
+    {
+        if (TryGetMessage(bindings => bindings.NoFilesFoundMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix no-files message kernel rejected the values.");
+    }
 
     internal static string GetFailedMessage(string message)
-        => TryGetMessage(bindings => bindings.FailedMessage(message), out var result)
-            ? result
-            : FallbackFailedMessage(message);
+    {
+        if (TryGetMessage(bindings => bindings.FailedMessage(message), out var result))
+            return result;
+
+        throw new InvalidOperationException("N# fix failed-message kernel rejected the values.");
+    }
 
     internal static string GetNothingToFixMessage()
-        => TryGetMessage(bindings => bindings.NothingToFixMessage(), out var message)
-            ? message
-            : FallbackNothingToFixMessage();
+    {
+        if (TryGetMessage(bindings => bindings.NothingToFixMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix nothing-to-fix message kernel rejected the values.");
+    }
 
     internal static string GetAppliedHeader(int appliedCount, int filesModified, bool dryRun)
     {
@@ -266,36 +284,48 @@ internal static class FixCommandKernels
                 dryRun ? 1 : 0),
             out var message)
             ? message
-            : FallbackAppliedHeader(appliedCountText, appliedCount, filesModifiedText, filesModified, dryRun);
+            : throw new InvalidOperationException("N# fix applied-header kernel rejected the values.");
     }
 
     internal static string GetAppliedFileHeader(string filePath)
-        => TryGetMessage(bindings => bindings.AppliedFileHeader(filePath), out var message)
-            ? message
-            : FallbackAppliedFileHeader(filePath);
+    {
+        if (TryGetMessage(bindings => bindings.AppliedFileHeader(filePath), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix applied-file-header kernel rejected the values.");
+    }
 
     internal static string GetEntryLine(string diagnosticCode, string title)
-        => TryGetMessage(bindings => bindings.EntryLine(diagnosticCode, title), out var message)
-            ? message
-            : FallbackEntryLine(diagnosticCode, title);
+    {
+        if (TryGetMessage(bindings => bindings.EntryLine(diagnosticCode, title), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix entry-line kernel rejected the values.");
+    }
 
     internal static string GetSkippedHeader(int skippedCount)
     {
         var skippedCountText = skippedCount.ToString(CultureInfo.InvariantCulture);
         return TryGetMessage(bindings => bindings.SkippedHeader(skippedCountText, skippedCount), out var message)
             ? message
-            : FallbackSkippedHeader(skippedCountText, skippedCount);
+            : throw new InvalidOperationException("N# fix skipped-header kernel rejected the values.");
     }
 
     internal static string GetSkippedReason(string safety)
-        => TryGetMessage(bindings => bindings.SkippedReason(safety), out var message)
-            ? message
-            : FallbackSkippedReason(safety);
+    {
+        if (TryGetMessage(bindings => bindings.SkippedReason(safety), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix skipped-reason kernel rejected the values.");
+    }
 
     internal static string GetSkippedLine(string diagnosticCode, string title, string reason)
-        => TryGetMessage(bindings => bindings.SkippedLine(diagnosticCode, title, reason), out var message)
-            ? message
-            : FallbackSkippedLine(diagnosticCode, title, reason);
+    {
+        if (TryGetMessage(bindings => bindings.SkippedLine(diagnosticCode, title, reason), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# fix skipped-line kernel rejected the values.");
+    }
 
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
@@ -449,81 +479,6 @@ internal static class FixCommandKernels
         CliFixSkippedHeader SkippedHeader,
         CliFixSkippedReason SkippedReason,
         CliFixSkippedLine SkippedLine);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix messages route through CliFix* kernels.
-    private static string FallbackHelpText()
-        => "N# Auto-Fix\n"
-           + "\n"
-           + "Usage: nlc fix [options] [project-dir]\n"
-           + "\n"
-           + "Options:\n"
-           + "  --json                    Output as JSON (default)\n"
-           + "  --text                    Output as human-readable summary\n"
-           + "  --project                 Project root directory (default: current directory)\n"
-           + "  --file                    Fix a single file\n"
-           + "  --dry-run                 Preview fixes without writing files\n"
-           + "  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)\n"
-           + "  --help, -h                Show this help text\n"
-           + "\n"
-           + "Safety levels:\n"
-           + "  Safe              Always applied by default\n"
-           + "  ReviewNeeded      Only applied with --include-review-needed flag\n"
-           + "  SuggestionOnly    Never applied automatically — reported in results only\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc fix\n"
-           + "  nlc fix --dry-run --text\n"
-           + "  nlc fix --include-review-needed\n"
-           + "  nlc fix --file Program.nl\n"
-           + "  nlc fix --project examples/16-task-cli";
-
-    private static string FallbackProjectDirectoryNotFoundMessage(string projectDir)
-        => $"Directory not found: {projectDir}";
-
-    private static string FallbackFileNotFoundMessage(string filePath)
-        => $"File not found: {filePath}";
-
-    private static string FallbackNoFilesFoundMessage()
-        => "No .nl files found.";
-
-    private static string FallbackFailedMessage(string message)
-        => $"Fix failed: {message}";
-
-    private static string FallbackNothingToFixMessage()
-        => "Nothing to fix.";
-
-    private static string FallbackAppliedHeader(
-        string appliedCountText,
-        int appliedCount,
-        string filesModifiedText,
-        int filesModified,
-        bool dryRun)
-    {
-        var verb = dryRun ? "Would fix" : "Fixed";
-        var issueSuffix = appliedCount == 1 ? string.Empty : "s";
-        var fileWord = filesModified == 1 ? "file" : "files";
-        return $"{verb} {appliedCountText} issue{issueSuffix} in {filesModifiedText} {fileWord}:";
-    }
-
-    private static string FallbackAppliedFileHeader(string filePath)
-        => $"  {filePath}:";
-
-    private static string FallbackEntryLine(string diagnosticCode, string title)
-        => $"    [{diagnosticCode}] {title}";
-
-    private static string FallbackSkippedHeader(string skippedCountText, int skippedCount)
-    {
-        var suffix = skippedCount == 1 ? string.Empty : "es";
-        return $"Skipped {skippedCountText} fix{suffix}:";
-    }
-
-    private static string FallbackSkippedReason(string safety)
-        => safety == "suggestionOnly"
-            ? "suggestion only — manual review required"
-            : "requires --include-review-needed flag";
-
-    private static string FallbackSkippedLine(string diagnosticCode, string title, string reason)
-        => $"  [{diagnosticCode}] {title} ({reason})";
 
     private sealed class SafetyFilterScratch
     {

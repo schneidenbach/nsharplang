@@ -93,31 +93,26 @@ public static class FixCommand
 
                 var relativeFile = NormalizePath(Path.GetRelativePath(projectDir, file));
 
-                // Classify every fix
-                var fileApplied = new List<FixEntry>();
+                if (!FixCommandKernels.TryFilterBySafety(fixes, includeReviewNeeded, out var safeActions))
+                    throw new InvalidOperationException("N# fix safety filter kernel rejected the fixes.");
+
                 foreach (var fix in fixes)
                 {
                     var entry = ToFixEntry(relativeFile, fix);
                     allResults.Add(entry);
-
-                    if (ShouldApply(fix.Safety, includeReviewNeeded))
-                    {
-                        fileApplied.Add(entry);
-                    }
                 }
 
+                var fileApplied = new List<FixEntry>(safeActions.Count);
+                foreach (var fix in safeActions)
+                {
+                    fileApplied.Add(ToFixEntry(relativeFile, fix));
+                }
                 allApplied.AddRange(fileApplied);
 
                 if (fileApplied.Count > 0)
                 {
                     // Collect only edits from fixes that passed the safety gate. Validate in dry-run too so
                     // the JSON never promises a write plan that would later fail or corrupt a file.
-                    var safeActions = FixCommandKernels.TryFilterBySafety(
-                        fixes,
-                        includeReviewNeeded,
-                        out var dogfoodSafeActions)
-                        ? dogfoodSafeActions
-                        : fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
                     var allEdits = safeActions.SelectMany(f => f.Edits).ToList();
                     FixApplicator.ValidateAndSortEdits(source, allEdits);
 
@@ -164,20 +159,6 @@ public static class FixCommand
         }
     }
 
-    /// <summary>
-    /// Returns true when a fix at the given safety level should be written to disk.
-    /// </summary>
-    public static bool ShouldApply(FixSafety safety, bool includeReviewNeeded)
-    {
-        return safety switch
-        {
-            FixSafety.Safe => true,
-            FixSafety.ReviewNeeded => includeReviewNeeded,
-            FixSafety.SuggestionOnly => false,
-            _ => false
-        };
-    }
-
     public static int ShowHelp()
     {
         Console.WriteLine(FixCommandKernels.GetHelpText());
@@ -203,42 +184,27 @@ public static class FixCommand
         {
             Console.Error.WriteLine(FixCommandKernels.GetAppliedHeader(applied.Count, filesModified, dryRun));
 
-            if (FixCommandKernels.TryGroupAppliedEntriesByFile(applied, out var groupedApplied))
+            if (!FixCommandKernels.TryGroupAppliedEntriesByFile(applied, out var groupedApplied))
+                throw new InvalidOperationException("N# fix applied-file grouping kernel rejected the fixes.");
+
+            for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
             {
-                for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
+                Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(groupedApplied.Files[groupIndex]));
+                var start = groupedApplied.Starts[groupIndex];
+                var count = groupedApplied.Counts[groupIndex];
+                for (var i = 0; i < count; i++)
                 {
-                    Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(groupedApplied.Files[groupIndex]));
-                    var start = groupedApplied.Starts[groupIndex];
-                    var count = groupedApplied.Counts[groupIndex];
-                    for (var i = 0; i < count; i++)
-                    {
-                        var sourceIndex = groupedApplied.Indices[start + i];
-                        var fix = applied[sourceIndex];
-                        Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
-                    }
-                }
-            }
-            else
-            {
-                var byFile = applied.GroupBy(f => f.File);
-                foreach (var group in byFile)
-                {
-                    Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(group.Key));
-                    foreach (var fix in group)
-                    {
-                        Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
-                    }
+                    var sourceIndex = groupedApplied.Indices[start + i];
+                    var fix = applied[sourceIndex];
+                    Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
                 }
             }
         }
 
         // Report skipped fixes
-        var skipped = FixCommandKernels.TrySelectSkippedEntries(
-            results,
-            includeReviewNeeded,
-            out var dogfoodSkipped)
-            ? dogfoodSkipped
-            : results.Where(r => !applied.Contains(r)).ToList();
+        if (!FixCommandKernels.TrySelectSkippedEntries(results, includeReviewNeeded, out var skipped))
+            throw new InvalidOperationException("N# fix skipped-entry selection kernel rejected the fixes.");
+
         if (skipped.Count > 0)
         {
             Console.Error.WriteLine();
