@@ -21,31 +21,16 @@ internal static class CompletionCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out CompletionOptionSummary summary)
+    internal static CompletionOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[2];
-        try
-        {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0 || resultIndices[0] < 0 || resultIndices[0] > (int)CompletionShellKind.Fish)
-                return false;
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0 || resultIndices[0] < 0 || resultIndices[0] > (int)CompletionShellKind.Fish)
+            throw new InvalidOperationException("N# completion option parser kernel rejected the arguments.");
 
-            summary = new CompletionOptionSummary(
-                (CompletionShellKind)resultIndices[0],
-                resultIndices[1] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new CompletionOptionSummary(
+            (CompletionShellKind)resultIndices[0],
+            resultIndices[1] != 0);
     }
 
     internal static string GetHelpText()

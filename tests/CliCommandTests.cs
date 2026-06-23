@@ -552,7 +552,7 @@ func Main() {
     {
         var args = new[] { "--project", "samples/demo", "--all", "-h" };
 
-        Assert.True(CleanCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = CleanCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.True(dogfoodSummary.CleanAll);
         Assert.True(dogfoodSummary.ShowHelp);
@@ -625,7 +625,7 @@ func Main() {
     {
         var args = new[] { "status", "--project", "samples/demo" };
 
-        Assert.True(DaemonCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = DaemonCommandKernels.GetOptionSummary(args);
         Assert.Equal(DaemonSubcommandKind.Status, dogfoodSummary.SubcommandKind);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.False(dogfoodSummary.ShowHelp);
@@ -675,7 +675,7 @@ func Main() {
     {
         var args = new[] { "--json", "-h" };
 
-        Assert.True(EnvCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = EnvCommandKernels.GetOptionSummary(args);
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.ShowHelp);
 
@@ -755,7 +755,7 @@ func Main() {
     {
         var args = new[] { "--json", "--require-vscode", "--skip-vscode", "-h" };
 
-        Assert.True(DoctorCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = DoctorCommandKernels.GetOptionSummary(args);
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.RequireVscode);
         Assert.True(dogfoodSummary.SkipVscode);
@@ -827,7 +827,7 @@ func Main() {
     {
         var args = new[] { "--project", "samples/demo", "--json", "-h" };
 
-        Assert.True(AuditCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = AuditCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.True(dogfoodSummary.Json);
         Assert.True(dogfoodSummary.ShowHelp);
@@ -923,7 +923,7 @@ func Main() {
     {
         var args = new[] { "--name", "MyLib", "--type", "library", "--force", "-h" };
 
-        Assert.True(InitCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = InitCommandKernels.GetOptionSummary(args);
         Assert.Equal("MyLib", dogfoodSummary.NameOption);
         Assert.Equal("library", dogfoodSummary.TypeOption);
         Assert.True(dogfoodSummary.Force);
@@ -6450,15 +6450,15 @@ func Main() {
     [Fact]
     public void CompletionCommandKernels_SummarizesOptions()
     {
-        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "BASH" }, out var bash));
+        var bash = CompletionCommandKernels.GetOptionSummary(new[] { "BASH" });
         Assert.Equal(CompletionShellKind.Bash, bash.ShellKind);
         Assert.False(bash.ShowHelp);
 
-        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "zsh", "--help" }, out var zshHelp));
+        var zshHelp = CompletionCommandKernels.GetOptionSummary(new[] { "zsh", "--help" });
         Assert.Equal(CompletionShellKind.Zsh, zshHelp.ShellKind);
         Assert.True(zshHelp.ShowHelp);
 
-        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "fish" }, out var fish));
+        var fish = CompletionCommandKernels.GetOptionSummary(new[] { "fish" });
         Assert.Equal(CompletionShellKind.Fish, fish.ShellKind);
         Assert.False(fish.ShowHelp);
 

@@ -116,12 +116,7 @@ public static class EnvCommand
     }
 
     internal static EnvOptionSummary GetOptionSummary(string[] args)
-    {
-        if (EnvCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# env option parser kernel rejected the arguments.");
-    }
+        => EnvCommandKernels.GetOptionSummary(args);
 
     internal static EnvOutputModeKind GetOutputMode(bool json)
         => EnvCommandKernels.GetOutputMode(json);

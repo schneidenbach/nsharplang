@@ -155,12 +155,7 @@ public static class AuditCommand
     }
 
     internal static AuditOptionSummary GetOptionSummary(string[] args)
-    {
-        if (AuditCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# audit option summary kernel rejected the arguments.");
-    }
+        => AuditCommandKernels.GetOptionSummary(args);
 
     internal static AuditOutputModeKind GetOutputMode(bool json)
         => AuditCommandKernels.GetOutputMode(json);

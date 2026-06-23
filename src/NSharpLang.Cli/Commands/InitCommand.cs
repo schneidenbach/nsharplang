@@ -58,12 +58,7 @@ public static class InitCommand
     }
 
     internal static InitOptionSummary GetOptionSummary(string[] args)
-    {
-        if (InitCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# init option summary kernel rejected the arguments.");
-    }
+        => InitCommandKernels.GetOptionSummary(args);
 
     static int ShowHelp()
     {

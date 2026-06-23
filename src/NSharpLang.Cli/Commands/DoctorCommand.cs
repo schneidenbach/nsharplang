@@ -192,12 +192,7 @@ public static class DoctorCommand
     }
 
     internal static DoctorOptionSummary GetOptionSummary(string[] args)
-    {
-        if (DoctorCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# doctor option parser kernel rejected the arguments.");
-    }
+        => DoctorCommandKernels.GetOptionSummary(args);
 
     internal static DoctorOutputModeKind GetOutputMode(bool json)
         => DoctorCommandKernels.GetOutputMode(json);

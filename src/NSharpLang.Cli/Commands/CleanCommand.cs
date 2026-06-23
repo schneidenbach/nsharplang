@@ -100,12 +100,7 @@ public static class CleanCommand
     }
 
     internal static CleanOptionSummary GetOptionSummary(string[] args)
-    {
-        if (CleanCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# clean option summary kernel rejected the arguments.");
-    }
+        => CleanCommandKernels.GetOptionSummary(args);
 
     private static string GetProjectRoot(CleanOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

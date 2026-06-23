@@ -23,42 +23,22 @@ internal static class DaemonCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out DaemonOptionSummary summary)
+    internal static DaemonOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[3];
-        try
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0
+            || resultIndices[0] < (int)DaemonSubcommandKind.Unknown
+            || resultIndices[0] > (int)DaemonSubcommandKind.Run
+            || !TryGetOptionalArg(args, resultIndices[1], out var projectOption))
         {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0
-                || resultIndices[0] < (int)DaemonSubcommandKind.Unknown
-                || resultIndices[0] > (int)DaemonSubcommandKind.Run)
-            {
-                return false;
-            }
-
-            if (!TryGetOptionalArg(args, resultIndices[1], out var projectOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new DaemonOptionSummary(
-                (DaemonSubcommandKind)resultIndices[0],
-                projectOption,
-                resultIndices[2] != 0);
-            return true;
+            throw new InvalidOperationException("N# daemon option summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new DaemonOptionSummary(
+            (DaemonSubcommandKind)resultIndices[0],
+            projectOption,
+            resultIndices[2] != 0);
     }
 
     internal static string GetHelpText()

@@ -21,33 +21,18 @@ internal static class DoctorCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out DoctorOptionSummary summary)
+    internal static DoctorOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        try
-        {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# doctor option parser kernel rejected the arguments.");
 
-            summary = new DoctorOptionSummary(
-                resultIndices[0] != 0,
-                resultIndices[1] != 0,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new DoctorOptionSummary(
+            resultIndices[0] != 0,
+            resultIndices[1] != 0,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0);
     }
 
     internal static DoctorOutputModeKind GetOutputMode(bool json)

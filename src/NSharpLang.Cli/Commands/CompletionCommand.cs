@@ -24,12 +24,7 @@ public static class CompletionCommand
     }
 
     internal static CompletionOptionSummary GetOptionSummary(string[] args)
-    {
-        if (CompletionCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# completion option parser kernel rejected the arguments.");
-    }
+        => CompletionCommandKernels.GetOptionSummary(args);
 
     private static string GetShellForError(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();

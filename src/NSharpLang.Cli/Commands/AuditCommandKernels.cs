@@ -20,38 +20,17 @@ internal static class AuditCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out AuditOptionSummary summary)
+    internal static AuditOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[3];
-        try
-        {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+            throw new InvalidOperationException("N# audit option summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new AuditOptionSummary(
-                projectOption,
-                resultIndices[1] != 0,
-                resultIndices[2] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new AuditOptionSummary(
+            projectOption,
+            resultIndices[1] != 0,
+            resultIndices[2] != 0);
     }
 
     internal static AuditOutputModeKind GetOutputMode(bool json)

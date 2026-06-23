@@ -94,12 +94,7 @@ public static class DaemonCommand
     }
 
     internal static DaemonOptionSummary GetOptionSummary(string[] args)
-    {
-        if (DaemonCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# daemon option summary kernel rejected the arguments.");
-    }
+        => DaemonCommandKernels.GetOptionSummary(args);
 
     private static string GetProjectDir(DaemonOptionSummary options)
         => options.ProjectOption ?? Directory.GetCurrentDirectory();

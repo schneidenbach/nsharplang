@@ -15,40 +15,22 @@ internal static class InitCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out InitOptionSummary summary)
+    internal static InitOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        try
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var nameOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var typeOption))
         {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var nameOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var typeOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new InitOptionSummary(
-                nameOption,
-                typeOption,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0);
-            return true;
+            throw new InvalidOperationException("N# init option summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new InitOptionSummary(
+            nameOption,
+            typeOption,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0);
     }
 
     internal static string GetHelpText()
