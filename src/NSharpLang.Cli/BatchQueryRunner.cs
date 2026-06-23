@@ -527,19 +527,7 @@ internal static class BatchQueryRunner
         if (QueryCommandKernels.TryParsePosition(position, out var parsed, out line, out column))
             return parsed;
 
-        return TryParsePositionWithCSharp(position, out line, out column);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; batch query position parsing routes through QueryCommandKernels.
-    private static bool TryParsePositionWithCSharp(string position, out int line, out int column)
-    {
-        line = 0;
-        column = 0;
-        var parts = position.Split(':');
-        if (parts.Length != 2)
-            return false;
-
-        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+        throw new InvalidOperationException("N# query position parser kernel rejected the position.");
     }
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)

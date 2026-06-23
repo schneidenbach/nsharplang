@@ -1098,17 +1098,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryParsePosition(posStr, out var parsed, out line, out col))
             return parsed;
 
-        return TryParsePositionWithCSharp(posStr, out line, out col);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query position parsing routes through QueryCommandKernels.
-    private static bool TryParsePositionWithCSharp(string posStr, out int line, out int col)
-    {
-        line = 0;
-        col = 0;
-        var parts = posStr.Split(':');
-        if (parts.Length != 2) return false;
-        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out col);
+        throw new InvalidOperationException("N# query position parser kernel rejected the position.");
     }
 
     private static bool TryParsePositiveInt(string value, out int parsed)
@@ -1116,17 +1106,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryParsePositiveInt(value, out var parsedByKernel, out parsed))
             return parsedByKernel;
 
-        return TryParsePositiveIntWithCSharp(value, out parsed);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query limit parsing routes through QueryCommandKernels.
-    private static bool TryParsePositiveIntWithCSharp(string value, out int parsed)
-    {
-        if (int.TryParse(value, out parsed) && parsed > 0)
-            return true;
-
-        parsed = 0;
-        return false;
+        throw new InvalidOperationException("N# query positive-int parser kernel rejected the value.");
     }
 
     internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
