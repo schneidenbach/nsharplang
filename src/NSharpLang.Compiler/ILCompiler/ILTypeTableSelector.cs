@@ -80,41 +80,32 @@ internal static class ILTypeTableSelector
 
         var scratch = t_declaredTypeSuffixLookupScratch ??= new DeclaredTypeSuffixLookupScratch();
 
-        try
-        {
-            if (!scratch.Load(types))
-                return false;
-
-            var tailHashWidth = DeclaredTypeSuffixLookupScratch.GetTailHashWidth(typeName);
-            scratch.RefreshTailHashes(tailHashWidth);
-
-            var rank = bindings.DeclaredTypeUniqueSuffixValueRank(
-                scratch.Keys,
-                scratch.ValueRanks,
-                scratch.TailHashes,
-                typeName,
-                DeclaredTypeSuffixLookupScratch.GetTailHash(typeName, tailHashWidth),
-                scratch.Count);
-
-            if (rank == -2)
-                return false;
-
-            if (rank <= 0)
-                return true;
-
-            if (rank >= scratch.Values.Length || scratch.Values[rank] is not TType result)
-                return false;
-
-            type = result;
-            found = true;
-            return true;
-        }
-        catch
-        {
-            type = null!;
-            found = false;
+        if (!scratch.Load(types))
             return false;
-        }
+
+        var tailHashWidth = DeclaredTypeSuffixLookupScratch.GetTailHashWidth(typeName);
+        scratch.RefreshTailHashes(tailHashWidth);
+
+        var rank = bindings.DeclaredTypeUniqueSuffixValueRank(
+            scratch.Keys,
+            scratch.ValueRanks,
+            scratch.TailHashes,
+            typeName,
+            DeclaredTypeSuffixLookupScratch.GetTailHash(typeName, tailHashWidth),
+            scratch.Count);
+
+        if (rank == -2)
+            return false;
+
+        if (rank <= 0)
+            return true;
+
+        if (rank >= scratch.Values.Length || scratch.Values[rank] is not TType result)
+            return false;
+
+        type = result;
+        found = true;
+        return true;
     }
 
     internal static bool TrySelectDeclaredTypeNameCandidate(
@@ -133,39 +124,31 @@ internal static class ILTypeTableSelector
 
         var scratch = t_declaredTypeNameCandidateScratch ??= new DeclaredTypeNameCandidateScratch();
 
-        try
-        {
-            scratch.Load(compilationUnit);
+        scratch.Load(compilationUnit);
 
-            var tailHashWidth = DeclaredTypeSuffixLookupScratch.GetTailHashWidth(typeName);
-            scratch.RefreshTailHashes(tailHashWidth);
+        var tailHashWidth = DeclaredTypeSuffixLookupScratch.GetTailHashWidth(typeName);
+        scratch.RefreshTailHashes(tailHashWidth);
 
-            var index = bindings.DeclaredTypeNameCandidateIndex(
-                scratch.Names,
-                scratch.ImportedNamespaceFlags,
-                scratch.TailHashes,
-                typeName,
-                DeclaredTypeSuffixLookupScratch.GetTailHash(typeName, tailHashWidth),
-                scratch.Count);
+        var index = bindings.DeclaredTypeNameCandidateIndex(
+            scratch.Names,
+            scratch.ImportedNamespaceFlags,
+            scratch.TailHashes,
+            typeName,
+            DeclaredTypeSuffixLookupScratch.GetTailHash(typeName, tailHashWidth),
+            scratch.Count);
 
-            if (index == -2)
-                return false;
-
-            if (index <= 0)
-                return true;
-
-            var candidateIndex = index - 1;
-            if (candidateIndex >= scratch.Count)
-                return false;
-
-            candidate = scratch.Names[candidateIndex];
-            return true;
-        }
-        catch
-        {
-            candidate = null;
+        if (index == -2)
             return false;
-        }
+
+        if (index <= 0)
+            return true;
+
+        var candidateIndex = index - 1;
+        if (candidateIndex >= scratch.Count)
+            return false;
+
+        candidate = scratch.Names[candidateIndex];
+        return true;
     }
 
     internal static bool TryOrderTypesByDescendingKeyDotCount<TType>(

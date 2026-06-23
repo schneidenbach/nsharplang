@@ -15747,6 +15747,14 @@ class OtherZetaType {
             out var ambiguousFound));
         Assert.False(ambiguousFound);
         Assert.Null(ambiguousType);
+
+        var throwingTypes = new ThrowingDeclaredTypeDictionary(
+            new InvalidOperationException("declared type table load failed"));
+        Assert.Throws<InvalidOperationException>(() => ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            throwingTypes,
+            "Customer",
+            out _,
+            out _));
     }
 
     [Fact]
@@ -15818,6 +15826,19 @@ class OtherZetaType {
             "Missing",
             out var missingCandidate));
         Assert.Null(missingCandidate);
+
+        var malformedCompilationUnit = new CompilationUnit(
+            Namespace: null,
+            Imports: new List<ImportDirective> { null! },
+            FileImports: new List<Statement>(),
+            Package: null,
+            Declarations: new List<Declaration>(),
+            Line: 1,
+            Column: 1);
+        Assert.Throws<NullReferenceException>(() => ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            malformedCompilationUnit,
+            "Customer",
+            out _));
     }
 
     [Fact]
@@ -31942,6 +31963,35 @@ func main() {
         throw new InvalidOperationException(
             "Could not find repository root (NSharpLang.sln). "
                 + $"Searched upward from {AppContext.BaseDirectory}");
+    }
+
+    private sealed class ThrowingDeclaredTypeDictionary : IReadOnlyDictionary<string, Type>
+    {
+        private readonly Exception _exception;
+
+        public ThrowingDeclaredTypeDictionary(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public int Count => 1;
+        public IEnumerable<string> Keys => throw _exception;
+        public IEnumerable<Type> Values => throw _exception;
+        public Type this[string key] => throw _exception;
+
+        public bool ContainsKey(string key) => throw _exception;
+
+        public bool TryGetValue(string key, out Type value)
+        {
+            throw _exception;
+        }
+
+        public IEnumerator<KeyValuePair<string, Type>> GetEnumerator()
+        {
+            throw _exception;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class CompletionMethodGroupingFixture
