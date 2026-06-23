@@ -5303,31 +5303,24 @@ func CliTidyNamespaceMatchesPrefix(namespaceName: string, packageName: string, p
         return false
     }
 
-    i := 0
-    while i < prefixLength {
-        if !CliTidyCharsEqualAsciiIgnoreCase(namespaceName[i], packageName[i]) {
-            return false
-        }
-
-        i = i + 1
-    }
-
-    return true
+    return CliTidyTextSegmentEqualsIgnoreCase(namespaceName, 0, packageName, 0, prefixLength)
 }
 
-func CliTidyCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
-    leftCode := (int)left
-    rightCode := (int)right
-
-    if leftCode >= 65 && leftCode <= 90 {
-        leftCode = leftCode + 32
+func CliTidyTextSegmentEqualsIgnoreCase(
+    left: string,
+    leftStart: int,
+    right: string,
+    rightStart: int,
+    length: int): bool {
+    if leftStart < 0 || rightStart < 0 || length < 0 {
+        return false
     }
 
-    if rightCode >= 65 && rightCode <= 90 {
-        rightCode = rightCode + 32
+    if leftStart + length > left.Length || rightStart + length > right.Length {
+        return false
     }
 
-    return leftCode == rightCode
+    return String.Compare(left, leftStart, right, rightStart, length, StringComparison.OrdinalIgnoreCase) == 0
 }
 
 func CliTidyRemovalLineKeepFlagsInto(lines: string[], packageNames: string[], resultFlags: int[]): int {
@@ -5356,7 +5349,7 @@ func CliTidyRemovalLineKeepFlagsCore(
 
 func CliTidyRemovalLineKeepFlagCore(line: string, packageNames: &CliPackageNameTable): int {
     start := 0
-    while start < line.Length && CliTidyIsAsciiWhitespace(line[start]) {
+    while start < line.Length && CliTidyIsWhitespace(line[start]) {
         start = start + 1
     }
 
@@ -5382,9 +5375,8 @@ func CliTidyRemovalLineKeepFlagCore(line: string, packageNames: &CliPackageNameT
     return 1
 }
 
-func CliTidyIsAsciiWhitespace(value: char): bool {
-    code := (int)value
-    return code == 32 || (code >= 9 && code <= 13)
+func CliTidyIsWhitespace(value: char): bool {
+    return char.IsWhiteSpace(value)
 }
 
 func CliTidyRemovalLineStartsWithAnyPackageCore(
@@ -5408,30 +5400,11 @@ func CliTidyRemovalLineStartsWithPackage(line: string, packageStart: int, packag
         return false
     }
 
-    i := 0
-    while i < packageName.Length {
-        if !CliTidyCharsEqualAsciiIgnoreCase(line[packageStart + i], packageName[i]) {
-            return false
-        }
-
-        i = i + 1
-    }
-
-    return true
+    return CliTidyTextSegmentEqualsIgnoreCase(line, packageStart, packageName, 0, packageName.Length)
 }
 
 func CliTidyRemovalLineHasNugetMarkerAt(line: string, start: int): bool {
-    if !CliTidyCharsEqualAsciiIgnoreCase(line[start], 'n')
-        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 1], 'u')
-        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 2], 'g')
-        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 3], 'e')
-        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 4], 't')
-        || line[start + 5] != ':'
-        || line[start + 6] != ' ' {
-        return false
-    }
-
-    return true
+    return CliTidyTextSegmentEqualsIgnoreCase(line, start, "nuget: ", 0, 7)
 }
 
 func CliSymbolNameGlobFilterIndicesInto(

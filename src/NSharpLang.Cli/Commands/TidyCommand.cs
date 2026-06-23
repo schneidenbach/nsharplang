@@ -159,47 +159,6 @@ public static class TidyCommand
         return namespaces;
     }
 
-    /// <summary>
-    /// Classify a single NuGet dependency as "used", "possibly-unused", or "unknown".
-    ///
-    /// Heuristic: a NuGet package named "A.B.C" typically publishes types under namespaces
-    /// starting with "A" or "A.B".  We check whether any imported namespace starts with the
-    /// first one or two segments of the package ID (case-insensitive).
-    ///
-    /// If we cannot derive a plausible namespace (e.g. single-segment package names like
-    /// "Polly") we return "unknown" instead of guessing.
-    /// </summary>
-    private static DependencyStatus ClassifyDependency(
-        string packageName,
-        string? version,
-        HashSet<string> importedNamespaces)
-    {
-        var segments = packageName.Split('.');
-        if (segments.Length < 2)
-        {
-            // Single-segment package (e.g. "Polly") — cannot determine namespace safely
-            return new DependencyStatus(packageName, version, "unknown",
-                TidyCommandKernels.GetUnknownReasonMessage());
-        }
-
-        // Candidate namespace prefixes: first segment ("Newtonsoft") and first two ("Newtonsoft.Json")
-        var prefix1 = segments[0];
-        var prefix2 = string.Join(".", segments.Take(2));
-
-        var matched = importedNamespaces.Any(ns =>
-            ns.StartsWith(prefix1 + ".", StringComparison.OrdinalIgnoreCase) ||
-            ns.Equals(prefix1, StringComparison.OrdinalIgnoreCase) ||
-            ns.StartsWith(prefix2 + ".", StringComparison.OrdinalIgnoreCase) ||
-            ns.Equals(prefix2, StringComparison.OrdinalIgnoreCase));
-
-        if (matched)
-            return new DependencyStatus(packageName, version, "used",
-                TidyCommandKernels.GetUsedReasonMessage(prefix2));
-
-        return new DependencyStatus(packageName, version, "possibly-unused",
-            TidyCommandKernels.GetPossiblyUnusedReasonMessage(prefix1, prefix2));
-    }
-
     private static List<DependencyStatus> ClassifyDependencies(
         IReadOnlyList<Reference> dependencies,
         HashSet<string> importedNamespaces)
@@ -222,7 +181,7 @@ public static class TidyCommand
                 var dep = nugetDependencies[i];
                 var status = CreateDependencyStatusFromRank(dep.Nuget!, dep.Version, statusRanks[i]);
                 if (status == null)
-                    return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
+                    throw new InvalidOperationException("N# tidy dependency classifier kernel produced an invalid status rank.");
 
                 results.Add(status);
             }
@@ -230,23 +189,7 @@ public static class TidyCommand
             return results;
         }
 
-        return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
-    }
-
-    private static List<DependencyStatus> ClassifyDependenciesWithCSharp(
-        IReadOnlyList<Reference> dependencies,
-        HashSet<string> importedNamespaces)
-    {
-        var results = new List<DependencyStatus>();
-        foreach (var dep in dependencies)
-        {
-            if (dep.Nuget == null)
-                continue;
-
-            results.Add(ClassifyDependency(dep.Nuget, dep.Version, importedNamespaces));
-        }
-
-        return results;
+        throw new InvalidOperationException("N# tidy dependency classifier kernel rejected the inputs.");
     }
 
     private static DependencyStatus? CreateDependencyStatusFromRank(
@@ -255,7 +198,7 @@ public static class TidyCommand
         int statusRank)
     {
         var firstDot = packageName.IndexOf('.');
-        if (statusRank == 3 && firstDot < 0)
+        if (statusRank == 3 && firstDot <= 0)
         {
             return new DependencyStatus(packageName, version, "unknown",
                 TidyCommandKernels.GetUnknownReasonMessage());
@@ -291,34 +234,7 @@ public static class TidyCommand
             return;
         }
 
-        File.WriteAllLines(projectYml, FilterDependencyLinesWithCSharp(lines, packageNames));
-    }
-
-    private static List<string> FilterDependencyLinesWithCSharp(
-        IReadOnlyList<string> lines,
-        IReadOnlyList<string> packageNames)
-    {
-        var toRemove = new HashSet<string>(packageNames, StringComparer.OrdinalIgnoreCase);
-
-        return lines.Where(line =>
-        {
-            var trimmed = line.TrimStart();
-            if (!trimmed.StartsWith("- "))
-                return true;
-
-            // Match "  - PackageName@version" or "  - nuget: PackageName"
-            foreach (var pkg in toRemove)
-            {
-                if (trimmed.StartsWith($"- {pkg}@", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.StartsWith($"- {pkg}", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.Contains($"nuget: {pkg}", StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }).ToList();
+        throw new InvalidOperationException("N# tidy dependency removal kernel rejected the inputs.");
     }
 
     // ── Output ────────────────────────────────────────────────────────────

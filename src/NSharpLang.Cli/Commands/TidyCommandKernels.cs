@@ -263,7 +263,7 @@ internal static class TidyCommandKernels
             for (var i = 0; i < dependencyCount; i++)
             {
                 var packageName = dependencies[i].Nuget;
-                if (packageName == null || !IsAscii(packageName))
+                if (packageName == null)
                     return false;
 
                 scratch.PackageNames[i] = packageName;
@@ -272,9 +272,6 @@ internal static class TidyCommandKernels
             var importIndex = 0;
             foreach (var importedNamespace in importedNamespaces)
             {
-                if (!IsAscii(importedNamespace))
-                    return false;
-
                 scratch.ImportNamespaces[importIndex] = importedNamespace;
                 importIndex++;
             }
@@ -339,7 +336,7 @@ internal static class TidyCommandKernels
             for (var i = 0; i < lineCount; i++)
             {
                 var line = lines[i];
-                if (line == null || !IsAscii(line))
+                if (line == null)
                     return false;
 
                 scratch.Lines[i] = line;
@@ -348,7 +345,7 @@ internal static class TidyCommandKernels
             for (var i = 0; i < packageCount; i++)
             {
                 var packageName = packageNames[i];
-                if (packageName == null || !IsAscii(packageName))
+                if (packageName == null)
                     return false;
 
                 scratch.PackageNames[i] = packageName;
@@ -628,17 +625,6 @@ internal static class TidyCommandKernels
             "unknown" => 3,
             _ => 0
         };
-
-    private static bool IsAscii(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] > 0x7f)
-                return false;
-        }
-
-        return true;
-    }
 
     private delegate int DiagnosticSeverityFilterIndicesInto(
         int[] severityRanks,

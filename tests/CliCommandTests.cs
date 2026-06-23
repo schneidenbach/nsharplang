@@ -5090,10 +5090,15 @@ dependencies:
         {
             new Reference { Nuget = "Résumé.Json", Version = "1.0.0" }
         };
-        Assert.False(TidyCommandKernels.TryClassifyDependencyStatusRanks(
+        var nonAsciiImports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Résumé.Json"
+        };
+        Assert.True(TidyCommandKernels.TryClassifyDependencyStatusRanks(
             nonAsciiReferences,
-            imports,
-            out _));
+            nonAsciiImports,
+            out var nonAsciiStatusRanks));
+        Assert.Equal(new[] { 2 }, nonAsciiStatusRanks);
 
         static TidyDependency NewDependency(string name, string status) => new(name, status);
     }
@@ -5292,14 +5297,11 @@ dependencies:
             },
             filteredLines);
 
-        Assert.False(TidyCommandKernels.TryFilterRemovalLines(
-            new[] { "  - R\u00e9sum\u00e9.Package" },
-            packageNames,
-            out _));
-        Assert.False(TidyCommandKernels.TryFilterRemovalLines(
-            lines,
+        Assert.True(TidyCommandKernels.TryFilterRemovalLines(
+            new[] { "  - R\u00e9sum\u00e9.Package", "  - Keep.Package" },
             new[] { "R\u00e9sum\u00e9.Package" },
-            out _));
+            out var nonAsciiFilteredLines));
+        Assert.Equal(new[] { "  - Keep.Package" }, nonAsciiFilteredLines);
     }
 
     [Fact]
