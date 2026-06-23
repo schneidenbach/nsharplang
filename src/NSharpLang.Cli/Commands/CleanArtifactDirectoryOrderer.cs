@@ -101,28 +101,6 @@ internal static class CleanArtifactDirectoryOrderer
         }
     }
 
-    internal static bool TryGetArtifactDirectoryKindRank(string path, out int kindRank)
-    {
-        kindRank = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        return TryGetArtifactDirectoryKindRank(path, bindings, out kindRank);
-    }
-
-    internal static bool TryIsUnderNodeModulesDirectory(string path, out bool isUnderNodeModules)
-    {
-        isUnderNodeModules = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        return TryIsUnderNodeModulesDirectory(path, bindings, out isUnderNodeModules);
-    }
-
     private static bool TryGetArtifactDirectoryKindRank(string path, Bindings bindings, out int kindRank)
     {
         kindRank = 0;

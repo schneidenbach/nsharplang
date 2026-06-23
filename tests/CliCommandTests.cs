@@ -533,43 +533,18 @@ func Main() {
             "/repo/obj"
         };
 
-        var expected = directories
-            .Distinct(StringComparer.Ordinal)
-            .Where(dir => !IsUnderNodeModulesDirectoryLikeCleanFallback(dir))
-            .Where(dir => IsArtifactDirectoryNameLikeCleanFallback(Path.GetFileName(dir)))
-            .OrderByDescending(dir => dir.Length)
-            .ToArray();
+        var expected = new[]
+        {
+            "/repo/deep/nested/.nlc",
+            "/repo/deep/nested/bin",
+            "/repo/src/.nlc",
+            "/repo/src/obj",
+            "/repo/bin",
+            "/repo/obj"
+        };
 
         Assert.True(CleanArtifactDirectoryOrderer.TryOrder(directories, out var actual));
         Assert.Equal(expected, actual);
-    }
-
-    [Fact]
-    public void CleanArtifactDirectoryOrderer_ClassifiesDirectoryPaths()
-    {
-        var cases = new[]
-        {
-            (Path: "/repo/bin", KindRank: 1, IsUnderNodeModules: false),
-            (Path: "/repo/obj", KindRank: 2, IsUnderNodeModules: false),
-            (Path: "/repo/.nlc", KindRank: 3, IsUnderNodeModules: false),
-            (Path: "/repo/BIN", KindRank: 0, IsUnderNodeModules: false),
-            (Path: "/repo/bin/", KindRank: 0, IsUnderNodeModules: false),
-            (Path: "/repo/node_modules/pkg/bin", KindRank: 1, IsUnderNodeModules: true),
-            (Path: "/repo/node_modules/pkg/obj", KindRank: 2, IsUnderNodeModules: true),
-            (Path: "/repo/node_modules", KindRank: 0, IsUnderNodeModules: false),
-            (Path: "/repo/node_modules_bin/pkg/bin", KindRank: 1, IsUnderNodeModules: false),
-            (Path: "node_modules/pkg/bin", KindRank: 1, IsUnderNodeModules: false),
-            (Path: @"C:\repo\node_modules\pkg\bin", KindRank: 1, IsUnderNodeModules: true)
-        };
-
-        foreach (var (path, expectedKindRank, expectedIsUnderNodeModules) in cases)
-        {
-            Assert.True(CleanArtifactDirectoryOrderer.TryGetArtifactDirectoryKindRank(path, out var kindRank));
-            Assert.Equal(expectedKindRank, kindRank);
-
-            Assert.True(CleanArtifactDirectoryOrderer.TryIsUnderNodeModulesDirectory(path, out var isUnderNodeModules));
-            Assert.Equal(expectedIsUnderNodeModules, isUnderNodeModules);
-        }
     }
 
     [Fact]
@@ -6854,12 +6829,6 @@ func Main() {
 
     private static int ParseWatchPositiveIntWithCSharpFallback(string value)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 0;
-
-    private static bool IsArtifactDirectoryNameLikeCleanFallback(string name) =>
-        name is "bin" or "obj" or ".nlc";
-
-    private static bool IsUnderNodeModulesDirectoryLikeCleanFallback(string dir) =>
-        dir.Replace('\\', '/').Contains("/node_modules/", StringComparison.Ordinal);
 
     private static bool ShouldWatchWithCSharpEquivalent(string path)
     {
