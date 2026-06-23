@@ -42,29 +42,14 @@ internal static class TreeCommandKernels
             resultIndices[3] != 0);
     }
 
-    internal static bool TryGetMaxDepth(string[] args, int defaultDepth, out int maxDepth)
+    internal static int GetMaxDepth(string[] args, int defaultDepth)
     {
-        maxDepth = defaultDepth;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_depthResult ??= new int[1];
-        try
-        {
-            var code = bindings.MaxDepth(args, defaultDepth, result);
-            if (code < 0)
-                return false;
+        var code = RequiredBindings.MaxDepth(args, defaultDepth, result);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# tree depth parser kernel rejected the arguments.");
 
-            maxDepth = result[0];
-            return true;
-        }
-        catch
-        {
-            maxDepth = defaultDepth;
-            return false;
-        }
+        return result[0];
     }
 
     internal static TreeOutputModeKind GetOutputMode(bool json)

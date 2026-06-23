@@ -354,27 +354,25 @@ func Main() {
     }
 
     [Fact]
-    public void TreeCommandKernels_ParseMaxDepthLikeCSharpFallback()
+    public void TreeCommandKernels_ParseMaxDepthWithNSharpKernel()
     {
         var cases = new[]
         {
-            Array.Empty<string>(),
-            new[] { "--depth", "2" },
-            new[] { "--depth", "bad", "--depth", "2" },
-            new[] { "--depth", "--json", "--depth", "+3" },
-            new[] { "--depth", " -1 " },
-            new[] { "--depth", "2147483648", "--depth", "-2147483648" },
-            new[] { "--depth", "1_000" },
-            new[] { "--depth", "2147483647" },
-            new[] { "--depth", "+" },
-            new[] { "--depth", " 7 " }
+            (Array.Empty<string>(), 99),
+            (new[] { "--depth", "2" }, 2),
+            (new[] { "--depth", "bad", "--depth", "2" }, 2),
+            (new[] { "--depth", "--json", "--depth", "+3" }, 3),
+            (new[] { "--depth", " -1 " }, -1),
+            (new[] { "--depth", "2147483648", "--depth", "-2147483648" }, -2147483648),
+            (new[] { "--depth", "1_000" }, 99),
+            (new[] { "--depth", "2147483647" }, 2147483647),
+            (new[] { "--depth", "+" }, 99),
+            (new[] { "--depth", " 7 " }, 7)
         };
 
-        foreach (var args in cases)
+        foreach (var (args, expected) in cases)
         {
-            var expected = GetTreeMaxDepthWithCSharpFallback(args, defaultDepth: 99);
-
-            Assert.True(TreeCommandKernels.TryGetMaxDepth(args, 99, out var actual));
+            var actual = TreeCommandKernels.GetMaxDepth(args, 99);
             Assert.Equal(expected, actual);
         }
     }
@@ -6723,17 +6721,6 @@ func Main() {
 
         parsed = 0;
         return false;
-    }
-
-    private static int GetTreeMaxDepthWithCSharpFallback(string[] args, int defaultDepth)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == "--depth" && int.TryParse(args[i + 1], out var value))
-                return value;
-        }
-
-        return defaultDepth;
     }
 
     private sealed record ExportReferenceValue(string Name, string Version);

@@ -304,12 +304,7 @@ public static class TreeCommand
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
     private static int GetMaxDepth(string[] args, TreeOptionSummary options)
-    {
-        if (TreeCommandKernels.TryGetMaxDepth(args, int.MaxValue, out var maxDepth))
-            return maxDepth;
-
-        throw new InvalidOperationException("N# tree depth parser kernel rejected the arguments.");
-    }
+        => TreeCommandKernels.GetMaxDepth(args, int.MaxValue);
 
     static int ShowHelp()
     {
