@@ -64,11 +64,10 @@ func Greeting(): string {
     }
 
     [Fact]
-    public void MultiFileCompiler_ExperimentalSoaFallsBackToIlWhenColumnarRouteIsEnabled()
+    public void MultiFileCompiler_ExperimentalSoaFallsBackToIlWhenColumnarRouteDeclines()
     {
         var tempDir = CreateTempDir();
         using var experimentalSoa = SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1");
-        using var columnarBackend = SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", "1");
 
         try
         {

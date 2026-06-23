@@ -117,8 +117,6 @@ public class GateStepInputSetGuardTests
         Assert.True(gateEnvMatch.Success, "Could not find the env_names list in tests/scripts/test-all.sh.");
         var gateEnvNames = QuotedStrings(gateEnvMatch.Groups["body"].Value);
 
-        Assert.Contains("NSHARP_COLUMNAR_BACKEND", coreEnvNames);
-        Assert.Contains("NSHARP_COLUMNAR_BACKEND", gateEnvNames);
         Assert.Contains("NSHARP_EXPERIMENTAL_SOA", coreEnvNames);
         Assert.Contains("NSHARP_EXPERIMENTAL_SOA", gateEnvNames);
         Assert.True(
@@ -185,7 +183,7 @@ public class GateStepInputSetGuardTests
             Assert.NotEqual(afterWebsiteDocs["UNIT"], afterDocs["UNIT"]);
             Assert.Equal(baseline["BENCH"], afterDocs["BENCH"]);
 
-            var salted = RunStepHash(pythonPath, fixtureRoot, ("NSHARP_COLUMNAR_BACKEND", "1"));
+            var salted = RunStepHash(pythonPath, fixtureRoot, ("NSHARP_EXPERIMENTAL_SOA", "1"));
             foreach (var step in afterDocs.Keys)
             {
                 Assert.NotEqual(afterDocs[step], salted[step]);
@@ -269,8 +267,8 @@ public class GateStepInputSetGuardTests
         startInfo.ArgumentList.Add(pythonPath);
         startInfo.ArgumentList.Add(root);
 
-        // Pin the salted environment so ambient session variables (a dogfood
-        // arc exporting NSHARP_COLUMNAR_BACKEND, a gate exporting VSCODE_TESTS)
+        // Pin the salted environment so ambient session variables (a local
+        // SOA experiment, a gate exporting VSCODE_TESTS)
         // cannot leak into the baseline expectations.
         foreach (var name in SaltedEnvNames())
         {

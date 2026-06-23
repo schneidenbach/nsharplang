@@ -127,7 +127,7 @@ written only on success). Input sets are over-inclusive — `src/**` and the gat
 everything, and UNIT includes `docs/` and `website/docs/` wholesale because unit tests
 golden-compare and parity-check repo documentation (cli-reference.md, the diagnostic-clusters
 sample, the systems audit). Step keys are also salted with the behavior-changing environment (the
-same env_names as the whole-gate signature, including `NSHARP_COLUMNAR_BACKEND`) and the installed
+same env_names as the whole-gate signature, including `NSHARP_EXPERIMENTAL_SOA`) and the installed
 dotnet-ilverify tool version. Practical effect for local development: docs-only changes re-run unit
 tests (~1m36s) but still skip benchmarks, interop, and the example chain; tests-only changes skip
 benchmarks and the example chain. Do NOT "optimize" docs changes back out of UNIT — that exact gap
