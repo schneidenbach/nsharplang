@@ -442,10 +442,7 @@ public static class ExportCommand
             ReferenceType referenceType)
         {
             var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
-            if (ExportCommandKernels.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences))
-                return dogfoodReferences;
-
-            throw new InvalidOperationException("N# export reference filter kernel rejected the dependency table.");
+            return ExportCommandKernels.FilterReferencesByType(dependencyList, referenceType);
         }
 
         private static string GenerateMainProjectFile(
@@ -518,12 +515,7 @@ public static class ExportCommand
             IReadOnlyList<T> references,
             IEqualityComparer<T>? comparer = null)
             where T : notnull
-        {
-            if (ExportCommandKernels.TryDeduplicateReferences(references, comparer, out var dogfoodReferences))
-                return dogfoodReferences;
-
-            throw new InvalidOperationException("N# export reference deduplication kernel rejected the reference table.");
-        }
+            => ExportCommandKernels.DeduplicateReferences(references, comparer);
 
         private static List<PackageReferenceInfo> GetTestFrameworkPackages(string testFramework)
         {

@@ -4000,28 +4000,24 @@ Exit codes:
             new Reference { Framework = "Microsoft.WindowsDesktop.App" }
         };
 
-        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
+        var packageReferences = ExportCommandKernels.FilterReferencesByType(
             references,
-            ReferenceType.NuGet,
-            out var packageReferences));
+            ReferenceType.NuGet);
         Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
 
-        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
+        var frameworkReferences = ExportCommandKernels.FilterReferencesByType(
             references,
-            ReferenceType.Framework,
-            out var frameworkReferences));
+            ReferenceType.Framework);
         Assert.Equal(new[] { "Microsoft.AspNetCore.App", "Microsoft.WindowsDesktop.App" }, frameworkReferences.Select(reference => reference.Framework).ToArray());
 
-        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
+        var dllReferences = ExportCommandKernels.FilterReferencesByType(
             references,
-            ReferenceType.Dll,
-            out var dllReferences));
+            ReferenceType.Dll);
         Assert.Equal(new[] { "lib/Analyzer.dll" }, dllReferences.Select(reference => reference.Dll).ToArray());
 
-        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
+        var projectReferences = ExportCommandKernels.FilterReferencesByType(
             references,
-            ReferenceType.Project,
-            out var projectReferences));
+            ReferenceType.Project);
         Assert.Equal(new[] { "../Shared/project.yml" }, projectReferences.Select(reference => reference.Project).ToArray());
     }
 
@@ -4038,10 +4034,9 @@ Exit codes:
             "../models/models.csproj"
         };
 
-        Assert.True(ExportCommandKernels.TryDeduplicateReferences(
+        var distinctProjectReferences = ExportCommandKernels.DeduplicateReferences(
             projectReferences,
-            StringComparer.OrdinalIgnoreCase,
-            out var distinctProjectReferences));
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(new[]
         {
             "../Shared/Shared.csproj",
@@ -4058,10 +4053,9 @@ Exit codes:
             new ExportReferenceValue("Serilog", "3.1.1")
         };
 
-        Assert.True(ExportCommandKernels.TryDeduplicateReferences(
+        var distinctPackageReferences = ExportCommandKernels.DeduplicateReferences(
             packageReferences,
-            comparer: null,
-            out var distinctPackageReferences));
+            comparer: null);
         Assert.Equal(new[]
         {
             packageReferences[0],

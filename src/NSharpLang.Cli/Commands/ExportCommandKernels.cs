@@ -88,136 +88,101 @@ internal static class ExportCommandKernels
         return args[index];
     }
 
-    internal static bool TryFilterReferencesByType(
+    internal static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> dependencies,
-        ReferenceType targetType,
-        out List<Reference> filteredDependencies)
+        ReferenceType targetType)
     {
-        filteredDependencies = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var dependencyCount = dependencies.Count;
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
-            return false;
+            throw new InvalidOperationException("N# export reference filter kernel received an unsupported reference type.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
         scratch.EnsureCapacity(dependencyCount);
 
-        try
+        for (var i = 0; i < dependencyCount; i++)
+            scratch.TypeRanks[i] = GetReferenceTypeRank(dependencies[i].Type);
+
+        var filteredCount = bindings.ReferenceTypeFilterIndices(
+            scratch.TypeRanks,
+            targetTypeRank,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# export reference filter kernel rejected the dependency table.");
+
+        var filteredDependencies = new List<Reference>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            for (var i = 0; i < dependencyCount; i++)
-                scratch.TypeRanks[i] = GetReferenceTypeRank(dependencies[i].Type);
-
-            var filteredCount = bindings.ReferenceTypeFilterIndices(
-                scratch.TypeRanks,
-                targetTypeRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredDependencies = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= dependencyCount)
             {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                var dependency = dependencies[sourceIndex];
-                if (dependency.Type != targetType)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                filteredDependencies.Add(dependency);
+                throw new InvalidOperationException("N# export reference filter kernel returned an invalid source index.");
             }
 
-            return true;
+            var dependency = dependencies[sourceIndex];
+            if (dependency.Type != targetType)
+            {
+                throw new InvalidOperationException("N# export reference filter kernel returned a mismatched dependency.");
+            }
+
+            filteredDependencies.Add(dependency);
         }
-        catch
-        {
-            filteredDependencies = new List<Reference>();
-            return false;
-        }
+
+        return filteredDependencies;
     }
 
-    internal static bool TryDeduplicateReferences<T>(
+    internal static List<T> DeduplicateReferences<T>(
         IReadOnlyList<T> values,
-        IEqualityComparer<T>? comparer,
-        out List<T> deduplicatedValues)
+        IEqualityComparer<T>? comparer)
         where T : notnull
     {
-        deduplicatedValues = new List<T>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var valueCount = values.Count;
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(valueCount);
 
-        try
+        var ranksByValue = comparer == null
+            ? new Dictionary<T, int>()
+            : new Dictionary<T, int>(comparer);
+        var uniqueRankCount = 0;
+
+        for (var i = 0; i < valueCount; i++)
         {
-            var ranksByValue = comparer == null
-                ? new Dictionary<T, int>()
-                : new Dictionary<T, int>(comparer);
-            var uniqueRankCount = 0;
-
-            for (var i = 0; i < valueCount; i++)
+            var value = values[i];
+            if (!ranksByValue.TryGetValue(value, out var rank))
             {
-                var value = values[i];
-                if (!ranksByValue.TryGetValue(value, out var rank))
-                {
-                    rank = ++uniqueRankCount;
-                    ranksByValue.Add(value, rank);
-                }
-
-                scratch.Ranks[i] = rank;
+                rank = ++uniqueRankCount;
+                ranksByValue.Add(value, rank);
             }
 
-            scratch.EnsureRankCapacity(uniqueRankCount);
-            var resultCount = bindings.StableDistinctRankIndices(
-                scratch.Ranks,
-                uniqueRankCount,
-                scratch.SeenRanks,
-                scratch.ResultIndices);
-
-            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedValues = new List<T>();
-                return false;
-            }
-
-            var result = new List<T>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= valueCount)
-                {
-                    deduplicatedValues = new List<T>();
-                    return false;
-                }
-
-                result.Add(values[sourceIndex]);
-            }
-
-            deduplicatedValues = result;
-            return true;
+            scratch.Ranks[i] = rank;
         }
-        catch
+
+        scratch.EnsureRankCapacity(uniqueRankCount);
+        var resultCount = bindings.StableDistinctRankIndices(
+            scratch.Ranks,
+            uniqueRankCount,
+            scratch.SeenRanks,
+            scratch.ResultIndices);
+
+        if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# export reference deduplication kernel rejected the reference table.");
+
+        var result = new List<T>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            deduplicatedValues = new List<T>();
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= valueCount)
+            {
+                throw new InvalidOperationException("N# export reference deduplication kernel returned an invalid source index.");
+            }
+
+            result.Add(values[sourceIndex]);
         }
+
+        return result;
     }
 
     internal static bool IsTestSourceFile(string sourceFile)
