@@ -40,7 +40,7 @@ public static class FixCommand
         }
 
         var dryRun = arguments.DryRun;
-        var useText = FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText) == FixOutputModeKind.Text;
+        var useText = FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText) == 2;
         var includeReviewNeeded = arguments.IncludeReviewNeeded;
         var fileArg = arguments.FileOption;
         var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)

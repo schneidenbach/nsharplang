@@ -2504,10 +2504,10 @@ func Main() {
     public void FixCommandArgumentKernels_SelectsEffectiveOutputMode()
     {
         var defaultMode = FixCommandArgumentKernels.GetEffectiveOutputMode(false);
-        Assert.Equal(FixOutputModeKind.Json, defaultMode);
+        Assert.Equal(1, defaultMode);
 
         var textMode = FixCommandArgumentKernels.GetEffectiveOutputMode(true);
-        Assert.Equal(FixOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
     }
 
     [Fact]

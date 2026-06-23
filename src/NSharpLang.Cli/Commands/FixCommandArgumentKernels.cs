@@ -11,12 +11,6 @@ internal readonly record struct FixArgumentSummary(
     bool IncludeReviewNeeded,
     bool ShowHelp);
 
-internal enum FixOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class FixCommandArgumentKernels
 {
     [ThreadStatic]
@@ -44,14 +38,8 @@ internal static class FixCommandArgumentKernels
             resultIndices[6] != 0);
     }
 
-    internal static FixOutputModeKind GetEffectiveOutputMode(bool useText)
-    {
-        var result = RequiredBindings.FixEffectiveOutputMode(useText ? 1 : 0);
-        if (result is < 1 or > 2)
-            throw new InvalidOperationException("N# fix output mode kernel rejected the value.");
-
-        return (FixOutputModeKind)result;
-    }
+    internal static int GetEffectiveOutputMode(bool useText)
+        => RequiredBindings.FixEffectiveOutputMode(useText ? 1 : 0);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
