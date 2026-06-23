@@ -463,254 +463,108 @@ internal static class QueryCommandKernels
     }
 
     internal static string GetHelpText(string commandLines)
-    {
-        if (TryGetMessage(bindings => bindings.QueryHelpText(commandLines), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query help-text kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryHelpText(commandLines));
 
     internal static string GetDescriptionWithAliases(string description, string aliasesText)
-    {
-        if (TryGetMessage(bindings => bindings.QueryDescriptionWithAliases(description, aliasesText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query description kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryDescriptionWithAliases(description, aliasesText));
 
     internal static string GetUnknownSubcommandMessage(string subcommand)
-    {
-        if (TryGetMessage(bindings => bindings.QueryUnknownSubcommandMessage(subcommand), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query unknown-subcommand message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryUnknownSubcommandMessage(subcommand));
 
     internal static string GetNoCompilationUnitForFileMessage(string fileFilter)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoCompilationUnitForFileMessage(fileFilter), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-compilation-unit message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoCompilationUnitForFileMessage(fileFilter));
 
     internal static string GetNoCompilationUnitsMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoCompilationUnitsMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-compilation-units message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoCompilationUnitsMessage());
 
     internal static string GetPositionUsageMessage(string subcommand)
-    {
-        if (TryGetMessage(bindings => bindings.QueryPositionUsageMessage(subcommand), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query position-usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryPositionUsageMessage(subcommand));
 
     internal static string GetInvalidPositionMessage(string position)
-    {
-        if (TryGetMessage(bindings => bindings.QueryInvalidPositionMessage(position), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query invalid-position message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryInvalidPositionMessage(position));
 
     internal static string GetNoSymbolAtPositionMessage(string file, int line, int column)
         => GetNoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetNoSymbolAtPositionMessage(string file, string lineText, string columnText)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoSymbolAtPositionMessage(file, lineText, columnText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-symbol message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoSymbolAtPositionMessage(file, lineText, columnText));
 
     internal static string GetNoTypeInformationAtPositionMessage(string file, int line, int column)
         => GetNoTypeInformationAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetNoTypeInformationAtPositionMessage(string file, string lineText, string columnText)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoTypeInformationAtPositionMessage(file, lineText, columnText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-type message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoTypeInformationAtPositionMessage(file, lineText, columnText));
 
     internal static string GetNoDefinitionAtPositionMessage(string file, int line, int column)
         => GetNoDefinitionAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetNoDefinitionAtPositionMessage(string file, string lineText, string columnText)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoDefinitionAtPositionMessage(file, lineText, columnText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-definition message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoDefinitionAtPositionMessage(file, lineText, columnText));
 
     internal static string GetNoInterfaceAtPositionMessage(string file, int line, int column)
         => GetNoInterfaceAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetNoInterfaceAtPositionMessage(string file, string lineText, string columnText)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoInterfaceAtPositionMessage(file, lineText, columnText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-interface message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoInterfaceAtPositionMessage(file, lineText, columnText));
 
     internal static string GetPerformanceJsonOnlyMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryPerformanceJsonOnlyMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query performance JSON-only message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryPerformanceJsonOnlyMessage());
 
     internal static string GetTrustedJsonOnlyMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryTrustedJsonOnlyMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query trusted JSON-only message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryTrustedJsonOnlyMessage());
 
     internal static string GetImplementorsUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryImplementorsUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query implementors usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryImplementorsUsageMessage());
 
     internal static string GetBatchJsonOnlyMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryBatchJsonOnlyMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query batch JSON-only message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryBatchJsonOnlyMessage());
 
     internal static string GetBatchUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryBatchUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query batch usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryBatchUsageMessage());
 
     internal static string GetEmptyBatchMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryEmptyBatchMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query empty-batch message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryEmptyBatchMessage());
 
     internal static string GetOutlineUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryOutlineUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query outline usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryOutlineUsageMessage());
 
     internal static string GetFileNotFoundMessage(string filePath)
-    {
-        if (TryGetMessage(bindings => bindings.QueryFileNotFoundMessage(filePath), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query file-not-found message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryFileNotFoundMessage(filePath));
 
     internal static string GetDefinitionUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryDefinitionUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query definition usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryDefinitionUsageMessage());
 
     internal static string GetInspectCompactTextUnsupportedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryInspectCompactTextUnsupportedMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query inspect compact/text message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryInspectCompactTextUnsupportedMessage());
 
     internal static string GetReferencesUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryReferencesUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query references usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryReferencesUsageMessage());
 
     internal static string GetSemanticReferencesUnavailableMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QuerySemanticReferencesUnavailableMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query semantic references message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QuerySemanticReferencesUnavailableMessage());
 
     internal static string GetDocUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.QueryDocUsageMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query doc usage message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryDocUsageMessage());
 
     internal static string GetNoDocumentationMessage(string query)
-    {
-        if (TryGetMessage(bindings => bindings.QueryNoDocumentationMessage(query), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query no-documentation message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryNoDocumentationMessage(query));
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectDir)
-    {
-        if (TryGetMessage(bindings => bindings.QueryProjectDirectoryNotFoundMessage(projectDir), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# query project-directory message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryProjectDirectoryNotFoundMessage(projectDir));
 
     internal static string GetFailedAnalyzeProjectMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.QueryFailedAnalyzeProjectMessage(message), out var result))
-            return result;
-
-        throw new InvalidOperationException("N# query failed-analysis message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.QueryFailedAnalyzeProjectMessage(message));
 
     private static string ToInvariantText(int value)
         => value.ToString(CultureInfo.InvariantCulture);
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# query message kernels are unavailable.");
+        var message = getMessage(bindings);
+        return !string.IsNullOrEmpty(message)
+            ? message
+            : throw new InvalidOperationException("N# query message kernel returned empty output.");
     }
 
     private static Bindings? LoadBindings()
