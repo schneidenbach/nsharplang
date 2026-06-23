@@ -3052,21 +3052,15 @@ func Main() {
         Assert.Equal("2", dogfoodSummary.MaxRunsOption);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = WatchCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("50", summary.DebounceMsOption);
-        Assert.Equal("2", summary.MaxRunsOption);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValues = WatchCommand.GetOptionSummary(
+        var permissiveValues = WatchCommandKernels.GetOptionSummary(
             new[] { "test", "--project", "--debounce-ms", "--max-runs" });
         Assert.Equal("--debounce-ms", permissiveValues.ProjectOption);
         Assert.Equal("--max-runs", permissiveValues.DebounceMsOption);
         Assert.Null(permissiveValues.MaxRunsOption);
         Assert.False(permissiveValues.ShowHelp);
 
-        Assert.True(WatchCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
-        Assert.True(WatchCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(WatchCommandKernels.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.True(WatchCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
 
         var helpText = WatchCommandKernels.GetHelpText();
         Assert.Contains("N# Watch", helpText);
@@ -3152,9 +3146,7 @@ func Main() {
 
         foreach (var (path, expected) in cases)
         {
-            var dogfood = WatchCommandKernels.ShouldTriggerForChangedPath(path);
-            Assert.Equal(expected, dogfood);
-            Assert.Equal(expected, WatchCommand.ShouldWatch(path));
+            Assert.Equal(expected, WatchCommandKernels.ShouldTriggerForChangedPath(path));
         }
     }
 

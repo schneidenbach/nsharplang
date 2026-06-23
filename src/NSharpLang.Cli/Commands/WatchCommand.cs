@@ -10,17 +10,17 @@ public static class WatchCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = WatchCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
-        var targetSummary = GetTargetSummary(args);
+        var targetSummary = WatchCommandKernels.GetTargetSummary(args);
         if (targetSummary.TargetKind == WatchTargetKind.Unknown)
             return Error(WatchCommandKernels.GetUnsupportedTargetMessage(GetUnsupportedTargetName(args)));
 
-        var watchedCommand = GetWatchedCommandName(targetSummary.TargetKind);
+        var watchedCommand = WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind);
 
-        var forwardedArgs = GetForwardedArgs(args);
+        var forwardedArgs = WatchCommandKernels.GetForwardedArgs(args);
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
 
@@ -54,7 +54,7 @@ public static class WatchCommand
 
         void HandleChange(string path)
         {
-            if (!ShouldWatch(path))
+            if (!WatchCommandKernels.ShouldTriggerForChangedPath(path))
                 return;
 
             lock (sync)
@@ -131,18 +131,6 @@ public static class WatchCommand
         }
     }
 
-    internal static WatchOptionSummary GetOptionSummary(string[] args)
-        => WatchCommandKernels.GetOptionSummary(args);
-
-    internal static WatchTargetSummary GetTargetSummary(string[] args)
-        => WatchCommandKernels.GetTargetSummary(args);
-
-    private static string[] GetForwardedArgs(string[] args)
-        => WatchCommandKernels.GetForwardedArgs(args);
-
-    internal static bool ShouldWatch(string path)
-        => WatchCommandKernels.ShouldTriggerForChangedPath(path);
-
     private static int? ParsePositiveInt(string? value, int? defaultValue, string flag)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -155,9 +143,6 @@ public static class WatchCommand
         Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
     }
-
-    private static string GetWatchedCommandName(WatchTargetKind targetKind)
-        => WatchCommandKernels.GetTargetCommandName(targetKind);
 
     private static string GetUnsupportedTargetName(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
