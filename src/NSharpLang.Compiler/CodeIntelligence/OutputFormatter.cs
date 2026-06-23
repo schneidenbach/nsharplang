@@ -934,15 +934,12 @@ public static class OutputFormatter
             ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
             : result.Symbol?.Definition;
 
-        var referenceFiles = OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
+        if (!OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
             result.References.Results,
-            out var dogfoodReferenceFiles)
-                ? dogfoodReferenceFiles
-                : result.References.Results
-                    .Select(reference => NormalizePath(reference.File) ?? reference.File)
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(file => file, StringComparer.Ordinal)
-                    .ToArray();
+            out var referenceFiles))
+        {
+            throw new InvalidOperationException("N# inspect summary reference-file kernel rejected the references.");
+        }
 
         var referenceSample = result.References.Results
             .Take(InspectSummaryReferenceSampleSize)
