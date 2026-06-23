@@ -62,41 +62,23 @@ internal static class WatchCommandKernels
         }
     }
 
-    internal static bool TryGetOptionSummary(string[] args, out WatchOptionSummary summary)
+    internal static WatchOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        try
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var debounceMsOption)
+            || !TryGetOptionalArg(args, resultIndices[2], out var maxRunsOption))
         {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var debounceMsOption)
-                || !TryGetOptionalArg(args, resultIndices[2], out var maxRunsOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new WatchOptionSummary(
-                projectOption,
-                debounceMsOption,
-                maxRunsOption,
-                resultIndices[3] != 0);
-            return true;
+            throw new InvalidOperationException("N# watch option summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new WatchOptionSummary(
+            projectOption,
+            debounceMsOption,
+            maxRunsOption,
+            resultIndices[3] != 0);
     }
 
     internal static bool TryGetForwardedArgs(string[] args, out string[] forwardedArgs)

@@ -32,39 +32,19 @@ internal static class TidyCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out TidyOptionSummary summary)
+    internal static TidyOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy option summary kernels are unavailable.");
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        try
-        {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = bindings.OptionSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+            throw new InvalidOperationException("N# tidy option summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new TidyOptionSummary(
-                projectOption,
-                resultIndices[1] != 0,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new TidyOptionSummary(
+            projectOption,
+            resultIndices[1] != 0,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0);
     }
 
     internal static TidyOutputModeKind GetOutputMode(bool json)

@@ -17,29 +17,14 @@ internal static class RestoreCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out RestoreOptionSummary summary)
+    internal static RestoreOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[1];
-        try
-        {
-            var code = bindings.RestoreOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.RestoreOptionSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# restore option summary kernel rejected the arguments.");
 
-            summary = new RestoreOptionSummary(resultIndices[0] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new RestoreOptionSummary(resultIndices[0] != 0);
     }
 
     internal static bool TryDeduplicateProjectReferences(

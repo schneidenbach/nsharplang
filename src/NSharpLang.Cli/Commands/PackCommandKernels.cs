@@ -31,45 +31,27 @@ internal static class PackCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out PackOptionSummary summary)
+    internal static PackOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[7];
-        try
+        var code = RequiredBindings.PackOptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var outputDir)
+            || !TryGetOptionalArg(args, resultIndices[2], out var versionOverride)
+            || !TryGetOptionalArg(args, resultIndices[3], out var configuration))
         {
-            var code = bindings.PackOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var outputDir)
-                || !TryGetOptionalArg(args, resultIndices[2], out var versionOverride)
-                || !TryGetOptionalArg(args, resultIndices[3], out var configuration))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new PackOptionSummary(
-                projectOption,
-                outputDir,
-                versionOverride,
-                configuration ?? "Release",
-                resultIndices[4] != 0,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0);
-            return true;
+            throw new InvalidOperationException("N# pack option-summary kernel is unavailable.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new PackOptionSummary(
+            projectOption,
+            outputDir,
+            versionOverride,
+            configuration ?? "Release",
+            resultIndices[4] != 0,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0);
     }
 
     internal static PackOutputModeKind GetOutputMode(bool json)

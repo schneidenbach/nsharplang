@@ -295,12 +295,7 @@ public static class TreeCommand
         => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
 
     internal static TreeOptionSummary GetOptionSummary(string[] args)
-    {
-        if (TreeCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# tree option parser kernel rejected the arguments.");
-    }
+        => TreeCommandKernels.GetOptionSummary(args);
 
     internal static TreeOutputModeKind GetOutputMode(bool json)
         => TreeCommandKernels.GetOutputMode(json);

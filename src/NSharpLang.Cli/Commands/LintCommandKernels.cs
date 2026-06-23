@@ -26,39 +26,18 @@ internal static class LintCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out LintOptionSummary summary)
+    internal static LintOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionResultIndices ??= new int[4];
-        try
-        {
-            var code = bindings.LintOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.LintOptionSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+            throw new InvalidOperationException("N# lint option summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new LintOptionSummary(
-                projectOption,
-                resultIndices[1] != 0,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new LintOptionSummary(
+            projectOption,
+            resultIndices[1] != 0,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0);
     }
 
     internal static bool TryGetFileArgs(string[] args, out string[] files)

@@ -304,12 +304,7 @@ public static class TidyCommand
     // ── Helpers ───────────────────────────────────────────────────────────
 
     internal static TidyOptionSummary GetOptionSummary(string[] args)
-    {
-        if (TidyCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# tidy option summary kernel rejected the arguments.");
-    }
+        => TidyCommandKernels.GetOptionSummary(args);
 
     internal static TidyOutputModeKind GetOutputMode(bool json)
         => TidyCommandKernels.GetOutputMode(json);

@@ -204,12 +204,7 @@ public static class LintCommand
     }
 
     internal static LintOptionSummary GetOptionSummary(string[] args)
-    {
-        if (LintCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# lint option summary kernel rejected the arguments.");
-    }
+        => LintCommandKernels.GetOptionSummary(args);
 
     internal static LintOutputModeKind GetEffectiveOutputMode(LintOptionSummary options)
         => LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson);

@@ -131,12 +131,7 @@ public static class RestoreCommand
     }
 
     internal static RestoreOptionSummary GetOptionSummary(string[] args)
-    {
-        if (RestoreCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# restore option summary kernel rejected the arguments.");
-    }
+        => RestoreCommandKernels.GetOptionSummary(args);
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
     {

@@ -132,12 +132,7 @@ public static class WatchCommand
     }
 
     internal static WatchOptionSummary GetOptionSummary(string[] args)
-    {
-        if (WatchCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# watch option summary kernel rejected the arguments.");
-    }
+        => WatchCommandKernels.GetOptionSummary(args);
 
     internal static WatchTargetSummary GetTargetSummary(string[] args)
     {

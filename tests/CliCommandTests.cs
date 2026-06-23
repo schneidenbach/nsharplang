@@ -291,7 +291,7 @@ func Main() {
     {
         var args = new[] { "--project", "samples/demo", "--depth", "2", "--json", "-h" };
 
-        Assert.True(TreeCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = TreeCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("2", dogfoodSummary.DepthOption);
         Assert.True(dogfoodSummary.Json);
@@ -2958,16 +2958,14 @@ func Main() {
     [Fact]
     public void LintCommandKernels_SummarizesOptions()
     {
-        Assert.True(LintCommandKernels.TryGetOptionSummary(
-            Array.Empty<string>(),
-            out var defaultSummary));
+        var defaultSummary = LintCommandKernels.GetOptionSummary(Array.Empty<string>());
         Assert.Null(defaultSummary.ProjectOption);
         Assert.False(defaultSummary.UseText);
         Assert.False(defaultSummary.UseJson);
         Assert.False(defaultSummary.ShowHelp);
 
         var args = new[] { "--project", "src", "--text", "--json", "Program.nl", "-h" };
-        Assert.True(LintCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = LintCommandKernels.GetOptionSummary(args);
         Assert.Equal("src", dogfoodSummary.ProjectOption);
         Assert.True(dogfoodSummary.UseText);
         Assert.True(dogfoodSummary.UseJson);
@@ -3127,7 +3125,7 @@ func Main() {
             "-h"
         };
 
-        Assert.True(WatchCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = WatchCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("50", dogfoodSummary.DebounceMsOption);
         Assert.Equal("2", dogfoodSummary.MaxRunsOption);
@@ -3946,9 +3944,7 @@ Exit codes:
     [Fact]
     public void PackCommandKernels_SummarizesOptions()
     {
-        Assert.True(PackCommandKernels.TryGetOptionSummary(
-            Array.Empty<string>(),
-            out var defaultSummary));
+        var defaultSummary = PackCommandKernels.GetOptionSummary(Array.Empty<string>());
         Assert.Null(defaultSummary.ProjectOption);
         Assert.Null(defaultSummary.OutputDir);
         Assert.Null(defaultSummary.VersionOverride);
@@ -3969,7 +3965,7 @@ Exit codes:
             "-o", "ignored-output"
         };
 
-        Assert.True(PackCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = PackCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("dist", dogfoodSummary.OutputDir);
         Assert.Equal("2.0.0-beta.1", dogfoodSummary.VersionOverride);
@@ -4232,10 +4228,10 @@ Exit codes:
     [Fact]
     public void RestoreCommandKernels_SummarizesOptions()
     {
-        Assert.True(RestoreCommandKernels.TryGetOptionSummary(new[] { "--help" }, out var longHelp));
+        var longHelp = RestoreCommandKernels.GetOptionSummary(new[] { "--help" });
         Assert.True(longHelp.ShowHelp);
 
-        Assert.True(RestoreCommandKernels.TryGetOptionSummary(new[] { "-h" }, out var shortHelp));
+        var shortHelp = RestoreCommandKernels.GetOptionSummary(new[] { "-h" });
         Assert.True(shortHelp.ShowHelp);
 
         Assert.False(RestoreCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
@@ -4866,7 +4862,7 @@ dependencies:
     {
         var args = new[] { "--fix", "--json", "--project", "samples/demo" };
 
-        Assert.True(TidyCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = TidyCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.True(dogfoodSummary.Fix);
         Assert.True(dogfoodSummary.Json);
@@ -5243,7 +5239,7 @@ dependencies:
     {
         var args = new[] { "--json", "--open", "--project", "samples/demo", "--output", "docs/api" };
 
-        Assert.True(DocCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = DocCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("docs/api", dogfoodSummary.OutputOption);
         Assert.True(dogfoodSummary.Json);

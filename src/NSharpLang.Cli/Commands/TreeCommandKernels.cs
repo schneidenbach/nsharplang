@@ -24,40 +24,22 @@ internal static class TreeCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out TreeOptionSummary summary)
+    internal static TreeOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[4];
-        try
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var depthOption))
         {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var depthOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new TreeOptionSummary(
-                projectOption,
-                depthOption,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0);
-            return true;
+            throw new InvalidOperationException("N# tree option parser kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new TreeOptionSummary(
+            projectOption,
+            depthOption,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0);
     }
 
     internal static bool TryGetMaxDepth(string[] args, int defaultDepth, out int maxDepth)

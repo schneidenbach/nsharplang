@@ -108,12 +108,7 @@ public static class DocCommand
     }
 
     internal static DocOptionSummary GetOptionSummary(string[] args)
-    {
-        if (DocCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# doc option parser kernel rejected the arguments.");
-    }
+        => DocCommandKernels.GetOptionSummary(args);
 
     internal static DocOutputModeKind GetOutputMode(bool json)
         => DocCommandKernels.GetOutputMode(json);

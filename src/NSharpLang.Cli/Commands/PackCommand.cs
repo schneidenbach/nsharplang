@@ -221,9 +221,7 @@ public static class PackCommand
     }
 
     internal static PackOptionSummary GetOptionSummary(string[] args)
-        => PackCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : throw new InvalidOperationException("N# pack option-summary kernel is unavailable.");
+        => PackCommandKernels.GetOptionSummary(args);
 
     internal static PackVersionSourceKind GetEffectiveVersionSource(string? versionOverride, string? projectVersion)
         => PackCommandKernels.GetEffectiveVersionSource(versionOverride, projectVersion);

@@ -27,41 +27,23 @@ internal static class DocCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out DocOptionSummary summary)
+    internal static DocOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[5];
-        try
+        var code = RequiredBindings.OptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
         {
-            var code = bindings.OptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new DocOptionSummary(
-                projectOption,
-                outputOption,
-                resultIndices[2] != 0,
-                resultIndices[3] != 0,
-                resultIndices[4] != 0);
-            return true;
+            throw new InvalidOperationException("N# doc option parser kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new DocOptionSummary(
+            projectOption,
+            outputOption,
+            resultIndices[2] != 0,
+            resultIndices[3] != 0,
+            resultIndices[4] != 0);
     }
 
     internal static DocOutputModeKind GetOutputMode(bool json)
