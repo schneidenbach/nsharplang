@@ -82,7 +82,7 @@ public static class TreeCommand
     {
         var config = ProjectFileParser.Parse(projectYml);
         var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-        var allDirect = Deduplicate(config.Dependencies.Select(ToProjectYmlDependency));
+        var allDirect = TreeDependencyDeduplicator.Deduplicate(config.Dependencies.Select(ToProjectYmlDependency).ToArray());
 
         var direct = maxDepth >= 1 ? allDirect : Array.Empty<TreeDependency>();
         var limitations = new List<string>
@@ -158,9 +158,11 @@ public static class TreeCommand
             }
         }
 
-        var visibleDirect = maxDepth >= 1 ? Deduplicate(direct) : Array.Empty<TreeDependency>();
-        var visibleTransitive = maxDepth >= 2 ? Deduplicate(transitive) : Array.Empty<TreeDependency>();
-        var frameworkName = FormatTargetFrameworks(targetFrameworks);
+        var visibleDirect = maxDepth >= 1 ? TreeDependencyDeduplicator.Deduplicate(direct.ToArray()) : Array.Empty<TreeDependency>();
+        var visibleTransitive = maxDepth >= 2 ? TreeDependencyDeduplicator.Deduplicate(transitive.ToArray()) : Array.Empty<TreeDependency>();
+        var frameworkName = targetFrameworks.Count == 0
+            ? "unknown"
+            : string.Join(",", TreeDependencyDeduplicator.DeduplicateTargetFrameworks(targetFrameworks));
 
         return new TreeReport(
             SchemaVersion: 2,
@@ -215,21 +217,6 @@ public static class TreeCommand
                 Dependencies: Array.Empty<TreeDependency>()))
             .Where(dependency => dependency.Name.Length > 0)
             .ToArray();
-    }
-
-    internal static TreeDependency[] Deduplicate(IEnumerable<TreeDependency> dependencies)
-    {
-        var dependencyArray = dependencies as TreeDependency[] ?? dependencies.ToArray();
-        return TreeDependencyDeduplicator.Deduplicate(dependencyArray);
-    }
-
-    internal static string FormatTargetFrameworks(IReadOnlyList<string> targetFrameworks)
-    {
-        if (targetFrameworks.Count == 0)
-            return "unknown";
-
-        var distinctFrameworks = TreeDependencyDeduplicator.DeduplicateTargetFrameworks(targetFrameworks);
-        return string.Join(",", distinctFrameworks);
     }
 
     static string? GetPackageVersion(JsonElement package)

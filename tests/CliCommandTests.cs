@@ -384,8 +384,6 @@ func Main() {
         };
 
         var helperActual = TreeDependencyDeduplicator.Deduplicate(dependencies);
-        var commandActual = TreeCommand.Deduplicate(dependencies);
-
         var expected = new[]
         {
             "framework:Microsoft.AspNetCore.App:",
@@ -394,7 +392,6 @@ func Main() {
             "project:../Shared/Shared.csproj:"
         };
         Assert.Equal(expected, helperActual.Select(FormatDependency));
-        Assert.Equal(expected, commandActual.Select(FormatDependency));
 
         TreeCommand.TreeDependency NewDependency(string name, string kind, string? version) =>
             new(name, kind, version, "runtime", false, emptyDependencies);
@@ -417,8 +414,6 @@ func Main() {
 
         var dogfoodFrameworks = TreeDependencyDeduplicator.DeduplicateTargetFrameworks(frameworks);
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0" }, dogfoodFrameworks);
-        Assert.Equal("unknown", TreeCommand.FormatTargetFrameworks(Array.Empty<string>()));
-        Assert.Equal("net10.0,net9.0,net8.0", TreeCommand.FormatTargetFrameworks(frameworks));
     }
 
     [Fact]
