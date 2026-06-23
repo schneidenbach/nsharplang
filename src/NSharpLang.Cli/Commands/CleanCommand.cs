@@ -70,7 +70,7 @@ public static class CleanCommand
             existingDirectories,
             out var dogfoodDirectories)
             ? dogfoodDirectories
-            : CleanArtifactDirectoryOrderer.OrderWithCSharpFallback(existingDirectories);
+            : throw new InvalidOperationException("N# clean artifact directory order kernel rejected the directories.");
 
         foreach (var dir in directories)
         {
@@ -100,35 +100,15 @@ public static class CleanCommand
     }
 
     internal static CleanOptionSummary GetOptionSummary(string[] args)
-        => CleanCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (CleanCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean option parsing routes through CleanCommandKernels.
-    private static CleanOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionWithCSharp(args, "--project"),
-            ContainsArgWithCSharp(args, "--all"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+        throw new InvalidOperationException("N# clean option summary kernel rejected the arguments.");
+    }
 
     private static string GetProjectRoot(CleanOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
-
-    private static string? GetOptionWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
 
     private static int ShowHelp()
     {

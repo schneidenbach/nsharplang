@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -103,15 +101,6 @@ internal static class CleanArtifactDirectoryOrderer
         }
     }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean artifact classification and ordering route through N#.
-    internal static string[] OrderWithCSharpFallback(IEnumerable<string> directories)
-        => directories
-            .Distinct(StringComparer.Ordinal)
-            .Where(dir => !IsUnderNodeModulesDirectoryWithCSharp(dir))
-            .Where(dir => IsArtifactDirectoryNameWithCSharp(Path.GetFileName(dir)))
-            .OrderByDescending(dir => dir.Length)
-            .ToArray();
-
     internal static bool TryGetArtifactDirectoryKindRank(string path, out int kindRank)
     {
         kindRank = 0;
@@ -210,14 +199,6 @@ internal static class CleanArtifactDirectoryOrderer
         CliCleanArtifactDirectoryKindRank ArtifactDirectoryKindRank,
         CliCleanIsUnderNodeModulesDirectory IsUnderNodeModulesDirectory,
         CliCleanArtifactDirectoryIndicesInto OrderArtifactDirectoryIndices);
-
-    private static bool IsArtifactDirectoryNameWithCSharp(string name) =>
-        ArtifactDirectories.Contains(name, StringComparer.Ordinal);
-
-    private static bool IsUnderNodeModulesDirectoryWithCSharp(string dir) =>
-        NormalizePath(dir).Contains("/node_modules/", StringComparison.Ordinal);
-
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private sealed class Scratch
     {
