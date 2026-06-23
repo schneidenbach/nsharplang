@@ -941,8 +941,8 @@ func main() {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
-func main() {
-    print "single file route"
+func main(): int {
+    return 0
 }
 """);
 
@@ -957,6 +957,47 @@ func main() {
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             Assert.True(File.Exists(Path.Combine(outputDir, "Program.dll")));
             Assert.True(File.Exists(Path.Combine(outputDir, "Program.runtimeconfig.json")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BuildCommand_SingleFileDoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    print CountChars("abc")
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--output", outputDir, sourcePath));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Building", stdout);
+            Assert.Contains("not allowed to fall back to the C# ILCompiler", stderr);
+            Assert.False(File.Exists(Path.Combine(outputDir, "Program.dll")));
         }
         finally
         {
@@ -1180,6 +1221,40 @@ func main() {
             Assert.Contains("Running...", runResult.Stdout);
             Assert.Contains("ran with il", runResult.Stdout);
             Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RunCommand_SingleFileDoesNotFallbackToCSharpWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    print CountChars("abc")
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("run", "--backend", "il", sourcePath));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Running", stdout);
+            Assert.Contains("not allowed to fall back to the C# ILCompiler", stderr);
         }
         finally
         {

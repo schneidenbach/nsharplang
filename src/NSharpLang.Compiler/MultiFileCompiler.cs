@@ -92,6 +92,12 @@ public class MultiFileCompiler
     /// </summary>
     public bool AotMode { get; set; }
 
+    /// <summary>
+    /// When true, assembly emission must stay on the standalone columnar backend. A columnar
+    /// decline becomes a compiler error instead of falling back to the C# ILCompiler.
+    /// </summary>
+    public bool RequireColumnarEmission { get; set; }
+
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
         : this(projectRoot, config, sourceTextOverrides: null)
     {
@@ -953,6 +959,10 @@ public class MultiFileCompiler
                 {
                     AddRequiredColumnarAotSourceGeneratorEmissionError(assemblyName);
                 }
+                else if (RequireColumnarEmission)
+                {
+                    AddRequiredColumnarSourceGeneratorEmissionError(assemblyName);
+                }
                 else
                 {
                     ExportAllFilesToCSharp();
@@ -986,6 +996,10 @@ public class MultiFileCompiler
                 else if (RequiresColumnarSoaEmission())
                 {
                     AddRequiredColumnarSoaEmissionError(assemblyName);
+                }
+                else if (RequireColumnarEmission)
+                {
+                    AddRequiredColumnarEmissionError(assemblyName);
                 }
                 else
                 {
@@ -1118,6 +1132,35 @@ public class MultiFileCompiler
             HumanExplanation = "AOT builds are not allowed to use source-generator emission because it materializes N# as C# before emitting the final assembly.",
             ContextualHint = "The source-generator analysis pass may still expose generated symbols to diagnostics, but final AOT assembly emission must stay on the columnar path.",
             Suggestion = "Remove the source generator dependency, port the generated surface to N#/columnar, or build without --aot until source-generator emission is columnar-owned."
+        });
+    }
+
+    private void AddRequiredColumnarSourceGeneratorEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar emission is required for '{assemblyName}', but source generators require C# export emission.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "This product path is not allowed to use source-generator emission because it materializes N# as C# before emitting the final assembly.",
+            ContextualHint = "The source-generator analysis pass may still expose generated symbols to diagnostics, but final assembly emission must stay on the columnar path.",
+            Suggestion = "Remove the source generator dependency or port the generated surface to N#/columnar for this product path."
+        });
+    }
+
+    private void AddRequiredColumnarEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar emission is required for '{assemblyName}', but the columnar backend declined.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "This product path is not allowed to fall back to the C# ILCompiler after analysis passes.",
+            Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
         });
     }
 

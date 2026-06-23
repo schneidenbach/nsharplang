@@ -268,7 +268,10 @@ partial class Program
         bool aotMode = false)
     {
         perfFacts = BuildPerfReportFacts.Empty;
-        var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
+        var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config)
+        {
+            RequireColumnarEmission = true
+        };
         return CompileWithIlBackend(
             compiler,
             outputDir,
