@@ -12,9 +12,6 @@ public static class RemoveCommand
         if (arguments.ShowHelp)
             return ShowHelp();
 
-        if (args.Length == 0)
-            return Error(RemoveCommandKernels.GetUsageMessage());
-
         var packageName = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(packageName))
             return Error(RemoveCommandKernels.GetUsageMessage());
