@@ -44,7 +44,7 @@ public class WriteCompilationStub : Task
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             var stubSource = CompilationStubEmitter.Generate(config, sourceFiles);
-            File.WriteAllText(outputFile, string.IsNullOrWhiteSpace(stubSource) ? GenerateFallbackStubSource(config) : stubSource);
+            File.WriteAllText(outputFile, stubSource);
 
             GeneratedFiles = new[] { new TaskItem(outputFile) };
             Log.LogMessage(MessageImportance.Low, $"Wrote IL compilation stub to {outputFile}");
@@ -55,30 +55,5 @@ public class WriteCompilationStub : Task
             Log.LogErrorFromException(ex, showStackTrace: true);
             return false;
         }
-    }
-
-    private static string GenerateFallbackStubSource(ProjectConfig config)
-    {
-        if (string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-namespace NSharp.Generated;
-
-internal static class __NSharpIlStub
-{
-    public static void Main(string[] args)
-    {
-    }
-}
-""";
-        }
-
-        return """
-namespace NSharp.Generated;
-
-internal static class __NSharpIlStub
-{
-}
-""";
     }
 }
