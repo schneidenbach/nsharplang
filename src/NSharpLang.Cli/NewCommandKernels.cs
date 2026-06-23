@@ -237,8 +237,8 @@ internal static class NewCommandKernels
     internal static string GetFailedMessage(string message)
         => RequiredBindings.NewFailedMessage(message);
 
-    internal static bool TryGetProjectYamlText(string projectName, string template, out string yaml)
-        => TryGetMessage(bindings => bindings.NewProjectYamlText(projectName, template), out yaml);
+    internal static string GetProjectYamlText(string projectName, string template)
+        => RequireText(RequiredBindings.NewProjectYamlText(projectName, template));
 
     internal static string GetGlobalJsonText()
         => RequiredBindings.NewGlobalJsonText();
@@ -246,31 +246,15 @@ internal static class NewCommandKernels
     internal static string GetNuGetConfigText(string feedValue)
         => RequiredBindings.NewNuGetConfigText(feedValue);
 
-    internal static bool TryGetTemplateSourceText(
+    internal static string GetTemplateSourceText(
         string template,
-        NewTemplateSourceFileKind sourceFileKind,
-        out string sourceText)
-        => TryGetMessage(bindings => bindings.NewTemplateSourceText(template, (int)sourceFileKind), out sourceText);
+        NewTemplateSourceFileKind sourceFileKind)
+        => RequireText(RequiredBindings.NewTemplateSourceText(template, (int)sourceFileKind));
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
+    private static string RequireText(string text)
+        => !string.IsNullOrEmpty(text)
+            ? text
+            : throw new InvalidOperationException("N# new text kernel returned empty output.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

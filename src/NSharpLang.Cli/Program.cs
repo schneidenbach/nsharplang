@@ -729,20 +729,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static string GenerateProjectYaml(string projectName, string template)
-    {
-        if (NewCommandKernels.TryGetProjectYamlText(projectName, template, out var yaml))
-            return yaml;
-
-        throw new InvalidOperationException("N# new project.yml kernel rejected the template.");
-    }
+        => NewCommandKernels.GetProjectYamlText(projectName, template);
 
     static string GetTemplateSourceText(string template, NewTemplateSourceFileKind sourceFileKind)
-    {
-        if (NewCommandKernels.TryGetTemplateSourceText(template, sourceFileKind, out var sourceText))
-            return sourceText;
-
-        throw new InvalidOperationException("N# new source-template kernel rejected the template source kind.");
-    }
+        => NewCommandKernels.GetTemplateSourceText(template, sourceFileKind);
 
     static int TestCommand(string[] args)
     {

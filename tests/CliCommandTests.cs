@@ -2415,27 +2415,27 @@ func Main() {
         Assert.Equal("  nlc run", NewCommandKernels.GetRunCommandMessage());
         Assert.Equal("Failed to create project: denied", NewCommandKernels.GetFailedMessage("denied"));
 
-        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyApp", "console", out var consoleYaml));
+        var consoleYaml = NewCommandKernels.GetProjectYamlText("MyApp", "console");
         Assert.Equal(ProjectFileParser.GenerateTemplate("MyApp"), consoleYaml);
 
-        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyLib", "library", out var libraryYaml));
+        var libraryYaml = NewCommandKernels.GetProjectYamlText("MyLib", "library");
         Assert.Contains("name: MyLib\n", libraryYaml);
         Assert.Contains("outputType: library\n", libraryYaml);
         Assert.Contains("language:\n  asyncDefaultType: ValueTask\n", libraryYaml);
         Assert.DoesNotContain("entry: Program.nl", libraryYaml, StringComparison.Ordinal);
 
-        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyApi", "webapi", out var webApiYaml));
+        var webApiYaml = NewCommandKernels.GetProjectYamlText("MyApi", "webapi");
         Assert.Contains("sdk: Microsoft.NET.Sdk.Web\n", webApiYaml);
         Assert.Contains("  - framework: Microsoft.AspNetCore.App\n", webApiYaml);
         Assert.Contains("  - nuget: Swashbuckle.AspNetCore\n    version: 7.2.0\n", webApiYaml);
 
-        Assert.True(NewCommandKernels.TryGetProjectYamlText("PacketTool", "systems-cli", out var systemsCliYaml));
+        var systemsCliYaml = NewCommandKernels.GetProjectYamlText("PacketTool", "systems-cli");
         Assert.Contains("entry: Program.nl\n", systemsCliYaml);
         Assert.Contains("outputType: exe\n", systemsCliYaml);
         Assert.Contains("  profile: systems\n", systemsCliYaml);
         Assert.Contains("    warmup:\n      - Warmup\n", systemsCliYaml);
 
-        Assert.True(NewCommandKernels.TryGetProjectYamlText("PacketCore", "systems-lib", out var systemsLibYaml));
+        var systemsLibYaml = NewCommandKernels.GetProjectYamlText("PacketCore", "systems-lib");
         Assert.Contains("outputType: library\n", systemsLibYaml);
         Assert.Contains("  profile: systems\n", systemsLibYaml);
         Assert.DoesNotContain("entry: Program.nl", systemsLibYaml, StringComparison.Ordinal);
@@ -2467,32 +2467,32 @@ func Main() {
         var escapedNuGetConfig = NewCommandKernels.GetNuGetConfigText("/tmp/a&b<c>d\"e'f/packages");
         Assert.Contains("/tmp/a&amp;b&lt;c&gt;d&quot;e&apos;f/packages", escapedNuGetConfig);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("console", NewTemplateSourceFileKind.Program, out var consoleSource));
+        var consoleSource = NewCommandKernels.GetTemplateSourceText("console", NewTemplateSourceFileKind.Program);
         Assert.Equal("func main() {\n    print \"Hello, N#!\"\n}\n", consoleSource);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("library", NewTemplateSourceFileKind.Calculator, out var calculatorSource));
+        var calculatorSource = NewCommandKernels.GetTemplateSourceText("library", NewTemplateSourceFileKind.Calculator);
         Assert.Contains("class Calculator {\n", calculatorSource);
         Assert.Contains("static func Add(a: int, b: int): int", calculatorSource);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("test", NewTemplateSourceFileKind.CalculatorTests, out var calculatorTestsSource));
+        var calculatorTestsSource = NewCommandKernels.GetTemplateSourceText("test", NewTemplateSourceFileKind.CalculatorTests);
         Assert.Contains("test \"adds two numbers\" {\n", calculatorTestsSource);
         Assert.Contains("assert result == 3\n", calculatorTestsSource);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("webapi", NewTemplateSourceFileKind.Program, out var webApiProgramSource));
+        var webApiProgramSource = NewCommandKernels.GetTemplateSourceText("webapi", NewTemplateSourceFileKind.Program);
         Assert.Contains("WebApplication.CreateBuilder(args)", webApiProgramSource);
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("webapi", NewTemplateSourceFileKind.WebApiController, out var controllerSource));
+        var controllerSource = NewCommandKernels.GetTemplateSourceText("webapi", NewTemplateSourceFileKind.WebApiController);
         Assert.Contains("[Route(\"api/weather\")]\n", controllerSource);
         Assert.Contains("CreateWeatherRequest", controllerSource);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-cli", NewTemplateSourceFileKind.Program, out var systemsCliSource));
+        var systemsCliSource = NewCommandKernels.GetTemplateSourceText("systems-cli", NewTemplateSourceFileKind.Program);
         Assert.Contains("allow(alloc, reason: \"CLI startup allocates outside the hot parser\")", systemsCliSource);
         Assert.Contains("func main(): void", systemsCliSource);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCore, out var packetCoreSource));
+        var packetCoreSource = NewCommandKernels.GetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCore);
         Assert.Contains("public func AdaptPacket(bytes: byte[]): Result<uint, ParseError>", packetCoreSource);
         Assert.DoesNotContain("func main", packetCoreSource, StringComparison.Ordinal);
 
-        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCoreTests, out var packetCoreTestsSource));
+        var packetCoreTestsSource = NewCommandKernels.GetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCoreTests);
         Assert.Equal("test \"systems smoke\" {\n    assert true\n}\n", packetCoreTestsSource);
     }
 
