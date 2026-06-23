@@ -14,17 +14,15 @@ public static class CompletionCommand
         if (options.ShowHelp)
             return ShowHelp();
 
+        var shellForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
         return options.ShellKind switch
         {
             CompletionShellKind.Bash => WriteScript(BashScript),
             CompletionShellKind.Zsh => WriteScript(ZshScript),
             CompletionShellKind.Fish => WriteScript(FishScript),
-            _ => Error(CompletionCommandKernels.GetUnknownShellMessage(GetShellForError(args)))
+            _ => Error(CompletionCommandKernels.GetUnknownShellMessage(shellForError))
         };
     }
-
-    private static string GetShellForError(string[] args)
-        => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
 
     private static int WriteScript(string script)
     {

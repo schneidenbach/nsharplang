@@ -531,14 +531,16 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
 
         var requestedTemplate = arguments.TemplateOption;
-        if (arguments.SecondPositional != null && NormalizeProjectTemplate(arguments.FirstPositional!) is { } positionalTemplate)
+        if (arguments.SecondPositional != null
+            && GetProjectTemplateName(NewCommandKernels.NormalizeTemplateKind(arguments.FirstPositional!)) is { } positionalTemplate)
         {
             requestedTemplate = positionalTemplate;
             projectName = arguments.SecondPositional;
         }
 
         var systemsFlag = arguments.Systems;
-        var template = ResolveProjectTemplate(requestedTemplate ?? "console", systemsFlag);
+        var template = GetProjectTemplateName(
+            NewCommandKernels.ResolveTemplateKind(requestedTemplate ?? "console", systemsFlag));
         if (template == null)
         {
             return Error(NewCommandKernels.GetInvalidTemplateMessage());
@@ -615,12 +617,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             NewTemplateSourceFileKind.PacketCoreTests => "PacketCore.tests.nl",
             _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
         };
-
-    static string? NormalizeProjectTemplate(string value)
-        => GetProjectTemplateName(NewCommandKernels.NormalizeTemplateKind(value));
-
-    static string? ResolveProjectTemplate(string value, bool systems)
-        => GetProjectTemplateName(NewCommandKernels.ResolveTemplateKind(value, systems));
 
     static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
         => templateKind switch

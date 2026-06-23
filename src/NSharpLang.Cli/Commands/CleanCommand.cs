@@ -20,7 +20,7 @@ public static class CleanCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = GetProjectRoot(options);
+        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
         var cleanAll = options.CleanAll;
 
         if (!Directory.Exists(projectRoot))
@@ -94,9 +94,6 @@ public static class CleanCommand
 
         return Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage($"{result.Stderr}{result.Stdout}".Trim()));
     }
-
-    private static string GetProjectRoot(CleanOptionSummary options)
-        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
     private static int ShowHelp()
     {
