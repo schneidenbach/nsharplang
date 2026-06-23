@@ -2776,15 +2776,15 @@ func Main() {
         Assert.True(AddCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Null(AddCommand.GetArgumentSummary(new[] { "--version", "13.0.3" }).PackageOperand);
 
-        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog@3.1.0", "ignored", out var inlineSpec));
+        var inlineSpec = AddCommandKernels.GetPackageSpec("Serilog@3.1.0", "ignored");
         Assert.Equal("Serilog", inlineSpec.PackageName);
         Assert.Equal("3.1.0", inlineSpec.Version);
 
-        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog", "3.1.0", out var explicitSpec));
+        var explicitSpec = AddCommandKernels.GetPackageSpec("Serilog", "3.1.0");
         Assert.Equal("Serilog", explicitSpec.PackageName);
         Assert.Equal("3.1.0", explicitSpec.Version);
 
-        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog", null, out var unversionedSpec));
+        var unversionedSpec = AddCommandKernels.GetPackageSpec("Serilog", null);
         Assert.Equal("Serilog", unversionedSpec.PackageName);
         Assert.Null(unversionedSpec.Version);
 
@@ -2800,13 +2800,12 @@ func Main() {
             "    version: ignored",
             "targetFramework: net10.0"
         };
-        Assert.True(AddCommandKernels.TryGetDependencyInsertIndex(dependencyLines, out var insertAt));
+        var insertAt = AddCommandKernels.GetDependencyInsertIndex(dependencyLines);
         Assert.Equal(4, insertAt);
         Assert.Equal(4, AddCommand.GetDependencyInsertIndex(dependencyLines));
 
-        Assert.True(AddCommandKernels.TryGetDependencyInsertIndex(
-            new[] { "name: Demo", "targetFramework: net10.0" },
-            out var missingDependencySection));
+        var missingDependencySection = AddCommandKernels.GetDependencyInsertIndex(
+            new[] { "name: Demo", "targetFramework: net10.0" });
         Assert.Equal(-1, missingDependencySection);
 
         var dependencies = new List<Reference>
@@ -2817,34 +2816,29 @@ func Main() {
             new()
         };
 
-        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+        var packageExists = AddCommandKernels.PackageOrFrameworkDependencyExists(
             dependencies,
-            "newtonsoft.json",
-            out var packageExists));
+            "newtonsoft.json");
         Assert.True(packageExists);
 
-        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+        var frameworkExists = AddCommandKernels.PackageOrFrameworkDependencyExists(
             dependencies,
-            "microsoft.aspnetcore.app",
-            out var frameworkExists));
+            "microsoft.aspnetcore.app");
         Assert.True(frameworkExists);
 
-        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+        var packageMissing = AddCommandKernels.PackageOrFrameworkDependencyExists(
             dependencies,
-            "Serilog",
-            out var packageMissing));
+            "Serilog");
         Assert.False(packageMissing);
 
-        Assert.True(AddCommandKernels.TryProjectDependencyExists(
+        var projectExists = AddCommandKernels.ProjectDependencyExists(
             dependencies,
-            "../shared/PROJECT.yml",
-            out var projectExists));
+            "../shared/PROJECT.yml");
         Assert.True(projectExists);
 
-        Assert.True(AddCommandKernels.TryProjectDependencyExists(
+        var projectMissing = AddCommandKernels.ProjectDependencyExists(
             dependencies,
-            "../Other/project.yml",
-            out var projectMissing));
+            "../Other/project.yml");
         Assert.False(projectMissing);
 
         Assert.True(AddCommand.PackageOrFrameworkDependencyExists(dependencies, "NEWTONSOFT.JSON"));

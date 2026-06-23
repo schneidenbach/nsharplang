@@ -100,36 +100,16 @@ public static class AddCommand
         => AddCommandKernels.GetArgumentSummary(args);
 
     internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
-    {
-        if (AddCommandKernels.TryGetPackageSpec(raw, explicitVersion, out var spec))
-            return spec;
-
-        throw new InvalidOperationException("N# add package spec kernel rejected the package.");
-    }
+        => AddCommandKernels.GetPackageSpec(raw, explicitVersion);
 
     internal static int GetDependencyInsertIndex(string[] lines)
-    {
-        if (AddCommandKernels.TryGetDependencyInsertIndex(lines, out var insertIndex))
-            return insertIndex;
-
-        throw new InvalidOperationException("N# add dependency insertion kernel rejected the project file.");
-    }
+        => AddCommandKernels.GetDependencyInsertIndex(lines);
 
     internal static bool PackageOrFrameworkDependencyExists(IReadOnlyList<Reference> dependencies, string packageName)
-    {
-        if (AddCommandKernels.TryPackageOrFrameworkDependencyExists(dependencies, packageName, out var exists))
-            return exists;
-
-        throw new InvalidOperationException("N# add duplicate dependency kernel rejected the dependency table.");
-    }
+        => AddCommandKernels.PackageOrFrameworkDependencyExists(dependencies, packageName);
 
     internal static bool ProjectDependencyExists(IReadOnlyList<Reference> dependencies, string localPath)
-    {
-        if (AddCommandKernels.TryProjectDependencyExists(dependencies, localPath, out var exists))
-            return exists;
-
-        throw new InvalidOperationException("N# add duplicate project dependency kernel rejected the dependency table.");
-    }
+        => AddCommandKernels.ProjectDependencyExists(dependencies, localPath);
 
     static int AddProjectReference(string projectYml, string localPath)
     {

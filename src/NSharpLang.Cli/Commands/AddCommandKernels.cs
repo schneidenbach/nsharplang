@@ -48,67 +48,48 @@ internal static class AddCommandKernels
             resultIndices[5] != 0);
     }
 
-    internal static bool TryGetPackageSpec(string raw, string? explicitVersion, out AddPackageSpec spec)
+    internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
     {
-        spec = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var result = t_packageSpecResult ??= new int[4];
-        try
+        var explicitVersionPresent = explicitVersion == null ? 0 : 1;
+        var code = bindings.AddPackageSpec(raw, explicitVersion ?? string.Empty, explicitVersionPresent, result);
+        if (code != 0)
+            throw new InvalidOperationException("N# add package spec kernel rejected the package.");
+
+        var packageLength = result[0];
+        if (packageLength < 0 || packageLength > raw.Length)
+            throw new InvalidOperationException("N# add package spec kernel returned an invalid package span.");
+
+        var versionSource = result[1];
+        var versionStart = result[2];
+        var versionLength = result[3];
+
+        string? version = null;
+        if (versionSource == 1)
         {
-            var explicitVersionPresent = explicitVersion == null ? 0 : 1;
-            var code = bindings.AddPackageSpec(raw, explicitVersion ?? string.Empty, explicitVersionPresent, result);
-            if (code != 0)
-                return false;
-
-            var packageLength = result[0];
-            if (packageLength < 0 || packageLength > raw.Length)
-                return false;
-
-            var versionSource = result[1];
-            var versionStart = result[2];
-            var versionLength = result[3];
-
-            string? version = null;
-            if (versionSource == 1)
-            {
-                if (!TrySlice(raw, versionStart, versionLength, out version))
-                    return false;
-            }
-            else if (versionSource == 2)
-            {
-                if (explicitVersion == null || !TrySlice(explicitVersion, versionStart, versionLength, out version))
-                    return false;
-            }
-            else if (versionSource != 0)
-            {
-                return false;
-            }
-
-            spec = new AddPackageSpec(raw[..packageLength], version);
-            return true;
+            version = Slice(raw, versionStart, versionLength);
         }
-        catch
+        else if (versionSource == 2)
         {
-            spec = default;
-            return false;
+            if (explicitVersion == null)
+                throw new InvalidOperationException("N# add package spec kernel selected a missing explicit version.");
+
+            version = Slice(explicitVersion, versionStart, versionLength);
         }
+        else if (versionSource != 0)
+        {
+            throw new InvalidOperationException("N# add package spec kernel returned an invalid version source.");
+        }
+
+        return new AddPackageSpec(raw[..packageLength], version);
     }
 
-    internal static bool TryPackageOrFrameworkDependencyExists(
+    internal static bool PackageOrFrameworkDependencyExists(
         IReadOnlyList<Reference> dependencies,
-        string packageName,
-        out bool exists)
+        string packageName)
     {
-        exists = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var scratch = t_dependencyExistsScratch ??= new DependencyExistsScratch();
         scratch.EnsureCapacity(dependencies.Count);
 
@@ -121,39 +102,24 @@ internal static class AddCommandKernels
             scratch.FrameworkPresent[i] = dependency.Framework == null ? 0 : 1;
         }
 
-        try
-        {
-            var result = bindings.AddPackageOrFrameworkDependencyExists(
-                scratch.NugetNames,
-                scratch.NugetPresent,
-                scratch.FrameworkNames,
-                scratch.FrameworkPresent,
-                dependencies.Count,
-                packageName);
-            if (result is not 0 and not 1)
-                return false;
+        var result = bindings.AddPackageOrFrameworkDependencyExists(
+            scratch.NugetNames,
+            scratch.NugetPresent,
+            scratch.FrameworkNames,
+            scratch.FrameworkPresent,
+            dependencies.Count,
+            packageName);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# add duplicate dependency kernel rejected the dependency table.");
 
-            exists = result == 1;
-            return true;
-        }
-        catch
-        {
-            exists = false;
-            return false;
-        }
+        return result == 1;
     }
 
-    internal static bool TryProjectDependencyExists(
+    internal static bool ProjectDependencyExists(
         IReadOnlyList<Reference> dependencies,
-        string localPath,
-        out bool exists)
+        string localPath)
     {
-        exists = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var scratch = t_dependencyExistsScratch ??= new DependencyExistsScratch();
         scratch.EnsureCapacity(dependencies.Count);
 
@@ -164,48 +130,24 @@ internal static class AddCommandKernels
             scratch.ProjectPresent[i] = dependency.Project == null ? 0 : 1;
         }
 
-        try
-        {
-            var result = bindings.AddProjectDependencyExists(
-                scratch.ProjectNames,
-                scratch.ProjectPresent,
-                dependencies.Count,
-                localPath);
-            if (result is not 0 and not 1)
-                return false;
+        var result = bindings.AddProjectDependencyExists(
+            scratch.ProjectNames,
+            scratch.ProjectPresent,
+            dependencies.Count,
+            localPath);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# add duplicate project dependency kernel rejected the dependency table.");
 
-            exists = result == 1;
-            return true;
-        }
-        catch
-        {
-            exists = false;
-            return false;
-        }
+        return result == 1;
     }
 
-    internal static bool TryGetDependencyInsertIndex(string[] lines, out int insertIndex)
+    internal static int GetDependencyInsertIndex(string[] lines)
     {
-        insertIndex = -1;
+        var result = RequiredBindings.AddDependencyInsertIndex(lines);
+        if (result < -1 || result > lines.Length)
+            throw new InvalidOperationException("N# add dependency insertion kernel rejected the project file.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.AddDependencyInsertIndex(lines);
-            if (result < -1 || result > lines.Length)
-                return false;
-
-            insertIndex = result;
-            return true;
-        }
-        catch
-        {
-            insertIndex = -1;
-            return false;
-        }
+        return result;
     }
 
     internal static string GetHelpText()
@@ -357,14 +299,12 @@ internal static class AddCommandKernels
         return true;
     }
 
-    private static bool TrySlice(string value, int start, int length, out string slice)
+    private static string Slice(string value, int start, int length)
     {
-        slice = string.Empty;
         if (start < 0 || length < 0 || start + length > value.Length)
-            return false;
+            throw new InvalidOperationException("N# add package spec kernel returned an invalid version span.");
 
-        slice = value.Substring(start, length);
-        return true;
+        return value.Substring(start, length);
     }
 
     private sealed class DependencyExistsScratch
