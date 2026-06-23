@@ -309,14 +309,20 @@ public static class FixCommand
     }
 
     internal static FixArgumentSummary GetArgumentSummary(string[] args)
-        => FixCommandArgumentKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetArgumentSummaryWithCSharp(args);
+    {
+        if (FixCommandArgumentKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# fix argument summary kernel rejected the arguments.");
+    }
 
     internal static FixOutputModeKind GetEffectiveOutputMode(FixArgumentSummary arguments)
-        => FixCommandArgumentKernels.TryGetEffectiveOutputMode(arguments.UseText, out var outputMode)
-            ? outputMode
-            : GetEffectiveOutputModeWithCSharp(arguments.UseText);
+    {
+        if (FixCommandArgumentKernels.TryGetEffectiveOutputMode(arguments.UseText, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# fix output mode kernel rejected the value.");
+    }
 
     private static string GetProjectDir(FixArgumentSummary arguments)
     {
@@ -324,56 +330,6 @@ public static class FixCommand
             return Path.GetFullPath(arguments.ProjectOption);
 
         return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix argument parsing routes through FixCommandArgumentKernels.
-    private static FixArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            GetOptionValueWithCSharp(args, "--file"),
-            GetFirstPositionalArgWithCSharp(args, "--project", "--file"),
-            ContainsArgWithCSharp(args, "--dry-run"),
-            ContainsArgWithCSharp(args, "--text"),
-            ContainsArgWithCSharp(args, "--include-review-needed"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix output mode selection routes through FixCommandArgumentKernels.
-    private static FixOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText)
-        => useText ? FixOutputModeKind.Text : FixOutputModeKind.Json;
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-        return null;
-    }
-
-    private static string? GetFirstPositionalArgWithCSharp(string[] args, params string[] optionsWithValues)
-    {
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
-
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)
