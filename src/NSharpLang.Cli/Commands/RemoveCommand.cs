@@ -66,9 +66,6 @@ public static class RemoveCommand
         return 0;
     }
 
-    internal static string? GetPackageOperand(string[] args)
-        => GetArgumentSummary(args).PackageOperand;
-
     internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
     {
         if (RemoveCommandKernels.TryGetArgumentSummary(args, out var summary))

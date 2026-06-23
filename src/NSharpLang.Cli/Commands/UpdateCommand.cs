@@ -133,9 +133,6 @@ public static class UpdateCommand
         return 0;
     }
 
-    internal static string? GetTargetPackage(string[] args)
-        => GetArgumentSummary(args).TargetPackage;
-
     internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
     {
         if (UpdateCommandKernels.TryGetArgumentSummary(args, out var summary))

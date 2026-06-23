@@ -96,9 +96,6 @@ public static class AddCommand
         return 0;
     }
 
-    internal static string? GetPackageOperand(string[] args)
-        => GetArgumentSummary(args).PackageOperand;
-
     internal static AddArgumentSummary GetArgumentSummary(string[] args)
     {
         if (AddCommandKernels.TryGetArgumentSummary(args, out var summary))
