@@ -568,15 +568,9 @@ internal static class CompilationReferenceResolver
 
     private static string? SelectBestInstalledNuGetVersion(string[] versions)
     {
-        if (CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(versions, out var dogfoodIndex)
-            && dogfoodIndex >= 0)
+        if (CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(versions, out var dogfoodIndex))
         {
-            return versions[dogfoodIndex];
-        }
-
-        if (versions.Length == 0)
-        {
-            return null;
+            return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
         }
 
         throw new InvalidOperationException("N# reference resolver kernel rejected installed NuGet version selection.");
@@ -600,15 +594,9 @@ internal static class CompilationReferenceResolver
 
     private static string? SelectLatestNuGetVersion(string[] versions)
     {
-        if (CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(versions, out var dogfoodIndex)
-            && dogfoodIndex >= 0)
+        if (CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(versions, out var dogfoodIndex))
         {
-            return versions[dogfoodIndex];
-        }
-
-        if (versions.Length == 0)
-        {
-            return null;
+            return dogfoodIndex >= 0 ? versions[dogfoodIndex] : null;
         }
 
         throw new InvalidOperationException("N# reference resolver kernel rejected latest NuGet version selection.");
