@@ -1019,7 +1019,6 @@ public class CodeIntelligenceService
         var typeInfo = span != null
             ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.StartColumn)
             : null;
-        typeInfo ??= FindTypeInfoByName(snapshot, currentUnit, declaration.Name);
 
         var resolvedType = typeInfo != null ? FormatTypeInfo(typeInfo) : declaration.Name;
         return new TypeResult(
