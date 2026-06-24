@@ -3925,16 +3925,9 @@ public class Analyzer : IDisposable
 
     private static bool HasMustUseAttribute(MethodInfo method)
     {
-        try
-        {
             return method.GetCustomAttributesData()
                 .Any(data => IsMustUseAttributeName(data.AttributeType.Name)
                     || IsMustUseAttributeName(data.AttributeType.FullName ?? string.Empty));
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static bool IsDiscardTarget(Expression target)
