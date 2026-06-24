@@ -70,19 +70,6 @@ public static class CheckCommand
                 }
             }
 
-            // `--aot` promotes Native AOT blockers to errors so `nlc check --aot` mirrors
-            // `nlc build --aot`. Analysis-only: no IL is emitted for this gate.
-            if (aot)
-            {
-                var aotDiagnostics = CollectAotDiagnostics(projectDir, projectConfig);
-                if (aotDiagnostics.Count > 0)
-                {
-                    diagnostics.AddRange(aotDiagnostics);
-                    diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
-                    summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
-                }
-            }
-
             if (outputMode == -1)
             {
                 return EmitError(useText, CheckCommandKernels.GetSystemsReportTextUnavailableMessage(), projectDir);
@@ -164,19 +151,6 @@ public static class CheckCommand
     {
         var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
         return CompilerErrorSeverityFilter.Filter(errorList, severity);
-    }
-
-    /// <summary>
-    /// Runs the AOT-blocker analysis pass and returns the blockers as build-blocking
-    /// diagnostics. Analysis-only — no IL is emitted.
-    /// </summary>
-    private static List<DiagnosticResult> CollectAotDiagnostics(string projectDir, ProjectConfig? config)
-    {
-        var compiler = new MultiFileCompiler(projectDir, config);
-        compiler.CompileForAnalysis();
-        return compiler.BuildAotDiagnostics(asError: true)
-            .Select(error => CodeIntelligenceService.ToDiagnosticResult(error, projectDir))
-            .ToList();
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

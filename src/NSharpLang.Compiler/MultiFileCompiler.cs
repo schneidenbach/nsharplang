@@ -601,39 +601,7 @@ public class MultiFileCompiler
             }
         }
 
-        // AOT-blocker analysis is a pure pass over the parsed ASTs. It always runs so the
-        // facts are available to the perf report and the `--aot` diagnostic gate.
-        AnalyzeAotBlockers();
         AnalyzeSystemsPolicy();
-    }
-
-    /// <summary>
-    /// AOT-blocker analysis pass: classifies each file's ABI surface, walks every compilation
-    /// unit for reflection / dynamic-code / runtime-generic / expression-tree constructs, and
-    /// records both <see cref="AotBlocker"/> facts and the corresponding
-    /// <see cref="Performance.PerformanceFacts"/> into the shared store. Pure analysis — emits
-    /// no IL and changes no other behavior. Deterministic by (file, line, column).
-    /// </summary>
-    private void AnalyzeAotBlockers()
-    {
-        _aotBlockers.Clear();
-
-        foreach (var sourceFile in _compilationUnits.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            var compilationUnit = _compilationUnits[sourceFile];
-            var abi = new AbiClassifier(sourceFile).Classify(compilationUnit);
-            _semanticModels.TryGetValue(sourceFile, out var semanticModel);
-            var analyzer = new AotBlockerAnalyzer(sourceFile, abi, semanticModel).Analyze(compilationUnit, _performanceFacts);
-            _aotBlockers.AddRange(analyzer.Blockers);
-        }
-
-        _aotBlockers.Sort(static (a, b) =>
-        {
-            var byFile = string.Compare(a.File, b.File, StringComparison.OrdinalIgnoreCase);
-            if (byFile != 0) return byFile;
-            var byLine = a.Line.CompareTo(b.Line);
-            return byLine != 0 ? byLine : a.Column.CompareTo(b.Column);
-        });
     }
 
     /// <summary>
