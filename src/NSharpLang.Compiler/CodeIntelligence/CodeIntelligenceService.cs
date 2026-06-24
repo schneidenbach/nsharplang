@@ -1141,10 +1141,6 @@ public class CodeIntelligenceService
         if (fromExpression != null)
             return fromExpression;
 
-        var fromSourceContext = ResolveDefinitionSymbolFromSourceContext(snapshot, filePath, cu, semanticModel, line, col);
-        if (fromSourceContext != null)
-            return fromSourceContext;
-
         return null;
     }
 
@@ -1198,32 +1194,6 @@ public class CodeIntelligenceService
         return null;
     }
 
-    private SymbolDeclaration? ResolveDefinitionSymbolFromSourceContext(ProjectSnapshot snapshot, string filePath,
-        CompilationUnit currentUnit, SemanticModel? semanticModel, int line, int col)
-    {
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (span == null)
-            return null;
-
-        var name = ExtractWordAtPosition(snapshot, filePath, line, col);
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        var receiverName = ExtractMemberReceiverName(snapshot, filePath, line, span.Value.StartColumn);
-        if (!string.IsNullOrWhiteSpace(receiverName))
-        {
-            var receiverType = ResolveTypeInfoByName(receiverName, semanticModel, snapshot, currentUnit);
-            if (receiverType != null)
-            {
-                var memberDeclaration = FindMemberDeclarationSymbol(snapshot, receiverType, name);
-                if (memberDeclaration != null)
-                    return memberDeclaration;
-            }
-        }
-
-        return FindBestDeclarationSymbolByName(snapshot, filePath, name, line);
-    }
-
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
         var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
@@ -1246,36 +1216,6 @@ public class CodeIntelligenceService
         }
 
         return null;
-    }
-
-    private SymbolDeclaration? FindBestDeclarationSymbolByName(ProjectSnapshot snapshot, string filePath, string? name, int line)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        var bindingDeclaration = FindNearestBindingDeclarationByName(snapshot, filePath, name, line);
-        if (bindingDeclaration != null)
-            return bindingDeclaration;
-
-        return FindDeclarationSymbol(snapshot, name);
-    }
-
-    private SymbolDeclaration? FindNearestBindingDeclarationByName(ProjectSnapshot snapshot, string filePath, string name, int line)
-    {
-        if (snapshot.Bindings == null)
-            return null;
-
-        if (BindingLookupKernels.TryFindNearestBindingDeclarationByName(
-                snapshot.Bindings,
-                filePath,
-                name,
-                line,
-                out var dogfoodDeclaration))
-        {
-            return dogfoodDeclaration;
-        }
-
-        return dogfoodDeclaration;
     }
 
     private SymbolDeclaration? FindDeclarationSymbolInUnit(CompilationUnit cu, string name, string filePath)
