@@ -12026,43 +12026,8 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        if (ShouldSuppressReflectionOverloadDiagnostic(call, candidateMethods, argTypes))
-            return GetFallbackReflectionReturnType(call, candidateMethods);
-
         ReportNoMatchingReflectionOverload(call, candidateMethods, argTypes);
         return BuiltInTypes.Unknown;
-    }
-
-    private static bool ShouldSuppressReflectionOverloadDiagnostic(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
-    {
-        if (candidateMethods.Count == 0)
-            return true;
-
-        var hasCompatibleArity = candidateMethods.Any(method =>
-            HasCompatibleReflectionArity(
-                method.GetParameters(),
-                IsExtensionMethodCall(method, call) ? 1 : 0,
-                call.Arguments.Count));
-
-        if (!hasCompatibleArity)
-            return false;
-
-        return argTypes.Any(BuiltInTypes.IsUnknown)
-            || call.Arguments.Any(argument => argument.Value is LambdaExpression);
-    }
-
-    private TypeInfo GetFallbackReflectionReturnType(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods)
-    {
-        var fallbackMethod = candidateMethods.FirstOrDefault(method =>
-            HasCompatibleReflectionArity(
-                method.GetParameters(),
-                IsExtensionMethodCall(method, call) ? 1 : 0,
-                call.Arguments.Count))
-            ?? candidateMethods.FirstOrDefault();
-
-        return fallbackMethod != null
-            ? NullabilityMetadata.ConvertReturn(fallbackMethod)
-            : BuiltInTypes.Unknown;
     }
 
     private void ReportNoMatchingReflectionOverload(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
