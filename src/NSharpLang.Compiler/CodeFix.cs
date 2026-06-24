@@ -292,11 +292,37 @@ internal static class CodeFixActionKernels
         return true;
     }
 
+    internal static bool TryGetEmptyCatchCommentEdit(
+        string sourceCode,
+        int line,
+        out int column,
+        out string newText)
+    {
+        column = 0;
+        newText = string.Empty;
+
+        var editInfo = t_editInfo ??= new int[2];
+        var replacementText = t_replacementText ??= new string[1];
+        var code = RequiredBindings.GetEmptyCatchCommentEditInto(sourceCode, line, editInfo, replacementText);
+        if (code < 0)
+            throw new InvalidOperationException("N# code-fix action kernel returned an invalid edit result.");
+
+        if (code == 0)
+            return false;
+
+        column = editInfo[0];
+        newText = replacementText[0];
+        return true;
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CodeFixUnnecessaryNullCheckEditInto>(
                 programType,
-                "CodeFixUnnecessaryNullCheckEditInto")));
+                "CodeFixUnnecessaryNullCheckEditInto"),
+            DogfoodKernelLoader.CreateDelegate<CodeFixEmptyCatchCommentEditInto>(
+                programType,
+                "CodeFixEmptyCatchCommentEditInto")));
 
     private delegate int CodeFixUnnecessaryNullCheckEditInto(
         string source,
@@ -304,7 +330,15 @@ internal static class CodeFixActionKernels
         int[] editInfo,
         string[] replacementText);
 
-    private sealed record Bindings(CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto);
+    private delegate int CodeFixEmptyCatchCommentEditInto(
+        string source,
+        int line,
+        int[] editInfo,
+        string[] replacementText);
+
+    private sealed record Bindings(
+        CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto,
+        CodeFixEmptyCatchCommentEditInto GetEmptyCatchCommentEditInto);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# code-fix action kernels are unavailable.");
@@ -452,23 +486,17 @@ public class AddCommentToEmptyCatchCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
-        if (line <= 0 || line > sourceLines.Length)
+        if (!CodeFixActionKernels.TryGetEmptyCatchCommentEdit(sourceCode, line, out var column, out var newText))
             return actions;
-
-        // Find the opening brace line and insert the comment on the next line
-        // We'll insert after the line that contains the opening `{`
-        var catchLine = sourceLines[line - 1];
-        var indent = new string(' ', catchLine.Length - catchLine.TrimStart().Length + 4); // +4 for inner indent
 
         var edit = new TextEdit(
             line,
-            catchLine.Length, // end of the `{` line (0-based end-exclusive column)
+            column,
             line,
-            catchLine.Length,
-            $"\n{indent}// TODO: handle exception");
+            column,
+            newText);
 
         actions.Add(new CodeAction(
             "Add TODO comment to empty catch block",

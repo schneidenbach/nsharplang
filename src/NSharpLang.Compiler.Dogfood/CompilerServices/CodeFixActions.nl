@@ -1,4 +1,5 @@
 import System
+import System.Text
 
 func CodeFixUnnecessaryNullCheckEditInto(source: string, line: int, editInfo: int[], replacementText: string[]): int {
     if editInfo.Length < 2 || replacementText.Length < 1 {
@@ -13,17 +14,13 @@ func CodeFixUnnecessaryNullCheckEditInto(source: string, line: int, editInfo: in
         return 0
     }
 
-    lineCount := FixApplicatorCountLogicalLines(source)
-    if line > lineCount {
-        return 0
+    lineText := new string[](1)
+    sourceLineResult := CodeFixSourceLineInto(source, line, lineText)
+    if sourceLineResult <= 0 {
+        return sourceLineResult
     }
 
-    lines := new FixApplicatorLineTable { Lines: new string[](lineCount), Count: 0 }
-    if FixApplicatorSplitLogicalLinesInto(source, ref lines) < 0 {
-        return -1
-    }
-
-    sourceLine := lines.Lines[line - 1]
+    sourceLine := lineText[0]
     notNullPattern := "!= null"
     nullPattern := "== null"
 
@@ -46,6 +43,61 @@ func CodeFixUnnecessaryNullCheckEditInto(source: string, line: int, editInfo: in
     editInfo[0] = rangeInfo[0]
     editInfo[1] = rangeInfo[1]
     replacementText[0] = replacement
+    return 1
+}
+
+func CodeFixEmptyCatchCommentEditInto(source: string, line: int, editInfo: int[], replacementText: string[]): int {
+    if editInfo.Length < 1 || replacementText.Length < 1 {
+        return -1
+    }
+
+    editInfo[0] = 0
+    replacementText[0] = ""
+
+    lineText := new string[](1)
+    sourceLineResult := CodeFixSourceLineInto(source, line, lineText)
+    if sourceLineResult <= 0 {
+        return sourceLineResult
+    }
+
+    catchLine := lineText[0]
+    indentLength := CodeFixLeadingWhitespaceCount(catchLine) + 4
+    builder := new StringBuilder(indentLength + 27)
+    builder.Append('\n')
+
+    i := 0
+    while i < indentLength {
+        builder.Append(' ')
+        i = i + 1
+    }
+
+    builder.Append("// TODO: handle exception")
+    editInfo[0] = catchLine.Length
+    replacementText[0] = builder.ToString()
+    return 1
+}
+
+func CodeFixSourceLineInto(source: string, line: int, lineText: string[]): int {
+    if lineText.Length < 1 {
+        return -1
+    }
+
+    lineText[0] = ""
+    if line <= 0 {
+        return 0
+    }
+
+    lineCount := FixApplicatorCountLogicalLines(source)
+    if line > lineCount {
+        return 0
+    }
+
+    lines := new FixApplicatorLineTable { Lines: new string[](lineCount), Count: 0 }
+    if FixApplicatorSplitLogicalLinesInto(source, ref lines) < 0 {
+        return -1
+    }
+
+    lineText[0] = lines.Lines[line - 1]
     return 1
 }
 
@@ -114,6 +166,15 @@ func CodeFixIndexOfCharFrom(text: string, ch: char, start: int): int {
     }
 
     return -1
+}
+
+func CodeFixLeadingWhitespaceCount(text: string): int {
+    index := 0
+    while index < text.Length && CodeFixIsWhitespace(text[index]) {
+        index = index + 1
+    }
+
+    return index
 }
 
 func CodeFixIsWhitespace(ch: char): bool {
