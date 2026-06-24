@@ -21256,11 +21256,6 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (resolved is ExternalTypeInfo external && IsPrimitiveRelationalTypeName(external.Name))
-        {
-            return true;
-        }
-
         return resolved is ReflectionTypeInfo reflection
             && IsPrimitiveRelationalClrType(reflection.Type);
     }
@@ -21349,11 +21344,6 @@ public class Analyzer : IDisposable
         }
 
         if (resolved is SimpleTypeInfo { Name: "bool" or "Boolean" })
-        {
-            return true;
-        }
-
-        if (resolved is ExternalTypeInfo { Name: "bool" or "Boolean" })
         {
             return true;
         }
