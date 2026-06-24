@@ -103,10 +103,7 @@ internal static class CompletionEngineKernels
                 "CodeIntelligenceCompletionReceiversInto"),
             DogfoodKernelLoader.CreateDelegate<CompletionItemKindGroupsInto>(
                 programType,
-                "CompletionItemKindGroupsInto"),
-            DogfoodKernelLoader.CreateDelegate<CompletionMethodOverloadGroupsInto>(
-                programType,
-                "CompletionMethodOverloadGroupsInto")));
+                "CompletionItemKindGroupsInto")));
 
     private delegate int CodeIntelligenceCompletionReceiversInto(
         string[] prefixes,
@@ -122,18 +119,9 @@ internal static class CompletionEngineKernels
         int[] resultCounts,
         int[] resultIndices);
 
-    private delegate int CompletionMethodOverloadGroupsInto(
-        int[] nameIds,
-        int[] includeFlags,
-        int[] nameCounts,
-        int[] resultNameIds,
-        int[] resultFirstIndices,
-        int[] resultCounts);
-
     private sealed record Bindings(
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
-        CompletionItemKindGroupsInto CompletionItemKindGroups,
-        CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups);
+        CompletionItemKindGroupsInto CompletionItemKindGroups);
 
     private sealed class CompletionReceiverScratch
     {
