@@ -55,23 +55,17 @@ internal static class ColumnarInterpolationSplitter
         if (count < 0)
             return false;
 
-        if (count > capacity)
-            throw new InvalidOperationException("N# columnar interpolation splitter returned too many parts.");
-
         try
         {
             for (var i = 0; i < count; i++)
             {
                 var kind = scratch.Kinds[i];
-                if (kind is not 0 and not 1)
-                    throw new InvalidOperationException("N# columnar interpolation splitter returned an invalid part kind.");
-
                 parts.Add(new Part(
                     kind == 1,
-                    scratch.Texts[i] ?? throw new InvalidOperationException("N# columnar interpolation splitter returned a null part text."),
+                    scratch.Texts[i],
                     scratch.FormatFlags[i] == 0
                         ? null
-                        : scratch.Formats[i] ?? throw new InvalidOperationException("N# columnar interpolation splitter returned a null format text.")));
+                        : scratch.Formats[i]));
             }
 
             return true;
