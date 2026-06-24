@@ -27,8 +27,8 @@ This is a product being built for millions of users. Treat every feature, every 
 ## Compiler Dogfood Architecture
 
 The compiler core libraries, compiler-service core libraries, and CLI command logic must converge to
-N# ownership. Do not add legacy compiler/tooling logic. Do not preserve legacy fallback, legacy emitters,
-or export paths as product architecture.
+N# ownership. Do not add legacy compiler/tooling logic. Do not preserve legacy fallback or legacy emitters
+as product architecture.
 
 Current legacy compiler-core and tooling code is deletion debt. Replace it with N# and remove the old
 owner. A slice that routes through N# but leaves the legacy owner required is not done.
