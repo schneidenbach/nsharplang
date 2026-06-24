@@ -663,17 +663,10 @@ public class ProjectFileParser
 
         foreach (var reference in config.Dependencies)
         {
-            try
+            // Only validate Dll and Project references (which check file existence)
+            if (reference.Type == ReferenceType.Dll || reference.Type == ReferenceType.Project)
             {
-                // Only validate Dll and Project references (which check file existence)
-                if (reference.Type == ReferenceType.Dll || reference.Type == ReferenceType.Project)
-                {
-                    reference.Validate(projectDirectory);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Warning: Dependency validation failed: {ex.Message}");
+                reference.Validate(projectDirectory);
             }
         }
     }
