@@ -1130,49 +1130,11 @@ public class CodeIntelligenceService
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
         if (cu == null) return null;
 
-        snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
-
         var binding = TryResolveDefinitionViaBindings(snapshot, filePath, line, col);
         if (binding != null)
             return binding;
 
-        var expr = FindExpressionAtPositionRobust(cu, line, col);
-        var fromExpression = ResolveDefinitionSymbolFromExpression(snapshot, filePath, cu, semanticModel, expr);
-        if (fromExpression != null)
-            return fromExpression;
-
         return null;
-    }
-
-    private SymbolDeclaration? ResolveDefinitionSymbolFromExpression(ProjectSnapshot snapshot, string filePath,
-        CompilationUnit currentUnit, SemanticModel? semanticModel, Expression? expr)
-    {
-        if (expr == null)
-            return null;
-
-        return expr switch
-        {
-            IdentifierExpression id => TryResolveDefinitionViaBindings(snapshot, filePath, id.Line, id.Column),
-            MemberAccessExpression memberAccess => ResolveMemberDefinitionSymbol(snapshot, currentUnit, semanticModel, memberAccess),
-            CallExpression call => ResolveDefinitionSymbolFromExpression(snapshot, filePath, currentUnit, semanticModel, call.Callee),
-            NewExpression newExpr when newExpr.Type != null => FindDeclarationSymbol(snapshot, GetTypeReferenceName(newExpr.Type)),
-            CastExpression castExpr => FindDeclarationSymbol(snapshot, GetTypeReferenceName(castExpr.TargetType)),
-            _ => null
-        };
-    }
-
-    private SymbolDeclaration? ResolveMemberDefinitionSymbol(ProjectSnapshot snapshot, CompilationUnit currentUnit,
-        SemanticModel? semanticModel, MemberAccessExpression memberAccess)
-    {
-        var receiverType = ResolveTypeInfoFromExpression(memberAccess.Object, semanticModel, snapshot, currentUnit);
-        if (receiverType == null && memberAccess.Object is IdentifierExpression receiverId)
-        {
-            receiverType = ResolveTypeInfoByName(receiverId.Name, semanticModel, snapshot, currentUnit);
-        }
-
-        return receiverType != null
-            ? FindMemberDeclarationSymbol(snapshot, receiverType, memberAccess.MemberName)
-            : null;
     }
 
     private SymbolDeclaration? TryResolveDefinitionViaBindings(ProjectSnapshot snapshot, string filePath, int line, int col)
