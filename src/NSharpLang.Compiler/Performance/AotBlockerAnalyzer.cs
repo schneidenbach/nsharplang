@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using NSharpLang.Compiler.Ast;
 
@@ -9,8 +8,6 @@ namespace NSharpLang.Compiler.Performance;
 /// <summary>
 /// A single construct that prevents Native AOT / trimming, located at a source position
 /// and tagged with the kind of safety guarantee it violates. Purely descriptive: produced
-/// by <see cref="AotBlockerAnalyzer"/> and consumed by diagnostics, the perf report, and
-/// the AOT-attribute emitter.
 /// </summary>
 public sealed record AotBlocker(
     AotSafetyKind Kind,
@@ -33,10 +30,6 @@ public sealed record AotBlocker(
         _ => ErrorCode.AotDynamicCode,
     };
 
-    /// <summary>
-    /// True when this blocker sits on a construct visible to external CLR consumers, so the
-    /// emitted assembly should carry a <c>[Requires*]</c> annotation on the public surface.
-    /// </summary>
     public bool IsOnPublicSurface => EnclosingBoundary == AbiBoundary.ClrPublic;
 }
 
@@ -45,9 +38,6 @@ public sealed record AotBlocker(
 /// construct that blocks Native AOT or trimming: runtime reflection, dynamic code generation,
 /// runtime generic instantiation (MakeGenericType/MakeGenericMethod), and expression trees.
 ///
-/// When a semantic model is available, detection uses the resolved CLR method selected by
-/// the analyzer; the AST-name fallback is reserved for standalone tests and legacy callers
-/// without semantic binding. The pass performs NO emitter changes; it only produces
 /// <see cref="AotBlocker"/> facts and records the corresponding <see cref="PerformanceFacts"/>
 /// into a <see cref="PerformanceFactStore"/>. See docs/design/performance-compiler-refactor.md
 /// "Native AOT".
@@ -74,26 +64,6 @@ public sealed class AotBlockerAnalyzer
         "GetInterface", "GetInterfaces",
         "InvokeMember",
         "GetRuntimeMethod", "GetRuntimeProperty", "GetRuntimeField",
-    };
-
-    // Member names that, when invoked, generate or dispatch code at runtime (no JIT under AOT).
-    private static readonly HashSet<string> DynamicCodeMembers = new(StringComparer.Ordinal)
-    {
-        "DynamicInvoke",
-        "CreateDelegate",
-    };
-
-    // Generic-instantiation members that build types/methods at runtime.
-    private static readonly HashSet<string> MakeGenericMembers = new(StringComparer.Ordinal)
-    {
-        "MakeGenericType",
-        "MakeGenericMethod",
-    };
-
-    // Receiver types whose static members generate code or instantiate types at runtime.
-    private static readonly HashSet<string> DynamicCodeReceivers = new(StringComparer.Ordinal)
-    {
-        "Activator",
     };
 
     public AotBlockerAnalyzer(string file, AbiClassifier abi, SemanticModel? semanticModel = null)
@@ -375,7 +345,6 @@ public sealed class AotBlockerAnalyzer
                 break;
 
             case NewExpression newExpr:
-                InspectNew(newExpr, context);
                 WalkChildExpressions(newExpr, context);
                 break;
 
@@ -424,51 +393,7 @@ public sealed class AotBlockerAnalyzer
                 Record(resolvedKind, member, resolvedConstruct, context);
             }
 
-            // In semantic mode, do not fall back to string matching. A user-defined
-            // `Compile`, `GetType`, or `Activator` member must not become an AOT blocker
-            // just because it shares a BCL name.
             return;
-        }
-
-        if (MakeGenericMembers.Contains(name))
-        {
-            Record(AotSafetyKind.DynamicCodeRequired, member, name, context);
-            return;
-        }
-
-        if (ReflectionMembers.Contains(name))
-        {
-            Record(AotSafetyKind.MetadataRequired, member, name, context);
-            return;
-        }
-
-        if (DynamicCodeMembers.Contains(name))
-        {
-            Record(AotSafetyKind.DynamicCodeRequired, member, name, context);
-            return;
-        }
-
-        // Static dynamic-code entry points: Activator.CreateInstance(...).
-        if (name == "CreateInstance" &&
-            member.Object is IdentifierExpression receiver &&
-            DynamicCodeReceivers.Contains(receiver.Name))
-        {
-            Record(AotSafetyKind.DynamicCodeRequired, member, $"{receiver.Name}.{name}", context);
-            return;
-        }
-
-        // Expression-tree construction / compilation:
-        //   Expression.Lambda(...), Expression.Call(...), expr.Compile().
-        if (member.Object is IdentifierExpression exprFactory && exprFactory.Name == "Expression")
-        {
-            Record(AotSafetyKind.ExpressionTreeRequired, member, $"Expression.{name}", context);
-            return;
-        }
-
-        if (name == "Compile")
-        {
-            // `.Compile()` is the LINQ-expression-tree compile entry point; AOT cannot JIT it.
-            Record(AotSafetyKind.ExpressionTreeRequired, member, "Compile", context);
         }
     }
 
@@ -593,29 +518,6 @@ public sealed class AotBlockerAnalyzer
 
     private static bool HasClrFullName(Type? type, string fullName)
         => string.Equals(type?.FullName, fullName, StringComparison.Ordinal);
-
-    private void InspectNew(NewExpression newExpr, DeclarationContext context)
-    {
-        var typeName = TypeName(newExpr.Type);
-        if (typeName == null)
-        {
-            return;
-        }
-
-        // Constructing a LINQ expression tree directly (rare, but explicit).
-        if (typeName.StartsWith("Expression", StringComparison.Ordinal))
-        {
-            Record(AotSafetyKind.ExpressionTreeRequired, newExpr.Line, newExpr.Column, typeName.Length, $"new {typeName}", context);
-        }
-    }
-
-    private static string? TypeName(TypeReference? type) => type switch
-    {
-        SimpleTypeReference simple => simple.Name,
-        GenericTypeReference generic => generic.Name,
-        ByRefTypeReference byRef => TypeName(byRef.InnerType),
-        _ => null,
-    };
 
     private void Record(AotSafetyKind kind, MemberAccessExpression member, string construct, DeclarationContext context)
     {
