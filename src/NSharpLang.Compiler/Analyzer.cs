@@ -2176,7 +2176,6 @@ public class Analyzer : IDisposable
             SimpleTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" } => true,
             GenericTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask", TypeArguments.Count: 0 } => true,
             ReflectionTypeInfo { Type: var reflectionType } => reflectionType == typeof(System.Threading.Tasks.Task) || reflectionType == typeof(System.Threading.Tasks.ValueTask),
-            ExternalTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" } => true,
             _ when IsUnitTaskLikeName(type.ToString()) => true,
             _ => false
         };
