@@ -18181,7 +18181,6 @@ public class Analyzer : IDisposable
     {
         var resolved = NormalizeShapeType(awaitableType);
         return !BuiltInTypes.IsUnknown(resolved)
-            && resolved is not ExternalTypeInfo
             && resolved is not ClassTypeInfo
             && resolved is not StructTypeInfo
             && resolved is not RecordTypeInfo
