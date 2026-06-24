@@ -612,16 +612,6 @@ public class MultiFileCompiler
         return TryReadSourceLine(file, line)?.TrimEnd();
     }
 
-    /// <summary>
-    /// Build Elm-quality diagnostics for the AOT blockers found during analysis.
-    /// <paramref name="asError"/> emits them as build-blocking errors (under <c>--aot</c>);
-    /// otherwise they are advisory warnings.
-    /// </summary>
-    public List<CompilerError> BuildAotDiagnostics(bool asError)
-    {
-        return AotDiagnostics.ToDiagnostics(_aotBlockers, TryReadSourceSnippet, asError);
-    }
-
     private void AnalyzeSystemsPolicy()
     {
         // The semantic models from the Analyzer pass drive call-site resolution: systems
@@ -710,12 +700,6 @@ public class MultiFileCompiler
 
         DetectCircularFileImports();
         AnalyzeAllFiles();
-
-        // Under `--aot`, every AOT blocker becomes a build-blocking error before emission.
-        if (AotMode)
-        {
-            _allErrors.AddRange(BuildAotDiagnostics(asError: true));
-        }
 
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
