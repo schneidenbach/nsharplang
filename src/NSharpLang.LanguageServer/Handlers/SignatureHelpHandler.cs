@@ -292,8 +292,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         // SemanticModel stores source positions as 1-based coordinates.
-        var typeInfo = doc.SemanticModel.LookupIdentifierAtPosition(receiverName, lspLine + 1, lspCharacter + 1)
-                       ?? doc.SemanticModel.LookupIdentifier(receiverName);
+        var typeInfo = doc.SemanticModel.LookupIdentifierAtPosition(receiverName, lspLine + 1, lspCharacter + 1);
 
         if (typeInfo == null)
         {

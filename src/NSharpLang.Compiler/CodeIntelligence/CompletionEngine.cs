@@ -187,11 +187,9 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.MemberAccess);
         }
 
-        // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
         if (semanticModel != null)
         {
-            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col)
-                          ?? semanticModel.LookupIdentifier(receiver);
+            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col);
             if (typeInfo != null)
             {
                 var memberResult = ResolveMemberCompletionsFromTypeInfo(
