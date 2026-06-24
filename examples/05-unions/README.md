@@ -18,17 +18,7 @@ Discriminated unions are N#'s killer feature - they let you model data that can 
 
 ## Why Unions?
 
-In C#, you often use inheritance or nullable types to represent "one of several things". This is error-prone:
-
-```csharp
-// C# - Easy to forget to check!
-var result = GetUser(id);
-if (result != null) {  // Oops, forgot this check!
-    Console.WriteLine(result.Name);
-}
-```
-
-With unions, the compiler **forces** you to handle all cases:
+Unions model "one of several things" directly, and the compiler **forces** you to handle all cases:
 
 ```n#
 // N# - Compiler enforces exhaustive matching
@@ -119,14 +109,14 @@ union PaymentMethod {
 }
 ```
 
-## Benefits Over C# Patterns
+## Benefits
 
-| Pattern | C# | N# Unions |
-|---------|-----|-----------|
-| Nullable | `T?` - can forget null check | `Option<T>` - compiler enforces |
-| Exceptions | Try-catch, can miss | `Result<T>` - explicit in signature |
-| Inheritance | Complex hierarchy | Simple, flat union |
-| Pattern matching | Partial, opt-in | Exhaustive, required |
+| Pattern | N# Unions |
+|---------|-----------|
+| Optional values | `Option<T>` keeps absence explicit |
+| Recoverable errors | `Result<T>` is explicit in the signature |
+| Variant data | Simple, flat union |
+| Pattern matching | Exhaustive, required |
 
 ## Next Steps
 

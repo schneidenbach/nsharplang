@@ -66,7 +66,7 @@ class Person {
 }
 ```
 
-### Primary Constructors (C# 12)
+### Primary Constructors
 
 ```n#
 class Person(firstName: string, lastName: string, age: int) {
@@ -380,7 +380,7 @@ func findUser(id: int): Option<User> {
 
 N# unions emit CLR class hierarchies. Case payload members follow N#'s naming
 conventions — PascalCase exports a public CLR field, camelCase stays
-assembly-internal — so name payloads PascalCase when C# needs to read them:
+assembly-internal — so name payloads PascalCase for public CLR surfaces:
 
 ```n#
 union Result<T> {
@@ -389,31 +389,7 @@ union Result<T> {
 }
 ```
 
-Compiles to:
-
-```csharp
-public abstract class Result<T>
-{
-    protected Result() { }
-
-    public sealed class Success : Result<T>
-    {
-        public T Value;
-    }
-
-    public sealed class Failure : Result<T>
-    {
-        public string Error;
-    }
-}
-```
-
-This means C# code can use N# unions naturally:
-
-```csharp
-// C# code consuming N# union
-var result = new Result<int>.Success { Value = 42 };
-```
+The emitted shape is an abstract union base with sealed case types and public fields for exported payload members.
 
 ## Duck Interfaces
 
@@ -479,7 +455,7 @@ duck interface IReader {
 
 Compiles to an internal interface:
 
-```csharp
+```text
 internal interface IReader
 {
     string Read();
@@ -488,13 +464,13 @@ internal interface IReader
 
 And the compiler automatically implements it on matching types:
 
-```csharp
+```text
 // Original N#
 class FileReader {
     func Read(): string { ... }
 }
 
-// C# shape
+// CLR shape
 class FileReader : IReader
 {
     public string Read() { ... }
@@ -557,7 +533,7 @@ func describe(status: Status): string {
 
 String enums compile to readonly structs with implicit string conversion and JSON support:
 
-```csharp
+```text
 [JsonConverter(typeof(StatusJsonConverter))]
 public readonly struct Status : IEquatable<Status>
 {
@@ -573,7 +549,7 @@ public readonly struct Status : IEquatable<Status>
 
 Numeric enums emit CLR enums:
 
-```csharp
+```text
 public enum Priority
 {
     Low = 0,
@@ -764,7 +740,7 @@ city := user?.Address?.City
 
 ### Null checks instead of null-forgiving
 
-N# does not use C#'s null-forgiving `!` as an escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
+N# does not use null-forgiving `!` as an escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
 
 ```n#
 optionalName: string? = GetName()
@@ -814,8 +790,8 @@ let raw: int = id.Value    // Explicit unwrapping
 // let z: OrderId = id      // ERROR: UserId is not OrderId
 ```
 
-Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving C#
-consumers value equality, `ToString()`, and familiar value semantics.
+Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving
+public consumers value equality, `ToString()`, and familiar value semantics.
 
 > **Construction:** Both the call-style shorthand `UserId(42)` and the explicit
 > `new UserId(42)` are supported and produce identical IL.
@@ -921,7 +897,6 @@ func main() {
 
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching with unions and more
 - **[Functions Guide](functions.md)** - Learn about functions, lambdas, and async
-- **[Interop Guide](interop.md)** - Using N# with C# and .NET libraries
 
 ## Resources
 

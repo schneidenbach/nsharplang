@@ -28,7 +28,6 @@ public sealed record PlaygroundExample(
     int Minutes,
     string Goal,
     IReadOnlyList<string> Concepts,
-    string CSharpContrast,
     string Code,
     string? TestsCode,
     string? ExpectedOutput = null)

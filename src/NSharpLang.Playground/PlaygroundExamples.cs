@@ -14,7 +14,6 @@ public static class PlaygroundExamples
             2,
             "Change the greeting and use diagnostics to keep the program clean.",
             ["entry point", "print", "string interpolation", "tests"],
-            "N# keeps top-level ceremony low: func main() plus print is enough.",
             """
             package Tutorial
 
@@ -42,7 +41,6 @@ public static class PlaygroundExamples
             2,
             "Make the receipt line read naturally while preserving the tested total.",
             ["type inference", "let", "explicit types", "expression-bodied functions"],
-            "N# puts parameter types after names and uses := for inferred locals, closer to Go than C#.",
             """
             package Tutorial
 
@@ -74,7 +72,6 @@ public static class PlaygroundExamples
             2,
             "Inspect completions on todo. and notice which members are part of the public shape.",
             ["records", "classes", "properties", "visibility by casing", "with expressions"],
-            "PascalCase declarations are exported; camelCase declarations stay implementation details.",
             """
             package Tutorial
 
@@ -123,7 +120,6 @@ public static class PlaygroundExamples
             2,
             "Add or rename a result case and watch diagnostics point to missing match arms.",
             ["unions", "pattern matching", "exhaustiveness", "typed errors"],
-            "Instead of nullable result objects or string error codes, N# lets the type carry each case.",
             """
             package Tutorial
 
@@ -161,7 +157,6 @@ public static class PlaygroundExamples
             2,
             "Create another greeter with a Greet method and pass it to Welcome without : IGreeter.",
             ["duck interface", "structural typing", "concrete types", "interop-friendly shape"],
-            "C# requires nominal interface implementation; N# duck interfaces match by member shape.",
             """
             package Tutorial
 
@@ -207,7 +202,6 @@ public static class PlaygroundExamples
             1,
             "Ask for completions after numbers. to see array members through N#.",
             ["arrays", "foreach", "collection members", "C# interop"],
-            "N# keeps .NET collections available instead of inventing a separate collection world.",
             """
             package Tutorial
 
@@ -243,7 +237,6 @@ public static class PlaygroundExamples
             1,
             "Use result, err := and keep the happy path readable without swallowing failures.",
             ["error tuples", "exceptions", "null", "control flow"],
-            "N# embraces .NET exceptions but gives a Go-like call-site shape when you want it.",
             """
             package Tutorial
 
@@ -285,7 +278,6 @@ public static class PlaygroundExamples
             1,
             "Hover over LoadMessage and await to see async types in the browser tooling loop.",
             ["async", "await", "Task", ".NET interop"],
-            "N# async functions read tersely while still producing normal .NET tasks for C# callers.",
             """
             package Tutorial
 
@@ -310,7 +302,6 @@ public static class PlaygroundExamples
             1,
             "Break Add and check diagnostics to see the tight red-green loop.",
             ["testing", "test keyword", "assert", "table-driven tests", "nlc test"],
-            "N# tests are part of the language surface, not a pile of ceremony around C# attributes.",
             """
             package Tutorial
 
@@ -361,7 +352,6 @@ public static class PlaygroundExamples
             1,
             "This lesson is intentionally ordinary: the point is the browser tooling loop around it.",
             ["diagnostics", "completions", "hover", "format", "browser tooling"],
-            "The same compiler semantics power the CLI, editor tooling, and hosted browser playground.",
             """
             package Tutorial
 

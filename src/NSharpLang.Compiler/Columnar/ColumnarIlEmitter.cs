@@ -7205,7 +7205,6 @@ internal sealed class ColumnarIlEmitter
             case 3: // StringLiteral — FULL ESCAPES (strings slice): the value decodes the C#-style escape
             {       // set via the SHARED StringLiteralDecoder (the exact rule the C# path's
                     // GetStringLiteralRuntimeValue applies — both pipelines materialize byte-identically;
-                    // the transpile path always decoded via Roslyn, so all three now agree).
                     // An INTERPOLATED literal ($"...{x}...") lexes as the SAME token kind with the `$` in
                     // the span (production parity) — it routes to the handler lowering (strings slice 4).
                 var stringText = Text(idx);
