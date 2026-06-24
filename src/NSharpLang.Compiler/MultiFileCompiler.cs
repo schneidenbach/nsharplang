@@ -189,7 +189,6 @@ public class MultiFileCompiler
     {
         foreach (var sourceFile in _sourceFiles)
         {
-            try
             {
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}");
                 var source = ReadSourceText(sourceFile);
@@ -217,17 +216,6 @@ public class MultiFileCompiler
                     _compilationUnits[sourceFile] = parseResult.CompilationUnit;
                 }
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}");
-            }
-            catch (Exception ex)
-            {
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   EXCEPTION: {ex.Message}");
-                _allErrors.Add(new CompilerError(
-                    ErrorCode.InvalidSyntax,
-                    $"Failed to parse {sourceFile}: {ex.Message}",
-                    0,
-                    0,
-                    ErrorSeverity.Error
-                ));
             }
         }
     }
@@ -544,7 +532,6 @@ public class MultiFileCompiler
             var sourceFile = kvp.Key;
             var compilationUnit = kvp.Value;
 
-            try
             {
                 // Use the shared analyzer (assemblies already loaded in constructor)
                 var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile));
@@ -581,16 +568,6 @@ public class MultiFileCompiler
 
                     _allErrors.Add(error);
                 }
-            }
-            catch (Exception ex)
-            {
-                _allErrors.Add(new CompilerError(
-                    ErrorCode.InvalidSyntax,
-                    $"Failed to analyze {sourceFile}: {ex.Message}",
-                    0,
-                    0,
-                    ErrorSeverity.Error
-                ));
             }
         }
 
