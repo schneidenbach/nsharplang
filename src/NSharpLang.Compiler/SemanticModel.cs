@@ -283,13 +283,9 @@ public class SemanticModel
     /// <summary>
     /// Position-aware identifier lookup that respects variable shadowing and scope boundaries.
     /// Finds the innermost scope containing (line, col) that has a binding for the name.
-    /// Falls back to flat lookup if no scoped binding is found.
     /// </summary>
     public TypeInfo? LookupIdentifierAtPosition(string name, int line, int column)
     {
-        if (_scopes.Count == 0)
-            return LookupIdentifier(name);
-
         // Collect all scopes that contain this position
         // Then find the innermost one that has a binding for the name
         TypeInfo? best = null;

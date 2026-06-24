@@ -246,18 +246,6 @@ public class SemanticModelTests
     }
 
     [Fact]
-    public void SemanticModel_LookupIdentifierAtPosition_NoScopes_FallsBackToFlatLookup()
-    {
-        var model = new SemanticModel();
-        model.RecordVariable("x", BuiltInTypes.Int);
-
-        // No scopes recorded — should use flat Variables dict
-        var result = model.LookupIdentifierAtPosition("x", 1, 1);
-        Assert.NotNull(result);
-        Assert.Equal("int", result!.ToString());
-    }
-
-    [Fact]
     public void SemanticModel_ScopeContainsPosition_BoundaryCheck()
     {
         var model = new SemanticModel();
