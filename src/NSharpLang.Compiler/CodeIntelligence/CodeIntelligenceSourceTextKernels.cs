@@ -88,21 +88,6 @@ internal static class CodeIntelligenceSourceTextKernels
         return cache.TryExtractIdentifierName(bindings, line, column, out name);
     }
 
-    internal static bool TryExtractMemberReceiverName(
-        ProjectSnapshot snapshot,
-        string filePath,
-        string source,
-        int line,
-        int memberStartColumn,
-        out string? receiverName)
-    {
-        receiverName = null;
-        var bindings = s_bindings.Value;
-
-        var cache = GetFileCache(snapshot, filePath, source);
-        return cache.TryExtractMemberReceiverName(bindings, line, memberStartColumn, out receiverName);
-    }
-
     internal static bool TryExtractSourceContext(
         ProjectSnapshot snapshot,
         string filePath,
@@ -176,27 +161,17 @@ internal static class CodeIntelligenceSourceTextKernels
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<BuildCodeIntelligenceLineRangesInto>(programType, "BuildCodeIntelligenceLineRangesInto"),
-            DogfoodKernelLoader.CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
             DogfoodKernelLoader.CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceIdentifierNameColumnsFromLinesInto>(programType, "CodeIntelligenceIdentifierNameColumnsFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceEditorIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceEditorIdentifierSpansFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceDocCommentLinesFromLinesInto>(programType, "CodeIntelligenceDocCommentLinesFromLinesInto"),
-            DogfoodKernelLoader.CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto")));
 
     private delegate int BuildCodeIntelligenceLineRangesInto(string source, int[] starts, int[] lengths);
-
-    private delegate int BuildCodeIntelligenceMemberReceiverCacheInto(
-        string source,
-        int[] lineStarts,
-        int[] lineLengths,
-        int lineCount,
-        int[] receiverStartsBySeparator,
-        int[] receiverLengthsBySeparator);
 
     private delegate int BuildCodeIntelligenceVariableDeclarationNameCacheInto(
         string source,
@@ -254,18 +229,6 @@ internal static class CodeIntelligenceSourceTextKernels
         int[] resultStarts,
         int[] resultLengths);
 
-    private delegate int CodeIntelligenceMemberReceiversFromCacheInto(
-        string source,
-        int[] lineStarts,
-        int[] lineLengths,
-        int lineCount,
-        int[] receiverStartsBySeparator,
-        int[] receiverLengthsBySeparator,
-        int[] queryLines,
-        int[] memberStartColumns,
-        int[] resultStarts,
-        int[] resultLengths);
-
     private delegate int CodeIntelligenceSourceContextsFromLinesInto(
         string source,
         int[] lineStarts,
@@ -293,14 +256,12 @@ internal static class CodeIntelligenceSourceTextKernels
 
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
-        BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceIdentifierNameColumnsFromLinesInto IdentifierNameColumnsFromLines,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceEditorIdentifierSpansFromLinesInto EditorIdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
         CodeIntelligenceDocCommentLinesFromLinesInto DocCommentLinesFromLines,
-        CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache);
@@ -462,11 +423,8 @@ internal static class CodeIntelligenceSourceTextKernels
         private readonly int[] _docCommentStarts;
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
-        private readonly int[] _memberStartColumns = new int[1];
         private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
-        private readonly int[] _receiverLengthsBySeparator;
-        private readonly int[] _receiverStartsBySeparator;
         private readonly int[] _resultLengths = new int[1];
         private readonly int[] _resultStarts = new int[1];
         private readonly string _source;
@@ -474,7 +432,6 @@ internal static class CodeIntelligenceSourceTextKernels
         private readonly int[] _variableDeclarationNameStartsByLine;
         private bool _lineRangesBuilt;
         private int _lineCount;
-        private bool _receiverCacheBuilt;
         private bool _variableDeclarationNameCacheBuilt;
 
         public FileCache(string source)
@@ -485,8 +442,6 @@ internal static class CodeIntelligenceSourceTextKernels
             _docCommentLengths = new int[capacity];
             _lineStarts = new int[capacity];
             _lineLengths = new int[capacity];
-            _receiverStartsBySeparator = new int[capacity];
-            _receiverLengthsBySeparator = new int[capacity];
             _variableDeclarationNameStartsByLine = new int[capacity];
             _variableDeclarationNameLengthsByLine = new int[capacity];
         }
@@ -589,42 +544,6 @@ internal static class CodeIntelligenceSourceTextKernels
 
                 var absoluteStart = _lineStarts[line - 1] + start - 1;
                 name = _source.Substring(absoluteStart, length);
-                return true;
-            }
-        }
-
-        public bool TryExtractMemberReceiverName(
-            Bindings bindings,
-            int line,
-            int memberStartColumn,
-            out string? receiverName)
-        {
-            receiverName = null;
-            lock (_gate)
-            {
-                EnsureReceiverCache(bindings);
-
-                _queryLines[0] = line;
-                _memberStartColumns[0] = memberStartColumn;
-                bindings.MemberReceiversFromCache(
-                    _source,
-                    _lineStarts,
-                    _lineLengths,
-                    _lineCount,
-                    _receiverStartsBySeparator,
-                    _receiverLengthsBySeparator,
-                    _queryLines,
-                    _memberStartColumns,
-                    _resultStarts,
-                    _resultLengths);
-
-                var start = _resultStarts[0];
-                var length = _resultLengths[0];
-                if (start < 0 || length <= 0)
-                    return true;
-
-                var absoluteStart = _lineStarts[line - 1] + start - 1;
-                receiverName = _source.Substring(absoluteStart, length);
                 return true;
             }
         }
@@ -740,22 +659,6 @@ internal static class CodeIntelligenceSourceTextKernels
 
             _lineCount = bindings.BuildLineRanges(_source, _lineStarts, _lineLengths);
             _lineRangesBuilt = true;
-        }
-
-        private void EnsureReceiverCache(Bindings bindings)
-        {
-            if (_receiverCacheBuilt)
-                return;
-
-            EnsureLineRanges(bindings);
-            bindings.BuildMemberReceiverCache(
-                _source,
-                _lineStarts,
-                _lineLengths,
-                _lineCount,
-                _receiverStartsBySeparator,
-                _receiverLengthsBySeparator);
-            _receiverCacheBuilt = true;
         }
 
         private void EnsureVariableDeclarationNameCache(Bindings bindings)
