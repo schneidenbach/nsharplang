@@ -23039,11 +23039,6 @@ public class Analyzer : IDisposable
                 .Select(symbol => symbol.Key));
         }
 
-        candidates.AddRange(_projectSymbols.Values
-            .SelectMany(symbols => symbols)
-            .Where(symbol => IsCallableReferenceType(symbol.Type))
-            .Select(symbol => symbol.Name));
-
         candidates.AddRange(_extensionMethods.Select(method => method.Name));
 
         var suggester = new SmartSuggester(candidates.Distinct(StringComparer.Ordinal).ToList());
