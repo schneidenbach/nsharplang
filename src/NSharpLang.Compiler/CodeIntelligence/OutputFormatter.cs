@@ -368,20 +368,6 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-    /// <summary>
-    /// A single AOT blocker as rendered into the perf report's <c>aotBlockers</c> array.
-    /// The schema is stable and versioned via the report envelope's <c>schemaVersion</c>.
-    /// </summary>
-    public sealed record PerfReportAotBlocker(
-        string Code,
-        string Kind,
-        string File,
-        int Line,
-        int Column,
-        string Construct,
-        string EnclosingBoundary,
-        string? EnclosingDeclaration,
-        bool OnPublicSurface);
 
     public sealed record PerfReportSite(
         string Code,
@@ -408,12 +394,10 @@ public static class OutputFormatter
     /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
     /// The report groups performance facts by category. Categories without a wired fact source
     /// are emitted as empty arrays so the envelope shape is stable for downstream consumers;
-    /// <c>aotBlockers</c> is populated from the AOT-blocker analysis pass.
     /// </summary>
     public static string BuildPerfReportToJson(
         string? projectRoot,
         bool ok = true,
-        IReadOnlyList<PerfReportAotBlocker>? aotBlockers = null,
         IReadOnlyList<PerfReportSite>? allocationSites = null,
         IReadOnlyList<PerfReportSite>? delegateSites = null,
         IReadOnlyList<PerfReportSite>? boxingSites = null,
@@ -445,9 +429,6 @@ public static class OutputFormatter
                 hotReadinessSites = NormalizePerfSites(hotReadinessSites),
                 implicitTrapSites = NormalizePerfSites(implicitTrapSites),
                 trustedSites = NormalizeTrustedPerfSites(trustedSites),
-                aotBlockers = (aotBlockers ?? Array.Empty<PerfReportAotBlocker>())
-                    .Select(blocker => blocker with { File = NormalizePath(blocker.File) ?? blocker.File })
-                    .ToArray()
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);

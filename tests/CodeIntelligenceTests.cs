@@ -539,24 +539,6 @@ public class CodeIntelligenceOutputTests
             OutputFormatter.PerfToJson("Program.nl", 5, 12, "/project"),
             expected);
 
-        AssertJsonContract("buildPerfReport",
-            OutputFormatter.BuildPerfReportToJson(
-                "/project",
-                aotBlockers: new[]
-                {
-                    new OutputFormatter.PerfReportAotBlocker(
-                        "NL960",
-                        "metadata-required",
-                        "Program.nl",
-                        5,
-                        12,
-                        "GetType",
-                        "ClrPublic",
-                        "Main",
-                        true)
-                }),
-            expected);
-
         AssertJsonContract("check",
             OutputFormatter.CheckToJson(
                 new List<DiagnosticResult>

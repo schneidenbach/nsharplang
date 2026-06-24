@@ -388,7 +388,6 @@ partial class Program
             .ToArray();
 
         return new BuildPerfReportFacts(
-            ToPerfReportBlockers(compiler.AotBlockers),
             sites.Where(site => site.Effect is "allocation").ToArray(),
             sites.Where(site => site.Effect is "delegate").ToArray(),
             sites.Where(site => site.Effect is "boxing").ToArray(),
@@ -413,19 +412,4 @@ partial class Program
                 .ToArray());
     }
 
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> ToPerfReportBlockers(IReadOnlyList<AotBlocker> blockers)
-    {
-        return blockers
-            .Select(blocker => new OutputFormatter.PerfReportAotBlocker(
-                Code: $"NL{(int)blocker.DiagnosticCode:D3}",
-                Kind: blocker.Kind.ToString(),
-                File: blocker.File,
-                Line: blocker.Line,
-                Column: blocker.Column,
-                Construct: blocker.Construct,
-                EnclosingBoundary: blocker.EnclosingBoundary.ToString(),
-                EnclosingDeclaration: blocker.EnclosingDeclaration,
-                OnPublicSurface: blocker.IsOnPublicSurface))
-            .ToList();
-    }
 }

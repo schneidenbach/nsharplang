@@ -201,7 +201,6 @@ partial class Program
             NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(
                 projectRoot,
                 result.ExitCode == 0,
-                result.PerfFacts.AotBlockers,
                 result.PerfFacts.AllocationSites,
                 result.PerfFacts.DelegateSites,
                 result.PerfFacts.BoxingSites,
@@ -223,7 +222,6 @@ partial class Program
     }
 
     private sealed record BuildPerfReportFacts(
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> AotBlockers,
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> AllocationSites,
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DelegateSites,
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoxingSites,
@@ -237,7 +235,6 @@ partial class Program
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite> TrustedSites)
     {
         public static BuildPerfReportFacts Empty { get; } = new(
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>(),
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),

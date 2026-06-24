@@ -1337,12 +1337,6 @@ func FormatForDebug(): int[] {
                 case "trustedSites":
                     AssertStringSites(caseDir, property.Value, report.TrustedSites.Select(site => site.Function));
                     break;
-                case "aotBlockers":
-                    if (property.Value.ValueKind == JsonValueKind.Array && !property.Value.EnumerateArray().Any())
-                    {
-                        Assert.DoesNotContain(report.Findings, finding => finding.Code == "NSYS060");
-                    }
-                    break;
                 case "aotAnalysis":
                     Assert.Equal(property.Value.GetString(), report.Aot.Analysis);
                     break;
@@ -1569,7 +1563,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var zeroCopyOutputDir = Path.Combine(zeroCopyFrameReader, "bin", "Debug", "net10.0");
@@ -1591,7 +1584,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
 
             var trustedSite = Assert.Single(perf.GetProperty("trustedSites").EnumerateArray());
             Assert.Equal("CopyExact", trustedSite.GetProperty("function").GetString());
@@ -1616,7 +1608,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var nativeDeviceOutputDir = Path.Combine(nativeDeviceHandle, "bin", "Debug", "net10.0");
@@ -1653,7 +1644,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var cLibraryOutputDir = Path.Combine(cLibraryCli, "bin", "Debug", "net10.0");
@@ -1677,7 +1667,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var coldLoggingOutputDir = Path.Combine(coldFailureLogging, "bin", "Debug", "net10.0");
@@ -1695,7 +1684,6 @@ class Box {}
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
             var perf = doc.RootElement.GetProperty("perfReport");
             Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
         }
 
@@ -1708,7 +1696,6 @@ class Box {}
             var perf = doc.RootElement.GetProperty("perfReport");
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var arrayPoolBuild = BuildProof(arrayPoolFileIo);
@@ -1724,7 +1711,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var arrayPoolOutputDir = Path.Combine(arrayPoolFileIo, "bin", "Debug", "net10.0");
@@ -1747,7 +1733,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var memoryPoolOutputDir = Path.Combine(memoryPoolDisposal, "bin", "Debug", "net10.0");
@@ -1778,7 +1763,6 @@ class Box {}
                         && site.GetProperty("code").GetString() == "NSYS070");
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var asyncFileOutputDir = Path.Combine(asyncFileHotParser, "bin", "Debug", "net10.0");
@@ -1803,7 +1787,6 @@ class Box {}
                         && site.GetProperty("code").GetString() == "NSYS070");
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var fixedMapBuild = BuildProof(fixedCapacityMap);
@@ -1821,7 +1804,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var fixedMapOutputDir = Path.Combine(fixedCapacityMap, "bin", "Debug", "net10.0");
@@ -1847,7 +1829,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var unmanagedSortOutputDir = Path.Combine(unmanagedSortComparer, "bin", "Debug", "net10.0");
@@ -1874,7 +1855,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var hotLinqOutputDir = Path.Combine(hotLinqPipeline, "bin", "Debug", "net10.0");
@@ -1896,7 +1876,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var structuredErrorsOutputDir = Path.Combine(structuredErrors, "bin", "Debug", "net10.0");
@@ -1939,7 +1918,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var aotOutputDir = Path.Combine(aotFriendlyPublicApi, "bin", "Debug", "net10.0");
@@ -1956,7 +1934,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var allocationBuild = BuildProof(allocationGate);
@@ -1969,7 +1946,6 @@ class Box {}
             Assert.Contains(perf.GetProperty("allocationSites").EnumerateArray(),
                 site => site.GetProperty("function").GetString() == "Main"
                         && site.GetProperty("code").GetString() == "NSYS001");
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
             Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
         }
@@ -2021,7 +1997,6 @@ class Box {}
             Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
         var dapperOutputDir = Path.Combine(dapperBoundary, "bin", "Debug", "net10.0");
@@ -2043,7 +2018,6 @@ class Box {}
                         && site.GetProperty("code").GetString() == "NSYS001");
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
     }
 
@@ -2133,7 +2107,6 @@ class Box {}
         return OutputFormatter.BuildPerfReportToJson(
             projectRoot,
             ok,
-            aotBlockers: compiler.AotBlockers.Select(ToPerfReportBlocker).ToArray(),
             allocationSites: sites.Where(site => site.Effect is "allocation").ToArray(),
             delegateSites: sites.Where(site => site.Effect is "delegate").ToArray(),
             boxingSites: sites.Where(site => site.Effect is "boxing").ToArray(),
@@ -2157,18 +2130,6 @@ class Box {}
                     site.BodyStatementCount))
                 .ToArray());
     }
-
-    private static OutputFormatter.PerfReportAotBlocker ToPerfReportBlocker(AotBlocker blocker)
-        => new(
-            Code: $"NL{(int)blocker.DiagnosticCode:D3}",
-            Kind: blocker.Kind.ToString(),
-            File: blocker.File,
-            Line: blocker.Line,
-            Column: blocker.Column,
-            Construct: blocker.Construct,
-            EnclosingBoundary: blocker.EnclosingBoundary.ToString(),
-            EnclosingDeclaration: blocker.EnclosingDeclaration,
-            OnPublicSurface: blocker.IsOnPublicSurface);
 
     private static void AssertSystemsProofBuildDiagnostics(string stderr, int expectedWarnings)
     {

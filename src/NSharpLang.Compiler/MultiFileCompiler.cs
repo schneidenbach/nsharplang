@@ -59,13 +59,6 @@ public class MultiFileCompiler
     /// </summary>
     public PerformanceFactStore PerformanceFacts => _performanceFacts;
 
-    /// <summary>
-    /// AOT/trimming blockers discovered across all parsed files, in deterministic
-    /// (file, line, column) order. Available after any analysis pass has run.
-    /// </summary>
-    public IReadOnlyList<AotBlocker> AotBlockers => _aotBlockers;
-
-    private readonly List<AotBlocker> _aotBlockers = new();
     private SystemsReport _systemsReport = SystemsReport.Empty(null);
 
     /// <summary>
