@@ -20042,9 +20042,6 @@ public class Analyzer : IDisposable
             return IsAssignable(nullableTarget.InnerType, resolvedSource);
         }
 
-        // Handle external types that couldn't be fully resolved (placeholder names)
-        if (resolvedSource is ExternalTypeInfo || resolvedTarget is ExternalTypeInfo) return true;
-
         // Reflection-based type checking: use CLR semantics when both sides are reflection types
         if (resolvedSource is ReflectionTypeInfo srcRefl && resolvedTarget is ReflectionTypeInfo tgtRefl)
             return IsReflectionAssignableFrom(tgtRefl.Type, srcRefl.Type);
