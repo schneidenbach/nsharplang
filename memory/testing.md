@@ -100,9 +100,6 @@ Rules of the scope:
   which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
-- Enforced, not just convention: `CollectibleAssemblyScopeTests.TestSources_HaveNoDirectAssemblyLoadCallSites`
-  scans tests/ sources and fails on any direct `Assembly.Load`/`Assembly.LoadFile`/`Assembly.LoadFrom` call
-  site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as legacy emitter helpers do, is fine).
 
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when

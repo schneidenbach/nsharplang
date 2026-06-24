@@ -106,7 +106,6 @@ public enum ErrorCode
     ObsoleteUsage = 904,
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
-    GeneratedSourceInvalid = 922,
     ReferenceLoadFailure = 923,
 
     // Performance diagnostics (950-999)

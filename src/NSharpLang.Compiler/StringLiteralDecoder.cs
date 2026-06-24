@@ -1,16 +1,5 @@
 namespace NSharpLang.Compiler;
 
-/// <summary>
-/// The lexer keeps escape pairs verbatim in the token text (it consumes <c>\X</c> two-at-a-time so an
-/// escaped quote cannot terminate the literal, but never rewrites them). Historically the runtime value
-/// was just <c>Trim('"')</c> — RAW semantics, which made <c>"\n"</c> two characters and a lone <c>"</c>
-/// unwritable (the lexer ate <c>\"</c> for delimiting while the value kept the backslash), and which
-/// silently DIVERGED from the transpile path (Roslyn decodes the same text). Char literals always
-/// decoded. This decoder gives regular strings the same C#-style escape set as char literals:
-/// <c>\' \" \\ \0 \a \b \f \n \r \t \v</c>. An UNKNOWN escape pair passes through unchanged (backslash
-/// kept — no new diagnostic this slice; the production parser has never rejected one, so erroring here
-/// would reject previously-valid programs).
-/// </summary>
 public static class StringLiteralDecoder
 {
     /// <summary>

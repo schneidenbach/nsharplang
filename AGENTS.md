@@ -11,9 +11,8 @@ You are an expert .NET developer who is working on a new language for the CLR - 
 **Language Philosophy**: N# shares Go's *ethos* — simplicity, clean syntax, fast tooling — but it is **not** "Go for .NET": it pairs that small syntax with a much richer type system. A tight, pragmatic language targeting .NET/CLI that prioritizes:
 - **Simplicity**: Go-level tightness with minimal constructs
 - **Pragmatism**: Embraces .NET realities (including null)
-- **Interop**: First-class C# interoperability with sane type emissions
 - **Concreteness**: Encourages concrete implementations over abstractions
-- **Type System**: Improve .NET's type system while maintaining seamless C# interop
+- **Type System**: Improve .NET's type system while maintaining CLR compatibility
 
 ## Product Philosophy
 
@@ -27,13 +26,12 @@ This is a product being built for millions of users. Treat every feature, every 
 
 ## Compiler Dogfood Architecture
 
-The compiler core libraries, compiler-service core libraries, and CLI command logic are not intended
-to remain in C#. The target implementation language for those hot paths is N#, using the systems
-portion of the language where it buys real speed.
+The compiler core libraries, compiler-service core libraries, and CLI command logic must converge to
+N# ownership. Do not add legacy compiler/tooling logic. Do not preserve legacy fallback, legacy emitters,
+or export paths as product architecture.
 
-C# is acceptable only for CLR/BCL host boundaries, bootstrap loading, MSBuild/VS Code/LSP glue,
-public .NET object materialization, or a measured fallback while an N# implementation has not yet
-cleared parity and the 5x benchmark gate.
+Current legacy compiler-core and tooling code is deletion debt. Replace it with N# and remove the old
+owner. A slice that routes through N# but leaves the legacy owner required is not done.
 
 Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
 expand them into permanent service layers; shrink or remove them as accepted N# slices are routed

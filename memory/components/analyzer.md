@@ -26,11 +26,6 @@ Global Scope
 ```
 
 ### Symbol Tables
-Each scope has a symbol table mapping names to types:
-```csharp
-Dictionary<string, TypeInfo> _currentScope;
-```
-
 Scopes are managed via:
 - `EnterScope()`: Push new scope
 - `ExitScope()`: Pop scope
@@ -185,21 +180,3 @@ Analyzer has 78 unit tests covering:
 - Error detection
 
 See `tests/AnalyzerTests.cs`.
-
-## Usage Example
-
-```csharp
-var ast = parser.ParseCompilationUnit();
-var analyzer = new Analyzer();
-var result = analyzer.Analyze(ast, "example.nl", "/project/root");
-
-if (result.Errors.Any())
-{
-    foreach (var error in result.Errors)
-        Console.WriteLine(error.Format());
-}
-else
-{
-    // Proceed to transpilation
-}
-```
