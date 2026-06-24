@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -17,6 +16,8 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// </summary>
 public static class FixApplicator
 {
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
     /// <summary>
     /// Apply a list of TextEdits to source text.
     /// Edits are applied in reverse order (bottom-to-top) so that line numbers
@@ -26,16 +27,23 @@ public static class FixApplicator
     {
         if (edits.Count == 0) return source;
 
-        var lines = SourceTextLines.SplitLogicalLines(source).ToList();
-
         var sortedEdits = ValidateAndSortEdits(source, edits);
+        var inputs = MaterializeEditInputs(sortedEdits);
+        var output = new string[1];
+        var code = RequiredBindings.ApplyOrderedTextEdits(
+            source,
+            inputs.StartLines,
+            inputs.StartColumns,
+            inputs.EndLines,
+            inputs.EndColumns,
+            inputs.NewTexts,
+            inputs.Count,
+            output);
 
-        foreach (var edit in sortedEdits)
-        {
-            lines = ApplySingleEdit(lines, edit);
-        }
+        if (code != 0)
+            throw new InvalidOperationException("N# fix applicator kernel rejected the edit application.");
 
-        return string.Join('\n', lines);
+        return output[0];
     }
 
     /// <summary>
@@ -49,26 +57,7 @@ public static class FixApplicator
         // Same-position zero-width inserts are applied in reverse input order so the final text
         // preserves the caller's input order.
         var sortedEdits = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
-
-        foreach (var edit in sortedEdits)
-        {
-            if (edit.StartLine < 1 || edit.EndLine < 1 || edit.StartColumn < 0 || edit.EndColumn < 0)
-            {
-                throw new InvalidOperationException(
-                    $"Invalid edit position: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}). " +
-                    "Lines are 1-based and columns must be non-negative.");
-            }
-
-            var endBeforeStart = edit.EndLine < edit.StartLine
-                || (edit.EndLine == edit.StartLine && edit.EndColumn < edit.StartColumn);
-            if (endBeforeStart)
-            {
-                throw new InvalidOperationException(
-                    $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) ends before it starts.");
-            }
-        }
-
-        ValidateNonOverlapping(sortedEdits);
+        ValidateSortedEdits(null, sortedEdits);
         return sortedEdits;
     }
 
@@ -79,149 +68,133 @@ public static class FixApplicator
     public static List<TextEdit> ValidateAndSortEdits(string source, IReadOnlyCollection<TextEdit> edits)
     {
         var sortedEdits = ValidateAndSortEdits(edits);
-        var lines = SourceTextLines.SplitLogicalLines(source);
-        var eofLine = lines.Length + 1;
-
-        foreach (var edit in sortedEdits)
-        {
-            var isEofInsert = edit.StartLine == eofLine
-                && edit.EndLine == eofLine
-                && edit.StartColumn == 0
-                && edit.EndColumn == 0;
-            if (isEofInsert)
-                continue;
-
-            var isLastLineWholeLineDeletion = string.IsNullOrEmpty(edit.NewText)
-                && edit.EndLine == eofLine
-                && edit.EndColumn == 0
-                && edit.StartLine == lines.Length
-                && edit.StartColumn == 0;
-            if (isLastLineWholeLineDeletion)
-                continue;
-
-            if (!IsPositionInDocument(lines, edit.StartLine, edit.StartColumn)
-                || !IsPositionInDocument(lines, edit.EndLine, edit.EndColumn))
-            {
-                throw new InvalidOperationException(
-                    $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) is outside the document.");
-            }
-        }
-
+        ValidateSortedEdits(source, sortedEdits);
         return sortedEdits;
     }
 
-    private static void ValidateNonOverlapping(List<TextEdit> sortedEdits)
+    private static void ValidateSortedEdits(string? source, List<TextEdit> sortedEdits)
     {
-        // Detect overlapping edits before applying any changes.
-        for (int i = 0; i < sortedEdits.Count - 1; i++)
-        {
-            var high = sortedEdits[i];     // higher start position (later in file)
-            var low = sortedEdits[i + 1];  // lower start position (earlier in file)
+        var inputs = MaterializeEditInputs(sortedEdits);
+        var errorInfo = new int[2];
+        var code = RequiredBindings.ValidateOrderedTextEdits(
+            source ?? string.Empty,
+            source == null ? 0 : 1,
+            inputs.StartLines,
+            inputs.StartColumns,
+            inputs.EndLines,
+            inputs.EndColumns,
+            inputs.NewTexts,
+            inputs.Count,
+            errorInfo);
 
-            // high overlaps with low if high's start is strictly before low's end.
-            // Equal start/end is allowed only for multiple zero-width inserts at the same position.
-            bool overlaps = high.StartLine < low.EndLine
-                || (high.StartLine == low.EndLine && high.StartColumn < low.EndColumn);
+        if (code == 0)
+            return;
 
-            if (overlaps)
-            {
-                throw new InvalidOperationException(
-                    $"Overlapping edits detected: edit at ({low.StartLine},{low.StartColumn})..({low.EndLine},{low.EndColumn}) " +
-                    $"overlaps with edit at ({high.StartLine},{high.StartColumn})..({high.EndLine},{high.EndColumn})");
-            }
-        }
+        throw CreateValidationException(code, errorInfo, sortedEdits);
     }
 
-    private static bool IsPositionInDocument(string[] lines, int line, int column)
+    private static InvalidOperationException CreateValidationException(int code, int[] errorInfo, List<TextEdit> sortedEdits)
     {
-        if (line < 1 || line > lines.Length)
-            return false;
+        if (code == 1)
+        {
+            var edit = sortedEdits[errorInfo[0]];
+            return new InvalidOperationException(
+                $"Invalid edit position: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}). " +
+                "Lines are 1-based and columns must be non-negative.");
+        }
 
-        return column <= lines[line - 1].Length;
+        if (code == 2)
+        {
+            var edit = sortedEdits[errorInfo[0]];
+            return new InvalidOperationException(
+                $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) ends before it starts.");
+        }
+
+        if (code == 3)
+        {
+            var low = sortedEdits[errorInfo[0]];
+            var high = sortedEdits[errorInfo[1]];
+            return new InvalidOperationException(
+                $"Overlapping edits detected: edit at ({low.StartLine},{low.StartColumn})..({low.EndLine},{low.EndColumn}) " +
+                $"overlaps with edit at ({high.StartLine},{high.StartColumn})..({high.EndLine},{high.EndColumn})");
+        }
+
+        if (code == 4)
+        {
+            var edit = sortedEdits[errorInfo[0]];
+            return new InvalidOperationException(
+                $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) is outside the document.");
+        }
+
+        return new InvalidOperationException("N# fix applicator kernel rejected the edit validation.");
     }
 
-    private static List<string> ApplySingleEdit(List<string> lines, TextEdit edit)
+    private static EditInputs MaterializeEditInputs(IReadOnlyList<TextEdit> edits)
     {
-        // Handle no-op edits
-        if (edit.StartLine == edit.EndLine && edit.StartColumn == edit.EndColumn && string.IsNullOrEmpty(edit.NewText))
-            return lines;
+        var count = edits.Count;
+        var startLines = new int[count];
+        var startColumns = new int[count];
+        var endLines = new int[count];
+        var endColumns = new int[count];
+        var newTexts = new string[count];
 
-        var startLine = edit.StartLine - 1; // Convert to 0-based
-        var endLine = edit.EndLine - 1;
-        var startCol = edit.StartColumn;
-        var endCol = edit.EndColumn;
-
-        // Clamp to valid range
-        startLine = Math.Max(0, Math.Min(startLine, lines.Count));
-        endLine = Math.Max(0, Math.Min(endLine, lines.Count));
-
-        if (startLine >= lines.Count)
+        for (var i = 0; i < count; i++)
         {
-            // Append at end
-            if (!string.IsNullOrEmpty(edit.NewText))
-            {
-                var newLines = SourceTextLines.SplitLogicalLines(edit.NewText);
-                lines.AddRange(newLines);
-            }
-            return lines;
+            var edit = edits[i];
+            startLines[i] = edit.StartLine;
+            startColumns[i] = edit.StartColumn;
+            endLines[i] = edit.EndLine;
+            endColumns[i] = edit.EndColumn;
+            newTexts[i] = edit.NewText;
         }
 
-        // Special case: delete entire line(s)
-        if (string.IsNullOrEmpty(edit.NewText) && startCol == 0 && endCol == 0 && endLine > startLine)
-        {
-            var count = Math.Min(endLine - startLine, lines.Count - startLine);
-            lines.RemoveRange(startLine, count);
-            return lines;
-        }
-
-        // Special case: insert at position (start == end)
-        if (startLine == endLine && startCol == endCol)
-        {
-            if (startLine < lines.Count)
-            {
-                var line = lines[startLine];
-                var col = Math.Min(startCol, line.Length);
-                lines[startLine] = line.Substring(0, col) + edit.NewText + line.Substring(col);
-            }
-            else
-            {
-                lines.Add(edit.NewText);
-            }
-
-            // If the new text contains newlines, split the line
-            if (edit.NewText.Contains('\n'))
-            {
-                var combined = lines[startLine];
-                lines.RemoveAt(startLine);
-                var splitLines = SourceTextLines.SplitLogicalLines(combined);
-                lines.InsertRange(startLine, splitLines);
-            }
-
-            return lines;
-        }
-
-        // General case: replace range
-        var startLineText = startLine < lines.Count ? lines[startLine] : "";
-        var endLineText = endLine < lines.Count ? lines[endLine] : "";
-
-        var prefix = startCol <= startLineText.Length ? startLineText.Substring(0, startCol) : startLineText;
-        var suffix = endCol <= endLineText.Length ? endLineText.Substring(endCol) : "";
-
-        var replacement = prefix + edit.NewText + suffix;
-
-        // Remove the affected lines
-        var removeCount = Math.Min(endLine - startLine + 1, lines.Count - startLine);
-        if (removeCount > 0)
-        {
-            lines.RemoveRange(startLine, removeCount);
-        }
-
-        // Insert the replacement
-        var replacementLines = SourceTextLines.SplitLogicalLines(replacement);
-        lines.InsertRange(startLine, replacementLines);
-
-        return lines;
+        return new EditInputs(startLines, startColumns, endLines, endColumns, newTexts, count);
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# fix applicator kernels are unavailable.");
+
+    private static Bindings? LoadBindings()
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<FixValidateOrderedTextEdits>(
+                programType,
+                "FixValidateOrderedTextEdits"),
+            DogfoodKernelLoader.CreateDelegate<FixApplyOrderedTextEdits>(
+                programType,
+                "FixApplyOrderedTextEdits")));
+
+    private delegate int FixValidateOrderedTextEdits(
+        string source,
+        int hasSource,
+        int[] startLines,
+        int[] startColumns,
+        int[] endLines,
+        int[] endColumns,
+        string[] newTexts,
+        int count,
+        int[] errorInfo);
+
+    private delegate int FixApplyOrderedTextEdits(
+        string source,
+        int[] startLines,
+        int[] startColumns,
+        int[] endLines,
+        int[] endColumns,
+        string[] newTexts,
+        int count,
+        string[] output);
+
+    private sealed record Bindings(
+        FixValidateOrderedTextEdits ValidateOrderedTextEdits,
+        FixApplyOrderedTextEdits ApplyOrderedTextEdits);
+
+    private readonly record struct EditInputs(
+        int[] StartLines,
+        int[] StartColumns,
+        int[] EndLines,
+        int[] EndColumns,
+        string[] NewTexts,
+        int Count);
 
     /// <summary>
     /// Collect all fixable diagnostics for a file and return the code actions.
