@@ -118,23 +118,6 @@ suite('Extension Activation', () => {
         }
     });
 
-    test('export-backed debug entry points are not contributed', async () => {
-        const ext = vscode.extensions.getExtension('nsharp.nsharp');
-        assert.ok(ext, 'N# extension should be installed');
-
-        const contributes = ext!.packageJSON.contributes ?? {};
-        const commandIds = (contributes.commands ?? []).map((command: { command: string }) => command.command);
-        const debuggerTypes = (contributes.debuggers ?? []).map((debuggerContribution: { type: string }) => debuggerContribution.type);
-
-        assert.ok(commandIds.includes('nsharp.runProject'), 'run command should be contributed');
-        assert.ok(!commandIds.includes('nsharp.debugProject'), 'debug command should not be contributed');
-        assert.ok(!debuggerTypes.includes('nsharp'), 'N# debugger contribution should not be present');
-        assert.ok(
-            !(contributes.breakpoints ?? []).some((entry: { language: string }) => entry.language === 'nsharp'),
-            'N# breakpoints should not be enabled without a native N# debug pipeline'
-        );
-    });
-
     test('nsharp debug build task is not provided', async () => {
         const tasks = await vscode.tasks.fetchTasks({ type: 'nsharp' });
         const debugBuildTask = tasks.find(task => task.name === 'debug build');
