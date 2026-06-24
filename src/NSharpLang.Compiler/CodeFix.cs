@@ -142,54 +142,34 @@ public class AddMissingImportCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
+        var hasImports = ast.Imports.Any();
+        var lastImportLine = hasImports ? ast.Imports.Last().Line : 0;
 
-        // Extract the namespace from the suggestion
-        // Suggestion format: "Add 'import System.Collections.Generic'"
-        if (diagnostic.Suggestion?.StartsWith("Add 'import ") == true)
+        if (diagnostic.Suggestion != null &&
+            CodeFixActionKernels.TryGetMissingImportEdit(
+                diagnostic.Suggestion,
+                hasImports,
+                lastImportLine,
+                out var insertLine,
+                out var insertColumn,
+                out var importText,
+                out var title))
         {
-            var startIndex = "Add 'import ".Length;
-            var endIndex = diagnostic.Suggestion.IndexOf('\'', startIndex);
-            if (endIndex > startIndex)
-            {
-                var namespaceToImport = diagnostic.Suggestion[startIndex..endIndex];
+            var edit = new TextEdit(
+                insertLine,
+                insertColumn,
+                insertLine,
+                insertColumn,
+                importText);
 
-                // Find the right place to insert the import
-                var (insertLine, insertColumn) = FindImportInsertionPoint(ast, sourceCode);
-
-                // Create the text edit
-                var importText = $"import {namespaceToImport}\n";
-                var edit = new TextEdit(
-                    insertLine,
-                    insertColumn,
-                    insertLine,
-                    insertColumn,
-                    importText);
-
-                actions.Add(new CodeAction(
-                    $"Add import {namespaceToImport}",
-                    "NL002",
-                    new List<TextEdit> { edit },
-                    CodeActionKind.QuickFix));
-            }
+            actions.Add(new CodeAction(
+                title,
+                "NL002",
+                new List<TextEdit> { edit },
+                CodeActionKind.QuickFix));
         }
 
         return actions;
-    }
-
-    private (int Line, int Column) FindImportInsertionPoint(CompilationUnit ast, string sourceCode)
-    {
-        // Insert after the last import, or at the beginning if no imports
-        if (ast.Imports.Any())
-        {
-            var lastImport = ast.Imports.Last();
-            // Insert on the next line after the last import
-            return (lastImport.Line + 1, 0);
-        }
-        else
-        {
-            // Insert at the beginning of the file
-            return (1, 0);
-        }
     }
 }
 
@@ -245,6 +225,46 @@ internal static class CodeFixActionKernels
 
     [ThreadStatic]
     private static string[]? t_replacementText;
+
+    [ThreadStatic]
+    private static string[]? t_titleText;
+
+    internal static bool TryGetMissingImportEdit(
+        string suggestion,
+        bool hasImports,
+        int lastImportLine,
+        out int insertLine,
+        out int insertColumn,
+        out string importText,
+        out string title)
+    {
+        insertLine = 0;
+        insertColumn = 0;
+        importText = string.Empty;
+        title = string.Empty;
+
+        var editInfo = t_editInfo ??= new int[2];
+        var replacementText = t_replacementText ??= new string[1];
+        var titleText = t_titleText ??= new string[1];
+        var code = RequiredBindings.GetMissingImportEditInto(
+            suggestion,
+            hasImports ? 1 : 0,
+            lastImportLine,
+            editInfo,
+            replacementText,
+            titleText);
+        if (code < 0)
+            throw new InvalidOperationException("N# code-fix action kernel returned an invalid edit result.");
+
+        if (code == 0)
+            return false;
+
+        insertLine = editInfo[0];
+        insertColumn = editInfo[1];
+        importText = replacementText[0];
+        title = titleText[0];
+        return true;
+    }
 
     internal static bool TryGetRemoveUnusedVariableEdit(
         string message,
@@ -341,6 +361,9 @@ internal static class CodeFixActionKernels
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CodeFixMissingImportEditInto>(
+                programType,
+                "CodeFixMissingImportEditInto"),
             DogfoodKernelLoader.CreateDelegate<CodeFixRemoveUnusedVariableEditInto>(
                 programType,
                 "CodeFixRemoveUnusedVariableEditInto"),
@@ -353,6 +376,14 @@ internal static class CodeFixActionKernels
             DogfoodKernelLoader.CreateDelegate<CodeFixPossibleNullAccessEditInto>(
                 programType,
                 "CodeFixPossibleNullAccessEditInto")));
+
+    private delegate int CodeFixMissingImportEditInto(
+        string suggestion,
+        int hasImports,
+        int lastImportLine,
+        int[] editInfo,
+        string[] importText,
+        string[] titleText);
 
     private delegate int CodeFixRemoveUnusedVariableEditInto(
         string message,
@@ -380,6 +411,7 @@ internal static class CodeFixActionKernels
         string[] replacementText);
 
     private sealed record Bindings(
+        CodeFixMissingImportEditInto GetMissingImportEditInto,
         CodeFixRemoveUnusedVariableEditInto GetRemoveUnusedVariableEditInto,
         CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto,
         CodeFixEmptyCatchCommentEditInto GetEmptyCatchCommentEditInto,

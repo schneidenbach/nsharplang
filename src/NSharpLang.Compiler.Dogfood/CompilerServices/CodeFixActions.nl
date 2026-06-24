@@ -1,6 +1,46 @@
 import System
 import System.Text
 
+func CodeFixMissingImportEditInto(
+    suggestion: string,
+    hasImports: int,
+    lastImportLine: int,
+    editInfo: int[],
+    importText: string[],
+    titleText: string[]): int {
+    if editInfo.Length < 2 || importText.Length < 1 || titleText.Length < 1 {
+        return -1
+    }
+
+    editInfo[0] = 0
+    editInfo[1] = 0
+    importText[0] = ""
+    titleText[0] = ""
+
+    prefix := "Add 'import "
+    if !CodeFixStartsWith(suggestion, prefix) {
+        return 0
+    }
+
+    namespaceStart := prefix.Length
+    namespaceEnd := CodeFixIndexOfCharFrom(suggestion, '\'', namespaceStart)
+    if namespaceEnd <= namespaceStart {
+        return 0
+    }
+
+    namespaceToImport := suggestion.Substring(namespaceStart, namespaceEnd - namespaceStart)
+    insertLine := 1
+    if hasImports != 0 {
+        insertLine = lastImportLine + 1
+    }
+
+    editInfo[0] = insertLine
+    editInfo[1] = 0
+    importText[0] = "import " + namespaceToImport + "\n"
+    titleText[0] = "Add import " + namespaceToImport
+    return 1
+}
+
 func CodeFixUnnecessaryNullCheckEditInto(source: string, line: int, editInfo: int[], replacementText: string[]): int {
     if editInfo.Length < 2 || replacementText.Length < 1 {
         return -1
@@ -261,6 +301,23 @@ func CodeFixIndexOfCharFrom(text: string, ch: char, start: int): int {
     }
 
     return -1
+}
+
+func CodeFixStartsWith(text: string, prefix: string): bool {
+    if text.Length < prefix.Length {
+        return false
+    }
+
+    index := 0
+    while index < prefix.Length {
+        if text[index] != prefix[index] {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
 }
 
 func CodeFixLastIndexOfChar(text: string, ch: char): int {
