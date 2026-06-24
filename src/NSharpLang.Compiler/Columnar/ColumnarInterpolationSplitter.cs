@@ -105,21 +105,6 @@ internal static class ColumnarInterpolationSplitter
         return true;
     }
 
-    /// <summary>
-    /// The hole ROOT identifiers (the first name of each hole chain) — the diagnostics pass marks
-    /// these as USES so a local referenced only inside a hole is never a false NL001.
-    /// </summary>
-    internal static void CollectHoleRoots(List<Part> parts, HashSet<string> roots)
-    {
-        foreach (var part in parts)
-        {
-            if (!part.IsHole)
-                continue;
-            var dot = part.Text.IndexOf('.');
-            roots.Add(dot < 0 ? part.Text : part.Text.Substring(0, dot));
-        }
-    }
-
     private static bool IsIdentifierChain(string s)
     {
         if (s.Length == 0)
