@@ -248,19 +248,6 @@ partial class Program
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite>());
     }
 
-    private static BuildPerfReportFacts SafeCollectPerfFacts(Func<BuildPerfReportFacts> collect)
-    {
-        try
-        {
-            return collect();
-        }
-        catch
-        {
-            // The perf report is best-effort instrumentation; never fail the build over it.
-            return BuildPerfReportFacts.Empty;
-        }
-    }
-
     static string CreateTempBuildDirectory()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");

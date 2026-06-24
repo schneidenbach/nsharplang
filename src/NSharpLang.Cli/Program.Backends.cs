@@ -310,7 +310,7 @@ partial class Program
         compiler.AotMode = aotMode;
         var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
         var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
-        perfFacts = SafeCollectPerfFacts(() => ToPerfReportFacts(compiler));
+        perfFacts = ToPerfReportFacts(compiler);
         EmitCompilationDiagnostics(result);
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
