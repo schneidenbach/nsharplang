@@ -448,21 +448,6 @@ public class Parser
                 Advance();
             }
 
-            // Compatibility: accept legacy postfix async (`func async` / `func async*`).
-            // Canonical syntax is parsed via modifiers before `func`: `async func` / `async func*`.
-            if (Check(TokenType.Async))
-            {
-                modifiers |= Modifiers.Async;
-                Advance();
-
-                // Compatibility: accept legacy postfix async iterator `func async*`.
-                if (Check(TokenType.Star))
-                {
-                    modifiers |= Modifiers.Generator;
-                    Advance();
-                }
-            }
-
             if (Check(TokenType.Operator))
             {
                 isOperatorOverload = true;
@@ -2502,20 +2487,6 @@ public class Parser
         {
             modifiers |= Modifiers.Generator;
             Advance();
-        }
-
-        // Compatibility: accept legacy postfix async (`func async` / `func async*`) for local functions.
-        if (Check(TokenType.Async))
-        {
-            modifiers |= Modifiers.Async;
-            Advance();
-
-            // Compatibility: accept legacy postfix async iterator `func async*`.
-            if (Check(TokenType.Star))
-            {
-                modifiers |= Modifiers.Generator;
-                Advance();
-            }
         }
 
         var nameLine = Current.Line;
