@@ -23202,19 +23202,6 @@ public class Analyzer : IDisposable
                 LoadReferencedAssemblyByName(assemblyName);
             }
         }
-        else
-        {
-            // Try the namespace as assembly name (common pattern)
-            var baseNamespace = import.Namespace.Split('.')[0];
-            if (baseNamespace.Length > 0)
-            {
-                LoadReferencedAssemblyByName(import.Namespace);
-                if (import.Namespace.Contains('.'))
-                {
-                    LoadReferencedAssemblyByName(baseNamespace);
-                }
-            }
-        }
     }
 
     // Helper methods for improved error messages

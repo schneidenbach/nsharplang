@@ -18,6 +18,13 @@
     <ProjectReference Include="../NSharpLang.Compiler/Compiler.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('$(OutputPath)NSharpLang.Compiler.Dogfood.dll')">
+    <Reference Include="NSharpLang.Compiler.Dogfood">
+      <HintPath>$(OutputPath)NSharpLang.Compiler.Dogfood.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="NSharpLang.Build.targets" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
