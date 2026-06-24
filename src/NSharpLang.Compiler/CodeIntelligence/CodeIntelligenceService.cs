@@ -283,9 +283,6 @@ public class CodeIntelligenceService
         for (var i = 0; i < resultCount; i++)
         {
             var diagnosticIndex = resultIndices[i];
-            if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
-                throw new InvalidOperationException("N# lint shadow suppression kernel returned an invalid index.");
-
             filtered.Add(lintDiagnostics[diagnosticIndex]);
         }
 
@@ -396,9 +393,6 @@ public class CodeIntelligenceService
         for (var i = 0; i < resultCount; i++)
         {
             var diagnosticIndex = resultIndices[i];
-            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
-
             deduplicated.Add(diagnostics[diagnosticIndex]);
         }
 
@@ -537,9 +531,6 @@ public class CodeIntelligenceService
         for (var i = 0; i < resultCount; i++)
         {
             var referenceIndex = resultIndices[i];
-            if (referenceIndex < 0 || referenceIndex >= results.Count)
-                throw new InvalidOperationException("N# reference deduplication kernel returned an invalid index.");
-
             deduplicated.Add(results[referenceIndex]);
         }
 

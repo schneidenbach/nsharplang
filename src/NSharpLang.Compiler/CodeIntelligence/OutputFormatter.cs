@@ -143,9 +143,6 @@ public static class OutputFormatter
         for (var i = 0; i < resultCount; i++)
         {
             var diagnosticIndex = resultIndices[i];
-            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                throw new InvalidOperationException("N# diagnostic severity filter kernel returned an invalid index.");
-
             results.Add(diagnostics[diagnosticIndex]);
         }
 
@@ -159,9 +156,6 @@ public static class OutputFormatter
         for (var i = 0; i < resultCount; i++)
         {
             var diagnosticIndex = resultIndices[i];
-            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
-
             results.Add(diagnostics[diagnosticIndex]);
         }
 
@@ -984,33 +978,15 @@ public static class OutputFormatter
         for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
         {
             var rootIndex = grouping.RootIndices[groupIndex];
-            if (rootIndex < 0 || rootIndex >= classified.Items.Count)
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid root index.");
-
             var memberStart = grouping.MemberStarts[groupIndex];
             var memberCount = grouping.Counts[groupIndex];
-            if (memberStart < 0
-                || memberCount < 0
-                || memberStart > grouping.MemberIndices.Length - memberCount)
-            {
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid member range.");
-            }
 
             ordered.Clear();
             for (var memberOffset = 0; memberOffset < memberCount; memberOffset++)
             {
                 var diagnosticIndex = grouping.MemberIndices[memberStart + memberOffset];
-                if (diagnosticIndex < 0 || diagnosticIndex >= classified.Items.Count)
-                    throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid diagnostic index.");
-
                 ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
             }
-
-            if (ordered.Count != memberCount)
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned incomplete members.");
-
-            if (memberCount > 0 && grouping.MemberIndices[memberStart] != rootIndex)
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned a non-root first member.");
 
             var traits = classified.Items[rootIndex].Traits;
             clusters.Add(CreateDiagnosticCluster(ordered, traits));
