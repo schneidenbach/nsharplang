@@ -5525,8 +5525,6 @@ public class Analyzer : IDisposable
     private bool TryGetReflectionInterfaceElementType(Type type, Type expectedInterfaceDefinition, out TypeInfo elementType)
     {
         elementType = BuiltInTypes.Unknown;
-        try
-        {
             var sequenceInterface = type.IsGenericType && type.GetGenericTypeDefinition() == expectedInterfaceDefinition
                 ? type
                 : type.GetInterfaces()
@@ -5540,18 +5538,11 @@ public class Analyzer : IDisposable
 
             elementType = ConvertReflectionType(sequenceInterface.GenericTypeArguments[0]);
             return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private bool TryGetReflectionEnumeratorPatternElementType(Type type, out TypeInfo elementType)
     {
         elementType = BuiltInTypes.Unknown;
-        try
-        {
             var getEnumeratorMethod = type.GetMethod(
                 "GetEnumerator",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -5580,11 +5571,6 @@ public class Analyzer : IDisposable
 
             elementType = ConvertReflectionType(currentProperty.PropertyType);
             return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private bool TryGetGeneratorYieldElementType(TypeInfo returnType, out TypeInfo elementType)
@@ -6089,8 +6075,6 @@ public class Analyzer : IDisposable
 
     private static bool HasReflectionDisposePattern(Type type)
     {
-        try
-        {
             var dispose = type.GetMethod(
                 nameof(IDisposable.Dispose),
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -6099,11 +6083,6 @@ public class Analyzer : IDisposable
                 modifiers: null);
             return dispose is { IsStatic: false, ReturnType: { } returnType }
                 && returnType == typeof(void);
-        }
-        catch (Exception ex) when (ex is AmbiguousMatchException or NotSupportedException or TypeLoadException)
-        {
-            return false;
-        }
     }
 
     private bool IsNominallyIDisposable(TypeInfo type)
@@ -6655,8 +6634,6 @@ public class Analyzer : IDisposable
         }
 
         const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-        try
-        {
             var shapeTypes = GetListPatternShapeTypes(type).ToArray();
             var lengthProperty = shapeTypes
                 .Select(shapeType => shapeType.GetProperty("Count", bindingFlags)
@@ -6687,11 +6664,6 @@ public class Analyzer : IDisposable
 
             elementType = new ReflectionTypeInfo(indexerProperty.PropertyType);
             return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static IEnumerable<Type> GetListPatternShapeTypes(Type type)
