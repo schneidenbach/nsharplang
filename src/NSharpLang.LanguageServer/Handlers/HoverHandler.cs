@@ -46,7 +46,6 @@ public class HoverHandler : HoverHandlerBase
 
         _logger.LogDebug("Hover request at {Line}:{Character}", line, character);
 
-        // Get the word at the cursor position for fallback lookup
         var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
 
         var keywordOrPrimitiveHover = TryCreateKeywordOrPrimitiveHover(doc.Text, line, character, word);
@@ -81,32 +80,6 @@ public class HoverHandler : HoverHandlerBase
                     }
                     return Task.FromResult<Hover?>(hover);
                 }
-            }
-        }
-
-        // Fallback: check semantic model for simple identifiers
-        if (!string.IsNullOrWhiteSpace(word) && doc.SemanticModel != null)
-        {
-            var typeInfo = doc.SemanticModel.LookupIdentifier(word);
-            if (typeInfo != null)
-            {
-                var typeName = typeInfo.ToString();
-                _logger.LogDebug("Found '{Word}' in semantic model with type: {TypeName}", word, typeName);
-
-                var systemType = _typeResolver.ResolveType(typeName);
-                var markdown = systemType != null
-                    ? FormatVariableWithSystemType(word, typeName, systemType)
-                    : FormatVariable(word, typeName);
-
-                return Task.FromResult<Hover?>(new Hover
-                {
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = markdown
-                    }),
-                    Range = GetWordRange(doc.Text, line, character, word)
-                });
             }
         }
 
