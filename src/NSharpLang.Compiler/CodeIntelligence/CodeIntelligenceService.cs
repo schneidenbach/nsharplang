@@ -78,24 +78,12 @@ public class CodeIntelligenceService
         // This lets us report both syntax and semantic diagnostics in a single pass.
         if (parseResult.CompilationUnit != null)
         {
-            try
             {
                 var analyzer = new Analyzer();
                 analyzer.LoadSystemAssemblies();
                 var analysisResult = analyzer.Analyze(parseResult.CompilationUnit, filePath, Path.GetDirectoryName(filePath), source);
                 semanticModel = analysisResult.SemanticModel;
                 errors.AddRange(analysisResult.Errors);
-            }
-            catch (Exception ex)
-            {
-                // Analyzer may fail on severely malformed ASTs — report that
-                // analysis was incomplete so callers know semantic info is missing.
-                errors.Add(CompilerError.Create(
-                    ErrorCode.InvalidSyntax,
-                    $"Semantic analysis incomplete: {ex.Message}",
-                    1, 1,
-                    ErrorSeverity.Warning
-                ) with { FileName = filePath });
             }
         }
 
