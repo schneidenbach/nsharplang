@@ -82,8 +82,7 @@ public class CompletionEngine
         string? sourceText = null;
         if (!snapshot.SourceTexts.TryGetValue(filePath, out sourceText))
         {
-            try { sourceText = File.ReadAllText(filePath); }
-            catch { }
+            sourceText = File.ReadAllText(filePath);
         }
 
         if (sourceText == null)
