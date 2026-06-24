@@ -48,16 +48,10 @@ internal static class FormatterImportOrderer
                 scratch.TempIndices,
                 scratch.ResultIndices);
 
-            if (orderedCount != count)
-                throw new InvalidOperationException("N# formatter import-order kernel returned an invalid result count.");
-
             var result = new List<ImportDirective>(count);
             for (var i = 0; i < count; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= count)
-                    throw new InvalidOperationException("N# formatter import-order kernel returned an invalid import index.");
-
                 result.Add(imports[sourceIndex]);
             }
 
