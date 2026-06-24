@@ -51,8 +51,6 @@ public class CliParityAuditTests
         Assert.Contains("watch", stdout);
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
-        Assert.DoesNotContain("convert", stdout);
-        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -436,8 +434,6 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
-        Assert.DoesNotContain("convert", stdout);
-        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]

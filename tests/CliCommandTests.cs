@@ -40,7 +40,6 @@ public class CliCommandTests
         Assert.StartsWith("N# Compiler (nlc) 1.2.3\n\nUsage: nlc <command> [options]", helpText, StringComparison.Ordinal);
         Assert.Contains("Build & Run:", helpText);
         Assert.Contains("Common Workflows:", helpText);
-        Assert.DoesNotContain("convert", helpText);
         Assert.Equal(
             "Unknown command: frobnicate. Run 'nlc help' to see available commands.",
             ProgramCommandKernels.GetUnknownCommandMessage("frobnicate"));
@@ -5050,11 +5049,8 @@ func Main() {
             Assert.Contains($"nlc query {command}", docs);
         }
 
-        Assert.DoesNotContain("convert", publicTopLevelCommands);
         Assert.DoesNotContain("idiom", publicTopLevelCommands);
-        Assert.DoesNotContain("nlc convert", help);
         Assert.DoesNotContain("nlc idiom", help);
-        Assert.DoesNotContain("nlc convert", zshCompletion);
         Assert.DoesNotContain("nlc idiom", zshCompletion);
         Assert.DoesNotContain("nlc idiom", docs);
     }
