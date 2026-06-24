@@ -23,7 +23,7 @@ public class Parser
     {
         _tokens = ParserTokenCompactor.TryCompact(tokens, out var compactedTokens)
             ? compactedTokens
-            : tokens.Where(t => t.Type != TokenType.Newline).ToList();
+            : throw new InvalidOperationException("N# parser token compaction declined.");
         _fileName = fileName;
         _sourceCode = sourceCode;
     }
