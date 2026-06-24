@@ -77,6 +77,41 @@ func CodeFixEmptyCatchCommentEditInto(source: string, line: int, editInfo: int[]
     return 1
 }
 
+func CodeFixPossibleNullAccessEditInto(source: string, line: int, column: int, editInfo: int[], replacementText: string[]): int {
+    if editInfo.Length < 1 || replacementText.Length < 1 {
+        return -1
+    }
+
+    editInfo[0] = 0
+    replacementText[0] = ""
+
+    lineText := new string[](1)
+    sourceLineResult := CodeFixSourceLineInto(source, line, lineText)
+    if sourceLineResult <= 0 {
+        return sourceLineResult
+    }
+
+    sourceLine := lineText[0]
+    diagnosticColumn := column - 1
+    if diagnosticColumn < 0 {
+        diagnosticColumn = 0
+    }
+
+    operatorIndex := CodeFixFindNullAccessOperator(sourceLine, diagnosticColumn)
+    if operatorIndex < 0 {
+        return 0
+    }
+
+    editInfo[0] = operatorIndex
+    if sourceLine[operatorIndex] == '.' {
+        replacementText[0] = "?."
+    } else {
+        replacementText[0] = "?["
+    }
+
+    return 1
+}
+
 func CodeFixSourceLineInto(source: string, line: int, lineText: string[]): int {
     if lineText.Length < 1 {
         return -1
@@ -99,6 +134,34 @@ func CodeFixSourceLineInto(source: string, line: int, lineText: string[]): int {
 
     lineText[0] = lines.Lines[line - 1]
     return 1
+}
+
+func CodeFixFindNullAccessOperator(sourceLine: string, diagnosticColumn: int): int {
+    if diagnosticColumn >= 0 && diagnosticColumn < sourceLine.Length {
+        if sourceLine[diagnosticColumn] == '.' || sourceLine[diagnosticColumn] == '[' {
+            return diagnosticColumn
+        }
+    }
+
+    i := diagnosticColumn
+    lastIndex := sourceLine.Length - 1
+    if i > lastIndex {
+        i = lastIndex
+    }
+
+    while i >= 0 {
+        if sourceLine[i] == '.' || sourceLine[i] == '[' {
+            if i > 0 && sourceLine[i - 1] == '?' {
+                return -1
+            }
+
+            return i
+        }
+
+        i = i - 1
+    }
+
+    return -1
 }
 
 func CodeFixTryFindStatementConditionRangeInto(sourceLine: string, patternStart: int, rangeInfo: int[]): int {

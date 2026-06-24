@@ -315,6 +315,30 @@ internal static class CodeFixActionKernels
         return true;
     }
 
+    internal static bool TryGetPossibleNullAccessEdit(
+        string sourceCode,
+        int line,
+        int column,
+        out int operatorColumn,
+        out string newText)
+    {
+        operatorColumn = 0;
+        newText = string.Empty;
+
+        var editInfo = t_editInfo ??= new int[2];
+        var replacementText = t_replacementText ??= new string[1];
+        var code = RequiredBindings.GetPossibleNullAccessEditInto(sourceCode, line, column, editInfo, replacementText);
+        if (code < 0)
+            throw new InvalidOperationException("N# code-fix action kernel returned an invalid edit result.");
+
+        if (code == 0)
+            return false;
+
+        operatorColumn = editInfo[0];
+        newText = replacementText[0];
+        return true;
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CodeFixUnnecessaryNullCheckEditInto>(
@@ -322,7 +346,10 @@ internal static class CodeFixActionKernels
                 "CodeFixUnnecessaryNullCheckEditInto"),
             DogfoodKernelLoader.CreateDelegate<CodeFixEmptyCatchCommentEditInto>(
                 programType,
-                "CodeFixEmptyCatchCommentEditInto")));
+                "CodeFixEmptyCatchCommentEditInto"),
+            DogfoodKernelLoader.CreateDelegate<CodeFixPossibleNullAccessEditInto>(
+                programType,
+                "CodeFixPossibleNullAccessEditInto")));
 
     private delegate int CodeFixUnnecessaryNullCheckEditInto(
         string source,
@@ -336,9 +363,17 @@ internal static class CodeFixActionKernels
         int[] editInfo,
         string[] replacementText);
 
+    private delegate int CodeFixPossibleNullAccessEditInto(
+        string source,
+        int line,
+        int column,
+        int[] editInfo,
+        string[] replacementText);
+
     private sealed record Bindings(
         CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto,
-        CodeFixEmptyCatchCommentEditInto GetEmptyCatchCommentEditInto);
+        CodeFixEmptyCatchCommentEditInto GetEmptyCatchCommentEditInto,
+        CodeFixPossibleNullAccessEditInto GetPossibleNullAccessEditInto);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# code-fix action kernels are unavailable.");
@@ -396,33 +431,32 @@ public class PossibleNullAccessCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
-        if (line > 0 && line <= sourceLines.Length)
+        if (CodeFixActionKernels.TryGetPossibleNullAccessEdit(
+                sourceCode,
+                line,
+                diagnostic.Location.Column,
+                out var operatorIndex,
+                out var replacementText))
         {
-            var sourceLine = sourceLines[line - 1];
-            var operatorIndex = FindNullAccessOperator(sourceLine, Math.Max(0, diagnostic.Location.Column - 1));
-            if (operatorIndex >= 0)
+            if (replacementText == "?.")
             {
-                if (sourceLine[operatorIndex] == '.')
-                {
-                    actions.Add(new CodeAction(
-                        "Use null-conditional access (review result nullability)",
-                        "NL905",
-                        new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, "?.") },
-                        CodeActionKind.QuickFix,
-                        FixSafety.ReviewNeeded));
-                }
-                else if (sourceLine[operatorIndex] == '[')
-                {
-                    actions.Add(new CodeAction(
-                        "Use null-conditional index access (review result nullability)",
-                        "NL905",
-                        new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, "?[") },
-                        CodeActionKind.QuickFix,
-                        FixSafety.ReviewNeeded));
-                }
+                actions.Add(new CodeAction(
+                    "Use null-conditional access (review result nullability)",
+                    "NL905",
+                    new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, replacementText) },
+                    CodeActionKind.QuickFix,
+                    FixSafety.ReviewNeeded));
+            }
+            else if (replacementText == "?[")
+            {
+                actions.Add(new CodeAction(
+                    "Use null-conditional index access (review result nullability)",
+                    "NL905",
+                    new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, replacementText) },
+                    CodeActionKind.QuickFix,
+                    FixSafety.ReviewNeeded));
             }
         }
 
@@ -448,27 +482,6 @@ public class PossibleNullAccessCodeFixProvider : CodeFixProvider
             FixSafety.SuggestionOnly));
 
         return actions;
-    }
-
-    private static int FindNullAccessOperator(string sourceLine, int diagnosticColumn)
-    {
-        if (diagnosticColumn >= 0 && diagnosticColumn < sourceLine.Length)
-        {
-            if (sourceLine[diagnosticColumn] is '.' or '[')
-                return diagnosticColumn;
-        }
-
-        for (var i = Math.Min(diagnosticColumn, sourceLine.Length - 1); i >= 0; i--)
-        {
-            if (sourceLine[i] is '.' or '[')
-            {
-                if (i > 0 && sourceLine[i - 1] == '?')
-                    return -1;
-                return i;
-            }
-        }
-
-        return -1;
     }
 }
 
