@@ -1010,10 +1010,7 @@ public static class QueryCommand
     }
 
     private static string GetRelativePath(string basePath, string filePath)
-    {
-        try { return Path.GetRelativePath(basePath, filePath); }
-        catch { return filePath; }
-    }
+        => Path.GetRelativePath(basePath, filePath);
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
