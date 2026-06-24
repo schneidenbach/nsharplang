@@ -10177,10 +10177,6 @@ public class Analyzer : IDisposable
         {
             return ex.Types.Where(type => type != null)!;
         }
-        catch
-        {
-            return Array.Empty<Type>();
-        }
     }
 
     private static bool HasExtensionAttribute(MethodInfo method)
