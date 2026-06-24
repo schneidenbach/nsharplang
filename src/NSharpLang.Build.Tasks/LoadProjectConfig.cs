@@ -72,14 +72,6 @@ public class LoadProjectConfig : Task
         {
             var projectYmlPath = Path.Combine(ProjectDirectory, "project.yml");
 
-            // If no project.yml exists, use defaults
-            if (!File.Exists(projectYmlPath))
-            {
-                Log.LogMessage(MessageImportance.Low, "No project.yml found, using defaults");
-                SetDefaults();
-                return true;
-            }
-
             Log.LogMessage(MessageImportance.Low, $"Loading project configuration from {projectYmlPath}");
 
             // Parse project.yml
@@ -109,17 +101,6 @@ public class LoadProjectConfig : Task
             Log.LogErrorFromException(ex, showStackTrace: true);
             return false;
         }
-    }
-
-    private void SetDefaults()
-    {
-        TargetFramework = "net10.0";
-        OutputType = "Exe";
-        AssemblyName = Path.GetFileName(ProjectDirectory);
-        Version = string.Empty;
-        AssemblyVersion = string.Empty;
-        FileVersion = string.Empty;
-        Sdk = "Microsoft.NET.Sdk";
     }
 
     private void SetClrVersionOutputs(string? packageVersion)
