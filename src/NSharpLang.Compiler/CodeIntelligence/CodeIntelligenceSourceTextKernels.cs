@@ -22,8 +22,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         span = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractIdentifierSpan(bindings, line, column, out span);
@@ -38,8 +36,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         documentation = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractDocComment(bindings, definitionLine, out documentation);
@@ -57,8 +53,6 @@ internal static class CodeIntelligenceSourceTextKernels
             return false;
 
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
         return cache.TryFindIdentifierNameColumn(bindings, name, line, fallbackColumn, out column);
@@ -74,8 +68,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         prefix = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractCompletionPrefix(bindings, line, column, out prefix);
@@ -91,8 +83,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         name = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractIdentifierName(bindings, line, column, out name);
@@ -108,8 +98,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         receiverName = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractMemberReceiverName(bindings, line, memberStartColumn, out receiverName);
@@ -124,8 +112,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         context = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractSourceContext(bindings, line, out context);
@@ -140,8 +126,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         text = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractSourceLine(bindings, line, out text);
@@ -151,8 +135,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         text = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
         return cache.TryExtractSourceLine(bindings, line, out text);
@@ -166,8 +148,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         span = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
         return cache.TryExtractEditorIdentifierSpan(bindings, line, column, out span);
@@ -182,8 +162,6 @@ internal static class CodeIntelligenceSourceTextKernels
     {
         name = null;
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var cache = GetFileCache(snapshot, filePath, source);
         return cache.TryExtractVariableDeclarationName(bindings, line, out name);
