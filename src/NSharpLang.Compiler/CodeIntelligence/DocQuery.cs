@@ -617,18 +617,7 @@ public class DocQuery
 
     private static IEnumerable<Type> GetPublicTypes(Assembly assembly)
     {
-        try
-        {
             return assembly.GetTypes().Where(t => t.IsPublic || t.IsNestedPublic);
-        }
-        catch (ReflectionTypeLoadException ex)
-        {
-            return ex.Types.Where(t => t != null && (t.IsPublic || t.IsNestedPublic)).Cast<Type>();
-        }
-        catch
-        {
-            return Array.Empty<Type>();
-        }
     }
 
     private static void AddTypeIndex(Dictionary<string, List<Type>> index, string key, Type type)
