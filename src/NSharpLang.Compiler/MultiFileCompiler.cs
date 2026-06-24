@@ -218,38 +218,6 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Build the project-level symbol table from all parsed compilation units.
-    /// Maps symbol names to their ProjectSymbolInfo (including source file and namespace).
-    /// This enables automatic cross-file symbol resolution without explicit imports.
-    /// </summary>
-    private Dictionary<string, List<ProjectSymbolInfo>> BuildProjectSymbolTable()
-    {
-        var table = new Dictionary<string, List<ProjectSymbolInfo>>();
-
-        foreach (var kvp in _compilationUnits)
-        {
-            var sourceFile = kvp.Key;
-            var compilationUnit = kvp.Value;
-
-            var sourceText = _sourceTexts.TryGetValue(sourceFile, out var text)
-                ? text
-                : ReadSourceText(sourceFile);
-            var symbols = Analyzer.ExtractProjectSymbols(compilationUnit, sourceFile, sourceText);
-            foreach (var symbol in symbols)
-            {
-                if (!table.TryGetValue(symbol.Name, out var list))
-                {
-                    list = new List<ProjectSymbolInfo>();
-                    table[symbol.Name] = list;
-                }
-                list.Add(symbol);
-            }
-        }
-
-        return table;
-    }
-
-    /// <summary>
     /// Detect circular file-import graphs before semantic analysis so project checks
     /// fail with a bounded, actionable diagnostic instead of relying on per-file
     /// shallow checks.
@@ -499,14 +467,10 @@ public class MultiFileCompiler
     /// </summary>
     private void AnalyzeAllFiles()
     {
-        // Build project symbol table for auto-discovery and set it on the shared analyzer
-        var projectSymbols = BuildProjectSymbolTable();
         _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts);
-        _sharedAnalyzer.SetProjectSymbols(projectSymbols);
 
         // Analyze each file using the shared analyzer instance
         // The Analyzer's import system handles cross-file references via proper import statements
-        // Project symbols provide fallback auto-discovery for unimported cross-file types
         foreach (var kvp in _compilationUnits)
         {
             var sourceFile = kvp.Key;

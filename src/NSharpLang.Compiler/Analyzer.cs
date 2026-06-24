@@ -207,19 +207,6 @@ public class Analyzer : IDisposable
     private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
     private bool _disposed;
 
-    // Project-level auto-discovered symbols (set once by MultiFileCompiler, persists across Analyze calls)
-    private Dictionary<string, List<ProjectSymbolInfo>> _projectSymbols = new();
-
-    /// <summary>
-    /// Set project-level symbols for auto-discovery across files.
-    /// Called once by MultiFileCompiler after parsing all files.
-    /// These symbols persist across Analyze() calls.
-    /// </summary>
-    public void SetProjectSymbols(Dictionary<string, List<ProjectSymbolInfo>> symbols)
-    {
-        _projectSymbols = symbols;
-    }
-
     private static string GetNuGetPackagesRoot()
     {
         var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
@@ -9311,33 +9298,10 @@ public class Analyzer : IDisposable
 
     private string? GetDeclarationFilePath(string typeName, Declaration? declaration = null)
     {
-        if (declaration != null
-            && _projectSymbols.TryGetValue(typeName, out var symbols))
-        {
-            foreach (var symbol in symbols)
-            {
-                if (TypeInfoContainsDeclaration(symbol.Type, declaration))
-                    return symbol.SourceFile;
-            }
-        }
-
         return _typeDeclarationFiles.TryGetValue(typeName, out var filePath)
             ? filePath
             : _currentFilePath;
     }
-
-    private static bool TypeInfoContainsDeclaration(TypeInfo typeInfo, Declaration declaration) => typeInfo switch
-    {
-        ClassTypeInfo classType => ReferenceEquals(classType.Declaration, declaration),
-        StructTypeInfo structType => ReferenceEquals(structType.Declaration, declaration),
-        RecordTypeInfo recordType => ReferenceEquals(recordType.Declaration, declaration),
-        InterfaceTypeInfo interfaceType => ReferenceEquals(interfaceType.Declaration, declaration),
-        EnumTypeInfo enumType => ReferenceEquals(enumType.Declaration, declaration),
-        UnionTypeInfo unionType => ReferenceEquals(unionType.Declaration, declaration),
-        NullableTypeInfo nullableType => TypeInfoContainsDeclaration(nullableType.InnerType, declaration),
-        ObliviousTypeInfo obliviousType => TypeInfoContainsDeclaration(obliviousType.InnerType, declaration),
-        _ => false
-    };
 
     private bool TryFindDeclarationMember(IEnumerable<Declaration> members, string memberName, string? filePath, out SymbolDeclaration declaration)
     {
@@ -22492,74 +22456,6 @@ public class Analyzer : IDisposable
         };
     }
 
-    /// <summary>
-    /// Extract all public (PascalCase) symbols from a compilation unit for project-level auto-discovery.
-    /// Static method that doesn't require analyzer state — used by MultiFileCompiler.
-    /// </summary>
-    public static List<ProjectSymbolInfo> ExtractProjectSymbols(CompilationUnit unit, string filePath, string? sourceText = null)
-    {
-        var symbols = new List<ProjectSymbolInfo>();
-        var ns = GetUnitNamespace(unit);
-
-        foreach (var decl in unit.Declarations)
-        {
-            var name = decl switch
-            {
-                ClassDeclaration c => c.Name,
-                StructDeclaration s => s.Name,
-                RecordDeclaration r => r.Name,
-                SoaRecordDeclaration soa => soa.Name,
-                InterfaceDeclaration i => i.Name,
-                UnionDeclaration u => u.Name,
-                EnumDeclaration e => e.Name,
-                TypeAliasDeclaration a => a.Name,
-                NewtypeDeclaration n => n.Name,
-                FunctionDeclaration f => f.Name,
-                _ => null
-            };
-
-            if (name != null && !string.IsNullOrEmpty(name))
-            {
-                var typeInfo = decl switch
-                {
-                    ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
-                    StructDeclaration s => new StructTypeInfo(s),
-                    RecordDeclaration r => new RecordTypeInfo(r),
-                    SoaRecordDeclaration soa => new SoaRecordTypeInfo(soa),
-                    InterfaceDeclaration i => new InterfaceTypeInfo(i),
-                    UnionDeclaration u => new UnionTypeInfo(u),
-                    EnumDeclaration e => new EnumTypeInfo(e),
-                    TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
-                    NewtypeDeclaration n => new NewtypeInfo(n.Name, n.UnderlyingType),
-                    FunctionDeclaration f => new FunctionTypeInfo(f)
-                    {
-                        ParameterTypes = new List<TypeInfo>(), // Resolved during analysis
-                        ReturnType = BuiltInTypes.Void
-                    },
-                    _ => null
-                };
-
-                if (typeInfo != null)
-                {
-                    symbols.Add(new ProjectSymbolInfo(
-                        name,
-                        typeInfo,
-                        new SymbolDeclaration(
-                            name,
-                            filePath,
-                            decl.Line,
-                            FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
-                            GetDeclarationKind(decl)),
-                        filePath,
-                        ns,
-                        IsExportedByCasingOrModifier(name, decl)));
-                }
-            }
-        }
-
-        return symbols;
-    }
-
     private void CheckImportCollisions()
     {
         foreach (var (symbol, imports) in _importedSymbols)
@@ -23373,19 +23269,6 @@ internal sealed record ImportedSymbolReference(
     int Line,
     int Column,
     int Length);
-
-/// <summary>
-/// A symbol discovered from another file in the same project.
-/// Used for automatic cross-file symbol resolution (Go-style package visibility).
-/// </summary>
-public sealed record ProjectSymbolInfo(
-    string Name,
-    TypeInfo Type,
-    SymbolDeclaration Declaration,
-    string SourceFile,
-    string? Namespace, // The namespace/package the symbol is declared in (for using-directive generation)
-    bool IsExported
-);
 
 // Type system
 public abstract record TypeInfo
