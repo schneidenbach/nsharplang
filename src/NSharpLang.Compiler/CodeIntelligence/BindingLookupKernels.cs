@@ -39,28 +39,20 @@ internal static class BindingLookupKernels
         scratch.SpanStartColumns[0] = span?.StartColumn ?? -1;
         scratch.SpanEndColumns[0] = span?.EndColumn ?? -1;
 
-        try
-        {
-            var total = bindings.BindingLookupCandidateColumns(
-                scratch.QueryColumns,
-                scratch.SpanStartColumns,
-                scratch.SpanEndColumns,
-                scratch.ResultStarts,
-                scratch.ResultCounts,
-                scratch.ResultColumns);
-            var count = scratch.ResultCounts[0];
-            if (total < 0 || total > scratch.ResultColumns.Length || count < 0 || count > total)
-                return false;
-
-            candidateColumns = new int[count];
-            Array.Copy(scratch.ResultColumns, scratch.ResultStarts[0], candidateColumns, 0, count);
-            return true;
-        }
-        catch
-        {
-            candidateColumns = Array.Empty<int>();
+        var total = bindings.BindingLookupCandidateColumns(
+            scratch.QueryColumns,
+            scratch.SpanStartColumns,
+            scratch.SpanEndColumns,
+            scratch.ResultStarts,
+            scratch.ResultCounts,
+            scratch.ResultColumns);
+        var count = scratch.ResultCounts[0];
+        if (total < 0 || total > scratch.ResultColumns.Length || count < 0 || count > total)
             return false;
-        }
+
+        candidateColumns = new int[count];
+        Array.Copy(scratch.ResultColumns, scratch.ResultStarts[0], candidateColumns, 0, count);
+        return true;
     }
 
     internal static bool TryResolveBindingDeclaration(
@@ -79,16 +71,8 @@ internal static class BindingLookupKernels
         if (candidateColumns.Length == 0)
             return true;
 
-        try
-        {
-            var cache = s_bindingLookupCaches.GetValue(bindingMap, static map => new BindingLookupCache(map));
-            return cache.TryResolve(bindings, filePath, line, candidateColumns, out declaration);
-        }
-        catch
-        {
-            declaration = null;
-            return false;
-        }
+        var cache = s_bindingLookupCaches.GetValue(bindingMap, static map => new BindingLookupCache(map));
+        return cache.TryResolve(bindings, filePath, line, candidateColumns, out declaration);
     }
 
     internal static bool TryFindNearestBindingDeclarationByName(
@@ -107,16 +91,8 @@ internal static class BindingLookupKernels
         if (string.IsNullOrEmpty(name))
             return true;
 
-        try
-        {
-            var cache = s_bindingLookupCaches.GetValue(bindingMap, static map => new BindingLookupCache(map));
-            return cache.TryFindNearestDeclaration(bindings, filePath, name, line, out declaration);
-        }
-        catch
-        {
-            declaration = null;
-            return false;
-        }
+        var cache = s_bindingLookupCaches.GetValue(bindingMap, static map => new BindingLookupCache(map));
+        return cache.TryFindNearestDeclaration(bindings, filePath, name, line, out declaration);
     }
 
     private static Bindings? LoadBindings()
@@ -445,43 +421,8 @@ internal static class BindingLookupKernels
                 _sortedDeclarationColumns,
                 _sortedDeclarationIndices);
 
-            if (dogfoodCount == declarationCount)
-                return;
-
-            var order = new int[declarationCount];
-            for (var i = 0; i < declarationCount; i++)
-            {
-                order[i] = i;
-            }
-
-            Array.Sort(order, CompareDeclarationOrder);
-
-            for (var sortedIndex = 0; sortedIndex < declarationCount; sortedIndex++)
-            {
-                var declarationIndex = order[sortedIndex];
-                _sortedDeclarationNameIds[sortedIndex] = _declarationNameIds[declarationIndex];
-                _sortedDeclarationFileRanks[sortedIndex] = _declarationFileRanks[declarationIndex];
-                _sortedDeclarationLineNumbers[sortedIndex] = _declarationLineNumbers[declarationIndex];
-                _sortedDeclarationColumns[sortedIndex] = _declarationColumns[declarationIndex];
-                _sortedDeclarationIndices[sortedIndex] = declarationIndex;
-            }
-        }
-
-        private int CompareDeclarationOrder(int left, int right)
-        {
-            var diff = _declarationNameIds[left].CompareTo(_declarationNameIds[right]);
-            if (diff != 0)
-                return diff;
-
-            diff = _declarationFileRanks[left].CompareTo(_declarationFileRanks[right]);
-            if (diff != 0)
-                return diff;
-
-            diff = _declarationLineNumbers[left].CompareTo(_declarationLineNumbers[right]);
-            if (diff != 0)
-                return diff;
-
-            return _declarationColumns[left].CompareTo(_declarationColumns[right]);
+            if (dogfoodCount != declarationCount)
+                throw new InvalidOperationException("N# binding lookup nearest declaration index kernel rejected the source.");
         }
 
         private int GetOrAddFileRank(string? file)

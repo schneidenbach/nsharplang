@@ -381,93 +381,76 @@ func BindingLookupBuildNearestDeclarationIndexCore(
         return 0
     }
 
-    maxNameId := 0
     i := 0
     while i < declarationCount {
-        nameId := source.NameIds[i]
-        if nameId < 0 {
+        if source.NameIds[i] < 0 || source.FileRanks[i] < 0 {
             return -1
-        }
-
-        if nameId > maxNameId {
-            maxNameId = nameId
         }
 
         i = i + 1
     }
 
-    if maxNameId >= scratch.StackLefts.Length || maxNameId >= scratch.TempDeclarationIndices.Length {
+    if declarationCount > scratch.TempDeclarationIndices.Length {
         return -1
     }
 
     i = 0
-    while i <= maxNameId {
-        scratch.StackLefts[i] = 0
-        i = i + 1
-    }
-
-    i = 0
     while i < declarationCount {
-        nameId := source.NameIds[i]
-        scratch.StackLefts[nameId] = scratch.StackLefts[nameId] + 1
+        scratch.TempDeclarationIndices[i] = i
         i = i + 1
     }
 
-    offset := 0
-    i = 0
-    while i <= maxNameId {
-        countForName := scratch.StackLefts[i]
-        scratch.StackLefts[i] = offset
-        offset = offset + countForName
-        i = i + 1
-    }
-
-    i = 0
-    while i <= maxNameId {
-        scratch.TempDeclarationIndices[i] = -1
-        i = i + 1
-    }
-
-    i = 0
+    i = 1
     while i < declarationCount {
-        nameId := source.NameIds[i]
-        previousDeclarationIndex := scratch.TempDeclarationIndices[nameId]
-        if previousDeclarationIndex >= 0 {
-            fileRank := source.FileRanks[i]
-            previousFileRank := source.FileRanks[previousDeclarationIndex]
-            if fileRank < previousFileRank {
-                return -1
-            }
+        currentIndex := scratch.TempDeclarationIndices[i]
+        j := i - 1
 
-            if fileRank == previousFileRank {
-                lineNumber := source.LineNumbers[i]
-                previousLineNumber := source.LineNumbers[previousDeclarationIndex]
-                if lineNumber < previousLineNumber {
-                    return -1
-                }
-
-                if lineNumber == previousLineNumber {
-                    column := source.Columns[i]
-                    previousColumn := source.Columns[previousDeclarationIndex]
-                    if column < previousColumn {
-                        return -1
-                    }
-                }
-            }
+        while j >= 0 && BindingLookupNearestSourceIndexIsAfter(scratch.TempDeclarationIndices[j], currentIndex, ref source) {
+            scratch.TempDeclarationIndices[j + 1] = scratch.TempDeclarationIndices[j]
+            j = j - 1
         }
 
-        target := scratch.StackLefts[nameId]
-        sorted.NameIds[target] = nameId
-        sorted.FileRanks[target] = source.FileRanks[i]
-        sorted.LineNumbers[target] = source.LineNumbers[i]
-        sorted.Columns[target] = source.Columns[i]
-        sorted.DeclarationIndices[target] = i
-        scratch.StackLefts[nameId] = target + 1
-        scratch.TempDeclarationIndices[nameId] = i
+        scratch.TempDeclarationIndices[j + 1] = currentIndex
+        i = i + 1
+    }
+
+    i = 0
+    while i < declarationCount {
+        declarationIndex := scratch.TempDeclarationIndices[i]
+        sorted.NameIds[i] = source.NameIds[declarationIndex]
+        sorted.FileRanks[i] = source.FileRanks[declarationIndex]
+        sorted.LineNumbers[i] = source.LineNumbers[declarationIndex]
+        sorted.Columns[i] = source.Columns[declarationIndex]
+        sorted.DeclarationIndices[i] = declarationIndex
         i = i + 1
     }
 
     return declarationCount
+}
+
+func BindingLookupNearestSourceIndexIsAfter(
+    left: int,
+    right: int,
+    source: &BindingLookupNearestDeclarationSourceTable): bool {
+    leftNameId := source.NameIds[left]
+    rightNameId := source.NameIds[right]
+    if leftNameId != rightNameId {
+        return leftNameId > rightNameId
+    }
+
+    leftFileRank := source.FileRanks[left]
+    rightFileRank := source.FileRanks[right]
+    if leftFileRank != rightFileRank {
+        return leftFileRank > rightFileRank
+    }
+
+    leftLine := source.LineNumbers[left]
+    rightLine := source.LineNumbers[right]
+    if leftLine != rightLine {
+        return leftLine > rightLine
+    }
+
+    return source.Columns[left] > source.Columns[right]
 }
 
 func BindingLookupFindIndexCore(

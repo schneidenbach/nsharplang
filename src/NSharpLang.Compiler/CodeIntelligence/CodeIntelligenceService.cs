@@ -1088,8 +1088,7 @@ public class CodeIntelligenceService
             return dogfoodContext;
         }
 
-        var lines = source.Split('\n');
-        return line <= lines.Length ? lines[line - 1].Trim() : null;
+        return null;
     }
 
     private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)
@@ -1196,13 +1195,6 @@ public class CodeIntelligenceService
             return dogfoodDeclaration;
         }
 
-        foreach (var candidateColumn in candidateColumns)
-        {
-            var declaration = snapshot.Bindings.GetBindingAt(filePath, line, candidateColumn);
-            if (declaration != null)
-                return declaration;
-        }
-
         return null;
     }
 
@@ -1283,11 +1275,7 @@ public class CodeIntelligenceService
             return dogfoodDeclaration;
         }
 
-        return snapshot.Bindings.FindDeclarationsByName(name)
-            .Where(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal) && declaration.Line <= line)
-            .OrderByDescending(declaration => declaration.Line)
-            .ThenByDescending(declaration => declaration.Column)
-            .FirstOrDefault();
+        return dogfoodDeclaration;
     }
 
     private SymbolDeclaration? FindDeclarationSymbolInUnit(CompilationUnit cu, string name, string filePath)
@@ -2455,15 +2443,7 @@ public class CodeIntelligenceService
                 return dogfoodName;
             }
 
-            var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-            if (span == null)
-                return null;
-
-            var lines = source.Split('\n');
-            var lineText = lines[line - 1];
-            var startIndex = span.Value.StartColumn - 1;
-            var length = span.Value.EndColumn - span.Value.StartColumn + 1;
-            return lineText.Substring(startIndex, length);
+            return null;
         }
         catch
         {
@@ -2488,52 +2468,6 @@ public class CodeIntelligenceService
                     out var dogfoodReceiverName))
             {
                 return dogfoodReceiverName;
-            }
-
-            var lines = source.Split('\n');
-            if (line <= 0 || line > lines.Length)
-                return null;
-
-            var lineText = lines[line - 1];
-            var memberStartIndex = memberStartColumn - 1;
-            if (memberStartIndex <= 0 || memberStartIndex > lineText.Length)
-                return null;
-
-            var separatorIndex = memberStartIndex - 1;
-            if (separatorIndex >= 0 && lineText[separatorIndex] == '.')
-            {
-                var receiverEnd = separatorIndex - 1;
-                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
-                    receiverEnd--;
-                if (receiverEnd < 0)
-                    return null;
-
-                var receiverStart = receiverEnd;
-                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
-                    receiverStart--;
-
-                receiverStart++;
-                return receiverStart <= receiverEnd
-                    ? lineText.Substring(receiverStart, receiverEnd - receiverStart + 1)
-                    : null;
-            }
-
-            if (separatorIndex >= 1 && lineText[separatorIndex - 1] == '?' && lineText[separatorIndex] == '.')
-            {
-                var receiverEnd = separatorIndex - 2;
-                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
-                    receiverEnd--;
-                if (receiverEnd < 0)
-                    return null;
-
-                var receiverStart = receiverEnd;
-                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
-                    receiverStart--;
-
-                receiverStart++;
-                return receiverStart <= receiverEnd
-                    ? lineText.Substring(receiverStart, receiverEnd - receiverStart + 1)
-                    : null;
             }
 
             return null;
@@ -2563,35 +2497,13 @@ public class CodeIntelligenceService
                 return dogfoodSpan;
             }
 
-            var lines = source.Split('\n');
-            if (line <= 0 || line > lines.Length)
-                return null;
-
-            var lineText = lines[line - 1];
-            if (lineText.Length == 0)
-                return null;
-
-            var index = FindNearestIdentifierIndex(lineText, Math.Clamp(col - 1, 0, lineText.Length - 1));
-            if (index < 0)
-                return null;
-
-            var start = index;
-            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
-                start--;
-
-            var end = index;
-            while (end + 1 < lineText.Length && IsIdentifierChar(lineText[end + 1]))
-                end++;
-
-            return (start + 1, end + 1);
+            return null;
         }
         catch
         {
             return null;
         }
     }
-
-    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static IEnumerable<int> GetNearbyColumns(int col, int maxDistance)
     {
@@ -2605,52 +2517,6 @@ public class CodeIntelligenceService
 
             yield return col + distance;
         }
-    }
-
-    private static int FindNearestIdentifierIndex(string lineText, int index)
-    {
-        if (lineText.Length == 0)
-            return -1;
-
-        if (index >= 0 && index < lineText.Length && IsIdentifierChar(lineText[index]))
-            return index;
-
-        const int maxDistance = 3;
-        for (int distance = 1; distance <= maxDistance; distance++)
-        {
-            var left = index - distance;
-            if (left >= 0 && IsIdentifierChar(lineText[left]) && IsSnapFriendlyNeighbor(lineText, left + 1, index))
-                return left;
-
-            var right = index + distance;
-            if (right < lineText.Length && IsIdentifierChar(lineText[right]) && IsSnapFriendlyNeighbor(lineText, index, right - 1))
-                return right;
-        }
-
-        return -1;
-    }
-
-    private static bool IsSnapFriendlyNeighbor(string lineText, int start, int end)
-    {
-        if (start > end)
-            return true;
-
-        for (int i = start; i <= end; i++)
-        {
-            if (i < 0 || i >= lineText.Length)
-                continue;
-
-            var ch = lineText[i];
-            if (char.IsWhiteSpace(ch))
-                continue;
-
-            if (ch is '.' or '?' or '(' or ')' or '[' or ']' or '{' or '}' or ',' or ';' or ':')
-                continue;
-
-            return false;
-        }
-
-        return true;
     }
 
     private static string? ExtractVariableDeclarationNameAtPosition(ProjectSnapshot snapshot, string filePath, int line)
@@ -2671,24 +2537,7 @@ public class CodeIntelligenceService
                 return dogfoodName;
             }
 
-            var lines = source.Split('\n');
-            if (line <= 0 || line > lines.Length) return null;
-
-            var lineText = lines[line - 1];
-            var assignIndex = lineText.IndexOf(":=", StringComparison.Ordinal);
-            if (assignIndex <= 0) return null;
-
-            var end = assignIndex - 1;
-            while (end >= 0 && char.IsWhiteSpace(lineText[end]))
-                end--;
-            if (end < 0) return null;
-
-            var start = end;
-            while (start >= 0 && (char.IsLetterOrDigit(lineText[start]) || lineText[start] == '_'))
-                start--;
-
-            start++;
-            return start <= end ? lineText.Substring(start, end - start + 1) : null;
+            return null;
         }
         catch
         {
