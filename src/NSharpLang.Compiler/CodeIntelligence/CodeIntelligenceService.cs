@@ -241,19 +241,10 @@ public class CodeIntelligenceService
         {
             var fullPath = Path.GetFullPath(sourceFile);
             string source;
-            try
-            {
                 source = File.ReadAllText(fullPath);
-            }
-            catch
-            {
-                continue;
-            }
 
             sourceTexts[fullPath] = source;
 
-            try
-            {
                 var lexer = new Lexer(source, fullPath);
                 var tokens = lexer.Tokenize();
                 var parser = new Parser(tokens, fullPath, source);
@@ -262,11 +253,6 @@ public class CodeIntelligenceService
                 {
                     compilationUnits[fullPath] = parseResult.CompilationUnit;
                 }
-            }
-            catch
-            {
-                // A hard parse failure leaves no AST-backed lint surface for this file.
-            }
         }
 
         return GetLintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, file);
@@ -385,14 +371,7 @@ public class CodeIntelligenceService
 
             if (!sourceTexts.TryGetValue(fullPath, out var source))
             {
-                try
-                {
                     source = File.ReadAllText(fullPath);
-                }
-                catch
-                {
-                    continue;
-                }
             }
 
             var fileDir = Path.GetDirectoryName(fullPath) ?? projectRoot;
@@ -1834,14 +1813,7 @@ public class CodeIntelligenceService
         if (snapshot.SourceTexts.TryGetValue(fullPath, out var text))
             return text;
 
-        try
-        {
             return File.ReadAllText(fullPath);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
