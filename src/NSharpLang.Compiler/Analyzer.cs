@@ -13433,18 +13433,11 @@ public class Analyzer : IDisposable
         if (declaringType is not { IsGenericType: true } || declaringType.IsGenericTypeDefinition)
             return signatureMethod;
 
-        try
-        {
             var genericDefinition = declaringType.GetGenericTypeDefinition();
             const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
             return genericDefinition.GetMethods(flags)
                 .FirstOrDefault(candidate => candidate.MetadataToken == signatureMethod.MetadataToken)
                 ?? signatureMethod;
-        }
-        catch
-        {
-            return signatureMethod;
-        }
     }
 
     private bool TryPopulateReceiverGenericTypeBindings(
@@ -14231,12 +14224,8 @@ public class Analyzer : IDisposable
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-        try
-        {
             return parameter.GetCustomAttributesData()
                 .Any(a => a.AttributeType.FullName == "System.ParamArrayAttribute");
-        }
-        catch { return false; }
     }
 
     private static bool IsExtensionMethodCall(MethodInfo method, CallExpression call)
@@ -20837,26 +20826,12 @@ public class Analyzer : IDisposable
 
     private static IEnumerable<Type> GetInterfacesSafe(Type type)
     {
-        try
-        {
             return type.GetInterfaces();
-        }
-        catch
-        {
-            return Array.Empty<Type>();
-        }
     }
 
     private static Type? GetBaseTypeSafe(Type type)
     {
-        try
-        {
             return type.BaseType;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     /// <summary>
