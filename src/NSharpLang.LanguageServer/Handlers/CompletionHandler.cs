@@ -163,7 +163,6 @@ public class CompletionHandler : CompletionHandlerBase
     /// <summary>
     /// Get member completion items for the expression before the dot.
     /// Uses AST-based expression type resolution (like HoverHandler) as the primary path,
-    /// with text-based fallback for broken ASTs.
     /// </summary>
     private List<CompletionItem> GetMemberCompletionItems(Models.DocumentState doc, int line, int character)
     {
@@ -181,9 +180,6 @@ public class CompletionHandler : CompletionHandlerBase
                     return items;
                 }
             }
-
-            // === FALLBACK: text-based resolution ===
-            items = GetMemberCompletionFallback(doc, line, character);
         }
         catch (Exception ex)
         {
@@ -514,71 +510,6 @@ public class CompletionHandler : CompletionHandlerBase
         var additionalOverloads = member.OverloadCount - 1;
         var overloadLabel = additionalOverloads == 1 ? "overload" : "overloads";
         return $"{detail} (+{additionalOverloads} {overloadLabel})";
-    }
-
-    /// <summary>
-    /// Fallback: text-based member completion (used when AST is too broken)
-    /// </summary>
-    private List<CompletionItem> GetMemberCompletionFallback(Models.DocumentState doc, int line, int character)
-    {
-        var items = new List<CompletionItem>();
-        var text = doc.Text;
-        if (text == null) return items;
-
-        var lines = text.Split('\n');
-        if (line >= lines.Length) return items;
-
-        var lineText = lines[line];
-        if (character == 0) return items;
-
-        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
-        // Handle race condition: dot might not be in text yet (trigger char arrives before didChange)
-        // In that case, the text before cursor IS the identifier (the dot was just typed but not in buffer)
-        string beforeDot;
-        if (beforeCursor.EndsWith("."))
-            beforeDot = beforeCursor.Substring(0, beforeCursor.Length - 1).TrimEnd();
-        else
-            beforeDot = beforeCursor; // dot not in text yet — treat text before cursor as the identifier
-
-        var identifier = ExtractIdentifier(beforeDot);
-        if (string.IsNullOrEmpty(identifier)) return items;
-
-        // Check for namespace completion first
-        if (_typeResolver.IsKnownNamespace(identifier))
-        {
-            foreach (var sub in GetSubNamespaces(identifier))
-                items.Add(new CompletionItem { Label = sub, Kind = CompletionItemKind.Module, Detail = $"namespace {identifier}.{sub}", InsertText = sub });
-            items.AddRange(NamespaceTypesToCompletionItems(_typeResolver.GetTypesInNamespace(identifier)));
-            if (items.Count > 0) return items;
-        }
-
-        // Try semantic model
-        Type? type = null;
-        TypeInfo? nsharpTypeInfo = doc.SemanticModel?.LookupIdentifier(identifier);
-        if (nsharpTypeInfo != null)
-        {
-            var nsharpMembers = GetNSharpTypeMembers(nsharpTypeInfo, doc);
-            if (nsharpMembers.Count > 0)
-            {
-                _logger.LogDebug("Fallback resolved '{Identifier}' as N# type with {Count} members", identifier, nsharpMembers.Count);
-                return nsharpMembers;
-            }
-
-            type = _typeResolver.ResolveType(nsharpTypeInfo.ToString());
-        }
-
-        // Try as type name
-        type ??= _typeResolver.ResolveType(identifier);
-
-        if (type != null)
-        {
-            var mode = doc.SemanticModel?.LookupIdentifier(identifier) != null
-                ? MemberAccessMode.InstanceOnly
-                : MemberAccessMode.StaticOnly;
-            return MembersToCompletionItems(_typeResolver.GetMembers(type, mode), doc, type);
-        }
-
-        return items;
     }
 
     /// <summary>
@@ -1121,12 +1052,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
 
         return insertLine;
-    }
-
-    private static string ExtractIdentifier(string text)
-    {
-        var parts = text.Split(new[] { ' ', '\t', '(', ')', '[', ']', '{', '}', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-        return parts.LastOrDefault() ?? "";
     }
 
     private static bool TryExtractImportPrefix(string beforeCursor, out string importPrefix)
