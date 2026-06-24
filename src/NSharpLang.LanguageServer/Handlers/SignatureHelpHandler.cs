@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -19,24 +18,17 @@ namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
 /// Handles signature help (parameter info when typing method calls).
-/// Supports both .NET types (via reflection) and user-defined N# functions (via AST).
 /// </summary>
 public class SignatureHelpHandler : SignatureHelpHandlerBase
 {
     private readonly DocumentManager _documentManager;
-    private readonly TypeResolver _typeResolver;
-    private readonly XmlDocReader _xmlDocReader;
     private readonly ILogger<SignatureHelpHandler> _logger;
 
     public SignatureHelpHandler(
         DocumentManager documentManager,
-        TypeResolver typeResolver,
-        XmlDocReader xmlDocReader,
         ILogger<SignatureHelpHandler> logger)
     {
         _documentManager = documentManager;
-        _typeResolver = typeResolver;
-        _xmlDocReader = xmlDocReader;
         _logger = logger;
     }
 
@@ -86,20 +78,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                         ctorSignatures,
                         activeParameter,
                         argumentCount));
-                }
-
-                // Fall back to reflection for .NET types
-                var ctorType = _typeResolver.ResolveType(callInfo.Value.MethodName);
-                if (ctorType != null)
-                {
-                    var reflectionCtors = BuildReflectionConstructorSignatures(ctorType);
-                    if (reflectionCtors != null && reflectionCtors.Count > 0)
-                    {
-                        return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
-                            reflectionCtors,
-                            activeParameter,
-                            argumentCount));
-                    }
                 }
 
                 return Task.FromResult<SignatureHelp?>(null);
@@ -230,46 +208,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Build signatures for .NET type constructors via reflection.
-    /// </summary>
-    private List<SignatureInformation>? BuildReflectionConstructorSignatures(Type type)
-    {
-        var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
-        if (constructors.Length == 0) return null;
-
-        var signatures = new List<SignatureInformation>();
-        foreach (var ctor in constructors)
-        {
-            var parameters = ctor.GetParameters();
-            var paramInfos = new List<ParameterInformation>();
-            var documentation = _xmlDocReader.GetConstructorDocumentationInfo(ctor);
-
-            foreach (var param in parameters)
-            {
-                var paramType = NullabilityMetadata.FormatParameterType(param);
-                paramInfos.Add(new ParameterInformation
-                {
-                    Label = $"{param.Name}: {paramType}",
-                    Documentation = CreateDocumentationMarkup(
-                        documentation?.GetParameterDocumentation(param.Name))
-                });
-            }
-
-            var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
-            var label = $"new {type.Name}({paramList})";
-
-            signatures.Add(new SignatureInformation
-            {
-                Label = label,
-                Documentation = CreateDocumentationMarkup(documentation?.Summary),
-                Parameters = new Container<ParameterInformation>(paramInfos)
-            });
-        }
-
-        return signatures;
-    }
-
-    /// <summary>
     /// Build signatures for a method on a user-defined N# type.
     /// </summary>
     private List<SignatureInformation> BuildNSharpMemberSignatures(DocumentState doc, string typeName, string methodName)
@@ -305,11 +243,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return signatures;
     }
 
-    /// <summary>
-    /// Resolve signature help for a dot-qualified call. Simple identifiers are
-    /// checked as in-scope values before type names so `message.Contains(` uses
-    /// string instance overloads while `String.Format(` uses static overloads.
-    /// </summary>
     private List<SignatureInformation> ResolveMemberSignatures(
         DocumentState doc,
         string receiverName,
@@ -331,21 +264,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 }
             }
 
-            var clrReceiverType = ResolveClrType(receiverTypeInfo);
-            if (clrReceiverType != null)
-            {
-                var instanceSignatures = BuildReflectionSignatures(
-                    clrReceiverType,
-                    methodName,
-                    MemberAccessMode.InstanceOnly,
-                    TryGetSelectedReflectionMethod(doc, methodName, lspLine, lspCharacter));
-                if (instanceSignatures.Count > 0)
-                {
-                    _logger.LogDebug("Resolved receiver '{Receiver}' as CLR instance type '{Type}'",
-                        receiverName, clrReceiverType.FullName);
-                    return instanceSignatures;
-                }
-            }
         }
 
         // Direct N# type access, e.g. Person.Create(
@@ -355,19 +273,8 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             return nsharpMemberSignatures;
         }
 
-        // Static .NET type access, e.g. Console.WriteLine( or System.String.Format(
-        var staticType = _typeResolver.ResolveType(receiverName);
-        if (staticType == null)
-        {
             _logger.LogDebug("Could not resolve receiver: {Receiver}", receiverName);
             return new List<SignatureInformation>();
-        }
-
-        return BuildReflectionSignatures(
-            staticType,
-            methodName,
-            MemberAccessMode.StaticOnly,
-            TryGetSelectedReflectionMethod(doc, methodName, lspLine, lspCharacter));
     }
 
     private bool TryLookupReceiverTypeInfo(
@@ -397,150 +304,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return true;
     }
 
-    private Type? ResolveClrType(CompilerTypeInfo typeInfo)
-    {
-        return typeInfo switch
-        {
-            ReflectionTypeInfo reflectionType => reflectionType.Type,
-            _ => _typeResolver.ResolveType(typeInfo.ToString())
-        };
-    }
-
-    private static MethodInfo? TryGetSelectedReflectionMethod(
-        DocumentState doc,
-        string methodName,
-        int lspLine,
-        int lspCharacter)
-    {
-        if (doc.CompilationUnit == null || doc.SemanticModel == null)
-        {
-            return null;
-        }
-
-        CallExpression? bestCall = null;
-
-        void ConsiderCall(CallExpression call)
-        {
-            if (call.Callee is not MemberAccessExpression memberAccess
-                || memberAccess.MemberName != methodName
-                || !IsBeforeOrAt(call.Line, call.Column, lspLine, lspCharacter))
-            {
-                return;
-            }
-
-            if (bestCall == null || IsAfter(call.Line, call.Column, bestCall.Line, bestCall.Column))
-            {
-                bestCall = call;
-            }
-        }
-
-        void VisitDeclaration(Declaration declaration)
-        {
-            switch (declaration)
-            {
-                case FunctionDeclaration function:
-                    if (function.Body != null) VisitStatement(function.Body);
-                    if (function.ExpressionBody != null) VisitExpression(function.ExpressionBody);
-                    break;
-                case ClassDeclaration cls:
-                    foreach (var member in cls.Members) VisitDeclaration(member);
-                    break;
-                case StructDeclaration str:
-                    foreach (var member in str.Members) VisitDeclaration(member);
-                    break;
-                case RecordDeclaration record:
-                    foreach (var member in record.Members) VisitDeclaration(member);
-                    break;
-            }
-        }
-
-        void VisitStatement(Statement statement)
-        {
-            switch (statement)
-            {
-                case BlockStatement block:
-                    foreach (var child in block.Statements) VisitStatement(child);
-                    break;
-                case ExpressionStatement expressionStatement:
-                    VisitExpression(expressionStatement.Expression);
-                    break;
-                case VariableDeclarationStatement variableDeclaration:
-                    if (variableDeclaration.Initializer != null) VisitExpression(variableDeclaration.Initializer);
-                    break;
-                case ReturnStatement returnStatement:
-                    if (returnStatement.Value != null) VisitExpression(returnStatement.Value);
-                    break;
-                case IfStatement ifStatement:
-                    VisitExpression(ifStatement.Condition);
-                    VisitStatement(ifStatement.ThenStatement);
-                    if (ifStatement.ElseStatement != null) VisitStatement(ifStatement.ElseStatement);
-                    break;
-                case ForeachStatement foreachStatement:
-                    VisitExpression(foreachStatement.Collection);
-                    VisitStatement(foreachStatement.Body);
-                    break;
-            }
-        }
-
-        void VisitExpression(Expression expression)
-        {
-            switch (expression)
-            {
-                case CallExpression call:
-                    ConsiderCall(call);
-                    VisitExpression(call.Callee);
-                    foreach (var argument in call.Arguments) VisitExpression(argument.Value);
-                    break;
-                case MemberAccessExpression memberAccess:
-                    VisitExpression(memberAccess.Object);
-                    break;
-                case BinaryExpression binary:
-                    VisitExpression(binary.Left);
-                    VisitExpression(binary.Right);
-                    break;
-                case UnaryExpression unary:
-                    VisitExpression(unary.Operand);
-                    break;
-                case AssignmentExpression assignment:
-                    VisitExpression(assignment.Target);
-                    VisitExpression(assignment.Value);
-                    break;
-                case LambdaExpression lambda:
-                    if (lambda.ExpressionBody != null) VisitExpression(lambda.ExpressionBody);
-                    if (lambda.BlockBody != null) VisitStatement(lambda.BlockBody);
-                    break;
-                case ArrayLiteralExpression array:
-                    foreach (var element in array.Elements) VisitExpression(element);
-                    break;
-                case ParenthesizedExpression parenthesized:
-                    VisitExpression(parenthesized.Inner);
-                    break;
-            }
-        }
-
-        foreach (var declaration in doc.CompilationUnit.Declarations)
-        {
-            VisitDeclaration(declaration);
-        }
-
-        return bestCall != null
-            ? doc.SemanticModel.LookupReflectionCallTarget(bestCall.Line, bestCall.Column)
-            : null;
-
-        static bool IsBeforeOrAt(int line, int column, int targetLine, int targetColumn)
-        {
-            var zeroBasedLine = Math.Max(0, line - 1);
-            var zeroBasedColumn = Math.Max(0, column - 1);
-            return zeroBasedLine < targetLine
-                || (zeroBasedLine == targetLine && zeroBasedColumn <= targetColumn);
-        }
-
-        static bool IsAfter(int line, int column, int otherLine, int otherColumn)
-        {
-            return line > otherLine || (line == otherLine && column > otherColumn);
-        }
-    }
-
     private static string? GetNSharpTypeName(DocumentState doc, CompilerTypeInfo typeInfo)
     {
         var typeName = typeInfo switch
@@ -560,71 +323,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Build signatures for .NET types via reflection.
-    /// </summary>
-    private List<SignatureInformation> BuildReflectionSignatures(
-        Type type,
-        string methodName,
-        MemberAccessMode mode,
-        MethodInfo? selectedMethod = null)
-    {
-        var bindingFlags = BindingFlags.Public;
-        bindingFlags |= mode switch
-        {
-            MemberAccessMode.StaticOnly => BindingFlags.Static,
-            MemberAccessMode.InstanceOnly => BindingFlags.Instance,
-            _ => BindingFlags.Static | BindingFlags.Instance
-        };
-
-        var methods = type.GetMethods(bindingFlags)
-            .Where(m => m.Name == methodName && !m.IsSpecialName)
-            .OrderByDescending(m => selectedMethod != null && ReflectionMethodIdentity.MethodsMatch(m, selectedMethod))
-            .ThenBy(m => m.GetParameters().Length)
-            .ThenBy(m => string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName)))
-            .ToList();
-
-        if (!methods.Any())
-        {
-            _logger.LogDebug("No methods found with name: {Method}", methodName);
-            return new List<SignatureInformation>();
-        }
-
-        var signatures = new List<SignatureInformation>();
-        foreach (var method in methods)
-        {
-            var parameters = method.GetParameters();
-            var paramInfos = new List<ParameterInformation>();
-            var documentation = _xmlDocReader.GetMethodDocumentationInfo(method);
-
-            foreach (var param in parameters)
-            {
-                var paramType = NullabilityMetadata.FormatParameterType(param);
-                var paramLabel = $"{param.Name}: {paramType}";
-
-                paramInfos.Add(new ParameterInformation
-                {
-                    Label = paramLabel,
-                    Documentation = CreateDocumentationMarkup(
-                        documentation?.GetParameterDocumentation(param.Name))
-                });
-            }
-
-            var returnType = NullabilityMetadata.FormatReturnType(method);
-            var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
-            var label = $"{method.Name}({paramList}): {returnType}";
-
-            signatures.Add(new SignatureInformation
-            {
-                Label = label,
-                Documentation = CreateDocumentationMarkup(documentation?.Summary),
-                Parameters = new Container<ParameterInformation>(paramInfos)
-            });
-        }
-
-        return signatures;
     }
 
     private SignatureHelp CreateSignatureHelp(
@@ -935,48 +633,4 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return CodeIntelligenceService.FormatTypeReferencePublic(typeRef);
     }
 
-    /// <summary>
-    /// Format a .NET System.Type for display.
-    /// </summary>
-    private string FormatTypeName(Type type)
-    {
-        if (type.IsGenericType)
-        {
-            var genericType = type.GetGenericTypeDefinition();
-            var genericArgs = type.GetGenericArguments();
-            var typeName = genericType.Name;
-
-            // Remove `1, `2, etc. from generic type names
-            var backtickIndex = typeName.IndexOf('`');
-            if (backtickIndex > 0)
-            {
-                typeName = typeName.Substring(0, backtickIndex);
-            }
-
-            var argNames = string.Join(", ", genericArgs.Select(FormatTypeName));
-            return $"{typeName}<{argNames}>";
-        }
-
-        // Use simple names for common types
-        return type.Name switch
-        {
-            "SByte" => "sbyte",
-            "Byte" => "byte",
-            "Int16" => "short",
-            "UInt16" => "ushort",
-            "Int32" => "int",
-            "UInt32" => "uint",
-            "Int64" => "long",
-            "UInt64" => "ulong",
-            "Single" => "float",
-            "Double" => "double",
-            "Decimal" => "decimal",
-            "Boolean" => "bool",
-            "Char" => "char",
-            "String" => "string",
-            "Void" => "void",
-            "Object" => "object",
-            _ => type.Name
-        };
-    }
 }

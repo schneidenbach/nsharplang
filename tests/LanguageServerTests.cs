@@ -343,8 +343,6 @@ public class LanguageServerTests
 
             SignatureHelpHandler = new SignatureHelpHandler(
                 DocumentManager,
-                TypeResolver,
-                XmlDocReader,
                 NullLogger<SignatureHelpHandler>.Instance
             );
 
@@ -1187,44 +1185,6 @@ func main(): void
     #region Signature Help Tests
 
     [Fact]
-    public async Task SignatureHelp_ConsoleWriteLineAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.WriteLine(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 22);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("WriteLine"));
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringFormatAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    String.Format(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 18);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Format"));
-    }
-
-    [Fact]
     public async Task SignatureHelp_NSharpFunction_BasicAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -1371,115 +1331,6 @@ func main(): void
         Assert.Equal(2, sig.Parameters!.Count());
         Assert.Contains("name: string", sig.Label);
         Assert.Contains("greeting: string", sig.Label);
-    }
-
-    [Fact]
-    public async Task SignatureHelp_NSharpFunction_StillWorksForDotNetAsync()
-    {
-        // Ensure existing .NET type signature help still works after refactor
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Math.Max(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 13);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Max"));
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringInstanceMethod_ReturnsOverloadsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message := ""hello""
-    message.Contains(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 21);
-
-        Assert.NotNull(sigHelp);
-        Assert.True(sigHelp.Signatures.Count() >= 2,
-            $"Expected string.Contains overloads, got {sigHelp.Signatures.Count()} signature(s)");
-        Assert.All(sigHelp.Signatures, signature => Assert.StartsWith("Contains(", signature.Label));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: string"));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: char"));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("comparisonType: StringComparison"));
-        Assert.Equal(0, sigHelp.ActiveParameter);
-
-        var stringOverload = sigHelp.Signatures.First(signature =>
-            signature.Label.Contains("value: string") &&
-            !signature.Label.Contains("comparisonType"));
-        var documentation = GetDocumentationText(stringOverload.Documentation);
-        var parameterDocumentation = GetDocumentationText(stringOverload.Parameters!.First().Documentation);
-
-        Assert.NotNull(documentation);
-        Assert.Contains("specified substring", documentation);
-        Assert.NotNull(parameterDocumentation);
-        Assert.Contains("string to seek", parameterDocumentation);
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringInstanceMethod_SelectsArityCompatibleOverloadAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message := ""hello""
-    message.Substring(0, ";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 25);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Equal(1, sigHelp.ActiveParameter);
-
-        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
-        Assert.Contains("length: int", activeSignature.Label);
-    }
-
-    [Fact]
-    public async Task SignatureHelp_DotNetNamedCall_UsesAnalyzerSelectedOverloadAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/signature_named_call.nl";
-
-        var source = @"
-import System
-import System.Collections.Generic
-
-func main(): void
-    names := new List<string>()
-    names.Add(""alpha"")
-    joined := String.Join(separator: "","", values: names)
-";
-
-        harness.OpenDocument(uri, source);
-
-        var lines = source.Split('\n');
-        var line = Array.FindIndex(lines, text => text.Contains("String.Join", StringComparison.Ordinal));
-        var character = lines[line].IndexOf("values", StringComparison.Ordinal) + "values".Length;
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, line, character);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
-        Assert.Contains("separator: string", activeSignature.Label);
-        Assert.Contains("values: IEnumerable<string?>", activeSignature.Label);
     }
 
     #endregion
