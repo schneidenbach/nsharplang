@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Compiler;
 
@@ -13,9 +15,14 @@ public static class SourceTextLines
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        return source
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n');
+        var lines = new List<string>();
+        for (var lineNumber = 1; ; lineNumber++)
+        {
+            var line = CodeIntelligenceTextUtilities.GetSourceLine(source, lineNumber);
+            if (line == null)
+                return lines.ToArray();
+
+            lines.Add(line);
+        }
     }
 }
