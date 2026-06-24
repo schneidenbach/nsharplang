@@ -274,13 +274,8 @@ public static class OutputFormatter
             .OrderBy(static p => p.MetadataToken))
         {
             object? propertyValue;
-            try
             {
                 propertyValue = property.GetValue(value);
-            }
-            catch
-            {
-                continue;
             }
 
             obj[JsonNamingPolicy.CamelCase.ConvertName(property.Name)] = AstValueToJson(propertyValue);
