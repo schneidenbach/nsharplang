@@ -99,7 +99,7 @@ result1 := sum(1, 2, 3)           // 6
 result2 := sum(1, 2, 3, 4, 5)     // 15
 ```
 
-### Params Collections (C# 13)
+### Params Collections
 
 N# supports params with any collection type:
 
@@ -265,7 +265,7 @@ async func processFile(path: string): Task<string> {
 }
 ```
 
-Explicit `Task<T>` signatures use C# async return semantics: return the `T`
+Explicit `Task<T>` signatures use task-like async return semantics: return the `T`
 value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
 are unit-returning async methods, so no `return` statement is required after the
 last `await`.
@@ -716,4 +716,3 @@ func main() {
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Examples](/examples/)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)

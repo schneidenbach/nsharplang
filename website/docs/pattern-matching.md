@@ -5,7 +5,7 @@ title: Pattern Matching
 
 # Pattern Matching in N#
 
-N# provides powerful pattern matching inspired by F# and modern C#, with compile-time exhaustiveness checking for discriminated unions.
+N# provides powerful pattern matching with compile-time exhaustiveness checking for discriminated unions.
 
 ## Table of Contents
 
@@ -206,7 +206,7 @@ result := match (statusCode, hasBody) {
 
 ### 7. List Patterns
 
-Match arrays and collections (C# 11):
+Match arrays and collections:
 
 ```n#
 result := match numbers {
@@ -593,7 +593,7 @@ result := match status {
 ### Switch (Non-Exhaustive)
 
 ```n#
-// Traditional C# switch - can have missing cases
+// Traditional switch - can have missing cases
 switch (value) {
     case 0:
         Console.WriteLine("zero")
@@ -615,7 +615,7 @@ Use `match` for:
 Use `switch` for:
 - Traditional control flow
 - When you don't need all cases
-- Compatibility with C# patterns
+- Compatibility with existing pattern-heavy control flow
 
 ## Best Practices
 
@@ -690,5 +690,4 @@ city := if person != null and person.Address != null {
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
 - [Pattern Matching Examples](https://github.com/schneidenbach/nsharplang/tree/main/examples/04-pattern-matching)

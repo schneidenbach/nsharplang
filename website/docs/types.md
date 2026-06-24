@@ -902,4 +902,3 @@ func main() {
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Examples](/examples/)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
