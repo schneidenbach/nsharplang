@@ -26,9 +26,6 @@ internal static class ProjectSourceFileFilter
             for (var i = 0; i < fileCount; i++)
             {
                 var file = files[i];
-                if (file == null)
-                    throw new InvalidOperationException("N# project source-file filter received a null source file.");
-
                 var relativePath = Path.GetRelativePath(projectRoot, file);
                 scratch.RelativePaths[i] = relativePath;
             }
@@ -39,16 +36,10 @@ internal static class ProjectSourceFileFilter
                 includeTests ? 1 : 0,
                 scratch.ResultIndices);
 
-            if (keptCount < 0 || keptCount > fileCount)
-                throw new InvalidOperationException("N# project source-file filter kernel returned an invalid file count.");
-
             var result = new string[keptCount];
             for (var i = 0; i < keptCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= fileCount)
-                    throw new InvalidOperationException("N# project source-file filter kernel returned an invalid source index.");
-
                 result[i] = files[sourceIndex];
             }
 
