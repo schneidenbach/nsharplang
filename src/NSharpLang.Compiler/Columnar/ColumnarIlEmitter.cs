@@ -428,7 +428,6 @@ internal sealed class ColumnarStructDef
 /// every case derives from, and the type a <c>match</c> scrutinee / a <c>Union</c>-typed param/return is statically
 /// seen as. <see cref="Cases"/> maps each case's QUALIFIED name ("Union.Case") to its
 /// <see cref="ColumnarUnionCaseDef"/>. Built in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>,
-/// mirroring the C# ILCompiler's <c>DeclareUnion</c> (abstract base + sealed nested case classes).
 /// </summary>
 internal sealed class ColumnarUnionDef
 {
@@ -2252,11 +2251,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. Mirrors the
-    // oracle's bind-or-walk-on rule (the fixed C# ILCompiler): a type whose overload set carries the name but has
-    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
-    // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
-    // the emit site (a mismatch declines — the oracle's implicit conversions are not modelled).
     private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
     {
         for (var d = def; d != null; d = d.BaseDef)
@@ -2952,10 +2946,6 @@ internal sealed class ColumnarIlEmitter
         var unionBaseBuilders = new List<TypeBuilder>();
         var unionCaseBuilders = new List<TypeBuilder>();
 
-        // PASS 0 (structs): define every user struct as a module-level VALUE TYPE — System.ValueType base, attributes
-        // `Public | Sealed` with NO explicit layout (default auto), matching the C# ILCompiler's DeclareStruct exactly
-        // — plus a public instance field per declared field. The FieldBuilder handles are stored in the registry and
-        // used DIRECTLY for ldfld/stfld/construction (never GetField, which throws on an un-finalized TypeBuilder).
         // Field types resolve via TryResolveType (single builtins in this slice). Defined after enums so a struct may
         // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
         var structRegistry = new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal);
@@ -3495,11 +3485,6 @@ internal sealed class ColumnarIlEmitter
             SynthesizeRecordValueMembers(def);
         }
 
-        // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
-        // case — mirroring the C# ILCompiler's DeclareUnion. The base has a protected (Family) parameterless ctor
-        // chaining to object::.ctor; each case has a public parameterless ctor chaining to the base ctor, plus a
-        // public field per case field. These trivial ctor bodies are emitted INLINE here (no user code), exactly as
-        // the de-risking spike proved. Case fields resolve via TryResolveType (enums/structs/earlier-unions in scope).
         // Defined after structs so a case field may be an enum or struct; nested case types are finalized BEFORE their
         // base (deepest-first — see the finalization block below).
         //
@@ -5553,8 +5538,6 @@ internal sealed class ColumnarIlEmitter
                 var nameCount = childCount - 1;
                 var valueNode = Child(idx, nameCount);
 
-                // The Go-style `name, err := ...` error path is handled specially by the C# ILCompiler
-                // (EmitErrorTupleDeconstruction); decline it so the columnar backend never diverges from that path.
                 if (nameCount == 2 && Text(Child(idx, 1)) == "err")
                     return false;
 

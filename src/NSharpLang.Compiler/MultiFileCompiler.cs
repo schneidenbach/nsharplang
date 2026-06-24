@@ -5,7 +5,6 @@ using System.Linq;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Columnar;
-using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler;
@@ -82,10 +81,6 @@ public class MultiFileCompiler
     /// </summary>
     public bool AotMode { get; set; }
 
-    /// <summary>
-    /// When true, assembly emission must stay on the standalone columnar backend. A columnar
-    /// decline becomes a compiler error instead of falling back to the C# ILCompiler.
-    /// </summary>
     public bool RequireColumnarEmission { get; set; }
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
@@ -765,11 +760,6 @@ public class MultiFileCompiler
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
-
-            // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
-            // (a standalone columnar pipeline that owns assembly emission with NO C# AST). General user code may
-            // still decline to the C# ILCompiler while the language surface converges, but shipped dogfood sources
-            // are the replacement compiler/tooling path and must not silently fall back.
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
                 if (RequiresColumnarDogfoodEmission(assemblyName))
@@ -787,15 +777,6 @@ public class MultiFileCompiler
                 else if (RequireColumnarEmission)
                 {
                     AddRequiredColumnarEmissionError(assemblyName);
-                }
-                else
-                {
-                    var mergedCompilationUnit = CreateMergedCompilationUnit();
-                    var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config)
-                    {
-                        AotRequirements = AotRequirements.FromBlockers(_aotBlockers),
-                    };
-                    compiler.Compile();
                 }
             }
         }
@@ -817,14 +798,6 @@ public class MultiFileCompiler
             success ? outputPath : null);
     }
 
-    // Try to emit the whole assembly via the standalone columnar backend (no C# AST). The assembly is
-    // `assemblyName` and the type is "Program", matching the C# ILCompiler's output so the result is a drop-in
-    // replacement. A SINGLE source routes through the single-file entry; MULTIPLE sources route through the
-    // multi-file merge, which unifies the files into one columnar program so cross-file public calls resolve
-    // exactly as the C# binder resolves declarations across files. Returns false when there are no files,
-    // a source text is unavailable, or the backend declines any function (a construct outside the systems
-    // subset it models). The program has already been parsed and analyzed by this point, so the columnar
-    // backend only does codegen on validated input.
     private bool TryEmitWithColumnarBackend(string assemblyName, string outputPath)
     {
         if (_sourceFiles.Count == 0)
@@ -864,11 +837,6 @@ public class MultiFileCompiler
         if (!isDogfoodAssembly && !isDogfoodProject && !usesDogfoodProductSources)
             return false;
 
-        // Clean bootstrap still needs the C# compiler to produce the first dogfood assembly.
-        // Once a dogfood assembly is available, dogfood product sources must stay columnar-owned.
-        if (DogfoodKernelLoader.TryGetProgramType() == null)
-            return false;
-
         return true;
     }
 
@@ -888,7 +856,6 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
-            HumanExplanation = "The shipped N# dogfood sources are not allowed to fall back to the C# ILCompiler.",
             Suggestion = "Port the rejected source shape to the columnar backend, or move parity-only probes out of the shipped dogfood source set."
         });
     }
@@ -902,7 +869,6 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
-            HumanExplanation = "AOT builds are not allowed to fall back to the C# ILCompiler after AOT analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
         });
     }
@@ -917,7 +883,6 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
-            HumanExplanation = "This product path is not allowed to fall back to the C# ILCompiler after analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
         });
     }
@@ -931,8 +896,6 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
-            HumanExplanation = "Experimental SoA records are the compiler table migration path and are not allowed to fall back to the C# ILCompiler.",
-            Suggestion = "Port the rejected table shape to the columnar backend, or disable NSHARP_EXPERIMENTAL_SOA for builds that still require the old ILCompiler."
         });
     }
 
@@ -953,90 +916,6 @@ public class MultiFileCompiler
         }
 
         return false;
-    }
-
-    private CompilationUnit CreateMergedCompilationUnit()
-    {
-        var orderedUnits = _sourceFiles
-            .Select(sourceFile => _compilationUnits.TryGetValue(sourceFile, out var compilationUnit) ? compilationUnit : null)
-            .Where(compilationUnit => compilationUnit != null)
-            .Cast<CompilationUnit>()
-            .ToList();
-        var merged = NamespaceQualifiedCompilationMerger.Merge(orderedUnits);
-
-        // The merger qualifies every declared type with its package/namespace (e.g. `ids.UserId`)
-        // but knows nothing about *file* import aliases (`import "ids" as Ids`) — those live in
-        // `FileImports` as statements, not in `Imports`. Without a bridge, the IL backend cannot
-        // map an alias-qualified reference like `Ids.UserId` back to `ids.UserId` and resolves it
-        // to `object`. Synthesize the alias→namespace `ImportDirective`s the backend already knows
-        // how to consume, so alias-qualified type references resolve identically to the analyzer.
-        var aliasImports = BuildFileImportAliasDirectives();
-        if (aliasImports.Count == 0)
-        {
-            return merged;
-        }
-
-        var mergedImports = merged.Imports.ToList();
-        foreach (var aliasImport in aliasImports)
-        {
-            var alreadyPresent = mergedImports.Any(existing =>
-                string.Equals(existing.Namespace, aliasImport.Namespace, StringComparison.Ordinal)
-                && string.Equals(existing.Alias, aliasImport.Alias, StringComparison.Ordinal));
-            if (!alreadyPresent)
-            {
-                mergedImports.Add(aliasImport);
-            }
-        }
-
-        return merged with { Imports = mergedImports };
-    }
-
-    /// <summary>
-    /// Maps each aliased file import (<c>import "ids" as Ids</c>) to a synthetic
-    /// <see cref="ImportDirective"/> binding the alias to the imported unit's package/namespace.
-    /// The namespace is taken from the resolved target file's own <c>package</c>/<c>namespace</c>
-    /// declaration — the import path string is not assumed to equal the package name.
-    /// </summary>
-    private IReadOnlyList<ImportDirective> BuildFileImportAliasDirectives()
-    {
-        var sourceFileByFullPath = _compilationUnits.Keys.ToDictionary(
-            Path.GetFullPath,
-            path => path,
-            StringComparer.OrdinalIgnoreCase);
-
-        var directives = new List<ImportDirective>();
-        var seen = new HashSet<(string Namespace, string Alias)>();
-
-        foreach (var (sourceFile, compilationUnit) in _compilationUnits)
-        {
-            var resolver = new FileResolver(_projectRoot, sourceFile);
-            foreach (var fileImport in compilationUnit.FileImports.OfType<FileImport>())
-            {
-                if (string.IsNullOrEmpty(fileImport.Alias))
-                {
-                    continue;
-                }
-
-                var targetFile = ResolveImportedCompilationUnitPath(resolver, fileImport.Path, sourceFileByFullPath);
-                if (targetFile == null || !_compilationUnits.TryGetValue(targetFile, out var targetUnit))
-                {
-                    continue;
-                }
-
-                var namespaceName = targetUnit.Namespace?.Name ?? targetUnit.Package?.Name;
-                if (string.IsNullOrEmpty(namespaceName))
-                {
-                    continue;
-                }
-
-                if (seen.Add((namespaceName, fileImport.Alias)))
-                {
-                    directives.Add(new ImportDirective(namespaceName, fileImport.Alias, fileImport.Line, fileImport.Column));
-                }
-            }
-        }
-
-        return directives;
     }
 
     private static bool IsDebugLoggingEnabled()
@@ -1078,15 +957,6 @@ public class MultiFileCompiler
         return defaultEntry;
     }
 }
-
-/// <summary>
-/// Result of exporting a project to C#.
-/// </summary>
-public record CSharpExportResult(
-    bool Success,
-    IEnumerable<CompilerError> Errors,
-    Dictionary<string, string> ExportedFiles
-);
 
 /// <summary>
 /// Result of multi-file IL compilation.

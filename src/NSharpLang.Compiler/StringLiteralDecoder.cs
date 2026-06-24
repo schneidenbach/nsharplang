@@ -1,10 +1,6 @@
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// The single VALUE-materialization rule for N# string literals, shared by the C# ILCompiler and the
-/// columnar emitter (both pipelines MUST agree byte-for-byte — the columnar parity harness compares
-/// emitted behavior directly).
-///
 /// The lexer keeps escape pairs verbatim in the token text (it consumes <c>\X</c> two-at-a-time so an
 /// escaped quote cannot terminate the literal, but never rewrites them). Historically the runtime value
 /// was just <c>Trim('"')</c> — RAW semantics, which made <c>"\n"</c> two characters and a lone <c>"</c>

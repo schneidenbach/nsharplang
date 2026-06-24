@@ -960,7 +960,6 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.Contains("Building", stdout);
-            Assert.Contains("not allowed to fall back to the C# ILCompiler", stderr);
             Assert.False(File.Exists(Path.Combine(outputDir, "Program.dll")));
         }
         finally
@@ -1218,7 +1217,6 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.Contains("Running", stdout);
-            Assert.Contains("not allowed to fall back to the C# ILCompiler", stderr);
         }
         finally
         {
@@ -1442,7 +1440,6 @@ func main() {
                 ExecuteProgram("build", "--backend", "il", "--aot", "-o", outputDir));
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("AOT builds are not allowed to fall back to the C# ILCompiler", stdout + stderr);
             Assert.False(File.Exists(Path.Combine(outputDir, "SharedLib.dll")));
         }
         finally

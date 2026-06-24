@@ -555,7 +555,6 @@ func Root(): int {
                 CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("AOT builds are not allowed to fall back to the C# ILCompiler", stdout);
         }
         finally
         {
