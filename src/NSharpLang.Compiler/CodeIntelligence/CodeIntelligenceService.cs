@@ -1911,16 +1911,6 @@ public class CodeIntelligenceService
             }
         }
 
-        foreach (var (_, cu) in snapshot.CompilationUnits)
-        {
-            foreach (var decl in cu.Declarations)
-            {
-                var typeInfo = FindTypeInfoInDeclaration(decl, name, snapshot);
-                if (typeInfo != null)
-                    return typeInfo;
-            }
-        }
-
         return null;
     }
 
