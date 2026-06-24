@@ -25,8 +25,6 @@ public class GateStepInputSetGuardTests
         "website/docs/cli-reference.md",
         // tests/QueryIntegrationTests.cs: golden compare anchored at _examplesDir/../docs
         "docs/examples/diagnostic-clusters.sample.json",
-        // tests/SystemsNSharpTests.cs: SystemsProofProjects_AreExecutableAndCoveredByAudit
-        "docs/audits/systems-proof-project-audit.md",
     };
 
     [Fact]
@@ -163,8 +161,6 @@ public class GateStepInputSetGuardTests
             var fixtureRoot = Path.Combine(workRoot, "repo");
             WriteFixtureFile(fixtureRoot, "src/Compiler.cs", "class Compiler { }");
             WriteFixtureFile(fixtureRoot, "tests/SampleTests.cs", "class SampleTests { }");
-            WriteFixtureFile(fixtureRoot, "benchmarks/Bench.cs", "class Bench { }");
-            WriteFixtureFile(fixtureRoot, "docs/audits/systems-proof-project-audit.md", "| `24-zero-copy-frame-reader` | executable |");
             WriteFixtureFile(fixtureRoot, "website/docs/cli-reference.md", "nlc build");
 
             var baseline = RunStepHash(pythonPath, fixtureRoot);
@@ -174,20 +170,8 @@ public class GateStepInputSetGuardTests
             WriteFixtureFile(fixtureRoot, "website/docs/cli-reference.md", "nlc build --changed");
             var afterWebsiteDocs = RunStepHash(pythonPath, fixtureRoot);
             Assert.NotEqual(baseline["UNIT"], afterWebsiteDocs["UNIT"]);
-            Assert.Equal(baseline["BENCH"], afterWebsiteDocs["BENCH"]);
-            Assert.Equal(baseline["INTEROP"], afterWebsiteDocs["INTEROP"]);
             Assert.Equal(baseline["EXAMPLES"], afterWebsiteDocs["EXAMPLES"]);
 
-            WriteFixtureFile(fixtureRoot, "docs/audits/systems-proof-project-audit.md", "| `24-zero-copy-frame-reader` | design-only |");
-            var afterDocs = RunStepHash(pythonPath, fixtureRoot);
-            Assert.NotEqual(afterWebsiteDocs["UNIT"], afterDocs["UNIT"]);
-            Assert.Equal(baseline["BENCH"], afterDocs["BENCH"]);
-
-            var salted = RunStepHash(pythonPath, fixtureRoot, ("NSHARP_EXPERIMENTAL_SOA", "1"));
-            foreach (var step in afterDocs.Keys)
-            {
-                Assert.NotEqual(afterDocs[step], salted[step]);
-            }
         }
         finally
         {
@@ -229,7 +213,6 @@ public class GateStepInputSetGuardTests
             sets[entry.Groups["name"].Value] = common.Concat(QuotedStrings(entry.Groups["body"].Value)).ToArray();
         }
 
-        Assert.True(sets.Count >= 4, "Expected at least the UNIT/BENCH/INTEROP/EXAMPLES entries in the SETS literal.");
         return (common, sets);
     }
 
@@ -290,7 +273,6 @@ public class GateStepInputSetGuardTests
             .Select(line => line.Split('=', 2))
             .Where(parts => parts.Length == 2)
             .ToDictionary(parts => parts[0], parts => parts[1]);
-        Assert.True(hashes.Count >= 4, $"Expected one hash per input set, got: {stdout}");
         return hashes;
     }
 

@@ -1,1 +1,0 @@
-Pooling remains ordinary .NET ArrayPool interop; N# reports rent/return balance as a systems effect.

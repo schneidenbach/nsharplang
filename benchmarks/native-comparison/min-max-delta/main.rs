@@ -1,7 +1,6 @@
 // Faithful standalone Rust micro-bench for the N# `minMaxDelta` workload.
 //
-// Mirrors benchmarks/SystemsHotPathBenchmarks.cs:65-86 (N# `minMaxDelta`) and the
-// C# baseline at benchmarks/SystemsHotPathBenchmarks.cs:397-422 byte-for-byte:
+// Mirrors the N# `minMaxDelta` workload:
 //
 //   if values.Length == 0 { return 0 }
 //   min := values[0]; max := values[0]; len := values.Length
@@ -13,7 +12,7 @@
 //   return max - min   (wrapping i32 subtraction)
 //
 // Two independent branchy compares per element are kept verbatim (no branchless
-// min/max intrinsics) so the compared codegen shape matches N#/C#.
+// min/max intrinsics) so the compared codegen shape matches N#.
 //
 // Methodology: deterministic fill identical to checksum-sum, build array once,
 // warmup, fixed measured loop, xor-fold into a black_box'd sink, 15+ trials,
@@ -59,7 +58,7 @@ fn build_values(n: usize) -> Vec<i32> {
     values
 }
 
-/// The workload under test, byte-for-byte per the N#/C# algorithm.
+/// The workload under test, byte-for-byte per the N# algorithm.
 #[inline(never)]
 fn min_max_delta(values: &[i32]) -> i32 {
     if values.len() == 0 {

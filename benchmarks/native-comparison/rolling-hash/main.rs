@@ -1,6 +1,6 @@
 // Faithful standalone Rust micro-bench for the N# `rollingHash` kernel.
 //
-// N# source (benchmarks/SystemsHotPathBenchmarks.cs:88-97):
+// N# source:
 //   func rollingHash(values: int[]): int {
 //       hash := 17
 //       len := values.Length
@@ -9,7 +9,6 @@
 //       }
 //       return hash
 //   }
-// C# baseline (benchmarks/SystemsHotPathBenchmarks.cs:424-434) is identical.
 //
 // Apples-to-apples protocol: build the input arrays ONCE, warm up, then time a
 // fixed iteration count of the EXACT kernel, xor-folding every result into a
@@ -23,7 +22,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-/// Deterministic fill identical to the N#/C# bench input.
+/// Deterministic fill identical to the N# bench input.
 /// (a) values[i] = ((i*17)+3) & 0x7f
 /// (b) if N >= 17: values[N-17] = 100003
 /// (c) for i in 0..min(8,N): values[i] = 48 + (i%10)
@@ -43,8 +42,8 @@ fn build_input(n: usize) -> Vec<i32> {
 }
 
 /// Byte-for-byte port of the N# `rollingHash` kernel. Safe slice indexing
-/// (keeps the natural bounds check, matching how N#/C# rely on the JIT to
-/// elide it for counted loops). Wrapping arithmetic mirrors C# `unchecked`.
+/// (keeps the natural bounds check, matching the JIT-elided counted-loop path).
+/// Wrapping arithmetic is explicit.
 #[inline(never)]
 fn rolling_hash(values: &[i32]) -> i32 {
     let mut hash: i32 = 17;

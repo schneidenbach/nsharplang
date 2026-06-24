@@ -7,7 +7,7 @@ title: Systems N#
 
 Systems N# is an opt-in **performance lane** of the language for writing CLR code with
 explicit, checkable runtime costs. It is the same N# you already know — the same syntax,
-the same C# interop — with a stricter analyzer and a few extra constructs that make
+with a stricter analyzer and a few extra constructs that make
 allocation, dispatch, lifetimes, and memory safety *visible* instead of implicit.
 
 The promise is deliberately not "Rust on the CLR." The promise is that N# makes CLR costs
@@ -20,10 +20,8 @@ in plain language — the moment the cost model is violated.
 > **Status:** Systems N# is an enforced, tested lane today (the full `NSYS###` effect
 > family, `Result<T,E>`, `ref struct`/lifetime checks, `stackalloc`, `[trusted]`
 > governance, and SIMD auto-vectorization all ship and are covered by tests). A few items
-> are analysis-only or deferred — they are called out explicitly below. The canonical
-> design spec is [`docs/design/systems-nsharp.md`](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-nsharp.md); measured
-> cross-language numbers live in
-> [`docs/design/systems-vs-native.md`](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-vs-native.md).
+> are analysis-only or deferred — they are called out explicitly below. Current source,
+> recent commits, and tests are authoritative for implementation work.
 
 ---
 
@@ -380,16 +378,10 @@ only fire under conservative guards: an unchecked context, an exact element-type
 distinct accumulator/array/index names (no aliasing), and a side-effect-free loop bound
 (`array.Length` lowers to a pure `ldlen`).
 
-**Measured (Apple M4, .NET 10, BenchmarkDotNet vs the C# scalar baseline, re-run 2026-06-07):**
-
-| Kernel | Size | C# ns | N# ns | N# / C# |
-|--------|------|-------|-------|---------|
-| checksum (reduction) | 4096 | 982.916 | **222.625** | **0.23× — 4.4× faster** |
-| count-ascii (range count) | 4096 | 1174.088 | **298.051** | **0.25× — 3.9× faster** |
-| min-max-delta (fused min/max) | 4096 | 1496.034 | **253.578** | **0.17× — 5.9× faster** |
-| count-transitions (shifted compare) | 4096 | 1069.094 | **477.331** | **0.45× — 2.2× faster** |
-
-This closes the worst-case gap behind native (Rust/C) from ~10.5× to within 2.02× at 4096
+Treat checked-in timing numbers as historical unless they are refreshed from an
+N#-owned measurement path. The compiler-owned evidence for this feature is the
+IL shape: vector construction, vectorized loop bodies, and no introduced
+allocation or boxing in the hot path.
 (worst small-input cell anywhere: 2.49×, min-max-delta at 64 elements).
 
 > **Honest scope.** Vectorization is narrow on purpose, with a single uniform-stride index
@@ -397,11 +389,8 @@ This closes the worst-case gap behind native (Rust/C) from ~10.5× to within 2.0
 > arrays; **range-predicate counts**, **min/max reductions**, and **adjacent-transition
 > counts** currently cover `int[]` only. Floating-point reductions
 > are deliberately excluded (FP addition isn't associative).
-> Loops that don't match — and non-vectorizable kernels generally — correctly stay scalar
-> and tie C#. Broader auto-vectorization (more loop shapes and element types) and a structural
-> LLVM/NativeAOT-class vectorizing backend were evaluated and deferred; per-pattern `Vector<T>`
-> emission already closes the measured gap to within ~2× of native — see
-> [Systems N# vs Rust vs C](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-vs-native.md).
+> Loops that don't match stay scalar. Treat performance numbers as current only when backed
+> by a fresh benchmark run for the scenario being claimed.
 
 ---
 
@@ -453,5 +442,3 @@ nativeaot`, the analyzer reports per-symbol `aotSafe`/`trimSafe` facts and flags
 - **[Language Tour](language-tour.md)** — the core language every systems program builds on
 - **[Types](types.md)** — structs, `ref struct`, records, generics
 - **[CLI Reference → Systems N# CLI Surface](cli-reference.md#systems-n-cli-surface)** — the full command surface
-- **[Systems N# Proposal](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-nsharp.md)** — the canonical design spec
-- **[Systems N# vs Rust vs C](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-vs-native.md)** — measured cross-language numbers

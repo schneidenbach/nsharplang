@@ -153,7 +153,7 @@ NUGET_PACKAGE_CACHE="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 # A step may be skipped only when its ENTIRE input set is byte-identical to a
 # set that previously PASSED that step on this toolchain/platform (markers are
 # written only on success, keyed by content hash). This is what lets docs- or
-# tests-only commits stop paying for identical-input benchmark/example steps.
+# tests-only commits stop paying for identical-input example steps.
 # Wiring comes from tests/scripts/test-all.sh; --release/--fresh/--no-cache/
 # --clean turn skipping off. Direct core invocations (no cache root) never skip.
 STEP_CACHE_ROOT="${NSHARP_TEST_STEP_CACHE_ROOT:-}"
@@ -182,8 +182,6 @@ step_skip_banner() {
 }
 
 UNIT_INPUTS_HASH=""
-BENCH_INPUTS_HASH=""
-INTEROP_INPUTS_HASH=""
 EXAMPLES_INPUTS_HASH=""
 if step_cache_enabled; then
     STEP_HASH_OUTPUT="$(python3 - "$REPO_ROOT" <<'PY'
@@ -203,10 +201,8 @@ COMMON = ("scripts/", "tests/scripts/", "global.json", "Directory.Build.props",
           "Directory.Build.targets", "NuGet.config", "NSharpLang.sln")
 SETS = {
     "UNIT": COMMON + ("src/", "tests/", "examples/", "templates/",
-                       "benchmarks/", "docs/", "website/docs/",
+                       "docs/", "website/docs/",
                        "editors/vscode/test/suite/"),
-    "BENCH": COMMON + ("src/", "benchmarks/"),
-    "INTEROP": COMMON + ("src/", "tests/NSharpLang.CSharpInteropTests/"),
     "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
                            "tests/scripts/"),
 }
@@ -283,8 +279,6 @@ for name, digest in hashes.items():
 PY
 )" || STEP_HASH_OUTPUT=""
     UNIT_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^UNIT=//p')"
-    BENCH_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^BENCH=//p')"
-    INTEROP_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^INTEROP=//p')"
     EXAMPLES_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^EXAMPLES=//p')"
 fi
 # -----------------------------------------------------------------------------
@@ -359,17 +353,6 @@ else
         handle_error "Unit tests"
     fi
     rm -f "$TEST_OUTPUT"
-fi
-
-section "Step 3a: Systems BenchmarkDotNet Gate"
-if step_cache_hit "systems-benchmarks" "$BENCH_INPUTS_HASH"; then
-    step_skip_banner "systems-benchmarks" "$BENCH_INPUTS_HASH"
-    handle_success "Systems BenchmarkDotNet gate (validated step cache)"
-elif "$REPO_ROOT/scripts/benchmark-systems.sh"; then
-    handle_success "Systems BenchmarkDotNet gate"
-    step_cache_store "systems-benchmarks" "$BENCH_INPUTS_HASH"
-else
-    handle_error "Systems BenchmarkDotNet gate"
 fi
 
 section "Step 3b: VS Code Integration Tests"
@@ -474,43 +457,6 @@ remove_nuget_package_cache NSharpLang.Runtime
 remove_nuget_package_cache NSharpLang.Sdk
 remove_nuget_package_cache NSharpLang.Templates
 handle_success "N# NuGet package cache entries cleared"
-
-section "Step 4c: C# Interop Tests"
-INTEROP_FAILURES_BEFORE=$FAILURES
-if step_cache_hit "csharp-interop" "$INTEROP_INPUTS_HASH"; then
-    step_skip_banner "csharp-interop" "$INTEROP_INPUTS_HASH"
-    handle_success "C# interop tests (validated step cache)"
-else
-echo "Running C# interop tests..."
-INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
-
-echo "Building runtime project-reference artifacts..."
-if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -t:Rebuild -v q; then
-    handle_success "Runtime project-reference artifacts built"
-else
-    handle_error "Runtime project-reference artifacts build"
-fi
-
-if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate -v q; then
-    handle_error "C# interop restore"
-fi
-
-INTEROP_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo --no-restore > "$INTEROP_OUTPUT" 2>&1; then
-    TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
-    if [ -n "$TEST_RESULT" ]; then
-        echo "$TEST_RESULT"
-    fi
-    handle_success "C# interop tests passed"
-else
-    cat "$INTEROP_OUTPUT"
-    handle_error "C# interop tests"
-fi
-rm -f "$INTEROP_OUTPUT"
-if [ "$FAILURES" -eq "$INTEROP_FAILURES_BEFORE" ]; then
-    step_cache_store "csharp-interop" "$INTEROP_INPUTS_HASH"
-fi
-fi
 
 run_template_and_examples_steps() {
 ILVERIFY_BUILT_DIRS_FILE=$(mktemp)

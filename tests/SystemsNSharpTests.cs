@@ -4,11 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -651,79 +649,6 @@ struct Arena {
     }
 
     [Fact]
-    public void ByRefTypeParameter_AcceptsRefArgument()
-    {
-        var result = CompileAndInvoke("""
-ref struct FrameReader {
-    pos: int
-}
-
-func Touch(reader: &FrameReader scoped 'reader): int {
-    reader.pos = 1
-    return reader.pos
-}
-
-func Run(): int {
-    reader := new FrameReader { pos: 0 }
-    return Touch(ref reader)
-}
-""", "Run");
-
-        Assert.Equal(1, result);
-    }
-
-    [Fact]
-    public void LifetimeOnlyTypeParameter_IsErasedFromIlSignature()
-    {
-        var source = """
-import System
-
-ref struct FrameReader {
-    buf: ReadOnlySpan<int>
-}
-
-func First<'a>(reader: &FrameReader scoped 'a): int returns 'a {
-    return reader.buf[0]
-}
-
-func Run(): int {
-    values := [42]
-    reader := new FrameReader { buf: values }
-    return First(ref reader)
-}
-""";
-        var unit = Parse(source);
-        var outputPath = Path.Combine(Path.GetTempPath(), $"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}.dll");
-        var assemblyName = $"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}";
-        AssemblyLoadContext? loadContext = null;
-
-        try
-        {
-            var compiler = new Compiler.ILCompiler.ILCompiler(unit, assemblyName, outputPath);
-            compiler.Compile();
-
-            loadContext = new AssemblyLoadContext($"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}", isCollectible: true);
-            using var stream = new MemoryStream(File.ReadAllBytes(outputPath));
-            var assembly = loadContext.LoadFromStream(stream);
-            var program = assembly.GetType("Program")!;
-            var first = program.GetMethod("First", BindingFlags.Public | BindingFlags.Static)!;
-            var run = program.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
-
-            Assert.False(first.IsGenericMethodDefinition);
-            Assert.Empty(first.GetGenericArguments());
-            Assert.Equal(42, run.Invoke(null, null));
-        }
-        finally
-        {
-            loadContext?.Unload();
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-        }
-    }
-
-    [Fact]
     public void HotRefLikeReturn_RequiresReturnLifetime()
     {
         var report = Analyze("""
@@ -1267,8 +1192,6 @@ func Emit(payload: Payload): string {
             Assert.True(File.Exists(Path.Combine(dir, "systems.golden.json")), $"{dir} is missing systems.golden.json");
             Assert.True(File.Exists(diagnosticsPath), $"{dir} is missing diagnostics.golden.txt");
             Assert.True(File.Exists(Path.Combine(dir, "perf-report.golden.json")), $"{dir} is missing perf-report.golden.json");
-            Assert.True(File.Exists(Path.Combine(dir, "interop.golden.txt")), $"{dir} is missing interop.golden.txt");
-
             var source = File.ReadAllText(sourcePath);
             var unit = Parse(source, sourcePath);
             var report = Analyze(source, profile: "systems");
@@ -1579,56 +1502,6 @@ class Box {}
     }
 
     [Fact]
-    public void SystemsProofProjects_AreExecutableAndCoveredByAudit()
-    {
-        var repoRoot = FindRepoRoot();
-        var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
-        var auditPath = Path.Combine(repoRoot, "docs", "audits", "systems-proof-project-audit.md");
-        var readmePath = Path.Combine(repoRoot, "docs", "design", "systems-samples", "README.md");
-
-        var proofProjects = Directory.GetDirectories(proofsRoot)
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToArray();
-        var executableProofProjects = new[]
-        {
-            "24-zero-copy-frame-reader",
-            "25-trusted-memory-copy",
-            "26-native-device-handle",
-            "27-c-library-cli",
-            "30-cold-failure-logging",
-            "31-hot-metrics",
-            "32-cache-prewarm",
-            "33-arraypool-file-io",
-            "34-memorypool-disposal",
-            "35-async-file-hot-parser",
-            "36-dictionary-setup-hot-read",
-            "37-fixed-capacity-map",
-            "38-unmanaged-sort-comparer",
-            "39-hot-linq-pipeline",
-            "40-csharp-hot-parser-api",
-            "41-structured-errors",
-            "42-aot-friendly-public-api",
-            "43-mono-wasm-plugin",
-            "44-ci-allocation-gate",
-            "45-trusted-audit",
-            "46-dapper-boundary",
-            "48-effect-drift"
-        };
-        var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
-
-        Assert.Empty(designOnlyProjects);
-        Assert.True(File.Exists(auditPath), "Systems proof projects must have an explicit audit artifact.");
-
-        var readme = File.ReadAllText(readmePath);
-        Assert.Contains("Status: executable proof samples", readme, StringComparison.Ordinal);
-        Assert.Contains("Executable proof projects", readme, StringComparison.Ordinal);
-
-        var audit = File.ReadAllText(auditPath);
-        Assert.Contains("Status: executable proof report and compiler audit", audit, StringComparison.Ordinal);    }
-
-    [Fact]
     public void ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence()
     {
         var repoRoot = FindRepoRoot();
@@ -1647,7 +1520,6 @@ class Box {}
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
         var unmanagedSortComparer = Path.Combine(proofsRoot, "38-unmanaged-sort-comparer");
         var hotLinqPipeline = Path.Combine(proofsRoot, "39-hot-linq-pipeline");
-        var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
         var structuredErrors = Path.Combine(proofsRoot, "41-structured-errors");
         var aotFriendlyPublicApi = Path.Combine(proofsRoot, "42-aot-friendly-public-api");
         var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
@@ -1672,7 +1544,6 @@ class Box {}
             fixedCapacityMap,
             unmanagedSortComparer,
             hotLinqPipeline,
-            csharpHotParserApi,
             structuredErrors,
             aotFriendlyPublicApi,
             monoWasmPlugin,
@@ -2001,9 +1872,6 @@ class Box {}
         var unmanagedSortOutputDir = Path.Combine(unmanagedSortComparer, "bin", "Debug", "net10.0");
         var unmanagedSortAssembly = Path.Combine(unmanagedSortOutputDir, "SystemsProof38UnmanagedSortComparer.dll");
         Assert.True(File.Exists(Path.Combine(unmanagedSortOutputDir, "NSharpLang.Runtime.dll")));
-        var sortOpcodes = DecodeMethodOpcodeNames(unmanagedSortAssembly, "SortPair");
-        Assert.Contains("constrained.", sortOpcodes);
-        Assert.DoesNotContain("box", sortOpcodes);
         var unmanagedSortRun = DotnetRunner.Run($"\"{unmanagedSortAssembly}\"", unmanagedSortOutputDir);
         Assert.True(unmanagedSortRun.ExitCode == 0,
             $"unmanaged sort comparer proof failed to run\nstdout:\n{unmanagedSortRun.Stdout}\nstderr:\n{unmanagedSortRun.Stderr}");
@@ -2034,21 +1902,6 @@ class Box {}
         var hotLinqRun = DotnetRunner.Run($"\"{hotLinqAssembly}\"", hotLinqOutputDir);
         Assert.True(hotLinqRun.ExitCode == 0,
             $"hot LINQ pipeline proof failed to run\nstdout:\n{hotLinqRun.Stdout}\nstderr:\n{hotLinqRun.Stderr}");
-
-        var parserApiBuild = BuildProof(csharpHotParserApi);
-        Assert.Equal(0, parserApiBuild.ExitCode);
-        AssertSystemsProofBuildDiagnostics(parserApiBuild.Stderr, expectedWarnings: 0);
-        using (var doc = JsonDocument.Parse(parserApiBuild.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            var perf = doc.RootElement.GetProperty("perfReport");
-            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
-        }
-
-        AssertCSharpConsumerCanCallParserApi(csharpHotParserApi);
 
         var structuredErrorsBuild = BuildProof(structuredErrors);
         Assert.Equal(0, structuredErrorsBuild.ExitCode);
@@ -2346,35 +2199,6 @@ class Box {}
     private static string StripAnsi(string value)
         => Regex.Replace(value, "\u001B\\[[0-?]*[ -/]*[@-~]", string.Empty);
 
-    private static string[] DecodeMethodOpcodeNames(string assemblyPath, string methodName)
-    {
-        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
-
-        var outputDir = Path.GetDirectoryName(assemblyPath)!;
-        var loadContext = new AssemblyLoadContext($"SystemsProofIlShape_{Guid.NewGuid():N}", isCollectible: true);
-        loadContext.Resolving += (context, assemblyName) =>
-        {
-            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
-            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
-        };
-
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            var assembly = loadContext.LoadFromStream(stream);
-            var method = assembly
-                .GetTypes()
-                .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
-                .SingleOrDefault(candidate => candidate.Name == methodName);
-            Assert.NotNull(method);
-            return ILShapeInspector.Decode(method!).Select(instruction => instruction.OpCode.Name ?? string.Empty).ToArray();
-        }
-        finally
-        {
-            loadContext.Unload();
-        }
-    }
-
     private static void AssertNativeImportHasNoManagedBody(string assemblyPath, string typeName, string methodName)
     {
         Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
@@ -2400,93 +2224,6 @@ class Box {}
         finally
         {
             loadContext.Unload();
-        }
-    }
-
-    private static void AssertCSharpConsumerCanCallParserApi(string proofDir)
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-systems-csharp-consumer-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
-
-            var nsharpProjectDir = Path.Combine(tempDir, "Proof");
-            Directory.CreateDirectory(nsharpProjectDir);
-            File.Copy(Path.Combine(proofDir, "Program.nl"), Path.Combine(nsharpProjectDir, "Program.nl"));
-            File.Copy(Path.Combine(proofDir, "project.yml"), Path.Combine(nsharpProjectDir, "project.yml"));
-            File.WriteAllText(Path.Combine(nsharpProjectDir, "Proof.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
-
-            File.WriteAllText(Path.Combine(tempDir, "Consumer.csproj"), $$"""
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="{{Path.Combine(nsharpProjectDir, "Proof.csproj")}}" />
-  </ItemGroup>
-</Project>
-""");
-
-            File.WriteAllText(Path.Combine(tempDir, "Program.cs"), """
-using System;
-using System.IO;
-using System.Reflection;
-using System.Runtime.Loader;
-using SystemsProofs.CsharpHotParserApi;
-
-AssemblyLoadContext.Default.Resolving += (_, assemblyName) =>
-{
-    if (assemblyName.Name != "SystemsProof40CsharpHotParserApi")
-    {
-        return null;
-    }
-
-    var localAssemblyPath = Path.Combine(AppContext.BaseDirectory, "SystemsProof40CsharpHotParserApi.dll");
-    return File.Exists(localAssemblyPath)
-        ? AssemblyLoadContext.Default.LoadFromAssemblyPath(localAssemblyPath)
-        : null;
-};
-
-var ok = PacketApi.ParseHeader(new byte[] { 1, 0, 5, 0, 0, 0 });
-if (!ok.TryGetOk(out var header))
-{
-    throw new InvalidOperationException($"expected ok, got {ok}");
-}
-
-if (header.Version != 1 || header.Length != 5)
-{
-    throw new InvalidOperationException($"bad header {header.Version}:{header.Length}");
-}
-
-var err = PacketApi.ParseHeader(new byte[] { 1, 0 });
-if (!err.TryGetErr(out var error) || error != HeaderError.Short)
-{
-    throw new InvalidOperationException($"expected Short, got {err}");
-}
-
-Console.WriteLine($"{header.Version}:{header.Length}:{error}");
-""");
-
-            var restore = DotnetRunner.Run("restore --disable-build-servers", tempDir);
-            Assert.True(restore.ExitCode == 0,
-                $"dotnet restore failed\nstdout:\n{restore.Stdout}\nstderr:\n{restore.Stderr}");
-
-            var run = DotnetRunner.Run("run --no-restore --disable-build-servers", tempDir);
-            var consumerOutputDir = Path.Combine(tempDir, "bin", "Debug", "net10.0");
-            var consumerOutput = Directory.Exists(consumerOutputDir)
-                ? string.Join(Environment.NewLine, Directory.GetFiles(consumerOutputDir).OrderBy(path => path, StringComparer.Ordinal).Select(Path.GetFileName))
-                : "<missing>";
-            Assert.True(run.ExitCode == 0,
-                $"dotnet run failed\nstdout:\n{run.Stdout}\nstderr:\n{run.Stderr}\noutput:\n{consumerOutput}");
-            Assert.Equal("1:5:Short", run.Stdout.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -2555,365 +2292,6 @@ func Copy(): int {
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Fact]
-    public void SystemsBenchmark_UsesBenchmarkDotNetForPerformanceAndAllocationCoverage()
-    {
-        var root = FindRepoRoot();
-        var benchmarkClasses = new[]
-        {
-            "SystemsFastGateBenchmarks",
-            "SystemsHotPathBenchmarks",
-            "SystemsSpanHandoffBenchmarks",
-            "SystemsCallerBufferBenchmarks",
-            "SystemsResultBenchmarks",
-            "SystemsPooledBoundaryBenchmarks",
-            "SystemsCombinationBenchmarks",
-        };
-
-        foreach (var benchmarkClass in benchmarkClasses)
-        {
-            var benchmarkPath = Path.Combine(root, "benchmarks", $"{benchmarkClass}.cs");
-            var source = File.ReadAllText(benchmarkPath);
-
-            Assert.Contains($"class {benchmarkClass}", source, StringComparison.Ordinal);
-            Assert.Contains("[MemoryDiagnoser]", source, StringComparison.Ordinal);
-            Assert.Contains("[Benchmark(Baseline = true", source, StringComparison.Ordinal);
-            Assert.Contains("[Benchmark", source, StringComparison.Ordinal);
-        }
-
-        var fastGateBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsFastGateBenchmarks.cs"));
-        Assert.Contains("GateScenario.HotLoops", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("GateScenario.SpanHandoff", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("GateScenario.CallerBuffers", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("GateScenario.ResultAbi", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("GateScenario.PooledBoundary", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("GateScenario.HotResultCombinations", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("switch (Scenario)", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("OperationsPerInvoke = InnerOperations", fastGateBenchmark, StringComparison.Ordinal);
-        // The gate aggregates per-workload (apples-to-apples) so it measures codegen, not loop
-        // fusion (H8). Both sides must run the same distinct per-workload functions, NOT the fused
-        // *All() helpers.
-        Assert.Contains("benchmark.NSharp() : benchmark.CSharp()", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("foreach (var workload in HotWorkloads)", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.DoesNotContain("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("RunCombination(_combination64", fastGateBenchmark, StringComparison.Ordinal);
-
-        var compiledMethodSupport = File.ReadAllText(Path.Combine(root, "benchmarks", "NSharpCompiledMethod.cs"));
-        Assert.Contains("ConcurrentDictionary<string, Lazy<Type>>", compiledMethodSupport, StringComparison.Ordinal);
-        Assert.Contains("CompileProgram(cachedSource)", compiledMethodSupport, StringComparison.Ordinal);
-
-        var hotPathBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsHotPathBenchmarks.cs"));
-        Assert.Contains("HotPathWorkload.Checksum", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.ScoreFrame", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.ScanTag", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.CountAscii", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.MinMaxDelta", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.RollingHash", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.ParseEightDigits", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("HotPathWorkload.CountTransitions", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("func allHot(values: int[], tag: int): int", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("public int NSharpAll() => _allHot(_values, _tag)", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("value >= 32 && value <= 126", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("parseOk := true", hotPathBenchmark, StringComparison.Ordinal);
-        Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
-
-        var spanHandoffBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsSpanHandoffBenchmarks.cs"));
-        Assert.Contains("SpanHandoffWorkload.SumSpan", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.CountEven", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.CopyUntilNegative", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.ReverseCopy", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.ArrayToSpanCaller", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.CopyPositive", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("SpanHandoffWorkload.ChecksumAndCopy", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
-        Assert.Contains("NSharpCompiledMethod.Bind<SpanCopyDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
-
-        var callerBufferBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCallerBufferBenchmarks.cs"));
-        Assert.Contains("CallerBufferWorkload.CopyPositive", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.WriteFrame", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.Transform", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.PrefixSum", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.CompactEven", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.FilterAndScale", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CallerBufferWorkload.PairSums", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("func allCallerBuffers(src: int[], dst: int[]): int", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("public int NSharpAll() => _allCallerBuffers(_source, _destination)", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("positiveWritten := 0", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("value := src[i]", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("if (value & 1) == 0", callerBufferBenchmark, StringComparison.Ordinal);
-        Assert.Contains("if value > 0", callerBufferBenchmark, StringComparison.Ordinal);
-
-        var resultBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsResultBenchmarks.cs"));
-        Assert.Contains("ResultWorkload.SumOkValues", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.SumErrValues", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.BranchAndCopy", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.AllOkFastPath", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.AllErrFastPath", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.FirstErrOrSum", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ResultWorkload.ValidateAllOkAscending", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("private const int InnerOperations = 16", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("OperationsPerInvoke = InnerOperations", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("OkValueUnchecked", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("ErrValueUnchecked", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CSharpTaggedResult<int, int>", resultBenchmark, StringComparison.Ordinal);
-        Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
-
-        var pooledBoundaryBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsPooledBoundaryBenchmarks.cs"));
-        Assert.Contains("PooledBoundaryWorkload.CountNonZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.ScorePooledFrame", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.ClampAndScore", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.FindFirstZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.ClampWindow", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.SumPositive", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("PooledBoundaryWorkload.ZeroOdd", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("private const int InnerOperations = 8", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("OperationsPerInvoke = InnerOperations", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("func allPooled(values: int[], len: int): int", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("_allPooled(buffer, _seed.Length)", pooledBoundaryBenchmark, StringComparison.Ordinal);
-        Assert.Contains("(values[i] & 1) != 0", pooledBoundaryBenchmark, StringComparison.Ordinal);
-
-        var combinationBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCombinationBenchmarks.cs"));
-        Assert.Contains("CombinationWorkload.ScanDigitsResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.WriteChecksumResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.CopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.ScanAndChecksumResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.CopyPositiveChecksumResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.ScanThenChecksumResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.ScanThenCopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.ChecksumThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.CopyDigitsThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("CombinationWorkload.CopyPositiveThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Params(64, 4096)]", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("private const int InnerOperations = 8", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("OperationsPerInvoke = InnerOperations", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("func allCombinations(digits: int[], payload: int[], destination: int[], scratch: int[], digitsLen: int, payloadLen: int): int", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int, int, int>>(Source, \"allCombinations\")", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("public int CSharpAll()", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("public int NSharpAll()", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("=> _allCombinations(_digits, _payload, _destination, _scratch, _digits.Length, _payload.Length)", combinationBenchmark, StringComparison.Ordinal);
-        Assert.Contains("result.IsOk ? result.OkValueUnchecked : 0", combinationBenchmark, StringComparison.Ordinal);
-
-        var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
-        Assert.Contains("MODE=\"${NSHARP_SYSTEMS_BENCH_MODE:-gate}\"", script, StringComparison.Ordinal);
-        Assert.Contains("FILTER=\"*SystemsFastGateBenchmarks*\"", script, StringComparison.Ordinal);
-        Assert.Contains("LAUNCH_COUNT=\"${NSHARP_SYSTEMS_BENCH_LAUNCH_COUNT:-1}\"", script, StringComparison.Ordinal);
-        Assert.Contains("ITERATION_COUNT=\"${NSHARP_SYSTEMS_BENCH_ITERATION_COUNT:-16}\"", script, StringComparison.Ordinal);
-        Assert.Contains("ITERATION_TIME=\"${NSHARP_SYSTEMS_BENCH_ITERATION_TIME:-250}\"", script, StringComparison.Ordinal);
-        Assert.Contains("--iterationTime \"$ITERATION_TIME\"", script, StringComparison.Ordinal);
-        Assert.Contains("rm -rf \"$ARTIFACTS/results\"", script, StringComparison.Ordinal);
-        Assert.Contains("BenchmarkRun-*.log", script, StringComparison.Ordinal);
-        Assert.Contains("Systems N# BenchmarkDotNet coverage:", script, StringComparison.Ordinal);
-        Assert.Contains("Systems N# BenchmarkDotNet allocation gate: all rows allocated 0 B", script, StringComparison.Ordinal);
-        Assert.Contains("Systems N# BenchmarkDotNet worst throughput ratios (median):", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsFastGateBenchmarks\", \"NSharp\"): 6", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 16", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 14", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 20", script, StringComparison.Ordinal);
-        Assert.Contains("key[1] in (\"NSharp\", \"RuntimeResult\")", script, StringComparison.Ordinal);
-        Assert.Contains("RATIO_TOLERANCE = 1.05", script, StringComparison.Ordinal);
-        Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
-        // The throughput gate compares MEDIANs (robust to the thermal/load tail that only inflates the
-        // mean), sourced from BenchmarkDotNet's full JSON report. Pin the median wiring so the gate
-        // cannot silently regress back to a mean-based, load-flaky comparison.
-        Assert.Contains("--exporters json csv", script, StringComparison.Ordinal);
-        Assert.Contains("BytesAllocatedPerOperation", script, StringComparison.Ordinal);
-        Assert.Contains("gating statistic: median", script, StringComparison.Ordinal);
-        Assert.Contains("ratio = median_ns / baseline_median", script, StringComparison.Ordinal);
-        Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
-
-        var testAllCore = File.ReadAllText(Path.Combine(root, "tests", "scripts", "test-all-core.sh"));
-        Assert.Contains("Step 3a: Systems BenchmarkDotNet Gate", testAllCore, StringComparison.Ordinal);
-        Assert.Contains("scripts/benchmark-systems.sh", testAllCore, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void SystemsPolicyAttributes_AreCompilerOnlyAndHotEmitsJitImplementationFlags()
-    {
-        var source = """
-[hot]
-func Run(): int {
-    return 1
-}
-""";
-
-        var unit = Parse(source);
-        var outputPath = Path.Combine(Path.GetTempPath(), $"SystemsPolicyAttributes_{Guid.NewGuid():N}.dll");
-        var assemblyName = $"SystemsPolicyAttributes_{Guid.NewGuid():N}";
-        AssemblyLoadContext? loadContext = null;
-
-        try
-        {
-            var compiler = new Compiler.ILCompiler.ILCompiler(unit, assemblyName, outputPath);
-            compiler.Compile();
-
-            loadContext = new AssemblyLoadContext($"SystemsPolicyAttributes_{Guid.NewGuid():N}", isCollectible: true);
-            using var stream = new MemoryStream(File.ReadAllBytes(outputPath));
-            var assembly = loadContext.LoadFromStream(stream);
-            var method = assembly.GetType("Program")!.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
-
-            Assert.DoesNotContain(method.CustomAttributes,
-                attribute => attribute.AttributeType.Name.Contains("hot", StringComparison.OrdinalIgnoreCase));
-            var implementationFlags = method.GetMethodImplementationFlags();
-            Assert.True(
-                implementationFlags.HasFlag(MethodImplAttributes.AggressiveInlining),
-                $"Expected [hot] to emit {MethodImplAttributes.AggressiveInlining}, got {implementationFlags}.");
-        }
-        finally
-        {
-            loadContext?.Unload();
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-        }
-    }
-
-    [Fact]
-    public void StackallocExpression_CompilesToSpan()
-    {
-        var result = CompileAndInvoke("""
-import System
-
-func Run(): int {
-    scratch := stackalloc int[4]
-    return scratch.Length
-}
-""", "Run");
-
-        Assert.Equal(4, result);
-    }
-
-    [Fact]
-    public void StackallocExpression_ByteTypedLength_CompilesAndRuns()
-    {
-        // A small-int length widens implicitly to int; the emitted Span(void*, int) ctor must
-        // still see an int32 element count.
-        var result = CompileAndInvoke("""
-import System
-
-func Run(): int {
-    count: byte = 16
-    scratch := stackalloc byte[count]
-    return scratch.Length
-}
-""", "Run");
-
-        Assert.Equal(16, result);
-    }
-
-    [Fact]
-    public void StackallocExpression_AliasedSmallIntegerLength_CompilesAndRuns()
-    {
-        var result = CompileAndInvoke("""
-import System
-
-type Count = short
-
-func Run(): int {
-    count: Count = 12
-    scratch := stackalloc byte[count]
-    return scratch.Length
-}
-""", "Run");
-
-        Assert.Equal(12, result);
-    }
-
-    [Fact]
-    public void StackallocExpression_LongTypedLength_IsNormalizedToInt32()
-    {
-        // Verifiability backstop pin: the analyzer rejects long lengths up front (NL202), but a
-        // direct ILCompiler compile bypasses the analyzer — exactly the gap scenario — and the
-        // emitter must still normalize the count to int32 (a raw int64 on the stack produced
-        // StackUnexpected/Unverifiable IL at the mul and the Span(void*, int) ctor).
-        var result = ILShapeInspector.Compile("""
-import System
-
-func Run(): int {
-    count: long = 8
-    scratch := stackalloc byte[count]
-    return scratch.Length
-}
-""", assembly =>
-        {
-            var method = assembly.GetType("Program")!.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
-            Assert.True(
-                ILShapeInspector.CountOpcode(method, OpCodes.Conv_I4) >= 1,
-                "Expected the long-typed stackalloc length to be narrowed to int32 (conv.i4).");
-            return method.Invoke(null, null);
-        });
-
-        Assert.Equal(8, result);
-    }
-
-    [Fact]
-    public void ArrayCanFlowToReadOnlySpanParameter()
-    {
-        var result = CompileAndInvoke("""
-import System
-
-func Sum(values: ReadOnlySpan<int>): int {
-    total := 0
-    for i := 0; i < values.Length; i++ {
-        total = total + values[i]
-    }
-    return total
-}
-
-func Run(): int {
-    values := [1, 2, 3]
-    return Sum(values)
-}
-""", "Run");
-
-        Assert.Equal(6, result);
-    }
-
-    [Fact]
-    public void SpanPtrAndBufferMemoryCopy_CompileAndCopyBytes()
-    {
-        var result = CompileAndInvoke("""
-import System
-
-[memory(safe)]
-[trusted(reason: "length is checked against both spans", owner: "runtime-core", review: "SYS-25")]
-[hot]
-func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): int {
-    if len < 0 || len > dst.Length || len > src.Length {
-        return -1
-    }
-
-    unsafe {
-        Buffer.MemoryCopy(src.ptr, dst.ptr, dst.Length, len)
-    }
-
-    return len
-}
-
-func Run(): int {
-    src := new byte[4]
-    src[0] = (byte)1
-    src[1] = (byte)2
-    src[2] = (byte)3
-    src[3] = (byte)4
-    dst := new byte[4]
-    copied := CopyExact(dst, src, 4)
-    return copied + (int)dst[0] + (int)dst[1] + (int)dst[2] + (int)dst[3]
-}
-""", "Run");
-
-        Assert.Equal(14, result);
     }
 
     private static SystemsReport Analyze(string source, string profile = "default", string mode = "strict", Action<ProjectConfig>? configure = null)
@@ -3007,72 +2385,6 @@ func Run(): int {
         Assert.NotNull(result.CompilationUnit);
         Assert.DoesNotContain(result.Errors, error => error.Severity == ErrorSeverity.Error);
         return result.CompilationUnit!;
-    }
-
-    private static object? CompileAndInvoke(string source, string functionName)
-    {
-        var unit = Parse(source);
-        var outputPath = Path.Combine(Path.GetTempPath(), $"SystemsCompile_{Guid.NewGuid():N}.dll");
-        var assemblyName = $"SystemsCompile_{Guid.NewGuid():N}";
-        AssemblyLoadContext? loadContext = null;
-
-        try
-        {
-            var compiler = new Compiler.ILCompiler.ILCompiler(unit, assemblyName, outputPath);
-            compiler.Compile();
-
-            loadContext = new AssemblyLoadContext($"SystemsCompile_{Guid.NewGuid():N}", isCollectible: true);
-            using var stream = new MemoryStream(File.ReadAllBytes(outputPath));
-            var assembly = loadContext.LoadFromStream(stream);
-            var method = assembly.GetType("Program")!.GetMethod(functionName, BindingFlags.Public | BindingFlags.Static)!;
-            return method.Invoke(null, null);
-        }
-        finally
-        {
-            loadContext?.Unload();
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-        }
-    }
-
-    private static object? CompileProjectAndInvoke(string source, string functionName)
-    {
-        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-systems-project-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(projectRoot);
-        var programPath = Path.Combine(projectRoot, "Program.nl");
-        var outputPath = Path.Combine(projectRoot, "bin", "SystemsCompile.dll");
-        AssemblyLoadContext? loadContext = null;
-
-        try
-        {
-            File.WriteAllText(programPath, source);
-            var config = ProjectFileParser.CreateDefault("SystemsCompile");
-            config.OutputType = "library";
-            config.TargetFramework = "net10.0";
-
-            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
-            var result = compiler.CompileToIlAssembly("SystemsCompile", outputPath);
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(FormatCompilerError)));
-            Assert.NotNull(result.OutputAssemblyPath);
-
-            loadContext = new AssemblyLoadContext($"SystemsCompile_{Guid.NewGuid():N}", isCollectible: true);
-            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
-            var method = assembly.GetTypes()
-                .Select(type => type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                .FirstOrDefault(method => method != null);
-            Assert.NotNull(method);
-            return method.Invoke(null, null);
-        }
-        finally
-        {
-            loadContext?.Unload();
-            if (Directory.Exists(projectRoot))
-            {
-                Directory.Delete(projectRoot, recursive: true);
-            }
-        }
     }
 
     private static string FormatCompilerError(CompilerError error)

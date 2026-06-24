@@ -1,7 +1,7 @@
 /*
  * Faithful standalone C micro-bench for the N# `parseEightDigits` workload.
  *
- * N# source (benchmarks/SystemsHotPathBenchmarks.cs:99-116):
+ * N# source:
  *   func parseEightDigits(values: int[]): int {
  *       if values.Length < 8 { return -1 }
  *       parsed := 0
@@ -13,8 +13,6 @@
  *       return parsed
  *   }
  *
- * C# baseline: benchmarks/SystemsHotPathBenchmarks.cs:436-456 (CSharpParseEightDigits).
- *
  * O(1) workload: fixed trip count of 8 regardless of N. ns/op should be
  * ~size-independent across 64 and 4096; reporting that invariance is the point.
  *
@@ -23,8 +21,7 @@
  * Also valid (portable, no -march=native):
  *   clang -O3 -fwrapv -o parse-eight-digits_c main.c
  *
- * -fwrapv makes signed overflow defined as two's-complement wrap, matching C#
- * `unchecked` semantics. Natural array indexing `values[i]` is used (no manual
+ * -fwrapv makes signed overflow defined as two's-complement wrap. Natural array indexing `values[i]` is used (no manual
  * bounds-check tricks); C has no array bounds checks, mirroring the JIT-elided path.
  */
 

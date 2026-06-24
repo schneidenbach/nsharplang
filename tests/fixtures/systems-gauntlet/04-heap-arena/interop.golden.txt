@@ -1,1 +1,0 @@
-C# callers see a by-ref Arena parameter and Result<Span<byte>, ArenaError>; the span lifetime is documented by the N# summary.

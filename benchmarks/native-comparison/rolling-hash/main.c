@@ -1,6 +1,6 @@
 /* Faithful standalone C micro-bench for the N# `rollingHash` kernel.
  *
- * N# source (benchmarks/SystemsHotPathBenchmarks.cs:88-97):
+ * N# source:
  *   func rollingHash(values: int[]): int {
  *       hash := 17
  *       len := values.Length
@@ -9,7 +9,6 @@
  *       }
  *       return hash
  *   }
- * C# baseline (benchmarks/SystemsHotPathBenchmarks.cs:424-434) is identical.
  *
  * Apples-to-apples protocol: build the input arrays ONCE, warm up, then time a
  * fixed iteration count of the EXACT kernel, xor-folding every result into a
@@ -28,7 +27,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-/* Deterministic fill identical to the N#/C# bench input.
+/* Deterministic fill identical to the N# bench input.
  * (a) values[i] = ((i*17)+3) & 0x7f
  * (b) if N >= 17: values[N-17] = 100003
  * (c) for i in 0..min(8,N): values[i] = 48 + (i%10)  */
@@ -46,7 +45,7 @@ static void build_input(int32_t *values, size_t n) {
 }
 
 /* Byte-for-byte port of the N# `rollingHash` kernel. Natural `values[i]`
- * indexing. Signed wrapping is defined via -fwrapv (matches C# unchecked). */
+ * indexing. Signed wrapping is defined via -fwrapv. */
 __attribute__((noinline))
 static int32_t rolling_hash(const int32_t *values, size_t len) {
     int32_t hash = 17;

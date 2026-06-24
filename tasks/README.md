@@ -14,16 +14,9 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 - [005-vscode-editing-and-workflow-evidence.md](005-vscode-editing-and-workflow-evidence.md)
 - [015-query-and-package-completion-parity.md](015-query-and-package-completion-parity.md)
 
-## P1: Nullability Workflows
-
-- [015-nullable-ide-and-must-message-polish.md](015-nullable-ide-and-must-message-polish.md)
-- [015-csharp-flow-attribute-narrowing.md](015-csharp-flow-attribute-narrowing.md)
-- [016-csharp-generic-nullability-substitution.md](016-csharp-generic-nullability-substitution.md)
-
 ## P2: CLI, Release, Evidence, Docs
 
 - [009-install-release-and-ci-setup.md](009-install-release-and-ci-setup.md)
-- [010-library-publishing-workflow.md](010-library-publishing-workflow.md)
 - [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
 - [014-public-playground.md](014-public-playground.md)
 - [015-build-and-test-warning-hygiene.md](015-build-and-test-warning-hygiene.md)

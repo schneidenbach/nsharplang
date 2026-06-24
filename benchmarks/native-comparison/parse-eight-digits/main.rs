@@ -1,6 +1,6 @@
 // Faithful standalone Rust micro-bench for the N# `parseEightDigits` workload.
 //
-// N# source (benchmarks/SystemsHotPathBenchmarks.cs:99-116):
+// N# source:
 //   func parseEightDigits(values: int[]): int {
 //       if values.Length < 8 { return -1 }
 //       parsed := 0
@@ -16,7 +16,7 @@
 // ~size-independent across 64 and 4096; reporting that invariance is the point.
 //
 // Build: rustc -O -C opt-level=3 (release-equivalent; debug overflow checks off).
-// Wrapping arithmetic is explicit to mirror C# `unchecked` / two's-complement wrap.
+// Wrapping arithmetic is explicit to use two's-complement wrap.
 // Safe slice indexing is used (no get_unchecked) to mirror the natural N#/JIT path;
 // the JIT elides bounds checks for the fixed [0,8) loop, and so does rustc here.
 

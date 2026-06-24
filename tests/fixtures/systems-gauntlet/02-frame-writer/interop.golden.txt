@@ -1,1 +1,0 @@
-C# callers pass Span<byte> and receive Result<int, WriteError>; ownership remains with the caller.

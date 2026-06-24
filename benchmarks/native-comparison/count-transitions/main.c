@@ -1,8 +1,7 @@
 /*
  * Faithful standalone C micro-bench for the N# `countTransitions` workload.
  *
- * Mirrors benchmarks/SystemsHotPathBenchmarks.cs:118-137 (N# `countTransitions`)
- * and the C# baseline at benchmarks/SystemsHotPathBenchmarks.cs:458-480.
+ * Mirrors the N# `countTransitions` workload.
  *
  * Algorithm (byte-for-byte):
  *   if values.Length == 0 { return 0 }
@@ -19,7 +18,7 @@
  * Build:
  *   cc -O3 -fwrapv -march=native -o /tmp/count-transitions_c main.c   (M4-tuned)
  *   cc -O3 -fwrapv             -o /tmp/count-transitions_c main.c   (portable cross-compare)
- *   -fwrapv makes signed overflow defined two's-complement wrap == C# unchecked.
+ *   -fwrapv makes signed overflow defined two's-complement wrap.
  *   No -ffast-math (integer only).
  *
  * Protocol: deterministic identical fill, build array once, warmup, fixed measured
@@ -60,7 +59,7 @@ static void build_input(int32_t *values, size_t n) {
 
 /*
  * The workload under test. Natural `values[i]` indexing. -fwrapv gives defined
- * two's-complement wrap for the `transitions + 1` arithmetic (matches C# unchecked).
+ * two's-complement wrap for the `transitions + 1` arithmetic.
  */
 __attribute__((noinline))
 static int32_t count_transitions(const int32_t *values, size_t len) {

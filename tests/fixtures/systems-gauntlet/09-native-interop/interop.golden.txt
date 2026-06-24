@@ -1,1 +1,0 @@
-C# callers use Result<int, DeviceError>; the source-generated native entry point remains inside the boundary.

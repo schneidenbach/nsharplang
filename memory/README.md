@@ -19,7 +19,7 @@ been deleted.
 | Run tests and gates? | [testing.md](testing.md) |
 | Check known limitations? | [limitations.md](limitations.md) |
 | Work on language features? | Current source, recent commits, tests, and focused website docs |
-| Work on Systems N#? | [../docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md) |
+| Work on Systems N#? | Current source, recent commits, tests, and [../website/docs/systems.md](../website/docs/systems.md) |
 
 ## Components
 

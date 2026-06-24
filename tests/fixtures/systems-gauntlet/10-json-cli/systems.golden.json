@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "case": "source-generated JSON CLI path",
+  "case": "JSON metadata CLI path",
   "expected": {
     "boundary": "EmitJson",
     "hot": "Score",
-    "aot": "source-generated JsonSerializer metadata is required",
+    "aot": "JsonSerializer metadata is required",
     "nativeImageEmitted": false
   }
 }

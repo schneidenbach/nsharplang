@@ -1,14 +1,13 @@
 // Faithful standalone Rust micro-bench for the N# `checksum` hot-path workload.
 //
-// Workload (matches benchmarks/SystemsHotPathBenchmarks.cs:14-23 N# `checksum`,
-// and the C# baseline CSharpChecksum at :339-349):
+// Workload (`checksum`):
 //
 //     sum := 0
 //     len := values.Length
 //     for i := 0; i < len; i++ { sum = sum + values[i] }
 //     return sum
 //
-// Wrapping (two's-complement) i32 add, exactly like C# `unchecked int`.
+// Wrapping (two's-complement) i32 add.
 //
 // Input fill (identical bytes to the N# GlobalSetup at :271-284), applied in
 // this exact order:
@@ -26,8 +25,8 @@ use std::hint::black_box;
 use std::time::Instant;
 
 /// The workload under test. Single function over the whole length-N array,
-/// returning the i32 sum with wrapping add (C# unchecked semantics).
-/// Safe slice indexing is kept (bounds-checked) to mirror what the N#/C# JIT
+/// returning the i32 sum with wrapping add.
+/// Safe slice indexing is kept (bounds-checked) to mirror what the JIT
 /// would also bounds-check; the JIT elides those, and LLVM elides ours too for
 /// the `0..len` counted loop, so this is the apples-to-apples "safe" number.
 #[inline(never)]
@@ -42,7 +41,7 @@ fn checksum(values: &[i32]) -> i32 {
     sum
 }
 
-/// Deterministic fill identical to the N#/C# benchmark GlobalSetup.
+/// Deterministic fill identical to the N# benchmark setup.
 fn build_values(n: usize) -> Vec<i32> {
     let mut values = vec![0i32; n];
     // (a)

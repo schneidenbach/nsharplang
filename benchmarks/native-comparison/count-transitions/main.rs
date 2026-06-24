@@ -1,7 +1,6 @@
 // Faithful standalone Rust micro-bench for the N# `countTransitions` workload.
 //
-// Mirrors benchmarks/SystemsHotPathBenchmarks.cs:118-137 (N# `countTransitions`)
-// and the C# baseline at benchmarks/SystemsHotPathBenchmarks.cs:458-480.
+// Mirrors the N# `countTransitions` workload.
 //
 // Algorithm (byte-for-byte):
 //   if values.Length == 0 { return 0 }
@@ -51,7 +50,7 @@ fn build_input(n: usize) -> Vec<i32> {
 }
 
 /// The workload under test. Safe slice indexing (bounds checks kept) — reported as
-/// the safe-indexing number, mirroring how N#/C# emit JIT-bounds-checked loops.
+/// the safe-indexing number, mirroring the JIT-bounds-checked loop shape.
 #[inline(never)]
 fn count_transitions(values: &[i32]) -> i32 {
     if values.len() == 0 {

@@ -1,15 +1,14 @@
 /*
  * Faithful standalone C micro-bench for the N# `checksum` hot-path workload.
  *
- * Workload (matches benchmarks/SystemsHotPathBenchmarks.cs:14-23 N# `checksum`,
- * and the C# baseline CSharpChecksum at :339-349):
+ * Workload (`checksum`):
  *
  *     sum := 0
  *     len := values.Length
  *     for i := 0; i < len; i++ { sum = sum + values[i] }
  *     return sum
  *
- * Wrapping (two's-complement) int32 add, exactly like C# `unchecked int`.
+ * Wrapping (two's-complement) int32 add.
  * Compile with -fwrapv so signed overflow is defined as two's-complement wrap.
  *
  * Input fill (identical bytes to the N# GlobalSetup at :271-284), in this order:
@@ -36,8 +35,8 @@
 #include <time.h>
 
 /* The workload under test: one full kernel invocation over the length-N array,
- * returning the int32 sum with wrapping add (-fwrapv gives C# unchecked
- * semantics). Natural `values[i]` indexing, no bounds-check hacks. */
+ * returning the int32 sum with wrapping add. Natural `values[i]` indexing,
+ * no bounds-check hacks. */
 static int32_t checksum(const int32_t *values, size_t len) {
     int32_t sum = 0;
     for (size_t i = 0; i < len; i++) {
@@ -55,7 +54,7 @@ static inline const int32_t *launder(const int32_t *p) {
     return p;
 }
 
-/* Deterministic fill identical to the N#/C# benchmark GlobalSetup. */
+/* Deterministic fill identical to the N# benchmark setup. */
 static int32_t *build_values(size_t n) {
     int32_t *values = (int32_t *)malloc(n * sizeof(int32_t));
     if (!values) {

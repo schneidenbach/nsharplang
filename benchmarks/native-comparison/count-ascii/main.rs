@@ -1,5 +1,4 @@
-// Faithful Rust micro-bench for N# `countAscii` (benchmarks/SystemsHotPathBenchmarks.cs:51-63).
-// C# baseline: CSharpCountAscii (benchmarks/SystemsHotPathBenchmarks.cs:381-395).
+// Faithful Rust micro-bench for N# `countAscii`.
 //
 // Algorithm (byte-for-byte):
 //   count := 0
@@ -10,13 +9,13 @@
 //   }
 //   return count
 //
-// `&&` short-circuits per N#/C#; both operands are pure comparisons so the
+// `&&` short-circuits; both operands are pure comparisons so the
 // result is identical to a non-short-circuit AND. We keep the `&&` operator
 // (Rust short-circuits it too) for exact semantic fidelity.
 //
 // Build: rustc -O -C opt-level=3 (release). Indexing is safe slice indexing
-// `values[i]` (bounds-checked) to mirror the safe-indexing baseline; the N#/C#
-// JIT elides the bounds check on this counted loop, Rust/LLVM does the same for
+// `values[i]` (bounds-checked) to mirror the safe-indexing baseline; the JIT
+// elides the bounds check on this counted loop, Rust/LLVM does the same for
 // this shape. Reported number is the safe-indexing number.
 
 use std::hint::black_box;

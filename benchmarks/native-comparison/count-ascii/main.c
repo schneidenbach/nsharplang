@@ -1,6 +1,4 @@
-/* Faithful C micro-bench for N# `countAscii`
- * (benchmarks/SystemsHotPathBenchmarks.cs:51-63).
- * C# baseline: CSharpCountAscii (benchmarks/SystemsHotPathBenchmarks.cs:381-395).
+/* Faithful C micro-bench for N# `countAscii`.
  *
  * Algorithm (byte-for-byte):
  *   count := 0
@@ -11,12 +9,12 @@
  *   }
  *   return count
  *
- * `&&` short-circuits per N#/C#; both operands are pure comparisons so the
+ * `&&` short-circuits; both operands are pure comparisons so the
  * result is identical to a non-short-circuit AND. We keep `&&` (C short-circuits
  * it too) for exact semantic fidelity.
  *
- * Build: cc -O3 -fwrapv -march=native (signed overflow = two's-complement wrap,
- * matching C# unchecked). Indexing is the natural `values[i]`.
+ * Build: cc -O3 -fwrapv -march=native (signed overflow = two's-complement wrap).
+ * Indexing is the natural `values[i]`.
  */
 
 #include <stdio.h>

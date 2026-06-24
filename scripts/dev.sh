@@ -5,7 +5,7 @@
 # Builds the N# CLI (compiler + nlc) and runs a FOCUSED slice of unit tests.
 # This is the loop you run dozens of times while building. It is deliberately
 # NOT the product gate: it skips the Systems benchmark gate, VS Code tests,
-# example/template builds, ilverify, and C# interop. Those run in the full gate.
+# example/template builds, ilverify, and interop checks. Those run in the full gate.
 #
 # Before committing, you still MUST run the full isolated gate:
 #     VSCODE_TESTS=skip ./scripts/test-all.sh --commit
@@ -22,7 +22,7 @@
 # Options:
 #     --since [ref]     derive the test filter from `git diff` (default ref: HEAD, i.e. the
 #                       working tree). Changed paths map to subsystem keywords (Columnar,
-#                       ILCompiler, LanguageServer, Cli, ...). FAIL-SAFE: a central or unmapped
+#                       Columnar, LanguageServer, Cli, ...). FAIL-SAFE: a central or unmapped
 #                       change (AST core, runtime/SDK, build config, shared compiler file) runs
 #                       the full unit suite instead, and says why. Never silently narrows.
 #     --no-build        skip the CLI build, go straight to tests
@@ -153,12 +153,10 @@ derive_filter_from_diff() {
   - $f (runtime/SDK — also run the gate for template/example coverage)" ;;
             # --- compiler subsystems ---
             src/NSharpLang.Compiler/Columnar/*)        terms="$terms Columnar" ;;
-            src/NSharpLang.Compiler/ILCompiler/*)      terms="$terms ILCompiler" ;;
             src/NSharpLang.Compiler/CodeIntelligence/*) terms="$terms LanguageServer CodeIntelligence" ;;
             src/NSharpLang.Compiler/Performance/*)     terms="$terms Systems" ;;
             src/NSharpLang.Compiler/Parser*.cs|src/NSharpLang.Compiler/Lexer*.cs) terms="$terms Parser" ;;
             src/NSharpLang.Compiler/Analyzer*.cs)      terms="$terms Analyzer" ;;
-            src/NSharpLang.Compiler/Transpiler*.cs)    terms="$terms Transpiler" ;;
             src/NSharpLang.Compiler/Formatter*.cs)     terms="$terms Formatter" ;;
             src/NSharpLang.Compiler/*)
                 full=1; reasons="$reasons

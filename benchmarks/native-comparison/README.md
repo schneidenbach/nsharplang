@@ -3,8 +3,8 @@
 Standalone, reproducible cross-language micro-benchmarks for the systems hot paths, used to measure
 systems-N# against native compilers (Rust, C). These are NOT part of the `dotnet` build — they are
 hand-rolled Rust/C ports of the same algorithms the N# systems benchmarks measure, so we can compare N#
-codegen against LLVM/clang directly. Findings + the numbers table live in
-[`docs/design/systems-vs-native.md`](../../docs/design/systems-vs-native.md).
+codegen against LLVM/clang directly. Treat checked-in numbers as historical unless they are refreshed by
+a current benchmark run.
 
 Each `<workload>/` has `main.rs` and `main.c` implementing the SAME algorithm as the corresponding N#
 systems workload, over the same sizes (64, 4096), with a warmup, a large fixed iteration count, and an
@@ -21,8 +21,8 @@ for w in checksum-sum count-ascii count-transitions rolling-hash min-max-delta p
 done
 ```
 
-N#/C# numbers come from the BenchmarkDotNet systems suite:
-`dotnet run -c Release --project benchmarks/NSharpLang.Benchmarks.csproj -- --filter "*SystemsSpanHandoff*|*SystemsHotPath*" --job short --memory`.
+Refresh N# numbers from an N#-owned measurement path before comparing them with
+the native runs in this directory.
 
 ## Methodology note
 

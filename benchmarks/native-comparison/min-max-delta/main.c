@@ -1,8 +1,7 @@
 /*
  * Faithful standalone C micro-bench for the N# `minMaxDelta` workload.
  *
- * Mirrors benchmarks/SystemsHotPathBenchmarks.cs:65-86 (N# `minMaxDelta`) and the
- * C# baseline at benchmarks/SystemsHotPathBenchmarks.cs:397-422 byte-for-byte:
+ * Mirrors the N# `minMaxDelta` workload:
  *
  *   if (values.Length == 0) return 0;
  *   min = values[0]; max = values[0]; len = values.Length;
@@ -14,14 +13,14 @@
  *   return max - min;   // wrapping (unchecked) i32 subtraction
  *
  * Two independent branchy compares per element are kept verbatim (no branchless
- * min/max intrinsics) so the compared codegen shape matches N#/C#.
+ * min/max intrinsics) so the compared codegen shape matches N#.
  *
  * Methodology: deterministic fill identical to checksum-sum, build array once,
  * warmup, fixed measured loop, xor-fold into a volatile sink, 15+ trials, report
  * median ns/op (also min + IQR). Natural `values[i]` indexing is used.
  *
  * Build: cc -O3 -fwrapv -march=native main.c   (also report -O3 without -march=native)
- *        -fwrapv makes signed overflow defined as two's-complement wrap (matches C# unchecked).
+ *        -fwrapv makes signed overflow defined as two's-complement wrap.
  */
 
 #include <stdio.h>
@@ -62,7 +61,7 @@ static void build_values(int32_t *values, size_t n) {
     }
 }
 
-/* The workload under test, byte-for-byte per the N#/C# algorithm.
+/* The workload under test, byte-for-byte per the N# algorithm.
  * -fwrapv guarantees the final subtraction wraps as two's complement. */
 __attribute__((noinline))
 static int32_t min_max_delta(const int32_t *values, size_t len) {
