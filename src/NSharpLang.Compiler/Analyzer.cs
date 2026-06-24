@@ -6049,8 +6049,6 @@ public class Analyzer : IDisposable
             case NullableTypeInfo nullable:
                 var innerType = ResolveTypeAlias(nullable.InnerType);
                 return IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
-            case ExternalTypeInfo:
-                return true;
             case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                 return IsDisposableUsingResourceType(namedType);
             case GenericTypeInfo generic when LookupType(generic.Name) is { } genericDefinition:
