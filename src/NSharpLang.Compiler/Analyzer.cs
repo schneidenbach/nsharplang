@@ -13791,8 +13791,6 @@ public class Analyzer : IDisposable
         Dictionary<Type, Type> bindings,
         Dictionary<Type, TypeInfo> typeInfoBindings)
     {
-        try
-        {
             var invokeMethod = openDelegateType.GetMethod("Invoke");
             if (invokeMethod == null)
                 return false;
@@ -13821,11 +13819,6 @@ public class Analyzer : IDisposable
             }
 
             return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private void PopulateReflectionBindingsFromTypeInfo(
