@@ -11420,8 +11420,6 @@ public class Analyzer : IDisposable
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
-        try
-        {
             for (var current = type; current != null; current = current.BaseType)
             {
                 if (current.GetFields(flags).Any(field => field.Name == memberName))
@@ -11436,11 +11434,6 @@ public class Analyzer : IDisposable
                     return false;
                 }
             }
-        }
-        catch (NotSupportedException)
-        {
-            return null;
-        }
 
         return false;
     }
@@ -15084,8 +15077,6 @@ public class Analyzer : IDisposable
             | BindingFlags.DeclaredOnly
             | (includeStaticMembers ? BindingFlags.Static : BindingFlags.Instance);
 
-        try
-        {
             for (var current = type; current != null; current = current.BaseType)
             {
                 if (current.GetFields(flags).Any(field => field.Name == memberName))
@@ -15105,11 +15096,6 @@ public class Analyzer : IDisposable
                     return false;
                 }
             }
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
 
         return false;
     }
