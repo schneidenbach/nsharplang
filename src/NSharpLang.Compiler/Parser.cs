@@ -5458,25 +5458,7 @@ public class Parser
                     var propNameToken = Current;
                     var propName = ConsumeIdentifier("Expected property name");
                     Expression propValue;
-                    if (Check(TokenType.Assign))
-                    {
-                        ReportError(
-                            ErrorCode.InvalidSyntax,
-                            $"Object initializer member '{propName}' uses '='; N# uses ':'",
-                            propNameToken.Line,
-                            propNameToken.Column,
-                            humanExplanation: "Object initializer members in N# use a colon between the member name and value. The equals sign is C# initializer syntax.",
-                            hint: $"Write '{propName}: value' instead of '{propName} = value'.",
-                            suggestions: new List<string>
-                            {
-                                $"Change '{propName} = ...' to '{propName}: ...'"
-                            },
-                            length: TokenLengthOrFallback(propNameToken)
-                        );
-                        var separatorToken = Advance();
-                        propValue = ParseObjectInitializerMemberValue(propNameToken, propName, separatorToken);
-                    }
-                    else if (Check(TokenType.Colon))
+                    if (Check(TokenType.Colon))
                     {
                         var separatorToken = Advance();
                         propValue = ParseObjectInitializerMemberValue(propNameToken, propName, separatorToken);
