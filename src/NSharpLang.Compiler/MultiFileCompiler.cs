@@ -74,8 +74,6 @@ public class MultiFileCompiler
     /// </summary>
     public bool AotMode { get; set; }
 
-    public bool RequireColumnarEmission { get; set; }
-
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
         : this(projectRoot, config, sourceTextOverrides: null)
     {
@@ -676,11 +674,7 @@ public class MultiFileCompiler
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
-                if (RequiresColumnarDogfoodEmission(assemblyName))
-                {
-                    AddRequiredColumnarDogfoodEmissionError(assemblyName);
-                }
-                else if (AotMode)
+                if (AotMode)
                 {
                     AddRequiredColumnarAotEmissionError(assemblyName);
                 }
@@ -688,7 +682,7 @@ public class MultiFileCompiler
                 {
                     AddRequiredColumnarSoaEmissionError(assemblyName);
                 }
-                else if (RequireColumnarEmission)
+                else
                 {
                     AddRequiredColumnarEmissionError(assemblyName);
                 }
@@ -729,40 +723,6 @@ public class MultiFileCompiler
 
     private bool RequiresColumnarSoaEmission()
         => SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations));
-
-    private bool RequiresColumnarDogfoodEmission(string assemblyName)
-    {
-        if (_sourceFiles.Count == 0)
-            return false;
-
-        var isDogfoodAssembly = string.Equals(assemblyName, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal);
-        var isDogfoodProject = string.Equals(_config?.Name, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal);
-        var usesDogfoodProductSources = _sourceFiles.Any(IsDogfoodProductSourceFile);
-        if (!isDogfoodAssembly && !isDogfoodProject && !usesDogfoodProductSources)
-            return false;
-
-        return true;
-    }
-
-    private static bool IsDogfoodProductSourceFile(string sourceFile)
-    {
-        var normalizedPath = Path.GetFullPath(sourceFile).Replace('\\', '/');
-        return normalizedPath.Contains("/NSharpLang.Compiler.Dogfood/", StringComparison.Ordinal)
-            && !normalizedPath.Contains("/NSharpLang.Compiler.Dogfood.ParityCorpus/", StringComparison.Ordinal);
-    }
-
-    private void AddRequiredColumnarDogfoodEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar dogfood emission is required for '{assemblyName}', but the columnar backend declined.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            Suggestion = "Port the rejected source shape to the columnar backend, or move parity-only probes out of the shipped dogfood source set."
-        });
-    }
 
     private void AddRequiredColumnarAotEmissionError(string assemblyName)
     {
