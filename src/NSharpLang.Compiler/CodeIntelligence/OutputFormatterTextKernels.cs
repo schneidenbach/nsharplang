@@ -247,20 +247,6 @@ internal static class OutputFormatterTextKernels
             definition.Line,
             definition.Column);
 
-    internal static string GetNoDefinitionsText(string name)
-        => RequiredBindings.QueryNoDefinitionsText(name);
-
-    internal static string GetDefinitionsHeaderText(string name)
-        => RequiredBindings.QueryDefinitionsHeaderText(name);
-
-    internal static string GetDefinitionSearchResultLineText(DefinitionResult definition)
-        => RequiredBindings.QueryDefinitionSearchResultLineText(
-            definition.Kind,
-            definition.Name,
-            definition.File,
-            definition.Line,
-            definition.Column);
-
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<QueryNoSymbolsText>(
@@ -415,16 +401,7 @@ internal static class OutputFormatterTextKernels
                 "QueryReferenceLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryDefinitionLineText>(
                 programType,
-                "QueryDefinitionLineText"),
-            DogfoodKernelLoader.CreateDelegate<QueryNoDefinitionsText>(
-                programType,
-                "QueryNoDefinitionsText"),
-            DogfoodKernelLoader.CreateDelegate<QueryDefinitionsHeaderText>(
-                programType,
-                "QueryDefinitionsHeaderText"),
-            DogfoodKernelLoader.CreateDelegate<QueryDefinitionSearchResultLineText>(
-                programType,
-                "QueryDefinitionSearchResultLineText")));
+                "QueryDefinitionLineText")));
 
     private delegate string QueryNoSymbolsText();
 
@@ -586,17 +563,6 @@ internal static class OutputFormatterTextKernels
         int line,
         int column);
 
-    private delegate string QueryNoDefinitionsText(string name);
-
-    private delegate string QueryDefinitionsHeaderText(string name);
-
-    private delegate string QueryDefinitionSearchResultLineText(
-        string kindText,
-        string name,
-        string fileName,
-        int line,
-        int column);
-
     private sealed record Bindings(
         QueryNoSymbolsText QueryNoSymbolsText,
         QuerySymbolLineText QuerySymbolLineText,
@@ -648,10 +614,7 @@ internal static class OutputFormatterTextKernels
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
-        QueryDefinitionLineText QueryDefinitionLineText,
-        QueryNoDefinitionsText QueryNoDefinitionsText,
-        QueryDefinitionsHeaderText QueryDefinitionsHeaderText,
-        QueryDefinitionSearchResultLineText QueryDefinitionSearchResultLineText);
+        QueryDefinitionLineText QueryDefinitionLineText);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# query text kernels are unavailable.");
