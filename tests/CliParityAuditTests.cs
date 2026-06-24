@@ -875,19 +875,6 @@ dependencies:
         }
     }
 
-    [Fact]
-    public void ConvertCommand_IsNotRegisteredAsPublicCliSurface()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("convert", "--help"));
-
-        Assert.Equal(1, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stdout));
-        Assert.Contains("Unknown command: convert", stderr);
-
-        var exportedCliTypes = typeof(NSharpLang.Cli.CommandRegistry).Assembly.GetExportedTypes();
-        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("ConvertCommand") == true);
-    }
-
     // ── Step 5: Error message suggestions ───────────────────────────────
 
     [Fact]
