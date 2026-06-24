@@ -45,7 +45,6 @@ public class EmitIlAssembly : Task
         {
             var sourceFiles = Sources
                 .Select(source => source.ItemSpec)
-                .Where(File.Exists)
                 .ToArray();
 
             if (sourceFiles.Length == 0)
