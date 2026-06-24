@@ -18,8 +18,6 @@ internal static class AssemblyVersionKernels
             throw new InvalidOperationException("N# assembly-version parser kernel is unavailable.");
 
         var result = t_componentResult ??= new int[1];
-        try
-        {
             var code = bindings.TryParseComponent(component, result);
             if (code == 0)
                 return false;
@@ -29,12 +27,6 @@ internal static class AssemblyVersionKernels
 
             value = result[0];
             return true;
-        }
-        catch (Exception ex) when (ex is not InvalidOperationException)
-        {
-            value = 0;
-            throw new InvalidOperationException("N# assembly-version parser kernel failed.", ex);
-        }
     }
 
     private static Bindings? LoadBindings()
