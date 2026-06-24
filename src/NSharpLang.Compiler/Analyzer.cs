@@ -7104,9 +7104,6 @@ public class Analyzer : IDisposable
         if (resolved is UnknownTypeInfo)
             return NullState.Unknown;
 
-        if (resolved is ExternalTypeInfo)
-            return NullState.Oblivious;
-
         if (resolved is ReflectionTypeInfo reflectionType)
         {
             return reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
