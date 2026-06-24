@@ -96,8 +96,6 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
 
-**Performance signal — IL shape, not a wall-clock runner.** There is intentionally no `nlc bench` command. N#'s first-class performance signal is **deterministic IL-shape inspection** (`IlShapeInspector` in `NSharpLang.Compiler.Performance`). It needs nothing to run, is noise-free, and is suitable as a CI regression gate — it reports the counts that dominate N# performance (`newobj`/allocations, `box`, `callvirt` vs `call`, delegate constructions). The CLI performance envelopes are stable today: `nlc build --perf-report` reports semantic AOT blockers and Systems N# effect sites, while `nlc query perf` returns the versioned position-based facts envelope enriched with systems findings. Per-method `ilShape` data is not wired into those CLI responses yet.
-
 ### Project Management
 
 | Command | Purpose | Example |

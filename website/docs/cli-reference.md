@@ -46,10 +46,6 @@ Updated: 2026-06-01
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
-### Performance: IL-shape evidence (no `nlc bench`)
-
-N# does **not** ship a wall-clock benchmark runner. The toolchain provides **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler has an `IlShapeInspector` that reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The public CLI exposes stable performance JSON envelopes today: `nlc build --perf-report` includes AOT blockers and Systems N# effect sites when present; `nlc query perf` returns versioned position-based performance and systems facts. Per-method `ilShape` data is not wired into those CLI responses yet.
-
 ## Query Commands
 
 | Command | Purpose | Example |
@@ -361,7 +357,6 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design. The toolchain provides stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`) and compiler-level IL-shape regression tests instead. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |

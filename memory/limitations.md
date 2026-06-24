@@ -25,8 +25,6 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 - **Incremental behavior depends on the active workflow.** The daemon caches analysis for CLI/query flows, but broad project builds may still do more work than a mature incremental compiler.
 - **Large-project performance needs scenario evidence.** Do not make Go/Rust-speed claims without benchmark output for the target repo and command.
-- **No built-in benchmark runner.** There is intentionally no `nlc bench` command. The toolchain's performance signal is compiler-level IL-shape inspection plus stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`); per-method `ilShape` data is not wired into those CLI envelopes yet.
-- **Function-value optimization is transparent and bounded.** CLR delegates remain the public ABI for interop and escaping values. Direct-call lowering currently covers non-escaping local functions and contextual lambda locals, with readonly captures kept unboxed and mutable/lifetime-sensitive captures lifted only when needed. Delegate-boundary performance still needs per-scenario IL-shape tests and benchmark evidence before any public performance claim.
 
 ## IDE Support
 

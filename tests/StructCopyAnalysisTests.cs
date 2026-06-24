@@ -4,11 +4,6 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-/// <summary>
-/// Unit tests for <see cref="StructCopyAnalysis"/>, the pure heuristic behind struct-copy
-/// elimination. The emitter-level effects are covered by the IL-shape tests; these pin the
-/// decision boundaries (readonly, size, kind) directly.
-/// </summary>
 public class StructCopyAnalysisTests
 {
     private readonly record struct SmallReadonly(int X, int Y);
