@@ -209,7 +209,6 @@ public class Analyzer : IDisposable
 
     // Project-level auto-discovered symbols (set once by MultiFileCompiler, persists across Analyze calls)
     private Dictionary<string, List<ProjectSymbolInfo>> _projectSymbols = new();
-    private readonly HashSet<string> _autoResolvedNamespaces = new(); // Namespaces used via auto-resolution
 
     /// <summary>
     /// Set project-level symbols for auto-discovery across files.
@@ -248,11 +247,6 @@ public class Analyzer : IDisposable
             _projectSourceTexts[Path.GetFullPath(path)] = text;
         }
     }
-
-    /// <summary>
-    /// Get the set of namespaces that were auto-resolved during the most recent Analyze() call.
-    /// </summary>
-    public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
     /// <summary>
     /// Get a snapshot of the type-declaration-to-file mapping recorded during the most recent Analyze() call.
@@ -304,7 +298,6 @@ public class Analyzer : IDisposable
         _projectNamespaceCache.Clear();
         _projectFileNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
-        _autoResolvedNamespaces.Clear(); // Reset per-file; _projectSymbols persists
 
         // Process import directives
         foreach (var importDirective in unit.Imports)
@@ -22148,95 +22141,6 @@ public class Analyzer : IDisposable
         RegisterNamespaceImport(import.Namespace, import.Alias, import.Line, import.Column);
     }
 
-    /// <summary>
-    /// Try to resolve a symbol from the project-level auto-discovered symbols.
-    /// This is the last-resort fallback after local scope, explicit imports, and external types.
-    /// </summary>
-    private bool TryResolveProjectSymbol(string name, int line, int column, out TypeInfo type)
-    {
-        type = BuiltInTypes.Unknown;
-
-        if (!_projectSymbols.TryGetValue(name, out var candidates))
-            return false;
-
-        // Filter out symbols from the current file (already in scope from local declarations)
-        var externalCandidates = _currentFilePath != null
-            ? candidates.Where(c => !string.Equals(c.SourceFile, _currentFilePath, StringComparison.OrdinalIgnoreCase)).ToList()
-            : candidates;
-
-        if (externalCandidates.Count == 0)
-            return false;
-
-        // Prefer symbols made visible by the current package/namespace or its imports before
-        // falling back to the historical project-wide ambiguity behavior. This keeps
-        // unrelated packages with the same local name from changing diagnostics for an
-        // explicitly imported package.
-        var currentNamespace = GetUnitNamespace(_compilationUnit);
-        var visibleCandidates = externalCandidates
-            .Where(candidate => IsProjectSymbolInResolutionScope(candidate, currentNamespace))
-            .ToList();
-        if (visibleCandidates.Count > 0)
-        {
-            externalCandidates = visibleCandidates;
-        }
-
-        if (externalCandidates.Count > 1)
-        {
-            // Multiple candidates from different files — ambiguous
-            var sources = string.Join(", ", externalCandidates.Select(c => Path.GetFileName(c.SourceFile)));
-            Error($"'{name}' is defined in multiple files ({sources}) — add an explicit file import to tell me which one you mean", line, column);
-            return false;
-        }
-
-        var resolved = externalCandidates[0];
-        if (!resolved.IsExported && IsCrossPackageFile(resolved.SourceFile))
-        {
-            ReportInaccessibleProjectSymbol(resolved, line, column);
-            type = new UnknownTypeInfo(UnknownKind.ErrorRecovery);
-            return true;
-        }
-
-        type = resolved.Type;
-
-        // Track the namespace for project-wide semantic lookup.
-        if (resolved.Namespace != null)
-        {
-            // Get the current file's namespace to compare
-            var currentNs = GetUnitNamespace(_compilationUnit);
-            if (currentNs == null || !string.Equals(resolved.Namespace, currentNs, StringComparison.Ordinal))
-            {
-                _autoResolvedNamespaces.Add(resolved.Namespace);
-            }
-        }
-
-        // Record binding for semantic features (def/refs)
-        _bindingMap.RecordDeclaration(resolved.Declaration);
-        if (line > 0)
-        {
-            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, resolved.Declaration);
-        }
-
-        // Ensure the type declaration file is tracked so that subsequent member access
-        // (e.g. service.GetPeople()) can resolve the member to the correct source file.
-        // This must happen unconditionally — not only when a namespace is present.
-        if (resolved.Declaration.File != null && IsTypeDeclarationKind(resolved.Declaration.Kind))
-        {
-            _typeDeclarationFiles[name] = resolved.Declaration.File;
-        }
-
-        return true;
-    }
-
-    private bool IsProjectSymbolInResolutionScope(ProjectSymbolInfo candidate, string? currentNamespace)
-    {
-        if (string.Equals(candidate.Namespace, currentNamespace, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return candidate.Namespace != null && _usingNamespaces.Contains(candidate.Namespace);
-    }
-
     private void RegisterNamespaceImport(string namespaceName, string? alias, int line, int column)
     {
         var importDirective = new ImportDirective(namespaceName, alias, line, column);
@@ -22476,17 +22380,6 @@ public class Analyzer : IDisposable
     private static bool IsExportedByCasingOrModifier(string name, Declaration declaration)
     {
         return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration));
-    }
-
-    private bool ReportInaccessibleProjectSymbol(ProjectSymbolInfo symbol, int line, int column)
-    {
-        Error(
-            ErrorCode.InaccessibleMember,
-            $"'{symbol.Name}' is not exported from package/namespace '{symbol.Namespace ?? "<global>"}' — use PascalCase for cross-package visibility or keep camelCase names inside the declaring package",
-            line,
-            column,
-            length: Math.Max(1, symbol.Name.Length));
-        return true;
     }
 
     private bool ReportInaccessibleMember(string memberName, string? declarationFile, int line, int column)

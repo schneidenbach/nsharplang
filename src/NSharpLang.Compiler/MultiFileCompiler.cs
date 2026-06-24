@@ -22,7 +22,6 @@ public class MultiFileCompiler
     private readonly List<string> _sourceFiles;
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SemanticModel> _semanticModels = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
@@ -519,13 +518,6 @@ public class MultiFileCompiler
 
                 // Save semantic model for project-wide tooling.
                 _semanticModels[sourceFile] = result.SemanticModel;
-
-                // Capture auto-resolved namespaces for project-wide semantic lookup.
-                var autoNs = _sharedAnalyzer.GetAutoResolvedNamespaces();
-                if (autoNs.Count > 0)
-                {
-                    _autoResolvedNamespaces[sourceFile] = autoNs;
-                }
 
                 // Merge binding map for cross-file semantic references
                 if (result.Bindings != null)
