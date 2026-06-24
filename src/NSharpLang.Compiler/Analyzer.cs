@@ -1983,9 +1983,7 @@ public class Analyzer : IDisposable
             var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (IsUnitTaskLikeType(functionReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
             if (functionReturnType != BuiltInTypes.Void && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
             {
-                var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
-                    ? _sourceLines[func.Line - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(func.Line);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -2025,9 +2023,7 @@ public class Analyzer : IDisposable
             else if (!reportedGeneratorExpressionBody && functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
-                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                    ? _sourceLines[diagnosticLine - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -2666,9 +2662,7 @@ public class Analyzer : IDisposable
             {
                 var caseLine = unionCase.Line > 0 ? unionCase.Line : unionDecl.Line;
                 var caseCol = unionCase.Column > 0 ? unionCase.Column : unionDecl.Column;
-                var sourceSnippet = _sourceLines != null && caseLine > 0 && caseLine <= _sourceLines.Length
-                    ? _sourceLines[caseLine - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(caseLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -2713,9 +2707,7 @@ public class Analyzer : IDisposable
             {
                 var memLine = member.Line > 0 ? member.Line : enumDecl.Line;
                 var memCol = member.Column > 0 ? member.Column : enumDecl.Column;
-                var sourceSnippet = _sourceLines != null && memLine > 0 && memLine <= _sourceLines.Length
-                    ? _sourceLines[memLine - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(memLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -2815,9 +2807,7 @@ public class Analyzer : IDisposable
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetExpressionDiagnosticSpan(field.Initializer);
-                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                        ? _sourceLines[diagnosticLine - 1]
-                        : null;
+                    var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
@@ -2878,9 +2868,7 @@ public class Analyzer : IDisposable
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                     GetExpressionDiagnosticSpan(prop.ExpressionBody);
-                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                    ? _sourceLines[diagnosticLine - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -4050,13 +4038,14 @@ public class Analyzer : IDisposable
         var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
         var description = DescribeExpressionForDiagnostic(expression);
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.InvalidExpressionStatement(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 description));
             return;
@@ -4087,13 +4076,14 @@ public class Analyzer : IDisposable
         var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
         var description = DescribeExpressionForDiagnostic(expression);
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.InvalidForIteratorExpression(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 description));
             return;
@@ -4642,9 +4632,7 @@ public class Analyzer : IDisposable
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                     GetExpressionDiagnosticSpan(varDecl.Initializer);
-                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                    ? _sourceLines[diagnosticLine - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -4903,9 +4891,7 @@ public class Analyzer : IDisposable
         {
             // Use ErrorMessageBuilder for better error message
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
-            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                ? _sourceLines[diagnosticLine - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
@@ -5628,9 +5614,7 @@ public class Analyzer : IDisposable
             if (!IsAssignable(expectedReturnValueType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message
-                var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
-                    ? _sourceLines[returnStmt.Line - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(returnStmt.Line);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -5647,9 +5631,7 @@ public class Analyzer : IDisposable
         {
             if (_currentReturnType != BuiltInTypes.Void && !(_currentFunctionIsAsync && IsUnitTaskLikeType(_currentReturnType)))
             {
-                var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
-                    ? _sourceLines[returnStmt.Line - 1]
-                    : null;
+                var sourceSnippet = GetSourceSnippet(returnStmt.Line);
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
@@ -5684,9 +5666,7 @@ public class Analyzer : IDisposable
             : returnStmt.Value != null
             ? GetExpressionDiagnosticSpan(returnStmt.Value)
             : (returnStmt.Line, returnStmt.Column, 6);
-        var diagnosticSourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-            ? _sourceLines[diagnosticLine - 1]
-            : sourceSnippet;
+        var diagnosticSourceSnippet = GetSourceSnippet(diagnosticLine) ?? sourceSnippet;
 
         if (_currentReturnType == BuiltInTypes.Void)
         {
@@ -5731,9 +5711,7 @@ public class Analyzer : IDisposable
             : func.ExpressionBody != null
             ? GetExpressionDiagnosticSpan(func.ExpressionBody)
             : (fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
-        var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
-            ? _sourceLines[line - 1]
-            : null;
+        var sourceSnippet = GetSourceSnippet(line);
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
@@ -6970,13 +6948,14 @@ public class Analyzer : IDisposable
         if (!_reportedCallableReferenceDiagnostics.Add((line, column, name)))
             return;
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.MethodGroupUsedAsValue(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 name));
             return;
@@ -9154,13 +9133,14 @@ public class Analyzer : IDisposable
         var typeName = typeNameOverride ?? NullabilityMetadata.FormatTypeInfo(receiverType);
         var similarMembers = FindSimilarMemberNames(receiverType, memberName, includeStaticMembers);
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.UndefinedMember(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 memberName,
                 typeName,
@@ -10904,9 +10884,7 @@ public class Analyzer : IDisposable
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                        ? _sourceLines[diagnosticLine - 1]
-                        : null;
+                    var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
@@ -10934,9 +10912,7 @@ public class Analyzer : IDisposable
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                        ? _sourceLines[diagnosticLine - 1]
-                        : null;
+                    var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
@@ -10979,9 +10955,7 @@ public class Analyzer : IDisposable
                         {
                             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                                 GetExpressionDiagnosticSpan(call.Arguments[i].Value);
-                            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                                ? _sourceLines[diagnosticLine - 1]
-                                : null;
+                            var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                             if (sourceSnippet != null && _currentFilePath != null)
                             {
@@ -11822,13 +11796,14 @@ public class Analyzer : IDisposable
             .Take(8)
             .ToList();
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 functionName,
                 call.Arguments.Count,
@@ -11872,13 +11847,14 @@ public class Analyzer : IDisposable
             .Take(8)
             .ToList();
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
                 _currentFilePath,
                 line,
                 column,
-                _sourceLines[line - 1],
+                sourceSnippet,
                 length,
                 functionName,
                 call.Arguments.Count,
@@ -14391,9 +14367,7 @@ public class Analyzer : IDisposable
         if (!valueAssignable)
         {
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(assignment.Value);
-            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-                ? _sourceLines[diagnosticLine - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
@@ -17272,9 +17246,7 @@ public class Analyzer : IDisposable
         }
 
         var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(prop.Value);
-        var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
-            ? _sourceLines[diagnosticLine - 1]
-            : null;
+        var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
@@ -18449,9 +18421,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
-                        ? _sourceLines[match.Line - 1]
-                        : null;
+                    var sourceSnippet = GetSourceSnippet(match.Line);
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
@@ -18740,9 +18710,7 @@ public class Analyzer : IDisposable
 
         if (missingMembers.Count > 0)
         {
-            var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
-                ? _sourceLines[match.Line - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(match.Line);
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
@@ -19593,9 +19561,7 @@ public class Analyzer : IDisposable
         var similarNames = reportMissingAsFunction
             ? FindSimilarFunctionNames(name)
             : FindSimilarVariableNames(name);
-        var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
-            ? _sourceLines[line - 1]
-            : null;
+        var sourceSnippet = GetSourceSnippet(line);
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
