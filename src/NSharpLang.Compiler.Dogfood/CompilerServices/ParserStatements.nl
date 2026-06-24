@@ -1,3 +1,6 @@
+import "CompilerServices/ParserExpressions"
+import "CompilerServices/ParserTypeReferences"
+
 // Parser slices 16-17: the STATEMENT kernel -- function bodies, the critical path for parsing the dogfood
 // kernels (flat top-level functions whose bodies are statements). ParseStatementNodesCore parses ONE statement
 // at a token index by dispatching like the C# ParseStatement (Parser.cs:2165), and COMPOSES the slice 10-15

@@ -19135,12 +19135,6 @@ public class Analyzer : IDisposable
         if (externalType != null)
             return externalType;
 
-        // Fall back to project-level auto-discovered types
-        if (TryResolveProjectSymbol(name, line, column, out var projectType))
-        {
-            return projectType;
-        }
-
         // No resolution channel recognized this name. Historically this always fell through
         // silently ("might be from a C# library"), letting typos and missing references reach
         // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names

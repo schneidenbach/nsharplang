@@ -1,3 +1,5 @@
+import "CompilerServices/ParserDeclarations"
+
 // Product columnar enum parser wrapper. It keeps span/value-literal scratch columns inside N# and exposes only
 // the enum/member text plus resolved int values needed by the C# transition materializer.
 

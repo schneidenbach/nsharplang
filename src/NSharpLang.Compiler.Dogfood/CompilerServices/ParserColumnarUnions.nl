@@ -1,3 +1,5 @@
+import "CompilerServices/ParserDeclarations"
+
 // Product columnar union parser wrapper. It keeps declaration span scratch columns inside N# and exposes only
 // the text/count rows needed by the C# transition materializer.
 

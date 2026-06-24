@@ -1,3 +1,8 @@
+import "CompilerServices/ParserExpressions"
+import "CompilerServices/ParserFunctionSignatures"
+import "CompilerServices/ParserLocalFunctions"
+import "CompilerServices/ParserTypeReferences"
+
 // Product columnar function parser wrapper. It composes the signature rowset, statement-node rowset, and
 // direct local-function discovery so the C# adapter only materializes ColumnarFunctionInput containers.
 

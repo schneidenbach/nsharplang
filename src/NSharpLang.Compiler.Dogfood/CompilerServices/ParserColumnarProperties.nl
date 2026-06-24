@@ -1,3 +1,8 @@
+import "CompilerServices/ParserDeclarations"
+import "CompilerServices/ParserExpressions"
+import "CompilerServices/ParserLocalFunctions"
+import "CompilerServices/ParserTypeReferences"
+
 // Product columnar property parser wrapper. It composes property accessor/type parsing with getter/setter
 // statement-node rowsets so the C# adapter no longer binds statement parsing for property bodies.
 

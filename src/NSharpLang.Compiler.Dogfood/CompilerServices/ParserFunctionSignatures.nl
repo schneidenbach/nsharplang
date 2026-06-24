@@ -1,3 +1,5 @@
+import "CompilerServices/ParserTypeReferences"
+
 // Parser slice 9: the first declaration-level recursive-descent kernel -- it COMPOSES the slice 6-8 type
 // kernel (ParserTypeReferences.nl). Given a `func` keyword token index, ParseFunctionSignatureCore parses
 // the function's signature -- name, parameter names + parameter type trees, and the return type tree --

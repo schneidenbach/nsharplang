@@ -1,3 +1,5 @@
+import "CompilerServices/ParserDeclarations"
+
 // Local-function discovery core for product columnar routing. ParseStatementNodesCore already marks a local
 // function declaration as statement kind 41 with the `func` keyword's source span; this core maps direct children
 // of a function body block to their compact token indices in N#, keeping the adapter out of statement-table scans.

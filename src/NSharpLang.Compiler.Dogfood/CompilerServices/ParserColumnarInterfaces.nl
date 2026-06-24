@@ -1,3 +1,8 @@
+import "CompilerServices/ParserColumnarFunctions"
+import "CompilerServices/ParserFunctionSignatures"
+import "CompilerServices/ParserInterfaceSignatures"
+import "CompilerServices/ParserTypeReferences"
+
 // Product columnar interface parser wrapper. It keeps base-name span scratch columns inside N#,
 // rejects unsupported default-method local functions, and exposes only the interface/base text
 // plus method signature rows needed by the C# transition materializer.

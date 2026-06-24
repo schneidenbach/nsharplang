@@ -1,5 +1,6 @@
 import System
 import System.Text
+import "CompilerServices/FixApplicatorEdits"
 
 func CodeFixMissingImportEditInto(
     suggestion: string,

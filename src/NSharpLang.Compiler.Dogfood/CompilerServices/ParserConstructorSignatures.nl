@@ -1,3 +1,7 @@
+import "CompilerServices/ParserDeclarations"
+import "CompilerServices/ParserFunctionSignatures"
+import "CompilerServices/ParserTypeReferences"
+
 // Composed constructor-signature product core. ParserDeclarations.nl keeps the standalone constructor chain
 // parser; this file owns the cross-file route that combines constructor parameter signatures, canonical type text,
 // chaining initializer text, and body-brace validation for the columnar product adapter. The flattened

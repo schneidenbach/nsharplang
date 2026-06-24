@@ -1,3 +1,8 @@
+import "CompilerServices/ParserColumnarConstructors"
+import "CompilerServices/ParserColumnarFunctions"
+import "CompilerServices/ParserDeclarations"
+import "CompilerServices/ParserLocalFunctions"
+
 // Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
 // rejects unsupported value-type storage/property shapes and member generic/local functions, and exposes only text,
 // flag, and member-index rows needed by the C# transition materializer.

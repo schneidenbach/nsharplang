@@ -1,3 +1,7 @@
+import "CompilerServices/ParserDeclarations"
+import "CompilerServices/ParserFunctionSignatures"
+import "CompilerServices/ParserTypeReferences"
+
 // Composed interface-signature product core. ParserDeclarations.nl stays a standalone declaration parser; this
 // file owns the cross-file routing that combines interface member indices, function-signature parsing, and canonical
 // type text for the columnar product adapter. The flattened ParseInterfaceDeclarationSignatureInfoInto ABI lives

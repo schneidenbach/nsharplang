@@ -1,3 +1,8 @@
+import "CompilerServices/ParserConstructorSignatures"
+import "CompilerServices/ParserExpressions"
+import "CompilerServices/ParserFunctionSignatures"
+import "CompilerServices/ParserTypeReferences"
+
 // Product columnar constructor parser wrapper. It composes constructor signature/chain parsing with the
 // statement-node rowset so the C# adapter no longer orchestrates constructor body parsing.
 

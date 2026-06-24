@@ -1,3 +1,5 @@
+import "CompilerServices/ParserTypeReferences"
+
 // Parser slice 10: the first EXPRESSION kernel -- the foundation of the largest parser subsystem (the
 // ~17-level precedence chain in Parser.cs ParseExpression..ParsePrimaryExpression). This slice establishes
 // the expression node table + the recursive structure with PRIMARY expressions only; later slices layer on
