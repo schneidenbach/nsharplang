@@ -92,27 +92,6 @@ public class Parser
                     _currentRecoveryBoundaryColumn = Current.Column;
                     declarations.Add(ParseDeclaration());
                 }
-                catch (Exception ex)
-                {
-                    // ParseDeclaration or its callees threw unexpectedly.
-                    // Report the error and synchronize to the next declaration.
-                    _panicMode = false; // Ensure we can report this error
-                    ReportError(
-                        ErrorCode.InvalidSyntax,
-                        ex.Message,
-                        Current.Line,
-                        Current.Column,
-                        humanExplanation: "An unexpected error occurred while parsing this declaration."
-                    );
-                    var exStartPos = _position;
-                    SynchronizeToNextDeclaration();
-                    // If synchronization didn't advance, force-advance to prevent infinite loop
-                    if (_position == exStartPos && !IsAtEnd())
-                    {
-                        Advance();
-                    }
-                    continue;
-                }
                 finally
                 {
                     _currentRecoveryBoundaryColumn = previousRecoveryBoundaryColumn;
