@@ -6,16 +6,8 @@ internal static class NumericLiteralFacts
 {
     public static bool TryParseUnsignedIntegerMagnitude(string text, out ulong value)
     {
-        try
-        {
             value = ParseUnsignedIntegerMagnitude(text);
             return true;
-        }
-        catch
-        {
-            value = 0;
-            return false;
-        }
     }
 
     public static ulong ParseUnsignedIntegerMagnitude(string text)
