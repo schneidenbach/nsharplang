@@ -16982,22 +16982,13 @@ public class Analyzer : IDisposable
 
     private static bool HasPublicInstanceConstructor(Type targetType, Func<ConstructorInfo, bool> predicate)
     {
-        try
-        {
             return targetType
                 .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
                 .Any(predicate);
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static bool HasSingleEnumerableParameter(MethodBase method, Type elementType)
     {
-        try
-        {
             var parameters = method.GetParameters();
             if (parameters.Length != 1)
             {
@@ -17007,32 +16998,18 @@ public class Analyzer : IDisposable
             var parameterType = parameters[0].ParameterType;
             return IsGenericDefinition(parameterType, typeof(IEnumerable<>))
                 && IsReflectionAssignableFrom(parameterType, typeof(IEnumerable<>).MakeGenericType(elementType));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static bool HasCollectionExpressionMutator(Type targetType, Type elementType)
     {
-        try
-        {
             return targetType
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance)
                 .Any(method => method.Name is "Add" or "Enqueue"
                     && HasSingleCollectionElementParameter(method, elementType));
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static bool HasSingleCollectionElementParameter(MethodBase method, Type elementType)
     {
-        try
-        {
             var parameters = method.GetParameters();
             if (parameters.Length != 1)
             {
@@ -17046,11 +17023,6 @@ public class Analyzer : IDisposable
             }
 
             return IsReflectionAssignableFrom(parameterType, elementType);
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static bool IsSupportedCollectionExpressionInterfaceTarget(Type targetType)
