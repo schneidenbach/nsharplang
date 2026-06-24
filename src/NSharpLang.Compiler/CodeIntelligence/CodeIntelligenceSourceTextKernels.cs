@@ -25,16 +25,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractIdentifierSpan(bindings, line, column, out span);
-        }
-        catch
-        {
-            span = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractIdentifierSpan(bindings, line, column, out span);
     }
 
     internal static bool TryExtractDocComment(
@@ -49,16 +41,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractDocComment(bindings, definitionLine, out documentation);
-        }
-        catch
-        {
-            documentation = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractDocComment(bindings, definitionLine, out documentation);
     }
 
     internal static bool TrySelectedSpanMatchesDeclarationName(
@@ -77,23 +61,15 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TrySelectedSpanMatchesDeclarationName(
-                bindings,
-                line,
-                declarationColumn,
-                declarationName,
-                selectedStartColumn,
-                selectedEndColumn,
-                out matches);
-        }
-        catch
-        {
-            matches = false;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TrySelectedSpanMatchesDeclarationName(
+            bindings,
+            line,
+            declarationColumn,
+            declarationName,
+            selectedStartColumn,
+            selectedEndColumn,
+            out matches);
     }
 
     internal static bool TryFindIdentifierNameColumn(
@@ -111,16 +87,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
-            return cache.TryFindIdentifierNameColumn(bindings, name, line, fallbackColumn, out column);
-        }
-        catch
-        {
-            column = fallbackColumn;
-            return false;
-        }
+        var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+        return cache.TryFindIdentifierNameColumn(bindings, name, line, fallbackColumn, out column);
     }
 
     internal static bool TryExtractCompletionPrefix(
@@ -136,16 +104,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractCompletionPrefix(bindings, line, column, out prefix);
-        }
-        catch
-        {
-            prefix = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractCompletionPrefix(bindings, line, column, out prefix);
     }
 
     internal static bool TryExtractIdentifierName(
@@ -161,16 +121,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractIdentifierName(bindings, line, column, out name);
-        }
-        catch
-        {
-            name = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractIdentifierName(bindings, line, column, out name);
     }
 
     internal static bool TryExtractMemberReceiverName(
@@ -186,16 +138,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractMemberReceiverName(bindings, line, memberStartColumn, out receiverName);
-        }
-        catch
-        {
-            receiverName = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractMemberReceiverName(bindings, line, memberStartColumn, out receiverName);
     }
 
     internal static bool TryExtractSourceContext(
@@ -210,16 +154,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractSourceContext(bindings, line, out context);
-        }
-        catch
-        {
-            context = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractSourceContext(bindings, line, out context);
     }
 
     internal static bool TryExtractSourceLine(
@@ -234,16 +170,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractSourceLine(bindings, line, out text);
-        }
-        catch
-        {
-            text = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractSourceLine(bindings, line, out text);
     }
 
     internal static bool TryExtractSourceLine(string source, int line, out string? text)
@@ -253,16 +181,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
-            return cache.TryExtractSourceLine(bindings, line, out text);
-        }
-        catch
-        {
-            text = null;
-            return false;
-        }
+        var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+        return cache.TryExtractSourceLine(bindings, line, out text);
     }
 
     internal static bool TryExtractEditorIdentifierSpan(
@@ -276,16 +196,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
-            return cache.TryExtractEditorIdentifierSpan(bindings, line, column, out span);
-        }
-        catch
-        {
-            span = null;
-            return false;
-        }
+        var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+        return cache.TryExtractEditorIdentifierSpan(bindings, line, column, out span);
     }
 
     internal static bool TryExtractVariableDeclarationName(
@@ -300,16 +212,8 @@ internal static class CodeIntelligenceSourceTextKernels
         if (bindings == null)
             return false;
 
-        try
-        {
-            var cache = GetFileCache(snapshot, filePath, source);
-            return cache.TryExtractVariableDeclarationName(bindings, line, out name);
-        }
-        catch
-        {
-            name = null;
-            return false;
-        }
+        var cache = GetFileCache(snapshot, filePath, source);
+        return cache.TryExtractVariableDeclarationName(bindings, line, out name);
     }
 
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
