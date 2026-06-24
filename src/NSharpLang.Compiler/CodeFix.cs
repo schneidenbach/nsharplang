@@ -209,47 +209,27 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
+        var line = diagnostic.Location.Line;
 
-        // Extract variable name from diagnostic message
-        // Message format: "Variable 'x' is declared but never read"
-        var message = diagnostic.Message;
-        var startIndex = message.IndexOf('\'');
-        var endIndex = message.LastIndexOf('\'');
-
-        if (startIndex >= 0 && endIndex > startIndex)
+        if (CodeFixActionKernels.TryGetRemoveUnusedVariableEdit(
+                diagnostic.Message,
+                sourceCode,
+                line,
+                out var title))
         {
-            var variableName = message[(startIndex + 1)..endIndex];
+            var edit = new TextEdit(
+                line,
+                0,
+                line + 1,
+                0,
+                "");
 
-            // Find the variable declaration in the AST
-            var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
-            var line = diagnostic.Location.Line;
-
-            if (line > 0 && line <= sourceLines.Length)
-            {
-                var sourceLine = sourceLines[line - 1];
-
-                // Check if this is the entire statement or part of it
-                // For simplicity, we'll remove the entire line if it contains the declaration
-                if (sourceLine.Contains($"let {variableName}") ||
-                    sourceLine.Contains($"var {variableName}") ||
-                    sourceLine.Contains($"const {variableName}"))
-                {
-                    // Remove the entire line
-                    var edit = new TextEdit(
-                        line,
-                        0,
-                        line + 1,
-                        0,
-                        "");
-
-                    actions.Add(new CodeAction(
-                        $"Remove unused variable '{variableName}'",
-                        "NL001",
-                        new List<TextEdit> { edit },
-                        CodeActionKind.QuickFix,
-                        FixSafety.ReviewNeeded));
-                }
-            }
+            actions.Add(new CodeAction(
+                title,
+                "NL001",
+                new List<TextEdit> { edit },
+                CodeActionKind.QuickFix,
+                FixSafety.ReviewNeeded));
         }
 
         return actions;
@@ -265,6 +245,26 @@ internal static class CodeFixActionKernels
 
     [ThreadStatic]
     private static string[]? t_replacementText;
+
+    internal static bool TryGetRemoveUnusedVariableEdit(
+        string message,
+        string sourceCode,
+        int line,
+        out string title)
+    {
+        title = string.Empty;
+
+        var replacementText = t_replacementText ??= new string[1];
+        var code = RequiredBindings.GetRemoveUnusedVariableEditInto(message, sourceCode, line, replacementText);
+        if (code < 0)
+            throw new InvalidOperationException("N# code-fix action kernel returned an invalid edit result.");
+
+        if (code == 0)
+            return false;
+
+        title = replacementText[0];
+        return true;
+    }
 
     internal static bool TryGetUnnecessaryNullCheckEdit(
         string sourceCode,
@@ -341,6 +341,9 @@ internal static class CodeFixActionKernels
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CodeFixRemoveUnusedVariableEditInto>(
+                programType,
+                "CodeFixRemoveUnusedVariableEditInto"),
             DogfoodKernelLoader.CreateDelegate<CodeFixUnnecessaryNullCheckEditInto>(
                 programType,
                 "CodeFixUnnecessaryNullCheckEditInto"),
@@ -350,6 +353,12 @@ internal static class CodeFixActionKernels
             DogfoodKernelLoader.CreateDelegate<CodeFixPossibleNullAccessEditInto>(
                 programType,
                 "CodeFixPossibleNullAccessEditInto")));
+
+    private delegate int CodeFixRemoveUnusedVariableEditInto(
+        string message,
+        string source,
+        int line,
+        string[] titleText);
 
     private delegate int CodeFixUnnecessaryNullCheckEditInto(
         string source,
@@ -371,6 +380,7 @@ internal static class CodeFixActionKernels
         string[] replacementText);
 
     private sealed record Bindings(
+        CodeFixRemoveUnusedVariableEditInto GetRemoveUnusedVariableEditInto,
         CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto,
         CodeFixEmptyCatchCommentEditInto GetEmptyCatchCommentEditInto,
         CodeFixPossibleNullAccessEditInto GetPossibleNullAccessEditInto);

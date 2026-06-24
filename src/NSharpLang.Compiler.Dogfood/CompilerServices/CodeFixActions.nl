@@ -77,6 +77,38 @@ func CodeFixEmptyCatchCommentEditInto(source: string, line: int, editInfo: int[]
     return 1
 }
 
+func CodeFixRemoveUnusedVariableEditInto(message: string, source: string, line: int, titleText: string[]): int {
+    if titleText.Length < 1 {
+        return -1
+    }
+
+    titleText[0] = ""
+
+    nameStartQuote := message.IndexOf('\'')
+    nameEndQuote := CodeFixLastIndexOfChar(message, '\'')
+    if nameStartQuote < 0 || nameEndQuote <= nameStartQuote {
+        return 0
+    }
+
+    variableName := message.Substring(nameStartQuote + 1, nameEndQuote - nameStartQuote - 1)
+
+    lineText := new string[](1)
+    sourceLineResult := CodeFixSourceLineInto(source, line, lineText)
+    if sourceLineResult <= 0 {
+        return sourceLineResult
+    }
+
+    sourceLine := lineText[0]
+    if sourceLine.IndexOf("let " + variableName, StringComparison.Ordinal) < 0
+        && sourceLine.IndexOf("var " + variableName, StringComparison.Ordinal) < 0
+        && sourceLine.IndexOf("const " + variableName, StringComparison.Ordinal) < 0 {
+        return 0
+    }
+
+    titleText[0] = "Remove unused variable '" + variableName + "'"
+    return 1
+}
+
 func CodeFixPossibleNullAccessEditInto(source: string, line: int, column: int, editInfo: int[], replacementText: string[]): int {
     if editInfo.Length < 1 || replacementText.Length < 1 {
         return -1
@@ -226,6 +258,19 @@ func CodeFixIndexOfCharFrom(text: string, ch: char, start: int): int {
         }
 
         index = index + 1
+    }
+
+    return -1
+}
+
+func CodeFixLastIndexOfChar(text: string, ch: char): int {
+    index := text.Length - 1
+    while index >= 0 {
+        if text[index] == ch {
+            return index
+        }
+
+        index = index - 1
     }
 
     return -1
