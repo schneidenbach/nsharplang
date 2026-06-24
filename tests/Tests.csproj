@@ -10,13 +10,12 @@
     <ParallelizeTestCollections>true</ParallelizeTestCollections>
     <ParallelizeAssembly>false</ParallelizeAssembly>
     <!-- Exclude sub-projects that have their own .csproj, and fixture build artifacts -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**;NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**;fixtures/**/obj/**;fixtures/**/bin/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**;NSharpLang.IntegrationTests/**;fixtures/**/obj/**;fixtures/**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Exclude sub-projects — they have their own .csproj files -->
   <ItemGroup>
     <Compile Remove="NSharpLang.IntegrationTests/**" />
-    <Compile Remove="NSharpLang.CSharpInteropTests/**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,6 +41,7 @@
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
     <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" Properties="SkipNSharpDogfoodCompilerServices=true" />
     <ProjectReference Include="..\src\NSharpLang.Playground\NSharpLang.Playground.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.Runtime\NSharpLang.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,7 +59,6 @@
   <!-- Exclude sub-projects - they have their own .csproj files -->
   <ItemGroup>
     <Compile Remove="NSharpLang.IntegrationTests\**" />
-    <Compile Remove="NSharpLang.CSharpInteropTests\**" />
   </ItemGroup>
 
   <Import Project="..\src\NSharpLang.Compiler.Dogfood\NSharpLang.Compiler.Dogfood.targets" />

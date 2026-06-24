@@ -254,53 +254,6 @@ class Api {
         }
     }
 
-    [Fact]
-    public void DotnetBuild_RetiredTranspileBackend_IsRejected()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            TestSdkFeed.WriteVersionedSdkProject(tempDir, "LegacySdkBuild");
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: LegacySdkBuild
-backend: transpile
-outputType: exe
-targetFramework: net10.0
-""");
-            Directory.CreateDirectory(Path.Combine(tempDir, "obj"));
-            File.WriteAllText(Path.Combine(tempDir, "obj", "project.g.props"), """
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <OutputType>Exe</OutputType>
-    <_NSharpOriginalOutputType>Exe</_NSharpOriginalOutputType>
-    <AssemblyName>LegacySdkBuild</AssemblyName>
-    <NSharpCompilationBackend>transpile</NSharpCompilationBackend>
-    <NSharpTestFramework>xunit</NSharpTestFramework>
-    <_NSharpBaseSdk>Microsoft.NET.Sdk</_NSharpBaseSdk>
-  </PropertyGroup>
-</Project>
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "legacy"
-}
-""");
-
-            var restoreResult = DotnetRunner.Run(
-                $"restore \"{Path.Combine(tempDir, "LegacySdkBuild.csproj")}\" -v q --disable-build-servers",
-                workingDirectory: tempDir,
-                timeout: TimeSpan.FromMinutes(3));
-
-            Assert.NotEqual(0, restoreResult.ExitCode);
-            Assert.Contains("removed", restoreResult.Stderr + restoreResult.Stdout);
-            Assert.Contains("nlc export csharp", restoreResult.Stderr + restoreResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
 
     [Fact]
     public void DotnetRun_UsesIlBackendThroughSdk()

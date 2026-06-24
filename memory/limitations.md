@@ -5,27 +5,27 @@ This file is the current public-facing limitations register for N# docs. Keep it
 ## Launch and Verification
 
 - **Full product gate is not launch-green by default.** Use the latest `./scripts/test-all.sh` output as evidence before saying the whole product is ready. Prior audit notes record full-suite/VS Code integration risk, so do not replace this with a blanket "all tests pass" claim without a fresh run.
-- **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only from a fresh `./scripts/test-all.sh` run or a dated evidence artifact (e.g. `docs/design/self-host-progress.md` entries).
+- **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only from a fresh `./scripts/test-all.sh` run or a current, checked evidence artifact.
 - **Packaging/public feed status must be verified per release.** Local/private setup exists, but docs should not imply broadly available public NuGet packages unless the package/feed evidence is current.
 
 ## CLI
 
-- **No public C# conversion contract.** N# is authored directly. `nlc export csharp` is for inspection, not a conversion workflow.
+- **No public source-conversion contract.** N# is authored directly. Direct IL emission is the product path.
 - **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
 ## Language Semantics
 
 - **Pattern guard exhaustiveness is conservative.** Guarded arms do not prove coverage. Add an unguarded union arm or wildcard fallback when a match must be exhaustive.
 - **Nested union matching has edge cases.** Curated nested-union patterns are supported, but deep/constrained nested coverage should be verified with focused tests before it is advertised as complete.
-- **Type alias emission inherits C# alias restrictions.** Same-namespace aliases and nullable reference aliases can hit C# `using` alias limitations.
-- **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover C# stubs plus IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
+- **Type alias emission has CLR metadata restrictions.** Same-namespace aliases and nullable reference aliases can hit backend limitations.
+- **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
 - **Null-forgiving `!` should not become an escape hatch.** Prefer explicit null checks or null-coalescing. Diagnostics for null/default-forgiving syntax should come from token/parser/AST/semantic analysis, not source-only scans.
 
 ## Build and Performance
 
 - **Incremental behavior depends on the active workflow.** The daemon caches analysis for CLI/query flows, but broad project builds may still do more work than a mature incremental compiler.
 - **Large-project performance needs scenario evidence.** Do not make Go/Rust-speed claims without benchmark output for the target repo and command.
-- **No built-in benchmark runner.** There is intentionally no `nlc bench` command (a codegen/reflection BenchmarkDotNet wrapper was prototyped and removed as fragile and redundant with the BCL ecosystem). The toolchain's performance signal is compiler-level IL-shape inspection plus stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`); per-method `ilShape` data is not wired into those CLI envelopes yet. For wall-clock numbers run BenchmarkDotNet directly on the compiled N# assembly; for cross-language proofs use a matched N#/C# harness with wrapper-overhead accounting and idiomatic C# baselines.
+- **No built-in benchmark runner.** There is intentionally no `nlc bench` command. The toolchain's performance signal is compiler-level IL-shape inspection plus stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`); per-method `ilShape` data is not wired into those CLI envelopes yet.
 - **Function-value optimization is transparent and bounded.** CLR delegates remain the public ABI for interop and escaping values. Direct-call lowering currently covers non-escaping local functions and contextual lambda locals, with readonly captures kept unboxed and mutable/lifetime-sensitive captures lifted only when needed. Delegate-boundary performance still needs per-scenario IL-shape tests and benchmark evidence before any public performance claim.
 
 ## IDE Support

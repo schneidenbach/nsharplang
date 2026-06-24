@@ -1,4 +1,4 @@
-// PARITY CORPUS (Arc M1): checksum oracles extracted from
+// PARITY CORPUS (Arc M1): checksum fixtures extracted from
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/CliArguments.nl. These functions exist solely as
 // parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
 // their product file — most delegate to sibling kernels that stay in the product). They are
@@ -1199,34 +1199,6 @@ func CliPositionalArgChecksumInto(
 
         checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + length * 17
         i = i + 1
-    }
-
-    return checksum
-}
-
-func CliExportCSharpFirstOperandChecksumInto(
-    args: string[],
-    kindIds: int[],
-    nextIndices: int[],
-    previousIndices: int[],
-    nextOptionIndices: int[],
-    resultIndices: int[]): int {
-    sourceIndex := CliExportCSharpFirstOperandIndexInto(
-        args,
-        kindIds,
-        nextIndices,
-        previousIndices,
-        nextOptionIndices,
-        resultIndices)
-    checksum := sourceIndex + 1
-    if sourceIndex >= 0 && sourceIndex < args.Length {
-        arg := args[sourceIndex]
-        checksum = checksum + arg.Length * 31
-        i := 0
-        while i < arg.Length {
-            checksum = checksum + arg[i] * (i + 1)
-            i = i + 1
-        }
     }
 
     return checksum

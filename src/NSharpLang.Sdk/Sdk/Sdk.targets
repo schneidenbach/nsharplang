@@ -12,27 +12,20 @@
     <UseAppHost Condition="'$(UseAppHost)' == ''">false</UseAppHost>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <!-- Output path for generated source files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
-    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
-  </PropertyGroup>
-
   <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
-  <UsingTask TaskName="NSharpLang.Build.Tasks.WriteCompilationStub"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
   <!-- Apply project.yml settings during the current MSBuild invocation as well
-       as through obj/project.g.props. This keeps direct dotnet builds and C#
+       as through obj/project.g.props. This keeps direct dotnet builds and
        ProjectReference consumers working even before nlc restore has generated
        the compatibility props file. -->
   <Target Name="_ApplyNSharpProjectConfigForCurrentBuild"
-          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;GenerateNSharpIlStub;CoreCompile"
+          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;CoreCompile"
           Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
       <Output TaskParameter="TargetFramework" PropertyName="TargetFramework" />
@@ -76,12 +69,6 @@
     <PropertyGroup Condition="'$(OutputType)' == 'Exe'">
       <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
-  </Target>
-
-  <Target Name="_ValidateNSharpBackend"
-          BeforeTargets="Build;Rebuild;Restore"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpCompilationBackend)' != '' And '$(NSharpCompilationBackend)' != 'il'">
-    <Error Text="The 'transpile' backend has been removed. Set backend: il in project.yml and use the IL toolchain for build/run/test/publish. To inspect generated C#, run 'nlc export csharp'." />
   </Target>
 
   <!-- Auto-discover all .nl files (excluding tests) -->
@@ -135,8 +122,6 @@
       <!-- Default coverage settings -->
       <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
       <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
-      <ExcludeByFile Condition="'$(ExcludeByFile)' == ''">**/*.g.cs</ExcludeByFile>
-
       <!-- Only enable by default if explicitly requested -->
       <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
     </PropertyGroup>
@@ -150,29 +135,9 @@
     </LoadProjectReferences>
   </Target>
 
-  <Target Name="GenerateNSharpIlStub"
-          BeforeTargets="CoreCompile"
+  <Target Name="CoreCompile"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
-
-    <Message Importance="High" Text="Generating N# IL compilation stub..." />
-
-    <WriteCompilationStub
-      OutputPath="$(NSharpOutputPath)"
-      Sources="@(NSharpCompile)"
-      ProjectRoot="$(MSBuildProjectDirectory)"
-      ProjectFile="$(NSharpProjectFile)">
-      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
-    </WriteCompilationStub>
-  </Target>
-
-  <!-- Always include generated sources (even when compilation targets are skipped as up-to-date) -->
-  <Target Name="IncludeNSharpGeneratedFiles"
-          BeforeTargets="CoreCompile"
-          AfterTargets="GenerateNSharpIlStub"
-          Condition="'$(EnableNSharpCompilation)' == 'true'">
-    <ItemGroup>
-      <Compile Include="$(NSharpOutputPath)**/*.g.cs" />
-    </ItemGroup>
+    <Message Importance="High" Text="Skipping CoreCompile for N# project; emitting direct IL assembly." />
   </Target>
 
   <Target Name="EmitNSharpIlAssembly"
@@ -195,12 +160,7 @@
       Configuration="$(Configuration)"
       DefineConstants="$(DefineConstants)"
       TargetAssemblyPath="@(IntermediateAssembly)"
-      TargetReferenceAssemblyPath="$(TargetRefPath)" />
-  </Target>
-
-  <!-- Clean generated files -->
-  <Target Name="CleanNSharp" BeforeTargets="CoreClean" Condition="'$(EnableNSharpCompilation)' == 'true'">
-    <RemoveDir Directories="$(NSharpOutputPath)" />
+      TargetReferenceAssemblyPath="@(IntermediateRefAssembly)" />
   </Target>
 
   <!-- Format N# files -->

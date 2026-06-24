@@ -92,8 +92,6 @@ partial class Program
             24 => TreeCommand.Execute(GetCommandArgs(args)),
             25 => AuditCommand.Execute(GetCommandArgs(args)),
             26 => PackCommand.Execute(GetCommandArgs(args)),
-            27 => Commands.ExportCommand.Execute(GetCommandArgs(args)),
-            31 => Error(ProgramCommandKernels.GetTranspileRemovedMessage()),
             _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
                 args.Length == 0 ? string.Empty : args[0].ToLower()))
         };
@@ -263,59 +261,6 @@ partial class Program
         {
             // The perf report is best-effort instrumentation; never fail the build over it.
             return BuildPerfReportFacts.Empty;
-        }
-    }
-
-    /// <summary>
-    /// Removes orphaned .g.cs files in obj/**/nsharp/ that no longer have
-    /// a corresponding .nl source file. Prevents stale generated code from
-    /// being compiled after source files are deleted.
-    /// </summary>
-    internal static void CleanStaleGeneratedFiles(string projectRoot)
-    {
-        var objDir = Path.Combine(projectRoot, "obj");
-        if (!Directory.Exists(objDir))
-            return;
-
-        // Collect current .nl source files (relative paths, without extension)
-        var nlRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var nlFile in Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(projectRoot, nlFile);
-            if (GeneratedOutputDirectoryDeduplicator.ShouldSkipSourcePath(rel))
-                continue;
-
-            // Strip .nl (or .tests.nl) extension to get the base name with relative dir
-            var basePathLength = GeneratedOutputDirectoryDeduplicator.GetSourceBasePathLength(rel);
-            if (basePathLength < 0)
-                continue;
-
-            var basePath = rel[..basePathLength];
-            nlRelativePaths.Add(basePath.Replace('\\', '/'));
-        }
-
-        // Find all nsharp/ output directories under obj/
-        // Search for both "nsharp" and "NSharp" to handle case-sensitive filesystems (Linux)
-        var nsharpDirCandidates = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
-            .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
-            .ToArray();
-        var nsharpDirs = GeneratedOutputDirectoryDeduplicator.Deduplicate(nsharpDirCandidates);
-        foreach (var nsharpDir in nsharpDirs)
-        {
-            if (!Directory.Exists(nsharpDir))
-                continue;
-
-            foreach (var gcsFile in Directory.GetFiles(nsharpDir, "*.g.cs", SearchOption.AllDirectories))
-            {
-                var relToNsharp = Path.GetRelativePath(nsharpDir, gcsFile).Replace('\\', '/');
-                var basePathLength = GeneratedOutputDirectoryDeduplicator.GetGeneratedOutputBasePathLength(relToNsharp);
-                var basePath = basePathLength >= 0 ? relToNsharp[..basePathLength] : relToNsharp;
-
-                if (!nlRelativePaths.Contains(basePath))
-                {
-                    try { File.Delete(gcsFile); } catch { /* ignore cleanup errors */ }
-                }
-            }
         }
     }
 

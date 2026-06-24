@@ -51,7 +51,6 @@ public class CliParityAuditTests
         Assert.Contains("watch", stdout);
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
-        Assert.Contains("export", stdout);
         Assert.DoesNotContain("convert", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
@@ -437,7 +436,6 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
-        Assert.Contains("export <target>", stdout);
         Assert.DoesNotContain("convert", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
@@ -649,42 +647,6 @@ func Main() {
         {
             Directory.Delete(tempDir, true);
         }
-    }
-
-    // ── Step 4: C# export flow ───────────────────────────────────────────
-
-    [Fact]
-    public void ExportCommand_Help_ExplainsCSharpFlow()
-    {
-        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("export", "csharp", "--help"));
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage:", stdout);
-        Assert.Contains("nlc export csharp <file.nl>", stdout);
-        Assert.Contains("self-contained C# bundle", stdout);
-        Assert.Contains("sibling test project", stdout);
-    }
-
-    [Fact]
-    public void ExportCommand_ProjectAndSourceOperand_AreRejected()
-    {
-        var (exitCode, _, stderr) = CaptureConsole(() =>
-            ExecuteProgram("export", "csharp", "--project", "demo", "Program.nl"));
-
-        Assert.Equal(1, exitCode);
-        Assert.Equal(
-            ProgramCommandKernels.GetErrorLine(ExportCommandKernels.GetSourceAndProjectConflictMessage()) + Environment.NewLine,
-            stderr);
-    }
-
-    [Fact]
-    public void TranspileCommand_PointsToExportCommand()
-    {
-        var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("removed", stderr);
-        Assert.Contains("nlc export csharp", stderr);
     }
 
     [Fact]

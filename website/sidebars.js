@@ -37,12 +37,10 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: 'Interop',
+      label: 'Coming From Another Language',
       collapsed: true,
       items: [
-        'for-csharp-developers',
         'for-go-developers',
-        'interop',
       ],
     },
     {

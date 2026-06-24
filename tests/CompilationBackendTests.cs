@@ -849,41 +849,6 @@ func main() {
         }
     }
 
-    [Fact]
-    public void BuildCommand_RetiredTranspileBackendOverride_IsRejected()
-    {
-        var tempDir = CreateTempDir();
-        var originalDirectory = Directory.GetCurrentDirectory();
-
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: LegacyBuild
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "legacy"
-}
-""");
-
-            Directory.SetCurrentDirectory(tempDir);
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                ExecuteProgram("build", "--backend", "transpile"));
-
-            Assert.Equal(1, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stdout));
-            Assert.Contains("removed", stderr);
-            Assert.Contains("nlc export csharp", stderr);
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalDirectory);
-            Directory.Delete(tempDir, true);
-        }
-    }
 
     [Fact]
     public void BuildCommand_UsesConfiguredIlBackendAndProducesRunnableArtifacts()
@@ -1737,45 +1702,6 @@ func main() {
         }
     }
 
-    [Fact]
-    public void PublishCommand_RetiredBackend_ReturnsHelpfulFailureMessage()
-    {
-        var tempDir = CreateTempDir();
-        var originalDirectory = Directory.GetCurrentDirectory();
-
-        try
-        {
-            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RetiredBackendPublish
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "retired backend publish"
-}
-""");
-
-            var publishDir = Path.Combine(tempDir, "publish-retired-backend");
-            Directory.SetCurrentDirectory(tempDir);
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                ExecuteProgram("publish", "--backend", "transpile", "--output", publishDir));
-
-            Assert.Equal(1, exitCode);
-            Assert.Contains("Publishing project in", stdout);
-            Assert.Contains("Publish failed: The 'transpile' backend has been removed.", stderr);
-            Assert.Contains("nlc export csharp", stderr);
-            Assert.False(Directory.Exists(publishDir));
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalDirectory);
-            Directory.Delete(tempDir, true);
-        }
-    }
 
     [Fact]
     public void PublishCommand_NoProjectFile_ReturnsHelpfulMessage()

@@ -15,8 +15,6 @@ internal static class CompilationBackendSelectionKernels
         {
             case 1:
                 return;
-            case -1:
-                throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
             case 0:
                 throw new InvalidOperationException($"Invalid backend: '{selectedValue}'. Must be 'il'.");
             default:

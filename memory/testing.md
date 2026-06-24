@@ -10,7 +10,6 @@
 - Lexer coverage
 - Parser coverage
 - Analyzer coverage
-- C# export coverage
 - Integration coverage
 
 ### Test Files
@@ -20,10 +19,8 @@ tests/
 ├── ParserTests.cs               - Parsing tests
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
-├── TranspilerTests.cs           - C# export code generation tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
-├── ILCompilerTests.cs           - IL compilation tests
 ├── LinterTests.cs               - Linter diagnostic tests
 ├── ErrorReportingTests.cs       - Error formatting tests
 ├── CodeFixTests.cs              - Code fix provider tests
@@ -41,7 +38,7 @@ Tests use real components, not mocks. This ensures:
 
 ### 2. Focused Tests
 Each test validates one specific feature:
-```csharp
+```text
 [Fact]
 public void TestVariableDeclaration()
 {
@@ -58,7 +55,7 @@ public void TestVariableDeclaration()
 
 ### 3. End-to-End Validation
 Integration tests validate full pipeline:
-```csharp
+```text
 [Fact]
 public void TestFullCompilation()
 {
@@ -84,7 +81,7 @@ Tests that reflect over or invoke an emitted assembly (columnar parity programs,
 dogfood project, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
 (tests/CollectibleAssemblyScope.cs):
 
-```csharp
+```text
 using var loadScope = CollectibleAssemblyScope.Load(asm!);                  // emitted byte[]
 using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);    // emitted .dll
 var type = loadScope.Assembly.GetType(typeName!)!;
@@ -93,15 +90,10 @@ var type = loadScope.Assembly.GetType(typeName!)!;
 Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)`: each call pins the assembly in a fresh
 NON-collectible AssemblyLoadContext for the test host's lifetime. The parity suite loads hundreds of
 emitted assemblies per run and grows every slice — the pinned pile intermittently OOM-crashed the
-xUnit host ("Test host process crashed : Out of memory"). Pinned assemblies also stay visible to the
-C# oracle's AppDomain-wide external-type scan forever (the ROUTE-ONLY `Math` hazard documented in
-CompilerDogfoodProjectTests); an unloaded scope drops back out of that scan.
+xUnit host ("Test host process crashed : Out of memory").
 
 Rules of the scope:
 - Keep every `Type`/`MethodInfo`/delegate obtained from `loadScope.Assembly` inside the `using` scope.
-- Some pins must stay ROUTE-ONLY and never load the emitted assembly at all (a global type named like
-  a whitelisted BCL container, e.g. `Math`, poisons the in-process oracle even while briefly loaded) —
-  see the StaticMethods region comments in CompilerDogfoodProjectTests.
 - `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through `ExternalAssemblyScan.Loaded()` (src/NSharpLang.Compiler/ExternalAssemblyScan.cs),
@@ -110,16 +102,9 @@ Rules of the scope:
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
 - Enforced, not just convention: `CollectibleAssemblyScopeTests.TestSources_HaveNoDirectAssemblyLoadCallSites`
   scans tests/ sources and fails on any direct `Assembly.Load`/`Assembly.LoadFile`/`Assembly.LoadFrom` call
-  site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as oracle helpers do, is fine).
+  site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as legacy emitter helpers do, is fine).
 
-### 5. The C# Oracle Memoizes Compiles
-`InvokeViaCSharpPath`/`InvokeViaCSharpPathMultiFile` cache emitted oracle BYTES per source text
-(`CSharpOracleCache`) — the parity suite makes ~1000 oracle calls over far fewer unique programs.
-Implications: oracle compiles must stay deterministic and stateless (same source → same assembly),
-and per-call work belongs in the invoke path, not the compile path. Only bytes are cached; every
-invoke still loads through a fresh `CollectibleAssemblyScope`, so nothing stays pinned.
-
-### 6. The Product Gate Skips Steps With Unchanged Inputs
+### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
 toolchain and environment (validated per-step cache in `tests/scripts/test-all-core.sh`; markers
@@ -141,39 +126,14 @@ input-set prefixes next to the step wrappers in test-all-core.sh —
 sync between the two scripts, and the hash-step behavior itself.
 
 ### 7. Gate Profiling And Slicing Guidance
-Fresh non-VS-Code commit-gate profile on 2026-06-13 before ILVerify output
-reuse:
-
-```text
-VSCODE_TESTS=skip ./scripts/test-all.sh --commit
-Total                                          6m 47s
-Step 3a: Systems BenchmarkDotNet Gate          2m 53s
-Step 3: Run Unit Tests                         1m 54s
-Step 10b: IL Verification Gate                 0m 48s
-Step 4: Pack and Install MSBuild SDK           0m 25s
-Step 2: Build N# Compiler                      0m 12s
-```
-
-After Step 10b was changed to verify the fresh Step 8/9 build outputs instead
-of rebuilding them inside `scripts/ilverify.sh`, the same required gate measured:
-
-```text
-VSCODE_TESTS=skip ./scripts/test-all.sh --commit
-Total                                          6m 31s
-Step 3a: Systems BenchmarkDotNet Gate          2m 41s
-Step 3: Run Unit Tests                         2m 22s
-Step 10b: IL Verification Gate                 0m 15s
-Step 4: Pack and Install MSBuild SDK           0m 19s
-Step 2: Build N# Compiler                      0m 17s
-```
+Current gate profiling must be refreshed after the removal of the old
+wall-clock benchmark lane. Use a fresh `VSCODE_TESTS=skip ./scripts/test-all.sh
+--commit` run when updating this section.
 
 Per-test TRX profiling from the same pass showed the unit bucket is dominated by
-SDK/toolchain subprocess tests and a few full IL execution cases. Top class
-aggregates by summed test duration were `IlSdkToolchainConsumerTests` (~78s),
-`IlSdkToolchainStubTests` (~78s), `IlSdkToolchainTests` (~67s),
-`CompilerDogfoodProjectTests` (~61s), and `ILCompilerCoverageTests` (~46s).
-Those sums exceed wall time because xUnit runs collections concurrently; the
-critical path is still the slow `dotnet build`/`dotnet test` subprocess tests.
+SDK/toolchain subprocess tests and a few full IL execution cases. Those sums
+exceed wall time because xUnit runs collections concurrently; the critical path
+is still the slow `dotnet build`/`dotnet test` subprocess tests.
 
 Do not pay the full gate during normal edit loops. Use:
 
@@ -227,14 +187,6 @@ of building the surface themselves before verification.
 - Duck interface validation
 - Error detection
 
-### C# Export Tests
-- Expression export
-- Statement export
-- Declaration export
-- Special cases (unions, duck interfaces, etc.)
-- Indentation correctness
-- C# syntax validity
-
 ### Language Server Tests
 - Completion (member access, namespace, N# types)
 - Hover (type info display)
@@ -282,7 +234,7 @@ dotnet test -v detailed
 ## Test Examples
 
 ### Example 1: Lexer Test
-```csharp
+```text
 [Fact]
 public void TestStringInterpolation()
 {
@@ -297,7 +249,7 @@ public void TestStringInterpolation()
 ```
 
 ### Example 2: Parser Test
-```csharp
+```text
 [Fact]
 public void TestMatchExpression()
 {
@@ -314,7 +266,7 @@ public void TestMatchExpression()
 ```
 
 ### Example 3: Analyzer Test
-```csharp
+```text
 [Fact]
 public void TestTypeMismatchError()
 {
@@ -325,23 +277,6 @@ public void TestTypeMismatchError()
 
     Assert.NotEmpty(result.Errors);
     Assert.Contains("Type mismatch", result.Errors[0].Message);
-}
-```
-
-### Example 4: C# Export Test
-```csharp
-[Fact]
-public void TestMatchExpressionExport()
-{
-    var source = "result := match value { 0 => \"zero\", _ => \"other\" }";
-    var tokens = new Lexer(source, "test").Tokenize();
-    var ast = new Parser(tokens, "test").ParseCompilationUnit();
-    var exporter = new Transpiler();
-    var csharp = exporter.Transpile(ast);
-
-    Assert.Contains("value switch", csharp);
-    Assert.Contains("0 => \"zero\"", csharp);
-    Assert.Contains("_ => \"other\"", csharp);
 }
 ```
 

@@ -13,7 +13,7 @@ Converts raw source code text into a stream of tokens for the parser.
 - **Important:** Token values include the quotes
   - Regular string: `"hello"` (not `hello`)
   - Interpolated: `$"hello {x}"` (full string)
-- This simplifies C# export logic (no need to re-add quotes)
+- The parser and semantic pipeline receive the source spelling unchanged.
 
 ### Newline Filtering
 - Newlines are tokenized but filtered out before returning to parser
@@ -24,12 +24,12 @@ Converts raw source code text into a stream of tokens for the parser.
 - Single-line comments: `// comment`
 - Multi-line comments: `/* comment */`
 - Comments are filtered out during tokenization
-- Not preserved in token stream (not needed for transpilation)
+- Not preserved in token stream
 
 ### Numeric Literals
 - Integer literals: `42`, `1_000_000`
 - Float literals: `3.14`, `1.5e10`
-- Underscores allowed for readability (exported as-is to C#)
+- Underscores allowed for readability
 
 ### Operator Recognition
 - Single-char: `+`, `-`, `*`, `/`, `=`, `<`, `>`, etc.
@@ -62,7 +62,7 @@ Notable tokens:
 
 ### String Literal Storage
 Strings are stored with quotes included:
-```csharp
+```text
 // Source: "hello"
 // Token value: "hello" (includes quotes)
 
@@ -70,7 +70,7 @@ Strings are stored with quotes included:
 // Token value: $"hello {x}" (includes $ and quotes)
 ```
 
-This design decision simplifies the C# exporter - it can emit token values directly without quote wrapping.
+This design decision preserves source spelling for downstream compiler phases.
 
 ## Error Handling
 
@@ -83,7 +83,7 @@ Errors include file name, line, and column for precise reporting.
 
 ## Usage Example
 
-```csharp
+```text
 var source = "let x := 42";
 var lexer = new Lexer(source, "example.nl");
 var tokens = lexer.Tokenize(); // Returns List<Token>

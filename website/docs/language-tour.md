@@ -63,7 +63,7 @@ func main() {
 ### Function Overloading
 
 Declare multiple functions with the same name but different parameter lists. The compiler
-resolves the call by argument count and types, exactly like C#.
+resolves the call by argument count and types.
 
 ```n#
 func area(side: int): int => side * side
@@ -233,7 +233,7 @@ func handleResponse(resp: HttpResponse): string {
 
 ### Regular Interfaces
 
-Regular interfaces require explicit implementation with `:` syntax, just like C#. They support default implementations.
+Regular interfaces require explicit implementation with `:` syntax. They support default implementations.
 
 ```n#
 interface IShape {
@@ -310,7 +310,7 @@ func main() {
 
 ### Int Enums
 
-Standard integer enums work like C#.
+Standard integer enums emit CLR enum values.
 
 ```n#
 enum Priority {
@@ -425,7 +425,7 @@ import System.Linq
 func main() {
     numbers := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-    // LINQ — same as C#
+    // LINQ
     evens := numbers.Where(x => x % 2 == 0).ToList()
     doubled := numbers.Select(x => x * 2).ToList()
     sum := numbers.Sum()
@@ -448,7 +448,7 @@ func main() {
 
 ## Generics
 
-N# generics use the same `<T>` syntax as C#, with full constraint support.
+N# generics use `<T>` syntax with full constraint support.
 
 ```n#
 import System
@@ -610,12 +610,12 @@ func main() {
 
 `+=`/`-=` on an event is a compile error that points you to `on`/`off` (it used to compile and
 then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
-delegates. See the [Interop guide](interop.md) for details.
+delegates.
 
 ## Working With Nullable Values
 
 Use `?` to mark a type nullable, and `must` to assert a nullable value is non-null,
-unwrapping it (it throws if the value is actually null). N# does **not** have C#'s
+unwrapping it (it throws if the value is actually null). N# does **not** have a
 null-forgiving `!` operator — prefer explicit checks, `??`, or `must`.
 
 ```n#
@@ -688,7 +688,7 @@ func main() {
 
 ## Reflection Operators
 
-`nameof` and `typeof` are compile-time operators, the same as in C#.
+`nameof` and `typeof` are compile-time operators.
 
 ```n#
 class Person {
@@ -721,7 +721,7 @@ func main() {
 For high-performance code, N# has an opt-in **systems profile** with explicit, checkable
 runtime costs: `[hot]`/`[boundary]` effect contracts, allocation-free `Result<T,E>`, `alloc`
 and `stackalloc`, `ref struct` and lifetime-checked spans, governed `unsafe`, and SIMD
-auto-vectorization that beats C# by ~4× on counted-reduction kernels. See the dedicated
+auto-vectorization for counted-reduction kernels. See the dedicated
 **[Systems N# guide](systems.md)**.
 
 ```n#
@@ -880,7 +880,7 @@ func main() {
 
 ## String Interpolation
 
-Use `$"..."` for interpolated strings, same as C#.
+Use `$"..."` for interpolated strings.
 
 ```n#
 name := "Alice"
@@ -926,7 +926,7 @@ class UserService {
 
 ## Visibility
 
-N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
+N# uses Go-style naming conventions for visibility — do not write `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
 
 | Convention | Visibility |
 |------------|-----------|
@@ -958,7 +958,6 @@ Enum cases are part of the containing enum's value set. Export is controlled by 
 
 ## Next Steps
 
-- **[For C# Developers](for-csharp-developers.md)** — Side-by-side syntax comparison
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
 - **[Pattern Matching Guide](pattern-matching.md)** — Deep dive into pattern matching
 - **[Types Guide](types.md)** — Advanced type system features

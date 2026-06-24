@@ -440,48 +440,6 @@ class B {
         }
     }
 
-    [Fact]
-    public void Compile_SyntaxErrorInOneFile_StillReportsSemanticErrors()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            // File A: syntax error
-            File.WriteAllText(Path.Combine(tempDir, "FileA.nl"), @"
-func broken() {
-    let x: int = @@
-}
-");
-            // File B: valid syntax, semantic error
-            File.WriteAllText(Path.Combine(tempDir, "FileB.nl"), @"
-func valid_syntax() {
-    Console.WriteLine(noSuchVariable)
-}
-");
-
-            var compiler = new MultiFileCompiler(tempDir);
-            var result = compiler.ExportToCSharp();
-
-            Assert.False(result.Success);
-
-            var errors = result.Errors.ToList();
-            var fileAErrors = errors.Where(e => e.FileName?.Contains("FileA") == true).ToList();
-            var fileBErrors = errors.Where(e => e.FileName?.Contains("FileB") == true).ToList();
-
-            Assert.True(fileAErrors.Count >= 1, "Expected syntax errors from FileA");
-            Assert.True(fileBErrors.Count >= 1,
-                $"Expected semantic errors from FileB, got {fileBErrors.Count}. " +
-                $"All errors: {string.Join("; ", errors.Select(e => $"[{e.FileName}:{e.Line}] {e.Message}"))}");
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    #endregion
-
-    #region Parser always produces CompilationUnit
 
     [Fact]
     public void Parser_AlwaysProducesCompilationUnit_EvenWithErrors()

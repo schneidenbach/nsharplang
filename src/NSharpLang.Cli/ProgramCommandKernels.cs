@@ -15,9 +15,6 @@ internal static class ProgramCommandKernels
     internal static string GetHelpText(string version)
         => RequiredBindings.ProgramHelpText(version);
 
-    internal static string GetTranspileRemovedMessage()
-        => RequiredBindings.ProgramTranspileRemovedMessage();
-
     internal static string GetUnknownCommandMessage(string command)
         => RequiredBindings.ProgramUnknownCommandMessage(command);
 
@@ -39,9 +36,6 @@ internal static class ProgramCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliProgramHelpText>(
                 programType,
                 "CliProgramHelpText"),
-            DogfoodKernelLoader.CreateDelegate<CliProgramTranspileRemovedMessage>(
-                programType,
-                "CliProgramTranspileRemovedMessage"),
             DogfoodKernelLoader.CreateDelegate<CliProgramUnknownCommandMessage>(
                 programType,
                 "CliProgramUnknownCommandMessage"),
@@ -52,7 +46,6 @@ internal static class ProgramCommandKernels
     private delegate int CliProgramCommandKind(string[] args);
     private delegate string CliProgramVersionText(string version);
     private delegate string CliProgramHelpText(string version);
-    private delegate string CliProgramTranspileRemovedMessage();
     private delegate string CliProgramUnknownCommandMessage(string command);
     private delegate string CliProgramErrorLine(string message);
 
@@ -60,7 +53,6 @@ internal static class ProgramCommandKernels
         CliProgramCommandKind CommandKind,
         CliProgramVersionText ProgramVersionText,
         CliProgramHelpText ProgramHelpText,
-        CliProgramTranspileRemovedMessage ProgramTranspileRemovedMessage,
         CliProgramUnknownCommandMessage ProgramUnknownCommandMessage,
         CliProgramErrorLine ProgramErrorLine);
 }

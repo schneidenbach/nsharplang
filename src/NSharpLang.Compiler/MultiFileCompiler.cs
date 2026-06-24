@@ -13,7 +13,6 @@ namespace NSharpLang.Compiler;
 
 /// <summary>
 /// Handles compilation of multiple .nl files into a single assembly.
-/// Uses a shared parse/analyze pipeline for IL emission and C# export.
 /// </summary>
 public class MultiFileCompiler
 {
@@ -26,7 +25,6 @@ public class MultiFileCompiler
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SemanticModel> _semanticModels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
-    private readonly Dictionary<string, string> _exportedCSharpFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
@@ -45,7 +43,6 @@ public class MultiFileCompiler
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
     /// These expose the intermediate products of compilation (ASTs, semantic models)
-    /// without requiring C# export or IL emission.
     /// </summary>
     public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
     public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
@@ -58,15 +55,11 @@ public class MultiFileCompiler
     /// <summary>
     /// The project-level semantic index built from all analyzed files.
     /// Contains the merged BindingMap and type-declaration-to-file mapping.
-    /// Available after <see cref="CompileForAnalysis"/>, <see cref="ExportToCSharp"/>,
-    /// or <see cref="CompileToIlAssembly"/> completes.
     /// </summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
     /// <summary>
     /// Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
-    /// source position. Populated by <see cref="CompileForAnalysis"/>, <see cref="ExportToCSharp"/>,
-    /// and <see cref="CompileToIlAssembly"/>. See docs/design/performance-compiler-refactor.md.
     /// </summary>
     public PerformanceFactStore PerformanceFacts => _performanceFacts;
 
@@ -813,50 +806,6 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Export all files to C#.
-    /// </summary>
-    private void ExportAllFilesToCSharp()
-    {
-        // Collect all string enum names across all files so each transpiler
-        // can emit correct when-guard patterns for cross-file enum references
-        var allStringEnumNames = new HashSet<string>();
-        foreach (var cu in _compilationUnits.Values)
-            foreach (var enm in cu.Declarations.OfType<EnumDeclaration>()
-                .Where(e => e.Type == EnumType.String))
-                allStringEnumNames.Add(enm.Name);
-
-        foreach (var kvp in _compilationUnits)
-        {
-            var sourceFile = kvp.Key;
-            var compilationUnit = kvp.Value;
-
-            try
-            {
-                // Get the semantic model for this file (if available)
-                _semanticModels.TryGetValue(sourceFile, out var semanticModel);
-
-                // Get auto-resolved namespaces for this file (if any)
-                _autoResolvedNamespaces.TryGetValue(sourceFile, out var autoNamespaces);
-
-                var exporter = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces, allStringEnumNames);
-                var csharpCode = exporter.Transpile();
-
-                _exportedCSharpFiles[sourceFile] = csharpCode;
-            }
-            catch (Exception ex)
-            {
-                _allErrors.Add(new CompilerError(
-                    ErrorCode.InvalidSyntax,
-                    $"Failed to export {sourceFile} to C#: {ex.Message}",
-                    0,
-                    0,
-                    ErrorSeverity.Error
-                ));
-            }
-        }
-    }
-
-    /// <summary>
     /// Parse and analyze all files without exporting or emitting IL.
     /// This is the fast path for code intelligence queries — skips code generation
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
@@ -867,50 +816,7 @@ public class MultiFileCompiler
     {
         ParseAllFiles();
         DetectCircularFileImports();
-        RunSourceGeneratorsForAnalysisIfNeeded();
         AnalyzeAllFiles();
-    }
-
-    /// <summary>
-    /// Export all files to C# and return results.
-    /// </summary>
-    public CSharpExportResult ExportToCSharp()
-    {
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportToCSharp START");
-
-        // Pass 1: Parse
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles START");
-        ParseAllFiles();
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END");
-
-        // Pass 2: Analyze — always run, even if some files had parse errors.
-        // Files that parsed successfully are analyzed so we can report both
-        // syntax and semantic diagnostics in a single compilation pass.
-        DetectCircularFileImports();
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
-        RunSourceGeneratorsForAnalysisIfNeeded();
-        AnalyzeAllFiles();
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
-
-        // Stop before export if there are any errors.
-        if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-        {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Errors found, returning before export");
-            return new CSharpExportResult(
-                false,
-                _allErrors,
-                new Dictionary<string, string>()
-            );
-        }
-
-        // Pass 3: Export to C#.
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportAllFilesToCSharp START");
-        ExportAllFilesToCSharp();
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportAllFilesToCSharp END");
-
-        var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportToCSharp END (success={success})");
-        return new CSharpExportResult(success, _allErrors, _exportedCSharpFiles);
     }
 
     public MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath, bool validateStrictLint = false)
@@ -932,7 +838,6 @@ public class MultiFileCompiler
         }
 
         DetectCircularFileImports();
-        RunSourceGeneratorsForAnalysisIfNeeded(assemblyName);
         AnalyzeAllFiles();
 
         // Under `--aot`, every AOT blocker becomes a build-blocking error before emission.
@@ -955,29 +860,6 @@ public class MultiFileCompiler
 
             if (ShouldEmitWithSourceGenerators())
             {
-                if (AotMode)
-                {
-                    AddRequiredColumnarAotSourceGeneratorEmissionError(assemblyName);
-                }
-                else if (RequireColumnarEmission)
-                {
-                    AddRequiredColumnarSourceGeneratorEmissionError(assemblyName);
-                }
-                else
-                {
-                    ExportAllFilesToCSharp();
-                    if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-                    {
-                        var emitResult = SourceGeneratorPipeline.EmitFinalAssembly(
-                            _config!,
-                            _projectRoot,
-                            assemblyName,
-                            _exportedCSharpFiles,
-                            _compilationUnits.Values,
-                            outputPath);
-                        _allErrors.AddRange(emitResult.Diagnostics);
-                    }
-                }
             }
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission with NO C# AST). General user code may
@@ -1120,35 +1002,6 @@ public class MultiFileCompiler
         });
     }
 
-    private void AddRequiredColumnarAotSourceGeneratorEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar AOT emission is required for '{assemblyName}', but source generators require C# export emission.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "AOT builds are not allowed to use source-generator emission because it materializes N# as C# before emitting the final assembly.",
-            ContextualHint = "The source-generator analysis pass may still expose generated symbols to diagnostics, but final AOT assembly emission must stay on the columnar path.",
-            Suggestion = "Remove the source generator dependency, port the generated surface to N#/columnar, or build without --aot until source-generator emission is columnar-owned."
-        });
-    }
-
-    private void AddRequiredColumnarSourceGeneratorEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar emission is required for '{assemblyName}', but source generators require C# export emission.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "This product path is not allowed to use source-generator emission because it materializes N# as C# before emitting the final assembly.",
-            ContextualHint = "The source-generator analysis pass may still expose generated symbols to diagnostics, but final assembly emission must stay on the columnar path.",
-            Suggestion = "Remove the source generator dependency or port the generated surface to N#/columnar for this product path."
-        });
-    }
 
     private void AddRequiredColumnarEmissionError(string assemblyName)
     {

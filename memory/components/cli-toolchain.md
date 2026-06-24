@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`.
 
 ---
 
@@ -35,7 +35,6 @@ The executable toolchain is now IL-only:
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) and legacy generated wrappers | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
-| `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
@@ -97,7 +96,7 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
 
-**Performance signal — IL shape, not a wall-clock runner.** There is intentionally no `nlc bench` command. A code-generating BenchmarkDotNet wrapper was prototyped and removed: it duplicated the mature BenchmarkDotNet ecosystem (which N# users already get for free through C# interop) and added a fragile codegen/reflection host for marginal value. N#'s first-class, on-brand performance signal is **deterministic IL-shape inspection** (`IlShapeInspector` in `NSharpLang.Compiler.Performance`). It needs nothing to run, is noise-free, and is suitable as a CI regression gate — it reports the counts that dominate N# performance (`newobj`/allocations, `box`, `callvirt` vs `call`, delegate constructions). The CLI performance envelopes are stable today: `nlc build --perf-report` reports semantic AOT blockers and Systems N# effect sites, while `nlc query perf` returns the versioned position-based facts envelope enriched with systems findings. Per-method `ilShape` data is not wired into those CLI responses yet. For wall-clock numbers, point BenchmarkDotNet directly at the compiled N# assembly; for fair N#-vs-C# language claims, use a matched-shape harness with idiomatic C# baselines, separated wrapper overhead, and the IL-shape evidence above.
+**Performance signal — IL shape, not a wall-clock runner.** There is intentionally no `nlc bench` command. N#'s first-class performance signal is **deterministic IL-shape inspection** (`IlShapeInspector` in `NSharpLang.Compiler.Performance`). It needs nothing to run, is noise-free, and is suitable as a CI regression gate — it reports the counts that dominate N# performance (`newobj`/allocations, `box`, `callvirt` vs `call`, delegate constructions). The CLI performance envelopes are stable today: `nlc build --perf-report` reports semantic AOT blockers and Systems N# effect sites, while `nlc query perf` returns the versioned position-based facts envelope enriched with systems findings. Per-method `ilShape` data is not wired into those CLI responses yet.
 
 ### Project Management
 
@@ -154,7 +153,7 @@ Undefined identifier 'unknownVar'
 ```
 
 - Exit code 0 = clean, 1 = errors
-- Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here. See `docs/DESIGN.md` → Strictness.
+- Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics
 - `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
@@ -169,72 +168,6 @@ Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
 - `nlc check/build/run/test/publish/pack` all support `backend: il` through the native project.yml path.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
-- Generated-C# export no longer exists as a selectable backend or build path
-  (generator-active builds are the one designed exception — see Source
-  Generators below).
-- `nlc export csharp` is the only supported product surface for C# generation.
-
-### Source Generators
-
-N# runs real Roslyn C# source generators during `nlc check`, `nlc build`, SDK
-builds, and semantic query loading when generator references are discoverable
-from project inputs. The generator input is a deterministic C# compatibility
-model for the N# project; generated C# is written under
-`obj/nsharp/generated/<assembly>/<analysis|emit>/...`, compiled into the final
-assembly when generators produce source, and loaded into semantic analysis so
-generated members are visible to `nlc query` and code-intelligence responses.
-
-**Generator-active builds emit via Roslyn over exported C#.** When any
-generator is active (including auto-discovered ones such as `System.Text.Json`
-via a bare `[JsonSerializable]` context), `nlc build`/`check` bypass the IL
-backend entirely: the whole program is transpiled to C# and compiled by Roslyn
-together with the generated sources. This is by design — generated partial
-classes must merge with N#-declared context types — but it makes the C#
-transpiler a correctness gate for the full language surface whenever a
-generator is present. Consequences:
-- The transpiler must emit valid C# for every IL-backend-supported construct.
-  Type-inferred declarations whose initializer C# types differently than N#
-  get an explicit type instead of `var` (stackalloc → `Span<T>`, since
-  `var x = stackalloc T[n];` is CS0214; union case construction → the union
-  type, since `var` infers the case record type and breaks union matches).
-  Union case construction lowers to named positional-record constructor
-  arguments (`new Outcome.Success(value: 42)`). The export-parity test matrix
-  in `tests/SourceGeneratorPipelineTests.cs`
-  (`GeneratorActiveBuild_CompilesAndRunsIlBackendConstructs`) pins
-  representative constructs to emit AND run with a generator active.
-- NL922 diagnostics from Roslyn honor the transpiler's `#line` directives
-  (mapped line spans), so they point at real `.nl` lines with `.nl` source
-  snippets; diagnostics in true generated code keep their generated-file
-  attribution.
-- When Roslyn rejects the exported C#, the failing transpiled sources are
-  persisted under `obj/nsharp/generated/<assembly>/<analysis|emit>/exported/`
-  for inspection (they otherwise exist only in memory).
-
-Discovery currently covers:
-- NuGet/package references in `project.yml` with `analyzers/dotnet/cs/*.dll`
-  assets.
-- C# project references in `project.yml` that declare
-  `<IsRoslynComponent>true</IsRoslynComponent>` and build to analyzer/source
-  generator assemblies. Ordinary C# project references are built and referenced
-  as libraries only; they are not loaded through Roslyn `AnalyzerFileReference`.
-- `System.Text.Json` source generation when N# source declares
-  `[JsonSerializable]` `JsonSerializerContext` types.
-
-Generator diagnostics are surfaced through the existing versioned diagnostic
-envelopes (`schemaVersion: 1` for `check` and `query diagnostics`):
-- `NL920` — source generator assembly was discovered but cannot be loaded.
-- `NL921` — a generator reported a diagnostic or crashed while running.
-- `NL922` — generated C# failed compilation.
-- `NL923` — a reference assembly failed to load or be fully inspected; emitted as an
-  advisory (non-blocking) warning alongside unresolved-name/type errors so the root
-  cause of a misleading "not found" is visible.
-
-Current limitations are explicit: generator runs are deterministic and clean
-stale generated output, but there is no persistent incremental cache yet;
-analyzer config options and additional files are not modeled yet; IDE live
-generation has not been separately wired into the language server; and
-`[GeneratedRegex]` still uses the existing dedicated IL-backend hook rather than
-the general Roslyn source-generator path.
 
 ### `nlc fix` — Auto-Apply Suggestions
 
@@ -283,7 +216,7 @@ $ nlc fix --file F                  # fix single file
 
 **Built-in lint rules:**
 
-N# is near-zero-warnings (see `docs/DESIGN.md` → Strictness): every active linter rule is a build-blocking **error**. Pure-style rules have been deleted and folded into `nlc format`.
+N# is near-zero-warnings: every active linter rule is a build-blocking **error**. Pure-style rules have been deleted and folded into `nlc format`.
 
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|

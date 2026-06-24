@@ -188,28 +188,6 @@ targetFramework: net10.0
         }
     }
 
-    [Fact]
-    public void TestParseRetiredTranspileBackendProject()
-    {
-        var yaml = @"name: LegacyProject
-backend: transpile
-";
-
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(tempFile, yaml);
-
-            var ex = Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(tempFile));
-            Assert.Contains("removed", ex.Message);
-            Assert.Contains("nlc export csharp", ex.Message);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
-    }
 
     [Fact]
     public void TestParseWithTaskAsyncDefault()

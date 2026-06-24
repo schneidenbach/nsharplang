@@ -255,8 +255,6 @@ public record MatchExpression(
 {
     /// <summary>
     /// Set by the analyzer when all cases are verified covered (union/enum exhaustiveness
-    /// or wildcard/catch-all present). The C# exporter uses this to emit a discard arm
-    /// instead of a #pragma warning disable CS8509.
     /// </summary>
     public bool IsExhaustive { get; set; }
 }

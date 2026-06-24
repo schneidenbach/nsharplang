@@ -474,7 +474,6 @@ public static class SourceGeneratorPipeline
         var severity = diagnostic.Severity == RoslynDiagnosticSeverity.Error
             ? ErrorSeverity.Error
             : ErrorSeverity.Warning;
-        // Exported C# trees are keyed by their .nl source path, so the raw (unmapped) span
         // would report generated-C# line numbers as if they were .nl positions. The mapped
         // span honors the transpiler's #line directives and lands on the real .nl line;
         // diagnostics in true generated code (no #line mapping) keep their generated-file

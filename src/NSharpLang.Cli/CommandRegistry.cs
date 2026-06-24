@@ -33,7 +33,6 @@ public static class CommandRegistry
         new CliCommandSpec("remove", "Remove a dependency from project.yml"),
         new CliCommandSpec("update", "Update dependencies"),
         new CliCommandSpec("publish", "Publish project for deployment"),
-        new CliCommandSpec("export", "Export N# sources without changing the IL toolchain"),
         new CliCommandSpec("tree", "Show dependency tree"),
         new CliCommandSpec("audit", "Check dependencies for known vulnerabilities"),
         new CliCommandSpec("env", "Show environment and toolchain info"),

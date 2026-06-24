@@ -177,11 +177,8 @@ When you run `nlc build`:
 3. The compiler emits IL directly for the project assembly
 4. The CLI writes runtime assets into stable `bin/<configuration>/<targetFramework>/` output paths
 
-Most project workflows hide intermediate generated artifacts; use explicit export/debug flags when you need to inspect them.
-
 ## Next Steps
 
 - **[Language Tour](language-tour.md)** — Learn the main implemented language surfaces with runnable examples
-- **[For C# Developers](for-csharp-developers.md)** — Side-by-side syntax comparison
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
 - **[Examples](/examples)** — Browse curated examples; verify gates before using them as release evidence

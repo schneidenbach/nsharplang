@@ -271,7 +271,6 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Get the set of namespaces that were auto-resolved during the most recent Analyze() call.
-    /// The C# exporter uses this to emit the necessary using directives.
     /// </summary>
     public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
@@ -4679,7 +4678,6 @@ public class Analyzer : IDisposable
         }
 
         // We don't strictly require boolean type because we support various comparison patterns
-        // The C# exporter will convert different expression types to appropriate Assert calls
     }
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
@@ -19102,8 +19100,6 @@ public class Analyzer : IDisposable
             }
             else
             {
-                // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
-                // emits a discard arm instead of relying on C# exhaustiveness analysis
                 match.IsExhaustive = true;
             }
         }
@@ -19394,8 +19390,6 @@ public class Analyzer : IDisposable
         }
         else
         {
-            // All enum members covered by unguarded arms — mark exhaustive so the C# exporter
-            // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
     }

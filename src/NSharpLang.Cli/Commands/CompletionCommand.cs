@@ -41,7 +41,6 @@ _nlc_commands="{{TopLevelCommandNames}}"
 _nlc_query_commands="{{QueryCommandNames}}"
 _nlc_daemon_commands="start stop status run help"
 _nlc_watch_commands="check build test lint format"
-_nlc_export_commands="csharp help"
 
 _nlc()
 {
@@ -55,10 +54,6 @@ _nlc()
             ;;
         daemon)
             COMPREPLY=( $(compgen -W "${_nlc_daemon_commands}" -- "$cur") )
-            return
-            ;;
-        export)
-            COMPREPLY=( $(compgen -W "${_nlc_export_commands}" -- "$cur") )
             return
             ;;
         watch)
@@ -86,9 +81,6 @@ case $words[2] in
   daemon)
     _values 'daemon command' start stop status run help
     ;;
-  export)
-    _values 'export command' csharp help
-    ;;
   watch)
     _values 'watch command' check build test lint format
     ;;
@@ -103,7 +95,6 @@ complete -c nlc -f
 complete -c nlc -n '__fish_use_subcommand' -a '{{TopLevelCommandNames}}'
 complete -c nlc -n '__fish_seen_subcommand_from query' -a '{{QueryCommandNames}}'
 complete -c nlc -n '__fish_seen_subcommand_from daemon' -a 'start stop status run help'
-complete -c nlc -n '__fish_seen_subcommand_from export' -a 'csharp help'
 complete -c nlc -n '__fish_seen_subcommand_from watch' -a 'check build test lint format'
 """;
 }

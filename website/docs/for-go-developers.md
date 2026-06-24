@@ -18,7 +18,7 @@ N# shares Go's ethos — simplicity, clean syntax, fast tooling — so if you wr
 | `go fmt` | `nlc format` | One canonical style |
 | `go test` | `nlc test` | Tests near code |
 | No semicolons | No semicolons | Clean syntax |
-| PascalCase = exported | PascalCase = exported/public, camelCase = unexported/private-by-convention | Convention-based visibility; no C# `public`/`private` noise |
+| PascalCase = exported | PascalCase = exported/public, camelCase = unexported/private-by-convention | Convention-based visibility; no ordinary `public`/`private` noise |
 
 ## Variables
 
@@ -147,7 +147,7 @@ func process(r: IReader) {
 process(new FileReader("/tmp/data"))
 ```
 
-`duck interface` = Go interfaces. Structural typing, implicit satisfaction. N# also has regular `interface` (like Java/C#) for when you need explicit contracts.
+`duck interface` = Go interfaces. Structural typing, implicit satisfaction. N# also has regular `interface` for when you need explicit contracts.
 
 ## Error Handling
 
@@ -370,7 +370,7 @@ test "should add" with (a: int, b: int, expected: int) [
 }
 ```
 
-Same data-driven philosophy, but with dedicated syntax instead of anonymous structs + loops. Transpiles to XUnit `[Theory]`/`[InlineData]`.
+Same data-driven philosophy, but with dedicated syntax instead of anonymous structs + loops.
 
 ### Assert Messages & Throws
 
@@ -455,4 +455,3 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 - **[Getting Started](getting-started.md)** — Create your first project
 - **[Language Tour](language-tour.md)** — Every feature with examples
-- **[For C# Developers](for-csharp-developers.md)** — If you also know C#

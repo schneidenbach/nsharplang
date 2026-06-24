@@ -32,7 +32,6 @@ Nested interpolation expressions should highlight as N# expressions, not plain s
 - Nested interpolation expressions highlight as N# expressions.
 - Escaped braces, raw interpolated strings, and multiline interpolation render correctly.
 - Fresh template projects can build, run, test, and debug from VS Code to the extent docs claim.
-- Debugging uses the generated C# bundle correctly if debug support is claimed.
 - Breakpoint/source mapping behavior is visually verified before being claimed.
 - Docs and launch materials match verified behavior exactly.
 

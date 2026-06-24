@@ -622,38 +622,6 @@ func Main() {
         }
     }
 
-    [Fact]
-    public void CheckCommand_RetiredTranspileBackend_ReturnsError()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: LegacyCheck
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "hello"
-}
-""");
-
-            var (exitCode, stdout, _) = CaptureConsole(() =>
-                CheckCommand.Execute(new[] { "--project", tempDir, "--backend", "transpile" }));
-
-            Assert.Equal(1, exitCode);
-            var doc = JsonDocument.Parse(stdout);
-            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Contains("removed", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
-            Assert.Contains("nlc export csharp", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static string CreateTempDir()

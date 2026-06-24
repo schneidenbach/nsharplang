@@ -1,6 +1,6 @@
 # N# (NewLang Sharp)
 
-**A pragmatic CLR language with small syntax, a rich type system, project-first tooling, an opt-in systems performance lane, and first-class C# interop.**
+**A pragmatic CLR language with small syntax, a rich type system, project-first tooling, and an opt-in systems performance lane.**
 
 N# is in active development. The repository has a working compiler, SDK, CLI, templates, VS Code support, and examples, but not every product gate is launch-green yet. Treat this README as the current developer-facing map, not a claim that every planned language feature or IDE workflow is complete.
 
@@ -51,7 +51,7 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
 ## Philosophy
 
 - **Small syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
-- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, MSBuild, and C# interop
+- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, and MSBuild
 - **Project-first workflow**: `project.yml` owns user-facing configuration; `.csproj` stays minimal
 - **Tooling matters**: `nlc check`, `nlc query`, formatting, tests, and VS Code support are product surface, not afterthoughts
 - **Evidence over hype**: docs should describe what is implemented and tested, not what the language hopes to become
@@ -60,13 +60,12 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
 
 N# borrows Go's ethos — a tighter developer experience, fast tooling, and performance as a
 first-class concern — but it is **not** "Go for .NET": it pairs that small syntax with a much
-richer type system and an opt-in systems lane for hot-path code, while keeping C# interop as
-a core design constraint. The goal is to emit types and assemblies that fit normal .NET
+richer type system and an opt-in systems lane for hot-path code. The goal is to emit types and assemblies that fit normal .NET
 workflows while giving N# source a smaller, more direct shape.
 
 | Area | N# direction |
 |------|--------------|
-| **Unions** | Discriminated unions that compile into C#-consumable shapes |
+| **Unions** | Discriminated unions that compile into CLR shapes |
 | **Records/classes** | Familiar .NET object model with terser syntax |
 | **Async** | `Task`/`ValueTask` interop instead of a separate async ecosystem |
 | **Nullability** | Works with .NET nullable reference types and explicit checks |
@@ -163,21 +162,20 @@ nlc check --text
 # Code intelligence for humans, editors, and agents
 nlc query help
 
-# Export C# for inspection
-nlc export csharp --project . --output ./nsharp-csharp
-
 # Build with detailed output/timings for debugging
 nlc build --verbose --timings
 ```
 
-There is intentionally no public C# conversion workflow. Write N# directly, use `nlc check`, `nlc fix --dry-run`, `nlc format --check`, and tests for feedback, and keep C# export as an inspection tool.
+There is intentionally no public source-conversion workflow. Write N# directly, use `nlc check`,
+`nlc fix --dry-run`, `nlc format --check`, and tests for feedback. Direct IL emission is the
+product build path.
 
 ## Current CLI Surface
 
 Current `nlc --help` lists these top-level commands:
 
 ```text
-build run new init test format lint clean watch doc completion check fix query daemon add tidy remove update publish export tree audit env doctor restore pack help
+build run new init test format lint clean watch doc completion check fix query daemon add tidy remove update publish tree audit env doctor restore pack help
 ```
 
 `nlc query help` lists these query commands:
@@ -208,10 +206,10 @@ Shell completions are generated from the same registry. When docs drift, prefer 
 - `[hot]`/`[boundary]` cost contracts with the `NSYS###` effect model
 - Allocation-free `Result<T,E>`, explicit `alloc`/`stackalloc`
 - `ref struct`, lifetime-checked spans, governed `unsafe` + `[trusted]`
-- SIMD auto-vectorization (~4× faster than C# on reduction kernels) — see [Systems N# guide](website/docs/systems.md)
+- SIMD auto-vectorization for supported reduction kernels — see [Systems N# guide](website/docs/systems.md)
 
 ### .NET Interop
-- C#-consumable generated assemblies and source where supported
+- CLR assemblies where supported
 - Ref/out parameters for .NET interop
 - Operator overloads and extension methods in covered scenarios
 - Async/await over .NET tasks
@@ -259,11 +257,10 @@ See [CI/CD Guide](website/docs/ci-cd.md) for current setup notes.
 - **website/docs/language-tour.md** - the main language reference with runnable examples
 - **website/docs/systems.md** - Systems N#: the opt-in high-performance lane
 - **website/docs/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
-- **docs/DESIGN.md** - language design notes and intended semantics
 - **website/docs/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
 - **docs/audits/** - Systems N# adversarial review + verification evidence
-- **docs/design/** - current strategy: `roadmap-to-done.md`, `self-host-progress.md`, `columnar-pipeline.md` (self-host + Rust-class perf)
+- **docs/design/** - current design notes and audited systems-language documents
 - **website/docs/** - the canonical language guides (the published documentation source)
 
 ## Architecture
@@ -272,25 +269,4 @@ See [CI/CD Guide](website/docs/ci-cd.md) for current setup notes.
 .nl source → Lexer → Parser → Analyzer → IL compiler → .NET assembly
 ```
 
-The compiler emits CLR IL directly (`--backend il`, the default). `nlc export csharp` can
-still emit readable C# for compiler inspection and interop debugging, but it is not the
-compilation path.
-
-## C# Interop Example
-
-N# code:
-
-```nsharp
-class Calculator {
-    func Add(x: int, y: int): int => x + y
-}
-```
-
-C# consumer:
-
-```csharp
-var calc = new Calculator();
-var result = calc.Add(2, 3);
-```
-
-Interop claims should stay tied to scenarios covered by tests/examples until broader gates are green.
+The compiler emits CLR IL directly (`--backend il`, the default).

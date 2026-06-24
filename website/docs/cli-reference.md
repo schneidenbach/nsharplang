@@ -38,7 +38,6 @@ Updated: 2026-06-01
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
 | `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
 | `nlc publish` | Publish framework-dependent deployment artifacts | `--project`, `--configuration`, `--output`, current-host `--runtime` | `nlc publish -c Release --output ./dist` |
-| `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
@@ -49,9 +48,7 @@ Updated: 2026-06-01
 
 ### Performance: IL-shape evidence (no `nlc bench`)
 
-N# does **not** ship a wall-clock benchmark runner. Because N# assemblies interop with C#, you can point [BenchmarkDotNet](https://benchmarkdotnet.org/) directly at a compiled N# assembly for timing numbers; re-wrapping it in the toolchain added fragility without adding value.
-
-What the toolchain *does* provide is **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler has an `IlShapeInspector` that reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The public CLI exposes stable performance JSON envelopes today: `nlc build --perf-report` includes AOT blockers and Systems N# effect sites when present; `nlc query perf` returns versioned position-based performance and systems facts. Per-method `ilShape` data is not wired into those CLI responses yet. For fair cross-language claims, pair IL-shape evidence with an external matched-shape N#/C# BenchmarkDotNet harness, idiomatic C# baselines, and separated wrapper-overhead accounting.
+N# does **not** ship a wall-clock benchmark runner. The toolchain provides **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler has an `IlShapeInspector` that reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The public CLI exposes stable performance JSON envelopes today: `nlc build --perf-report` includes AOT blockers and Systems N# effect sites when present; `nlc query perf` returns versioned position-based performance and systems facts. Per-method `ilShape` data is not wired into those CLI responses yet.
 
 ## Query Commands
 
@@ -124,7 +121,6 @@ nlc doctor --json --require-vscode
 
 # Documentation and automation
 nlc doc --json
-nlc export csharp --project . --output ./myapp-csharp
 nlc query inspect --compact --file Program.nl --pos 42:7
 
 nlc completion bash > /etc/bash_completion.d/nlc
@@ -133,7 +129,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
-- **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching C# preprocessor semantics. Symbol names are case-sensitive.
+- **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching established preprocessor semantics. Symbol names are case-sensitive.
 - `nlc build --perf-report` builds the project and then prints a versioned JSON performance report to stdout. The envelope is `{ schemaVersion: 1, command: "build", ok: true, projectRoot, perfReport: { allocationSites, delegateSites, boxingSites, dispatchSites, closureCaptures, poolSites, resourceSites, boundaryLeakSites, hotReadinessSites, implicitTrapSites, trustedSites, aotBlockers } }`. `aotBlockers` is populated from semantic AOT-blocker analysis when blockers are found; the systems categories are populated from Systems N# effect findings and governed trusted-site metadata. Combine with `--project <dir>` to point at a specific project root.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.
@@ -271,7 +267,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 
 ## Lint Rules
 
-N# is near-zero-warnings: every active lint rule is a build-blocking **error**. Correctness, safety, and hygiene are enforced; pure style is handled by `nlc format`, not by diagnostics. See `docs/DESIGN.md` → Strictness.
+N# is near-zero-warnings: every active lint rule is a build-blocking **error**. Correctness, safety, and hygiene are enforced; pure style is handled by `nlc format`, not by diagnostics.
 
 | Code | Severity | Description |
 |------|----------|-------------|
@@ -365,7 +361,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design: use BenchmarkDotNet directly on the compiled N# assembly. The toolchain provides stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`) and compiler-level IL-shape regression tests instead. |
+| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design. The toolchain provides stable performance-fact envelopes (`nlc build --perf-report`, `nlc query perf`) and compiler-level IL-shape regression tests instead. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
