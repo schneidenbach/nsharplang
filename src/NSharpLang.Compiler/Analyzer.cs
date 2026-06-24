@@ -22942,14 +22942,7 @@ public class Analyzer : IDisposable
     {
         if (_mlcAssemblies.Any(loadedAssembly =>
         {
-            try
-            {
                 return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assembly.GetName());
-            }
-            catch
-            {
-                return false;
-            }
         }))
         {
             return;
@@ -22962,14 +22955,7 @@ public class Analyzer : IDisposable
     {
         return _mlcAssemblies.Any(loadedAssembly =>
         {
-            try
-            {
                 return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName);
-            }
-            catch
-            {
-                return false;
-            }
         });
     }
 
@@ -22977,14 +22963,7 @@ public class Analyzer : IDisposable
     {
         return _mlcAssemblies.Any(loadedAssembly =>
         {
-            try
-            {
                 return string.Equals(loadedAssembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
         });
     }
 
@@ -22993,17 +22972,10 @@ public class Analyzer : IDisposable
         var normalizedPath = Path.GetFullPath(assemblyPath);
         return _mlcAssemblies.Any(loadedAssembly =>
         {
-            try
-            {
                 return string.Equals(
                     Path.GetFullPath(loadedAssembly.Location),
                     normalizedPath,
                     StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
         });
     }
 
