@@ -10559,14 +10559,7 @@ public class Analyzer : IDisposable
             return false;
 
         Type genericDefinition;
-        try
-        {
             genericDefinition = type.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
 
         if (genericDefinition.FullName != "System.Linq.Expressions.Expression`1")
             return false;
