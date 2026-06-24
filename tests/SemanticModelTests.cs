@@ -232,20 +232,6 @@ public class SemanticModelTests
     }
 
     [Fact]
-    public void SemanticModel_LookupIdentifierAtPosition_FallsBackToFlatLookup()
-    {
-        var model = new SemanticModel();
-
-        // Record in flat dict only (no scopes)
-        model.RecordProperty("Name", BuiltInTypes.String);
-
-        // Should still find it via flat fallback
-        var result = model.LookupIdentifierAtPosition("Name", 5, 1);
-        Assert.NotNull(result);
-        Assert.Equal("string", result!.ToString());
-    }
-
-    [Fact]
     public void SemanticModel_ScopeContainsPosition_BoundaryCheck()
     {
         var model = new SemanticModel();

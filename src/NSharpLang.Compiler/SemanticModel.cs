@@ -312,14 +312,6 @@ public class SemanticModel
 
         if (best != null) return best;
 
-        // Fall back to non-variable lookups (properties, fields, types)
-        if (Properties.TryGetValue(name, out var propType))
-            return propType;
-        if (Fields.TryGetValue(name, out var fieldType))
-            return fieldType;
-        if (Types.TryGetValue(name, out var type))
-            return type;
-
         return null;
     }
 
