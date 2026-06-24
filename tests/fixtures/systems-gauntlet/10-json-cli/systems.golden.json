@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "case": "JSON metadata CLI path",
+  "case": "JSON CLI boundary path",
   "expected": {
     "boundary": "EmitJson",
     "hot": "Score",
-    "aot": "JsonSerializer metadata is required",
+    "code": "NSYS050",
     "nativeImageEmitted": false
   }
 }

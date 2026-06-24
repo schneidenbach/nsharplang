@@ -1044,7 +1044,7 @@ public sealed class SystemsAnalyzer
         if (callee.UnknownExternalCall)
             AddFinding("NSYS050", "unknownExternalCall", $"callee '{callee.Name}' reaches an unknown external call", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Add a HotSummary, make the callee hot-checkable, or isolate the call behind a [boundary].", callPath);
         if (callee.Reflection || callee.DynamicCode)
-            AddFinding("NSYS060", "aot", $"callee '{callee.Name}' blocks AOT/trimming facts", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Replace reflection/dynamic code with source generation or move it behind a [boundary].", callPath);
+            AddFinding("NSYS060", "aot", $"callee '{callee.Name}' blocks AOT/trimming facts", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.", callPath);
         if (callee.ImplicitTrap)
             AddFinding("NSYS120", "implicitTrap", $"callee '{callee.Name}' has unproven implicit trap obligations", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Prove bounds/null/divide/overflow locally or use a narrow allow(trap).", callPath);
         if (callee.Resource)
@@ -1232,7 +1232,7 @@ public sealed class SystemsAnalyzer
                 break;
             case TypeOfExpression:
                 context.Summary.Reflection = true;
-                AddFindingForPolicy("NSYS060", "aot", "typeof requires metadata and may block trimming/AOT facts", expression, context, "Move reflection to a [boundary] or use a source-generated shape.");
+                AddFindingForPolicy("NSYS060", "aot", "typeof requires metadata and may block trimming/AOT facts", expression, context, "Move reflection to a [boundary] or add an audited target-qualified summary.");
                 break;
             case NameofExpression:
             case SizeOfExpression:
@@ -1339,38 +1339,15 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        if (IsJsonSerializerCall(target))
-        {
-            ApplyJsonSerializerFacts(target, call, context);
-            return;
-        }
-
         if (IsReflectionOrDynamicCall(target, out var dynamicCode))
         {
             context.Summary.Reflection = true;
             context.Summary.DynamicCode |= dynamicCode;
-            AddFindingForPolicy("NSYS060", "aot", $"call to '{target}' blocks target-qualified AOT/trimming facts", call, context, "Move reflection/dynamic code behind a [boundary] or replace it with source generation.");
+            AddFindingForPolicy("NSYS060", "aot", $"call to '{target}' blocks target-qualified AOT/trimming facts", call, context, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.");
             return;
         }
 
         AddUnknownExternalCall(target, call.Line, call.Column, context);
-    }
-
-    private void ApplyJsonSerializerFacts(string target, CallExpression call, WalkContext context)
-    {
-        RecordAllocation(call, context, explicitAllocation: false);
-
-        if (UsesSourceGeneratedJsonMetadata(call))
-            return;
-
-        context.Summary.Reflection = true;
-        AddFindingForPolicy(
-            "NSYS060",
-            "aot",
-            $"JsonSerializer call '{target}' must use source-generated metadata for target-qualified AOT/trimming facts",
-            call,
-            context,
-            "Pass a generated JsonSerializerContext/JsonTypeInfo value, or keep reflection serialization out of systems-profile code.");
     }
 
     private static bool IsBufferMemoryCopyCall(string target)
@@ -1462,7 +1439,7 @@ public sealed class SystemsAnalyzer
                 $"HotSummary for '{target}' is not AOT/trim safe for {_config.Language.Systems.AotTarget}",
                 call,
                 context,
-                "Use a source-generated path, a target-qualified summary, or move the call behind a [boundary].");
+                "Use a target-qualified summary or move the call behind a [boundary].");
         }
 
         if (context.Summary.IsHot || context.Summary.AllocNone)
@@ -2057,24 +2034,6 @@ public sealed class SystemsAnalyzer
            || target.StartsWith("System.Threading.Volatile.", StringComparison.Ordinal)
            || target.StartsWith("Thread.", StringComparison.Ordinal)
            || target.StartsWith("System.Threading.Thread.", StringComparison.Ordinal);
-
-    private static bool IsJsonSerializerCall(string target)
-        => target is "JsonSerializer.Serialize" or "JsonSerializer.Deserialize"
-           || target.EndsWith(".JsonSerializer.Serialize", StringComparison.Ordinal)
-           || target.EndsWith(".JsonSerializer.Deserialize", StringComparison.Ordinal);
-
-    private static bool UsesSourceGeneratedJsonMetadata(CallExpression call)
-    {
-        if (call.Arguments.Count < 2)
-            return false;
-
-        return call.Arguments
-            .Skip(1)
-            .Select(argument => ExpressionKey(argument.Value))
-            .Any(key => key.Contains("JsonContext", StringComparison.Ordinal)
-                        || key.Contains("JsonTypeInfo", StringComparison.Ordinal)
-                        || key.Contains(".Default.", StringComparison.Ordinal));
-    }
 
     private static bool IsRuntimeDispatchCall(string target)
         => target.Contains("System.Linq", StringComparison.Ordinal)

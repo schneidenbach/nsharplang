@@ -232,9 +232,7 @@ internal static class BclHotSummaryPack
         Add(entries, targetFramework, "Fill");
         Add(entries, targetFramework, "Length");
         Add(entries, targetFramework, "LibraryImport");
-        Add(entries, targetFramework, "GeneratedRegex");
         Add(entries, targetFramework, "System.Runtime.InteropServices.LibraryImportAttribute");
-        Add(entries, targetFramework, "System.Text.RegularExpressions.GeneratedRegexAttribute");
 
         foreach (var method in new[]
                  {

@@ -1,1 +1,1 @@
-NSYS001 warning: boundary allocation reported for systems handoff review.
+NSYS050 warning: call to 'JsonSerializer.Serialize' is not covered by HotSummary

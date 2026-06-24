@@ -1,5 +1,4 @@
 import System.Text.Json
-import System.Text.Json.Serialization
 
 enum CliError {
     Failed
@@ -9,13 +8,9 @@ record CliPayload {
     Code: int
 }
 
-[JsonSerializable(typeof(CliPayload))]
-partial class CliJsonContext : JsonSerializerContext {
-}
-
 [boundary]
 func EmitJson(payload: CliPayload): Result<string, CliError> {
-    return Ok(JsonSerializer.Serialize(payload, CliJsonContext.Default.CliPayload))
+    return Ok(JsonSerializer.Serialize(payload))
 }
 
 [hot]

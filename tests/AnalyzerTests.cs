@@ -5710,53 +5710,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void GeneratedRegex_StaticPartialFactory_IsValid()
-    {
-        AssertNoErrors(@"
-            import System.Text.RegularExpressions
-
-            partial class Routes {
-                [GeneratedRegex(""^(GET|POST) /health$"")]
-                static partial func RouteRegex(): Regex
-            }
-        ");
-    }
-
-    [Fact]
-    public void GeneratedRegex_InstanceFactory_IsRejected()
-    {
-        var result = Analyze(@"
-            import System.Text.RegularExpressions
-
-            partial class Routes {
-                [GeneratedRegex(""^(GET|POST) /health$"")]
-                partial func RouteRegex(): Regex
-            }
-        ");
-
-        Assert.Contains(result.Errors, error =>
-            error.Code == ErrorCode.InvalidModifier
-            && error.Message.Contains("must be static", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void GeneratedRegex_NonRegexReturn_IsRejected()
-    {
-        var result = Analyze(@"
-            import System.Text.RegularExpressions
-
-            partial class Routes {
-                [GeneratedRegex(""^(GET|POST) /health$"")]
-                static partial func RouteRegex(): string
-            }
-        ");
-
-        Assert.Contains(result.Errors, error =>
-            error.Code == ErrorCode.TypeMismatch
-            && error.Message.Contains("must return System.Text.RegularExpressions.Regex", StringComparison.Ordinal));
-    }
-
-    [Fact]
     public void AssemblyResolution_HttpClient_Resolved()
     {
         AssertNoErrors(@"

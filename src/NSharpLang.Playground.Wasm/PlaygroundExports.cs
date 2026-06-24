@@ -2,8 +2,6 @@ using System.Reflection;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 
 namespace NSharpLang.Playground.Wasm;
 
@@ -11,44 +9,35 @@ namespace NSharpLang.Playground.Wasm;
 public static partial class PlaygroundExports
 {
     private static readonly PlaygroundCompiler Compiler = new();
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [JSExport]
     public static string GetCatalog()
-        => Serialize(Compiler.GetCatalog(), PlaygroundJsonContext.Default.PlaygroundCatalogResponse);
+        => Serialize(Compiler.GetCatalog());
 
     [JSExport]
     public static string Check(string source)
-        => Serialize(Compiler.Check(source), PlaygroundJsonContext.Default.PlaygroundCheckResponse);
+        => Serialize(Compiler.Check(source));
 
     [JSExport]
     public static string CheckProject(string filesJson, string activeFile)
-        => Serialize(
-            Compiler.CheckProject(ParseFiles(filesJson), activeFile),
-            PlaygroundJsonContext.Default.PlaygroundCheckResponse);
+        => Serialize(Compiler.CheckProject(ParseFiles(filesJson), activeFile));
 
     [JSExport]
     public static string Format(string source, string fileName)
-        => Serialize(
-            Compiler.Format(source, fileName),
-            PlaygroundJsonContext.Default.PlaygroundFormatResponse);
+        => Serialize(Compiler.Format(source, fileName));
 
     [JSExport]
     public static string RunProject(string filesJson, string activeFile)
-        => Serialize(
-            Compiler.RunProject(ParseFiles(filesJson), activeFile),
-            PlaygroundJsonContext.Default.PlaygroundRunResponse);
+        => Serialize(Compiler.RunProject(ParseFiles(filesJson), activeFile));
 
     [JSExport]
     public static string Complete(string filesJson, string fileName, int line, int column)
-        => Serialize(
-            Compiler.Complete(ParseFiles(filesJson), fileName, line, column),
-            PlaygroundJsonContext.Default.PlaygroundCompletionResponse);
+        => Serialize(Compiler.Complete(ParseFiles(filesJson), fileName, line, column));
 
     [JSExport]
     public static string Hover(string filesJson, string fileName, int line, int column)
-        => Serialize(
-            Compiler.Hover(ParseFiles(filesJson), fileName, line, column),
-            PlaygroundJsonContext.Default.PlaygroundHoverResponse);
+        => Serialize(Compiler.Hover(ParseFiles(filesJson), fileName, line, column));
 
     [JSExport]
     public static string Version()
@@ -56,8 +45,7 @@ public static partial class PlaygroundExports
             new PlaygroundVersionResponse(
                 PlaygroundCompiler.SchemaVersion,
                 typeof(PlaygroundCompiler).Assembly.GetName().Version?.ToString() ?? "0.0.0",
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0"),
-            PlaygroundJsonContext.Default.PlaygroundVersionResponse);
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0"));
 
     private static PlaygroundFile[] ParseFiles(string filesJson)
     {
@@ -66,24 +54,11 @@ public static partial class PlaygroundExports
             return [];
         }
 
-        return JsonSerializer.Deserialize(filesJson, PlaygroundJsonContext.Default.PlaygroundFileArray) ?? [];
+        return JsonSerializer.Deserialize<PlaygroundFile[]>(filesJson, JsonOptions) ?? [];
     }
 
-    private static string Serialize<T>(T value, JsonTypeInfo<T> jsonTypeInfo)
-        => JsonSerializer.Serialize(value, jsonTypeInfo);
+    private static string Serialize<T>(T value)
+        => JsonSerializer.Serialize(value, JsonOptions);
 }
 
 public sealed record PlaygroundVersionResponse(int SchemaVersion, string Compiler, string WasmHost);
-
-[JsonSerializable(typeof(PlaygroundCatalogResponse))]
-[JsonSerializable(typeof(PlaygroundCheckResponse))]
-[JsonSerializable(typeof(PlaygroundFormatResponse))]
-[JsonSerializable(typeof(PlaygroundRunResponse))]
-[JsonSerializable(typeof(PlaygroundCompletionResponse))]
-[JsonSerializable(typeof(PlaygroundHoverResponse))]
-[JsonSerializable(typeof(PlaygroundVersionResponse))]
-[JsonSerializable(typeof(PlaygroundFile[]))]
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-internal sealed partial class PlaygroundJsonContext : JsonSerializerContext
-{
-}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "case": "Native interop boundary using source-generated shape",
+  "case": "Native interop boundary",
   "expected": {
     "boundary": "OpenDevice",
     "hot": "UseDevice",

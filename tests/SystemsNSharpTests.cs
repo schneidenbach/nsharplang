@@ -1159,25 +1159,6 @@ func FormatForDebug(): int[] {
     }
 
     [Fact]
-    public void ReflectionJsonBoundary_IsTargetQualifiedAotBlocker()
-    {
-        var report = Analyze("""
-import System.Text.Json
-
-record Payload {
-    Value: int
-}
-
-[boundary]
-func Emit(payload: Payload): string {
-    return JsonSerializer.Serialize(payload)
-}
-""", profile: "systems");
-
-        Assert.Contains(report.Findings, f => f.Code == "NSYS060" && f.Effect == "aot" && f.Severity == "warning");
-    }
-
-    [Fact]
     public void AcceptanceGauntlet_FixturesMatchSystemsPerfAndDiagnosticExpectations()
     {
         var root = Path.Combine(FindRepoRoot(), "tests", "fixtures", "systems-gauntlet");
