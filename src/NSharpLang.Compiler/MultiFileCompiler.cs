@@ -702,7 +702,6 @@ public class MultiFileCompiler
                 null);
         }
 
-        try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
@@ -724,16 +723,6 @@ public class MultiFileCompiler
                     AddRequiredColumnarEmissionError(assemblyName);
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly EXCEPTION: {ex}");
-            _allErrors.Add(new CompilerError(
-                ErrorCode.InvalidSyntax,
-                $"Failed to emit IL assembly '{assemblyName}': {ex.Message}",
-                0,
-                0,
-                ErrorSeverity.Error));
         }
 
         var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
