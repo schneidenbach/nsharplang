@@ -498,24 +498,6 @@ func helper(): int {
         Assert.Contains(keywords, k => k.Name == "return");
     }
 
-    [Fact]
-    public void Completions_MemberAccess_FieldMembers()
-    {
-        // PersonService.nl line 14: people.Add(person)
-        // Completions at "people." should return List<Person> members
-        var engine = new CompletionEngine();
-        var result = engine.GetCompletions(MultiFile, "Services/PersonService.nl", 14, 15);
-        Assert.Equal(CompletionContext.MemberAccess, result.Context);
-        Assert.Equal("people", result.Receiver);
-        Assert.True(result.Completions.ContainsKey("methods"),
-            $"Expected 'methods' category, got: [{string.Join(", ", result.Completions.Keys)}]");
-
-        var methods = result.Completions["methods"];
-        Assert.Contains(methods, m => m.Name == "Add");
-        Assert.Contains(methods, m => m.Name == "Remove");
-        Assert.Contains(methods, m => m.Name == "Count" || m.Name == "Clear");
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     //  JSON OUTPUT — is the schema correct?
     // ═══════════════════════════════════════════════════════════════════

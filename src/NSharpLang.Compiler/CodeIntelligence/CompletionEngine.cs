@@ -285,10 +285,6 @@ public class CompletionEngine
         return new CompletionResult(CompletionContext.Identifier, null, null, completions);
     }
 
-    /// <summary>
-    /// Resolve member completions from a TypeInfo — handles both .NET types (via reflection)
-    /// and N# user-defined types (via AST member extraction).
-    /// </summary>
     private CompletionResult? ResolveMemberCompletionsFromTypeInfo(
         TypeInfo typeInfo,
         string receiver,
@@ -307,21 +303,6 @@ public class CompletionEngine
         {
             AddGroupedCompletionsByKind(nsharpMembers, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
-        }
-
-        // For generic types, extract the base name for CLR resolution
-        var clrTypeName = typeName;
-        if (typeInfo is GenericTypeInfo genericInfo)
-        {
-            clrTypeName = genericInfo.Name; // "List", "Dictionary", etc.
-        }
-
-        var clrType = TryResolveType(clrTypeName, snapshot);
-        if (clrType != null)
-        {
-            var members = GetTypeMembers(clrType, filter);
-            AddGroupedCompletionsByKind(members, completions);
-            return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
         }
 
         return null;
