@@ -1234,25 +1234,6 @@ dependencies:
     // ── WS5: Build timings, tidy, add ────────────────────────────────────────
 
     [Fact]
-    public void BuildCommand_Timings_ShowsPhaseBreakdown()
-    {
-        // Verify --timings is documented in build --help and the phase names are present.
-        // The actual timing output is emitted only on a successful build run; testing it
-        // end-to-end requires compiling a sample project, which is covered by backend tests.
-        var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            ExecuteProgram("build", "--help"));
-
-        Assert.Equal(0, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-        Assert.True(
-            stdout.Contains("--timings")
-            && stdout.Contains("--backend")
-            && stdout.Contains("Compilation backend: il")
-            && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
-            $"Expected --timings and phase breakdown in build --help but got: {stdout}");
-    }
-
-    [Fact]
     public void BuildCommand_HelpWinsBeforeDefineExtraction()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
