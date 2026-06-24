@@ -17056,26 +17056,12 @@ public class Analyzer : IDisposable
             return null;
         }
 
-        try
-        {
             return type.GetGenericTypeDefinition().FullName;
-        }
-        catch (NotSupportedException)
-        {
-            return type.FullName;
-        }
     }
 
     private static bool IsAssignableFromConstructed(Type targetType, Type openGenericType, Type elementType)
     {
-        try
-        {
             return targetType.IsAssignableFrom(openGenericType.MakeGenericType(elementType));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
