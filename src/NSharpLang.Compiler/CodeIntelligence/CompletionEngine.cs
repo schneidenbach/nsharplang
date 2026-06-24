@@ -168,22 +168,6 @@ public class CompletionEngine
             if (memberResult != null) return memberResult;
         }
 
-        // Try to resolve receiver as a .NET type (static access)
-        var resolvedType = receiver != null ? TryResolveType(receiver, snapshot) : null;
-        if (receiver != null && resolvedType != null)
-        {
-            var isStatic = IsStaticAccess(receiver, semanticModel);
-            var members = GetTypeMembers(resolvedType, isStatic ? MemberFilter.StaticOnly : MemberFilter.InstanceOnly);
-
-            AddGroupedCompletionsByKind(members, completions);
-
-            return new CompletionResult(
-                CompletionContext.MemberAccess,
-                receiver,
-                resolvedType.FullName,
-                completions);
-        }
-
         // Resolve the full receiver expression semantically. This is the path for chains
         // such as message.ToUpper().| or factory.Create().| where the receiver is not a
         // plain identifier and must come from Analyzer-recorded expression types.

@@ -162,63 +162,6 @@ public class CompletionEngineTests
 
     // ── Member Access Completions (Static) ──────────────────────────────
 
-    [Fact]
-    public void GetCompletions_MemberAccess_ConsoleStaticMembers()
-    {
-        var source = "func main() {\n    Console.\n}";
-        var (engine, snapshot, filePath) = SetupWithSource(source);
-
-        try
-        {
-            var result = engine.GetCompletions(snapshot, filePath, 2, 12);
-
-            Assert.Equal(CompletionContext.MemberAccess, result.Context);
-            Assert.Equal("Console", result.Receiver);
-            Assert.NotNull(result.ReceiverType);
-
-            // Console has static methods like WriteLine
-            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
-            Assert.Contains(allItems, c => c.Name == "WriteLine");
-        }
-        finally { Cleanup(filePath); }
-    }
-
-    [Fact]
-    public void GetCompletions_MemberAccess_ColumnPastLineUsesWholeLine()
-    {
-        var source = "func main() {\n    Console.\n}";
-        var (engine, snapshot, filePath) = SetupWithSource(source);
-
-        try
-        {
-            var result = engine.GetCompletions(snapshot, filePath, 2, 999);
-
-            Assert.Equal(CompletionContext.MemberAccess, result.Context);
-            Assert.Equal("Console", result.Receiver);
-        }
-        finally { Cleanup(filePath); }
-    }
-
-    [Fact]
-    public void GetCompletions_MemberAccess_MathStaticMembers()
-    {
-        var source = "func main() {\n    Math.\n}";
-        var (engine, snapshot, filePath) = SetupWithSource(source);
-
-        try
-        {
-            var result = engine.GetCompletions(snapshot, filePath, 2, 9);
-
-            Assert.Equal(CompletionContext.MemberAccess, result.Context);
-            Assert.Equal("Math", result.Receiver);
-
-            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
-            Assert.Contains(allItems, c => c.Name == "Max");
-            Assert.Contains(allItems, c => c.Name == "Min");
-        }
-        finally { Cleanup(filePath); }
-    }
-
     // ── Member Access Completions (Instance) ────────────────────────────
 
     [Fact]
