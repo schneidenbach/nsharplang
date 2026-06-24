@@ -113,12 +113,6 @@ public record CallExpression(
     int Line,
     int Column) : Expression(Line, Column)
 {
-    /// <summary>
-    /// Set by the analyzer (the scope-complete authority) for `Ok(...)`/`Err(...)` calls: true when
-    /// this call is the compiler-known Result factory, false when the name resolves to a real
-    /// in-scope symbol and must NOT be treated as the factory (C1). Null when not analyzed (e.g.
-    /// direct transpiler/IL unit tests), in which case each backend falls back to its own guard.
-    /// </summary>
     public bool? IsResultFactory { get; set; }
 }
 

@@ -12142,8 +12142,6 @@ public class Analyzer : IDisposable
         // bound to a real in-scope symbol. If the user declared their own `Ok`/`Err` (function,
         // local, parameter, or import), defer to normal call resolution so we bind their symbol
         // instead of silently hijacking the call (C1: resolution must be semantic, not string
-        // matching). Record the decision on the node so the transpiler/IL backends honor this
-        // scope-aware resolution instead of re-deriving it from name + expected type alone.
         if (LookupSymbol(identifier.Name) != null)
         {
             call.IsResultFactory = false;
