@@ -975,9 +975,6 @@ public class CodeIntelligenceService
         return dogfoodCandidateColumns;
     }
 
-    private static int GetMemberNameColumn(MemberAccessExpression memberAccess)
-        => memberAccess.Column + (memberAccess.IsNullConditional ? 2 : 1);
-
     // ── Private Helpers ──────────────────────────────────────────────────
 
     private void ExtractDeclarationSymbols(List<Declaration> declarations, string file, List<SymbolResult> results)
@@ -1270,26 +1267,6 @@ public class CodeIntelligenceService
     {
         return VisibilityConventions.IsExportedIdentifier(name, modifiers);
     }
-
-    private static string GetDeclarationKind(Declaration decl) => decl switch
-    {
-        FunctionDeclaration => "function",
-        ClassDeclaration => "class",
-        StructDeclaration => "struct",
-        RecordDeclaration => "record",
-        SoaRecordDeclaration => "soaRecord",
-        InterfaceDeclaration => "interface",
-        EnumDeclaration => "enum",
-        UnionDeclaration => "union",
-        FieldDeclaration => "field",
-        PropertyDeclaration => "property",
-        ConstructorDeclaration => "constructor",
-        TypeAliasDeclaration => "typeAlias",
-        NewtypeDeclaration => "newtype",
-        TestDeclaration => "test",
-        SetupDeclaration => "setup",
-        _ => "unknown"
-    };
 
     private static bool IsTypeDeclarationKind(string kind)
         => kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union" or "typeAlias" or "newtype";

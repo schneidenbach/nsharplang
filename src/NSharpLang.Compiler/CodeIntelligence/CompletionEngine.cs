@@ -417,18 +417,6 @@ public class CompletionEngine
         return items;
     }
 
-    private static TypeInfo? ResolveSourceTypeByName(string name, ProjectSnapshot snapshot)
-        => ResolveNSharpTypeDeclaration(new SimpleTypeInfo(name), snapshot) switch
-        {
-            ClassDeclaration c => new ClassTypeInfo(c),
-            StructDeclaration s => new StructTypeInfo(s),
-            RecordDeclaration r => new RecordTypeInfo(r),
-            InterfaceDeclaration i => new InterfaceTypeInfo(i),
-            UnionDeclaration u => new UnionTypeInfo(u),
-            EnumDeclaration e => new EnumTypeInfo(e),
-            _ => null
-        };
-
     private static Declaration? ResolveNSharpTypeDeclaration(TypeInfo typeInfo, ProjectSnapshot snapshot)
     {
         switch (typeInfo)
