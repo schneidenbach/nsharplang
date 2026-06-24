@@ -23072,13 +23072,8 @@ public class Analyzer : IDisposable
             var projectName = Path.GetFileNameWithoutExtension(projectPath);
             var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{projectName}.dll");
 
-            if (File.Exists(outputPath))
             {
                 LoadReferencedAssembly(outputPath);
-            }
-            else
-            {
-                Console.Error.WriteLine($"Warning: Project reference '{projectName}' has not been built. Expected: {outputPath}");
             }
         }
         // Handle project.yml (N# project)
@@ -23087,13 +23082,8 @@ public class Analyzer : IDisposable
             var nsharpProject = ProjectFileParser.Parse(projectPath);
             var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{nsharpProject.EffectiveName}.dll");
 
-            if (File.Exists(outputPath))
             {
                 LoadReferencedAssembly(outputPath);
-            }
-            else
-            {
-                Console.Error.WriteLine($"Warning: N# project reference '{nsharpProject.EffectiveName}' has not been built. Expected: {outputPath}");
             }
         }
         else
