@@ -101,7 +101,7 @@ public class CodeIntelligenceService
 
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            if (file != null && !MatchesFilePath(filePath, file))
+            if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(filePath, file))
                 continue;
 
             var relativeFile = GetRelativePath(snapshot.ProjectRoot, filePath);
@@ -183,7 +183,7 @@ public class CodeIntelligenceService
         foreach (var error in snapshot.AllErrors)
         {
             var errorFile = error.FileName ?? "unknown";
-            if (file != null && !MatchesFilePath(errorFile, file))
+            if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(errorFile, file))
                 continue;
 
             var relativeFile = GetRelativePath(snapshot.ProjectRoot, errorFile);
@@ -363,7 +363,7 @@ public class CodeIntelligenceService
         foreach (var sourceFile in sourceFiles)
         {
             var fullPath = Path.GetFullPath(sourceFile);
-            if (file != null && !MatchesFilePath(fullPath, file))
+            if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(fullPath, file))
                 continue;
 
             if (!sourceTexts.TryGetValue(fullPath, out var source))
@@ -581,7 +581,7 @@ public class CodeIntelligenceService
         string? absolutePath = null;
         foreach (var (filePath, _) in snapshot.CompilationUnits)
         {
-            if (MatchesFilePath(filePath, relativeFile))
+            if (CodeIntelligenceResultKernels.MatchesFilePath(filePath, relativeFile))
             {
                 absolutePath = filePath;
                 break;
@@ -1208,7 +1208,7 @@ public class CodeIntelligenceService
         // Try exact match first, respecting path segment boundaries
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            if (MatchesFilePath(filePath, file))
+            if (CodeIntelligenceResultKernels.MatchesFilePath(filePath, file))
                 return (filePath, cu);
         }
 
@@ -1929,30 +1929,6 @@ public class CodeIntelligenceService
         }
     }
 
-    private static string NormalizePath(string path)
-    {
-        return path.Replace('\\', '/');
-    }
-
-    /// <summary>
-    /// Matches a full file path against a query file path, respecting path segment boundaries.
-    /// "Program.nl" matches "/project/Program.nl" but NOT "/project/OldProgram.nl".
-    /// </summary>
-    private static bool MatchesFilePath(string fullPath, string queryPath)
-    {
-        var normalizedFull = NormalizePath(fullPath);
-        var normalizedQuery = NormalizePath(queryPath);
-
-        if (normalizedFull.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (!normalizedFull.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // Ensure match is at a path segment boundary
-        var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
-        return charBefore == '/';
-    }
 }
 
 /// <summary>

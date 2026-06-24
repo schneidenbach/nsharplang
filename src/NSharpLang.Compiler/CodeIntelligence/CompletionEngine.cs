@@ -553,32 +553,13 @@ public class CompletionEngine
     {
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            if (MatchesFilePath(filePath, file))
+            if (CodeIntelligenceResultKernels.MatchesFilePath(filePath, file))
                 return (filePath, cu);
         }
         var fullPath = Path.GetFullPath(Path.Combine(snapshot.ProjectRoot, file));
         if (snapshot.CompilationUnits.TryGetValue(fullPath, out var found))
             return (fullPath, found);
         return (file, null);
-    }
-
-    /// <summary>
-    /// Matches a full file path against a query, respecting path segment boundaries.
-    /// "Program.nl" matches "/project/Program.nl" but NOT "/project/OldProgram.nl".
-    /// </summary>
-    private static bool MatchesFilePath(string fullPath, string queryPath)
-    {
-        var normalizedFull = fullPath.Replace('\\', '/');
-        var normalizedQuery = queryPath.Replace('\\', '/');
-
-        if (normalizedFull.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (!normalizedFull.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
-        return charBefore == '/';
     }
 
     private static void AddGroupedCompletionsByKind(

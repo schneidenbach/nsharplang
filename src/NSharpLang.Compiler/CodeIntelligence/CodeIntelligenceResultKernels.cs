@@ -205,6 +205,9 @@ internal static class CodeIntelligenceResultKernels
         }
     }
 
+    internal static bool MatchesFilePath(string fullPath, string queryPath)
+        => RequiredBindings.PathMatches(fullPath, queryPath) != 0;
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticShadowSuppressionIndicesInto>(
@@ -218,7 +221,10 @@ internal static class CodeIntelligenceResultKernels
                 "DiagnosticDeduplicateStableInto"),
             DogfoodKernelLoader.CreateDelegate<ReferenceDeduplicateCompactInto>(
                 programType,
-                "ReferenceDeduplicateCompactInto")));
+                "ReferenceDeduplicateCompactInto"),
+            DogfoodKernelLoader.CreateDelegate<CodeIntelligencePathMatches>(
+                programType,
+                "CodeIntelligencePathMatches")));
 
     private delegate int DiagnosticShadowSuppressionIndicesInto(
         int[] codeIds,
@@ -243,11 +249,14 @@ internal static class CodeIntelligenceResultKernels
         int[] slotIndices,
         int[] resultIndices);
 
+    private delegate int CodeIntelligencePathMatches(string fullPath, string queryPath);
+
     private sealed record Bindings(
         DiagnosticShadowSuppressionIndicesInto DiagnosticShadowSuppression,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateStable,
-        ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact);
+        ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
+        CodeIntelligencePathMatches PathMatches);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# code intelligence result kernels are unavailable.");
