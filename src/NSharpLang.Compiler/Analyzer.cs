@@ -20057,9 +20057,6 @@ public class Analyzer : IDisposable
             var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
         }
-        // Method types are callable, not assignable in the normal sense
-        if (resolvedSource is ReflectionMethodInfo || resolvedTarget is ReflectionMethodInfo) return true;
-        if (resolvedSource is ReflectionMethodGroupInfo || resolvedTarget is ReflectionMethodGroupInfo) return true;
 
         // Function type structural comparison (both sides are FunctionTypeInfo) — must come before
         // the ToString fallback because FunctionTypeInfo.ToString() is always "FunctionTypeInfo"
