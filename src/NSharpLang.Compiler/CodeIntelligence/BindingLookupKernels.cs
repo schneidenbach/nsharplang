@@ -45,9 +45,6 @@ internal static class BindingLookupKernels
             scratch.ResultCounts,
             scratch.ResultColumns);
         var count = scratch.ResultCounts[0];
-        if (total < 0 || total > scratch.ResultColumns.Length || count < 0 || count > total)
-            return false;
-
         candidateColumns = new int[count];
         Array.Copy(scratch.ResultColumns, scratch.ResultStarts[0], candidateColumns, 0, count);
         return true;
