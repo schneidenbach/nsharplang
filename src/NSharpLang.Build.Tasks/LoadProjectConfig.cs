@@ -66,24 +66,6 @@ public class LoadProjectConfig : Task
     [Output]
     public string TestFramework { get; set; } = "xunit";
 
-    /// <summary>
-    /// Output: NuGet package references (semicolon-separated "Package;Version" pairs)
-    /// </summary>
-    [Output]
-    public ITaskItem[] PackageReferences { get; set; } = Array.Empty<ITaskItem>();
-
-    /// <summary>
-    /// Output: Project references (paths to .csproj or project.yml files)
-    /// </summary>
-    [Output]
-    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
-
-    /// <summary>
-    /// Output: Framework references (e.g., "Microsoft.AspNetCore.App")
-    /// </summary>
-    [Output]
-    public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
-
     public override bool Execute()
     {
         try
@@ -120,50 +102,6 @@ public class LoadProjectConfig : Task
             Sdk = config.Sdk;
             TestFramework = config.TestFramework;
 
-            // Convert dependencies to MSBuild items
-            var packageRefs = new System.Collections.Generic.List<ITaskItem>();
-            var projectRefs = new System.Collections.Generic.List<ITaskItem>();
-            var frameworkRefs = new System.Collections.Generic.List<ITaskItem>();
-
-            foreach (var dep in config.Dependencies)
-            {
-                switch (dep.Type)
-                {
-                    case ReferenceType.NuGet:
-                        var item = new TaskItem(dep.Nuget!);
-                        if (!string.IsNullOrEmpty(dep.Version))
-                        {
-                            item.SetMetadata("Version", dep.Version);
-                        }
-                        packageRefs.Add(item);
-                        break;
-
-                    case ReferenceType.Project:
-                        var projPath = Path.IsPathRooted(dep.Project!)
-                            ? dep.Project!
-                            : Path.Combine(ProjectDirectory, dep.Project!);
-                        projectRefs.Add(new TaskItem(projPath));
-                        break;
-
-                    case ReferenceType.Framework:
-                        frameworkRefs.Add(new TaskItem(dep.Framework!));
-                        break;
-
-                    case ReferenceType.Dll:
-                        // DLL references are handled differently - we'll add support later if needed
-                        Log.LogWarning($"DLL references not yet supported in SDK: {dep.Dll}");
-                        break;
-                }
-            }
-
-            PackageReferences = packageRefs.ToArray();
-            ProjectReferences = projectRefs.ToArray();
-            FrameworkReferences = frameworkRefs.ToArray();
-
-            Log.LogMessage(MessageImportance.Low,
-                $"Loaded config: {AssemblyName} ({OutputType}), framework={TargetFramework}, " +
-                $"{PackageReferences.Length} packages, {ProjectReferences.Length} projects");
-
             return true;
         }
         catch (Exception ex)
@@ -182,9 +120,6 @@ public class LoadProjectConfig : Task
         AssemblyVersion = string.Empty;
         FileVersion = string.Empty;
         Sdk = "Microsoft.NET.Sdk";
-        PackageReferences = Array.Empty<ITaskItem>();
-        ProjectReferences = Array.Empty<ITaskItem>();
-        FrameworkReferences = Array.Empty<ITaskItem>();
     }
 
     private void SetClrVersionOutputs(string? packageVersion)
