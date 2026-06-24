@@ -32,16 +32,10 @@ internal static class AnalyzerExhaustivenessSelector
             memberCount,
             scratch.ResultIndices);
 
-        if (missingCount < 0 || missingCount > memberCount || missingCount > scratch.ResultIndices.Length)
-            throw new InvalidOperationException("N# analyzer enum exhaustiveness kernel rejected the member table.");
-
         var result = new List<string>(missingCount);
         for (var i = 0; i < missingCount; i++)
         {
             var sourceIndex = scratch.ResultIndices[i];
-            if (sourceIndex < 0 || sourceIndex >= memberCount)
-                throw new InvalidOperationException("N# analyzer enum exhaustiveness kernel returned an invalid member index.");
-
             result.Add(members[sourceIndex].Name);
         }
 
@@ -59,9 +53,6 @@ internal static class AnalyzerExhaustivenessSelector
     {
         var bindings = RequiredBindings;
 
-        if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
-            throw new InvalidOperationException("N# analyzer union exhaustiveness kernel received an invalid case count.");
-
         var scratch = t_missingUnionCaseScratch ??= new MissingUnionCaseScratch();
         scratch.EnsureCapacity(count);
 
@@ -76,16 +67,6 @@ internal static class AnalyzerExhaustivenessSelector
 
         var partialMissingCount = scratch.ResultCounts[1];
         var neverCoveredCount = scratch.ResultCounts[2];
-        if (missingCount < 0 ||
-            missingCount > count ||
-            partialMissingCount < 0 ||
-            partialMissingCount > missingCount ||
-            neverCoveredCount < 0 ||
-            neverCoveredCount > missingCount ||
-            partialMissingCount + neverCoveredCount != missingCount)
-        {
-            throw new InvalidOperationException("N# analyzer union exhaustiveness kernel rejected the case table.");
-        }
 
         missingCases = MaterializeCaseNames(cases, scratch.MissingIndices, missingCount);
         partialMissingCases = MaterializeCaseNames(cases, scratch.PartialMissingIndices, partialMissingCount);
@@ -101,9 +82,6 @@ internal static class AnalyzerExhaustivenessSelector
         for (var i = 0; i < count; i++)
         {
             var sourceIndex = indices[i];
-            if (sourceIndex < 0 || sourceIndex >= cases.Count)
-                throw new InvalidOperationException("Dogfood union missing-case selection returned an invalid source index.");
-
             result.Add(cases[sourceIndex].Name);
         }
 
