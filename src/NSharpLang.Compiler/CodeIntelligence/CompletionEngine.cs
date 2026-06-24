@@ -497,18 +497,6 @@ public class CompletionEngine
         return null;
     }
 
-    private static TypeInfo? GetFunctionReturnType(FunctionTypeInfo functionType, ProjectSnapshot snapshot)
-    {
-        if (functionType.ReturnType != null)
-        {
-            return functionType.ReturnType;
-        }
-
-        return functionType.Declaration?.ReturnType == null
-            ? null
-            : ResolveTypeReferenceToTypeInfo(functionType.Declaration.ReturnType, snapshot);
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private bool IsStaticAccess(string name, SemanticModel? semanticModel)

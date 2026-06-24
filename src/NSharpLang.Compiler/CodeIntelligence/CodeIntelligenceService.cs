@@ -1836,26 +1836,6 @@ public class CodeIntelligenceService
             return null;
     }
 
-    private static string? ExtractMemberReceiverName(ProjectSnapshot snapshot, string filePath, int line, int memberStartColumn)
-    {
-            var source = GetSourceText(snapshot, filePath);
-            if (source == null)
-                return null;
-
-            if (CodeIntelligenceSourceTextKernels.TryExtractMemberReceiverName(
-                    snapshot,
-                    filePath,
-                    source,
-                    line,
-                    memberStartColumn,
-                    out var dogfoodReceiverName))
-            {
-                return dogfoodReceiverName;
-            }
-
-            return null;
-    }
-
     private static (int StartColumn, int EndColumn)? ExtractIdentifierSpanAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
             var source = GetSourceText(snapshot, filePath);
