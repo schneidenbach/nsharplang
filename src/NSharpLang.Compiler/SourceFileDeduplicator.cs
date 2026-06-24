@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler;
 
@@ -14,8 +13,6 @@ internal static class SourceFileDeduplicator
         IReadOnlyList<string> sourceFiles,
         out List<string> deduplicatedSourceFiles)
     {
-        deduplicatedSourceFiles = [];
-
         var bindings = s_bindings.Value;
 
         var count = sourceFiles.Count;
@@ -28,12 +25,6 @@ internal static class SourceFileDeduplicator
             for (var i = 0; i < count; i++)
             {
                 var sourceFile = sourceFiles[i];
-                if (sourceFile == null)
-                {
-                    deduplicatedSourceFiles = [];
-                    return false;
-                }
-
                 scratch.Ranks[i] = scratch.AddKey(sourceFile);
             }
 
@@ -43,22 +34,10 @@ internal static class SourceFileDeduplicator
                 scratch.SeenRanks,
                 scratch.ResultIndices);
 
-            if (deduplicatedCount < 0 || deduplicatedCount > count || deduplicatedCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedSourceFiles = [];
-                return false;
-            }
-
             var result = new List<string>(deduplicatedCount);
             for (var i = 0; i < deduplicatedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= count)
-                {
-                    deduplicatedSourceFiles = [];
-                    return false;
-                }
-
                 result.Add(sourceFiles[sourceIndex]);
             }
 

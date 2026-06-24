@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler;
 
@@ -12,8 +11,6 @@ internal static class ParserTokenCompactor
 
     internal static bool TryCompact(IReadOnlyList<Token> tokens, out List<Token> compactedTokens)
     {
-        compactedTokens = [];
-
         var bindings = s_bindings.Value;
 
         var tokenCount = tokens.Count;
@@ -30,22 +27,10 @@ internal static class ParserTokenCompactor
                 tokenCount,
                 scratch.ResultIndices);
 
-            if (compactedCount < 0 || compactedCount > tokenCount)
-            {
-                compactedTokens = [];
-                return false;
-            }
-
             var result = new List<Token>(compactedCount);
             for (var i = 0; i < compactedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= tokenCount)
-                {
-                    compactedTokens = [];
-                    return false;
-                }
-
                 result.Add(tokens[sourceIndex]);
             }
 
