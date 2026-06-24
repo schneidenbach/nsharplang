@@ -107,7 +107,6 @@ public class CompletionHandler : CompletionHandlerBase
 
         AddDocumentSymbolCompletionItems(doc, items, itemKeys, inScopeNames);
         AddSemanticCompletionItems(doc, request.Position.Line, request.Position.Character, items, itemKeys, inScopeNames);
-        AddProjectSymbolCompletionItems(doc, currentPrefix, items, itemKeys, inScopeNames);
         AddLanguageCompletionItems(items, itemKeys);
         AddExternalImportableCompletionItems(doc, currentPrefix, items, itemKeys, inScopeNames);
 
@@ -435,74 +434,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
     }
 
-    private void AddProjectSymbolCompletionItems(
-        Models.DocumentState? doc,
-        string currentPrefix,
-        List<CompletionItem> items,
-        HashSet<string> itemKeys,
-        HashSet<string> inScopeNames)
-    {
-        if (doc?.CompilationUnit == null)
-        {
-            return;
-        }
-
-        var currentFilePath = _documentManager.GetFilePathForUri(doc.Uri);
-        foreach (var symbol in _documentManager.GetProjectSymbolsForCompletion(doc.Uri)
-                     .OrderBy(symbol => symbol.Name, StringComparer.Ordinal)
-                     .ThenBy(symbol => symbol.Namespace ?? string.Empty, StringComparer.Ordinal)
-                     .ThenBy(symbol => symbol.SourceFile, StringComparer.OrdinalIgnoreCase))
-        {
-            if (!NameMatchesPrefix(symbol.Name, currentPrefix))
-            {
-                continue;
-            }
-
-            if (string.Equals(symbol.SourceFile, currentFilePath, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var isInScope = IsProjectSymbolInScope(doc, symbol);
-            if (!isInScope && !symbol.IsExported)
-            {
-                continue;
-            }
-
-            if (!isInScope && string.IsNullOrWhiteSpace(symbol.Namespace))
-            {
-                continue;
-            }
-
-            var detail = FormatProjectSymbolDetail(symbol, isInScope);
-            var item = new CompletionItem
-            {
-                Label = symbol.Name,
-                Kind = GetCompletionItemKind(symbol),
-                Detail = detail,
-                InsertText = symbol.Name,
-                SortText = BuildSortText(isInScope ? SortProjectInScope : SortProjectImportable, symbol.Name, symbol.Namespace ?? symbol.SourceFile),
-                AdditionalTextEdits = isInScope || symbol.Namespace == null
-                    ? null
-                    : BuildAutoImportEdits(doc, symbol.Namespace)
-            };
-
-            if (isInScope)
-            {
-                AddInScopeCompletionItem(items, itemKeys, inScopeNames, symbol.Name, item);
-                continue;
-            }
-
-            if (inScopeNames.Contains(symbol.Name))
-            {
-                continue;
-            }
-
-            AddUniqueCompletionItem(items, itemKeys, item,
-                $"project-import:{symbol.Name}:{symbol.Namespace}:{symbol.SourceFile}");
-        }
-    }
-
     private void AddExternalImportableCompletionItems(
         Models.DocumentState? doc,
         string currentPrefix,
@@ -625,23 +556,6 @@ public class CompletionHandler : CompletionHandlerBase
         return char.IsLetterOrDigit(value) || value == '_';
     }
 
-    private static bool IsProjectSymbolInScope(Models.DocumentState doc, ProjectSymbolInfo symbol)
-    {
-        var compilationUnit = doc.CompilationUnit;
-        if (compilationUnit == null)
-        {
-            return false;
-        }
-
-        var currentNamespace = GetUnitNamespace(compilationUnit);
-        if (string.Equals(symbol.Namespace, currentNamespace, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return symbol.Namespace != null && IsNamespaceAlreadyImported(compilationUnit, symbol.Namespace);
-    }
-
     private static bool IsNamespaceInScope(Models.DocumentState? doc, string namespaceName)
     {
         if (doc?.CompilationUnit == null)
@@ -660,14 +574,6 @@ public class CompletionHandler : CompletionHandlerBase
     private static string? GetUnitNamespace(CompilationUnit? compilationUnit)
     {
         return compilationUnit?.Package?.Name ?? compilationUnit?.Namespace?.Name;
-    }
-
-    private static string FormatProjectSymbolDetail(ProjectSymbolInfo symbol, bool isInScope)
-    {
-        var source = symbol.Namespace ?? "<global>";
-        return isInScope
-            ? $"{symbol.Declaration.Kind} from {source}"
-            : $"{symbol.Declaration.Kind} from {source} (auto-import)";
     }
 
     private static TextEditContainer? BuildAutoImportEdits(Models.DocumentState? doc, string importNamespace)
@@ -874,20 +780,6 @@ public class CompletionHandler : CompletionHandlerBase
         };
     }
 
-    private CompletionItemKind GetCompletionItemKind(ProjectSymbolInfo symbol)
-    {
-        return symbol.Declaration.Kind switch
-        {
-            "class" => CompletionItemKind.Class,
-            "struct" => CompletionItemKind.Struct,
-            "record" => CompletionItemKind.Class,
-            "interface" => CompletionItemKind.Interface,
-            "enum" => CompletionItemKind.Enum,
-            "union" => CompletionItemKind.Class,
-            "function" => CompletionItemKind.Function,
-            _ => GetCompletionItemKind(symbol.Type)
-        };
-    }
 
     private CompletionItemKind GetCompletionItemKindFromSymbol(LanguageServer.Models.SymbolKind kind)
     {

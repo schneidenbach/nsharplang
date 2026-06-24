@@ -492,7 +492,6 @@ public sealed class PlaygroundCompiler
             }
         }
 
-        var projectSymbols = BuildFallbackProjectSymbolTable(compilationUnits, sourceTexts);
         foreach (var (path, compilationUnit) in compilationUnits)
         {
             var fileName = fileNamesByPath.TryGetValue(path, out var storedFileName)
@@ -506,7 +505,6 @@ public sealed class PlaygroundCompiler
             {
                 using var analyzer = new Analyzer();
                 analyzer.SetProjectSourceTexts(sourceTexts);
-                analyzer.SetProjectSymbols(projectSymbols);
                 var analysis = analyzer.Analyze(compilationUnit, path, root, source);
                 allErrors.AddRange(analysis.Errors);
                 diagnostics.AddRange(analysis.Errors.Select(error => ToPlaygroundDiagnostic(error, source, fileName)));
@@ -540,30 +538,6 @@ public sealed class PlaygroundCompiler
             sourceTexts: sourceTexts);
 
         return new ProjectAnalysis(snapshot, diagnostics);
-    }
-
-    private static Dictionary<string, List<ProjectSymbolInfo>> BuildFallbackProjectSymbolTable(
-        IReadOnlyDictionary<string, CompilationUnit> compilationUnits,
-        IReadOnlyDictionary<string, string> sourceTexts)
-    {
-        var symbols = new Dictionary<string, List<ProjectSymbolInfo>>(StringComparer.Ordinal);
-
-        foreach (var (path, unit) in compilationUnits)
-        {
-            var sourceText = sourceTexts.TryGetValue(path, out var text) ? text : null;
-            foreach (var symbol in Analyzer.ExtractProjectSymbols(unit, path, sourceText))
-            {
-                if (!symbols.TryGetValue(symbol.Name, out var list))
-                {
-                    list = new List<ProjectSymbolInfo>();
-                    symbols[symbol.Name] = list;
-                }
-
-                list.Add(symbol);
-            }
-        }
-
-        return symbols;
     }
 
     private static void AddLintDiagnostics(ProjectSnapshot snapshot, List<PlaygroundDiagnostic> diagnostics)

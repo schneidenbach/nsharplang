@@ -29,7 +29,6 @@ public class DocumentManager
     private readonly object _projectSnapshotLock = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _diskProjectSnapshots = new();
-    private readonly ConcurrentDictionary<string, Dictionary<string, List<ProjectSymbolInfo>>> _projectSymbolTables = new();
     private readonly ConcurrentDictionary<string, byte> _editorOpenUris = new();
     private readonly ConcurrentDictionary<string, byte> _workspaceRoots = new();
 
@@ -298,16 +297,6 @@ public class DocumentManager
             // Only run analysis if we have a valid compilation unit
             if (state.CompilationUnit != null)
             {
-                // Set project symbols for Go-style cross-file resolution.
-                // This allows single-file analysis to resolve types from other files
-                // in the same project without explicit import statements.
-                var projectRoot = FindProjectRoot(filePath);
-                var projectSymbols = GetOrBuildProjectSymbolTable(projectRoot);
-                lock (_analyzerLock)
-                {
-                    _sharedAnalyzer.SetProjectSymbols(projectSymbols);
-                }
-
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
                 var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, projectDir, text);
                 diagnostics.AddRange(analysisResult.Errors);
@@ -475,21 +464,6 @@ public class DocumentManager
     public string GetFilePathForUri(string uri)
     {
         return UriToFilePath(uri);
-    }
-
-    /// <summary>
-    /// Returns all currently known project symbols for completion. This uses open-buffer
-    /// document state so completion can see unsaved project files loaded by the workspace scan.
-    /// </summary>
-    public IReadOnlyList<ProjectSymbolInfo> GetProjectSymbolsForCompletion(string uri)
-    {
-        var filePath = UriToFilePath(uri);
-        var projectRoot = FindProjectRoot(filePath);
-        var projectSymbols = GetOrBuildProjectSymbolTable(projectRoot);
-
-        return projectSymbols.Values
-            .SelectMany(symbols => symbols)
-            .ToList();
     }
 
     public bool HasUnsavedOpenBuffersInProject(string uri)
@@ -810,46 +784,7 @@ public class DocumentManager
         foreach (var projectRoot in ResolvePossibleSemanticProjectRoots(filePath))
         {
             _projectSnapshots.TryRemove(projectRoot, out _);
-            _projectSymbolTables.TryRemove(projectRoot, out _);
         }
-    }
-
-    /// <summary>
-    /// Builds a project-wide symbol table from all parsed documents in the project.
-    /// This enables Go-style cross-file symbol resolution: all PascalCase declarations
-    /// are visible across files in the same project without explicit imports.
-    /// </summary>
-    private Dictionary<string, List<ProjectSymbolInfo>> GetOrBuildProjectSymbolTable(string projectRoot)
-    {
-        if (_projectSymbolTables.TryGetValue(projectRoot, out var cached))
-            return cached;
-
-        var table = new Dictionary<string, List<ProjectSymbolInfo>>();
-
-        foreach (var doc in _documents.Values)
-        {
-            if (doc.CompilationUnit == null)
-                continue;
-
-            var docPath = UriToFilePath(doc.Uri);
-            if (!IsPathUnderProject(docPath, projectRoot))
-                continue;
-
-            var symbols = Analyzer.ExtractProjectSymbols(doc.CompilationUnit, docPath, doc.Text);
-            foreach (var symbol in symbols)
-            {
-                if (!table.TryGetValue(symbol.Name, out var list))
-                {
-                    list = new List<ProjectSymbolInfo>();
-                    table[symbol.Name] = list;
-                }
-                list.Add(symbol);
-            }
-        }
-
-        _projectSymbolTables[projectRoot] = table;
-        _logger.LogDebug("Built project symbol table for {ProjectRoot}: {Count} symbols", projectRoot, table.Count);
-        return table;
     }
 
     private static string FindProjectRoot(string filePath)
