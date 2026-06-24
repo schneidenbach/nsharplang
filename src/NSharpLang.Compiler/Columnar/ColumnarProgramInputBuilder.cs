@@ -140,15 +140,11 @@ internal static class ColumnarProgramInputBuilder
                     return false;
 
                 var enumName = outEnumNameTexts[0];
-                if (string.IsNullOrEmpty(enumName))
-                    return false;
                 var memberNames = new string[memberCount];
                 var memberValues = new int[memberCount];
                 for (var m = 0; m < memberCount; m++)
                 {
                     var memberName = outNameTexts[m];
-                    if (string.IsNullOrEmpty(memberName))
-                        return false;
                     memberNames[m] = memberName;
                     memberValues[m] = outMemberValues[m];
                 }
@@ -201,16 +197,12 @@ internal static class ColumnarProgramInputBuilder
                     return false;
 
                 var structName = outStructNameTexts[0];
-                if (string.IsNullOrEmpty(structName))
-                    return false;
 
                 var baseNameCount = outResult[8];
                 var baseNames = new string[baseNameCount];
                 for (var b = 0; b < baseNameCount; b++)
                 {
                     var baseName = outBaseNameTexts[b];
-                    if (string.IsNullOrEmpty(baseName))
-                        return false;
                     baseNames[b] = baseName;
                 }
 
@@ -222,8 +214,6 @@ internal static class ColumnarProgramInputBuilder
                     for (var tp = 0; tp < typeParamCount; tp++)
                     {
                         var typeParamName = outTypeParamTexts[tp];
-                        if (string.IsNullOrEmpty(typeParamName))
-                            return false;
                         typeParamNames[tp] = typeParamName;
                     }
                 }
@@ -236,20 +226,14 @@ internal static class ColumnarProgramInputBuilder
                 for (var f = 0; f < fieldCount; f++)
                 {
                     var fieldName = outFieldNameTexts[f];
-                    if (string.IsNullOrEmpty(fieldName))
-                        return false;
                     fieldNames[f] = fieldName;
                     var fieldType = outFieldTypeTexts[f];
-                    if (string.IsNullOrEmpty(fieldType))
-                        return false;
                     fieldTypes[f] = fieldType;
                     fieldStatics[f] = outFieldStaticFlags[f] == 1;
                     fieldInitKinds[f] = outFieldInitKinds[f];
                     if (outFieldInitKinds[f] >= 0)
                     {
                         var fieldInitText = outFieldInitTexts[f];
-                        if (string.IsNullOrEmpty(fieldInitText))
-                            return false;
                         fieldInitTexts[f] = fieldInitText;
                     }
                 }
@@ -316,8 +300,6 @@ internal static class ColumnarProgramInputBuilder
                     return false;
 
                 var unionName = outUnionNameTexts[0];
-                if (string.IsNullOrEmpty(unionName))
-                    return false;
 
                 var typeParamCount = outResult[2];
 
@@ -336,8 +318,6 @@ internal static class ColumnarProgramInputBuilder
                     for (var tp = 0; tp < typeParamCount; tp++)
                     {
                         var typeParamName = outTypeParamTexts[tp];
-                        if (string.IsNullOrEmpty(typeParamName))
-                            return false;
                         typeParamNames[tp] = typeParamName;
                     }
                 }
@@ -349,8 +329,6 @@ internal static class ColumnarProgramInputBuilder
                 for (var c = 0; c < caseCount; c++)
                 {
                     var caseName = outCaseNameTexts[c];
-                    if (string.IsNullOrEmpty(caseName))
-                        return false;
                     caseNames[c] = caseName;
                     var fc = outCaseFieldCounts[c];
                     var names = new string[fc];
@@ -358,12 +336,8 @@ internal static class ColumnarProgramInputBuilder
                     for (var f = 0; f < fc; f++)
                     {
                         var fieldName = outFieldNameTexts[fieldCursor];
-                        if (string.IsNullOrEmpty(fieldName))
-                            return false;
                         names[f] = fieldName;
                         var fieldType = outFieldTypeTexts[fieldCursor];
-                        if (string.IsNullOrEmpty(fieldType))
-                            return false;
                         types[f] = fieldType;
                         fieldCursor++;
                     }
@@ -415,11 +389,7 @@ internal static class ColumnarProgramInputBuilder
             return false;
 
         var functionName = functionNameTexts[0];
-        if (string.IsNullOrEmpty(functionName))
-            return false;
         var returnCanonical = returnTypeTexts[0];
-        if (string.IsNullOrEmpty(returnCanonical))
-            return false;
 
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
@@ -429,8 +399,6 @@ internal static class ColumnarProgramInputBuilder
         {
             var paramName = paramNameTexts[p];
             var paramType = paramTypeTexts[p];
-            if (string.IsNullOrEmpty(paramName) || string.IsNullOrEmpty(paramType))
-                return false;
             paramNames[p] = paramName;
             paramCanonicals[p] = paramType;
             var tupleNameCount = paramTupleNameCounts[p];
@@ -467,8 +435,6 @@ internal static class ColumnarProgramInputBuilder
             for (var t = 0; t < typeParamCount; t++)
             {
                 var typeParamName = typeParamTexts[t];
-                if (string.IsNullOrEmpty(typeParamName))
-                    return false;
                 typeParamNames[t] = typeParamName;
             }
         }
@@ -493,8 +459,6 @@ internal static class ColumnarProgramInputBuilder
                 for (var c = 0; c < constraintCount; c++)
                 {
                     var constraint = typeParamConstraintTypeTexts[flatTypeConstraintIndex + c];
-                    if (string.IsNullOrEmpty(constraint))
-                        return false;
                     constraints[c] = constraint;
                 }
                 typeParamTypeConstraints[t] = constraints;
@@ -560,12 +524,8 @@ internal static class ColumnarProgramInputBuilder
         for (var p = 0; p < paramCount; p++)
         {
             var paramName = paramNameTexts[p];
-            if (string.IsNullOrEmpty(paramName))
-                return false;
             paramNames[p] = paramName;
             var paramCanonical = paramTypeTexts[p];
-            if (string.IsNullOrEmpty(paramCanonical))
-                return false;
             paramCanonicals[p] = paramCanonical;
         }
 
@@ -587,8 +547,6 @@ internal static class ColumnarProgramInputBuilder
         {
             chainArgKinds[a] = caKinds[a];
             var chainArgText = caTexts[a];
-            if (string.IsNullOrEmpty(chainArgText))
-                return false;
             chainArgTexts[a] = chainArgText;
         }
 
@@ -634,11 +592,7 @@ internal static class ColumnarProgramInputBuilder
             return false;
 
         var propName = propNameTexts[0];
-        if (string.IsNullOrEmpty(propName))
-            return false;
         var propType = propTypeTexts[0];
-        if (string.IsNullOrEmpty(propType))
-            return false;
 
         var getBodyBrace = propInfo[4];
         if (getBodyBrace < 0 || getBodyBrace >= n || ck[getBodyBrace] != 129)
@@ -708,15 +662,11 @@ internal static class ColumnarProgramInputBuilder
                 if (methodCount < 0)
                     return false;
                 var interfaceName = outInterfaceNameTexts[0];
-                if (string.IsNullOrEmpty(interfaceName))
-                    return false;
                 var baseInterfaceCount = outResult[2];
                 var baseInterfaceNames = new string[baseInterfaceCount];
                 for (var b = 0; b < baseInterfaceCount; b++)
                 {
                     var baseInterfaceName = outBaseNameTexts[b];
-                    if (string.IsNullOrEmpty(baseInterfaceName))
-                        return false;
                     baseInterfaceNames[b] = baseInterfaceName;
                 }
                 var methodNames = new string[methodCount];
@@ -731,12 +681,8 @@ internal static class ColumnarProgramInputBuilder
                 for (var m = 0; m < methodCount; m++)
                 {
                     var methodName = outMethodNameTexts[m];
-                    if (string.IsNullOrEmpty(methodName))
-                        return false;
                     methodNames[m] = methodName;
                     var methodReturn = outMethodReturnTexts[m];
-                    if (string.IsNullOrEmpty(methodReturn))
-                        return false;
                     methodReturns[m] = methodReturn;
                     var paramCount = outMethodParamCounts[m];
                     if (paramCount < 0 || paramCursor + paramCount > flatParamCount)
@@ -747,12 +693,8 @@ internal static class ColumnarProgramInputBuilder
                     {
                         var flatSlot = paramCursor + p;
                         var paramName = outMethodParamNameTexts[flatSlot];
-                        if (string.IsNullOrEmpty(paramName))
-                            return false;
                         methodParamNames[m][p] = paramName;
                         var paramCanonical = outMethodParamTypeTexts[flatSlot];
-                        if (string.IsNullOrEmpty(paramCanonical))
-                            return false;
                         methodParamCanonicals[m][p] = paramCanonical;
                     }
                     paramCursor += paramCount;
