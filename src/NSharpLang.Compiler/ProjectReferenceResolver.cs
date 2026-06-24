@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 
 namespace NSharpLang.Compiler;
 
@@ -84,24 +83,4 @@ public static class ProjectReferenceResolver
             $"Could not resolve an MSBuild project for '{projectReferencePath}'. Expected '{namedCsproj}' or a single .csproj in '{projectDirectory}'.");
     }
 
-    public static bool IsNSharpProjectReference(string projectReferencePath)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(projectReferencePath);
-
-        var fullPath = Path.GetFullPath(projectReferencePath);
-
-        if (fullPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase) ||
-            fullPath.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (!fullPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
-        {
-            return false;
-        }
-
-        var contents = File.ReadAllText(fullPath);
-        return contents.Contains("NSharpLang.Sdk", StringComparison.Ordinal);
-    }
 }
