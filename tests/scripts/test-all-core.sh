@@ -553,7 +553,6 @@ else
     FIRST_DIR=$(dirname "$FIRST_PROJECT")
     echo "Warming NuGet cache with $FIRST_DIR..."
     rm -rf "$FIRST_DIR/bin" "$FIRST_DIR/obj" "$FIRST_DIR/nsharp" 2>/dev/null || true
-    rm -f "$FIRST_DIR"/*.g.csproj 2>/dev/null || true
     (cd "$REPO_ROOT/$FIRST_DIR" && dotnet "$CLI_DLL" build > /dev/null 2>&1) || true
 
     EXAMPLE_RESULTS_DIR=$(mktemp -d)
@@ -578,8 +577,6 @@ else
         work_dir="$repo_root/$project_dir"
 
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
-        # Remove any stale generated .g.csproj files
-        rm -f "$work_dir"/*.g.csproj 2>/dev/null || true
 
         if (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
             printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"

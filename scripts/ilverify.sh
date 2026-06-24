@@ -170,7 +170,6 @@ build_project() {
     local dir
     dir="$(dirname "$project_yml")"
     rm -rf "$dir/bin" "$dir/obj" "$dir/nsharp" 2>/dev/null || true
-    rm -f "$dir"/*.g.csproj 2>/dev/null || true
     if (cd "$dir" && dotnet "$CLI_DLL" build >/dev/null 2>&1); then
         BUILT_DIRS+=("$dir/bin")
         return 0

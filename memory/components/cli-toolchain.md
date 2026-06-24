@@ -33,7 +33,7 @@ The executable toolchain is now IL-only:
 | `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |
 | `nlc publish --aot` | Analysis-only: verify Native AOT safety (fails on blockers) and annotate public APIs; no native image yet | `nlc publish --aot` |
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
-| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) and legacy generated wrappers | `nlc clean` |
+| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
