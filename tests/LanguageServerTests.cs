@@ -794,48 +794,6 @@ func main(): void
     }
 
     [Fact]
-    public async Task Completion_MemberAccess_ConsoleAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "WriteLine");
-        Assert.Contains(completions.Items, c => c.Label == "Write");
-        Assert.Contains(completions.Items, c => c.Label == "ReadLine");
-    }
-
-    [Fact]
-    public async Task Completion_MemberAccess_StringAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    message.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToUpper");
-        Assert.Contains(completions.Items, c => c.Label == "ToLower");
-        Assert.Contains(completions.Items, c => c.Label == "Substring");
-    }
-
-    [Fact]
     public async Task Completion_Snippet_FuncAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -942,24 +900,6 @@ func main(): void
 
         Assert.NotNull(funcSnippet);
         Assert.NotNull(funcKeyword);
-    }
-
-    [Fact]
-    public async Task Completion_Snippets_NotShownInMemberAccessAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        // Snippets should NOT appear in member access context
-        Assert.DoesNotContain(completions.Items, c => c.Kind == CompletionItemKind.Snippet);
     }
 
     #endregion
@@ -2039,48 +1979,6 @@ func main(): void
     #region Complex Scenarios
 
     [Fact]
-    public async Task Completion_ChainedMemberAccessAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let upper = message.ToUpper().";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 38);
-
-        // Should show string members (result of ToUpper())
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToLower");
-    }
-
-    [Fact]
-    public async Task Completion_ChainedMemberAccess_NonStringReturnAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let number = message.IndexOf(""e"").";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 38);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "CompareTo");
-        Assert.Contains(completions.Items, c => c.Label == "ToString");
-        Assert.DoesNotContain(completions.Items, c => c.Label == "ToLower");
-    }
-
-    [Fact]
     public async Task Completion_NestedFunctionsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -2407,60 +2305,6 @@ func Main() {
     #region Member Completion Tests
 
     [Fact]
-    public async Task Completion_MemberAccess_StringVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/string-members.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    message.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 12);
-
-        Assert.NotEmpty(completions.Items);
-        // String should have Length, ToUpper, Contains, etc.
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToUpper");
-
-        Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
-        Assert.Single(completions.Items.Where(c => c.Label == "EndsWith"));
-        Assert.Single(completions.Items.Where(c => c.Label == "CompareTo"));
-
-        var contains = Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
-        Assert.Contains("overload", contains.Detail);
-
-        var documentation = GetDocumentationText(contains.Documentation);
-        Assert.NotNull(documentation);
-        Assert.Contains("Returns a value indicating whether a specified", documentation);
-    }
-
-    [Fact]
-    public async Task Completion_MemberAccess_StaticType_ConsoleAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/console-static.nl";
-
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "WriteLine");
-        Assert.Contains(completions.Items, c => c.Label == "Write");
-
-        Assert.Single(completions.Items.Where(c => c.Label == "WriteLine"));
-        Assert.Single(completions.Items.Where(c => c.Label == "Write"));
-    }
-
-    [Fact]
     public async Task Completion_MemberAccess_NSharpClassAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -2521,28 +2365,6 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Name");
         Assert.Contains(completions.Items, c => c.Label == "Age");
         Assert.Contains(completions.Items, c => c.Label == "Greet");
-    }
-
-    [Fact]
-    public async Task Completion_Namespace_SystemAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/namespace.nl";
-
-        var source = @"
-func main(): void
-    System.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 11);
-
-        Assert.NotEmpty(completions.Items);
-        // System namespace should contain types from CoreLib (Array, Math, String, etc.)
-        Assert.Contains(completions.Items, c => c.Label == "Array");
-        Assert.Contains(completions.Items, c => c.Label == "Math");
-        // Should also show sub-namespaces like Collections, Threading
-        Assert.Contains(completions.Items, c => c.Label == "Collections" || c.Label == "Threading");
     }
 
     [Fact]

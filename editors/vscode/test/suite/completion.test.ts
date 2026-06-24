@@ -12,10 +12,6 @@ import {
     getDiagnostics
 } from './helpers';
 
-function documentationText(documentation: string | vscode.MarkdownString | undefined): string | undefined {
-    return typeof documentation === 'string' ? documentation : documentation?.value;
-}
-
 /**
  * Completion tests with kind and content validation.
  *
@@ -92,64 +88,6 @@ suite('Completions', () => {
     // ================================================================
     // MEMBER COMPLETIONS (DOT ACCESS)
     // ================================================================
-
-    test('member completions after dot include methods', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-
-        // Position after "person." in "person.GetInfo()"
-        const pos = positionOf(doc, 'person.GetInfo', { at: 'start' });
-        const dotPos = new vscode.Position(pos.line, pos.character + 7); // after "person."
-        const completions = await getCompletions(doc, dotPos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected member completions after dot');
-
-        assertCompletionContains(completions, 'GetInfo', vscode.CompletionItemKind.Method);
-    });
-
-    test('member completions after dot include properties', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('ClassesAndRecords.nl');
-
-        // Position after "car." in "car.GetDescription()"
-        const pos = positionOf(doc, 'car.GetDescription', { at: 'start' });
-        const dotPos = new vscode.Position(pos.line, pos.character + 4); // after "car."
-        const completions = await getCompletions(doc, dotPos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected member completions after dot');
-
-        // Vehicle class has Make (string property), GetDescription (method)
-        const labels = completions.items.map(i => completionLabel(i));
-        assert.ok(labels.includes('Make') || labels.includes('GetDescription'),
-            `Expected "Make" or "GetDescription" in completions. Got: ${labels.slice(0, 20).join(', ')}`);
-    });
-
-    test('member completions include documentation', async function () {
-        this.timeout(60_000);
-        const { doc, cleanup } = await createTempNlFile(`
-func Main() {
-    name := "Spencer"
-    name.
-}
-`, '_completion_docs.nl');
-
-        try {
-            await getDiagnostics(doc);
-            const dotPos = positionOf(doc, 'name.', { at: 'end' });
-            const completions = await getCompletions(doc, dotPos);
-            const contains = completions.items.find(item => completionLabel(item) === 'Contains');
-
-            assert.ok(contains, 'Expected Contains completion for string member access');
-            const documentation = documentationText(contains!.documentation);
-            assert.ok(documentation?.includes('Returns a value indicating whether a specified'),
-                `Expected Contains completion documentation. Got: ${documentation ?? '<none>'}`);
-        } finally {
-            await closeAllEditors();
-            cleanup();
-        }
-    });
 
     // ================================================================
     // VARIABLE COMPLETIONS

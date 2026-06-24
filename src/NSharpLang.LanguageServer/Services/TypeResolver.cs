@@ -12,7 +12,6 @@ namespace NSharpLang.LanguageServer.Services;
 public class TypeResolver
 {
     private readonly ILogger<TypeResolver> _logger;
-    private readonly XmlDocReader _xmlDocReader;
     private readonly Dictionary<string, Type> _typeCache = new();
     private readonly List<Assembly> _loadedAssemblies = new();
     private readonly Dictionary<Assembly, Type[]> _exportedTypesCache = new();
@@ -70,7 +69,6 @@ public class TypeResolver
     public TypeResolver(ILogger<TypeResolver> logger, XmlDocReader xmlDocReader)
     {
         _logger = logger;
-        _xmlDocReader = xmlDocReader;
         // CRITICAL FIX: Don't load assemblies in constructor
         // This was causing test hangs during xUnit test discovery
         // Load on first use instead
@@ -599,130 +597,6 @@ public class TypeResolver
     }
 
     /// <summary>
-    /// Get all public members of a type, filtered by access mode
-    /// </summary>
-    public List<MemberCompletionItem> GetMembers(Type type, MemberAccessMode mode = MemberAccessMode.All)
-    {
-        var items = new List<MemberCompletionItem>();
-
-        try
-        {
-            // Always fetch both static and instance, then filter after
-            var bindingFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
-
-            // Get properties
-            foreach (var prop in type.GetProperties(bindingFlags))
-            {
-                items.Add(new MemberCompletionItem
-                {
-                    Name = prop.Name,
-                    Kind = MemberKind.Property,
-                    Type = FormatTypeName(prop.PropertyType),
-                    IsStatic = prop.GetMethod?.IsStatic ?? prop.SetMethod?.IsStatic ?? false,
-                    Documentation = _xmlDocReader.GetPropertyDocumentation(prop)
-                });
-            }
-
-            // Get methods (exclude property getters/setters and special methods)
-            foreach (var method in type.GetMethods(bindingFlags))
-            {
-                if (method.IsSpecialName || method.Name.StartsWith("get_") || method.Name.StartsWith("set_"))
-                {
-                    continue;
-                }
-
-                var parameters = method.GetParameters();
-                var paramString = string.Join(", ", parameters.Select(p =>
-                    $"{p.Name}: {FormatTypeName(p.ParameterType)}"));
-
-                items.Add(new MemberCompletionItem
-                {
-                    Name = method.Name,
-                    Kind = MemberKind.Method,
-                    Type = FormatTypeName(method.ReturnType),
-                    Parameters = paramString,
-                    ParameterCount = parameters.Length,
-                    IsStatic = method.IsStatic,
-                    Documentation = _xmlDocReader.GetMethodDocumentation(method)
-                });
-            }
-
-            // Get fields
-            foreach (var field in type.GetFields(bindingFlags))
-            {
-                items.Add(new MemberCompletionItem
-                {
-                    Name = field.Name,
-                    Kind = MemberKind.Field,
-                    Type = FormatTypeName(field.FieldType),
-                    IsStatic = field.IsStatic,
-                    Documentation = _xmlDocReader.GetFieldDocumentation(field)
-                });
-            }
-
-            // Get events
-            foreach (var evt in type.GetEvents(bindingFlags))
-            {
-                items.Add(new MemberCompletionItem
-                {
-                    Name = evt.Name,
-                    Kind = MemberKind.Event,
-                    Type = FormatTypeName(evt.EventHandlerType!),
-                    IsStatic = evt.AddMethod?.IsStatic ?? false,
-                    Documentation = null
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting members for type {Type}", type.FullName);
-        }
-
-        // Filter by access mode before collapsing overloads so static and instance members do not
-        // affect each other's displayed overload count.
-        if (mode == MemberAccessMode.StaticOnly)
-            return CollapseOverloadsForCompletion(items.Where(i => i.IsStatic));
-        if (mode == MemberAccessMode.InstanceOnly)
-            return CollapseOverloadsForCompletion(items.Where(i => !i.IsStatic));
-
-        return CollapseOverloadsForCompletion(items);
-    }
-
-    private static List<MemberCompletionItem> CollapseOverloadsForCompletion(IEnumerable<MemberCompletionItem> members)
-    {
-        var collapsed = new List<MemberCompletionItem>();
-
-        foreach (var group in members.GroupBy(member => (member.Name, member.Kind, member.IsStatic)))
-        {
-            if (group.Key.Kind != MemberKind.Method)
-            {
-                collapsed.Add(group.First());
-                continue;
-            }
-
-            var overloads = group.ToList();
-            var representative = overloads
-                .OrderBy(member => member.ParameterCount)
-                .ThenBy(member => member.Parameters ?? string.Empty, StringComparer.Ordinal)
-                .First();
-
-            collapsed.Add(new MemberCompletionItem
-            {
-                Name = representative.Name,
-                Kind = representative.Kind,
-                Type = representative.Type,
-                Parameters = representative.Parameters,
-                ParameterCount = representative.ParameterCount,
-                IsStatic = representative.IsStatic,
-                Documentation = representative.Documentation,
-                OverloadCount = overloads.Count
-            });
-        }
-
-        return collapsed;
-    }
-
-    /// <summary>
     /// Format a type name for display
     /// </summary>
     private string FormatTypeName(Type type)
@@ -827,39 +701,3 @@ public sealed record ImportableTypeInfo(
     bool IsStatic,
     bool IsInterface,
     bool IsEnum);
-
-/// <summary>
-/// Represents a member for completion
-/// </summary>
-public class MemberCompletionItem
-{
-    public required string Name { get; init; }
-    public required MemberKind Kind { get; init; }
-    public required string Type { get; init; }
-    public string? Parameters { get; init; }
-    public int ParameterCount { get; init; }
-    public bool IsStatic { get; init; }
-    public string? Documentation { get; init; }
-    public int OverloadCount { get; init; } = 1;
-}
-
-/// <summary>
-/// Kind of member
-/// </summary>
-public enum MemberKind
-{
-    Method,
-    Property,
-    Field,
-    Event
-}
-
-/// <summary>
-/// Controls which members to return based on static/instance access
-/// </summary>
-public enum MemberAccessMode
-{
-    All,
-    StaticOnly,
-    InstanceOnly
-}

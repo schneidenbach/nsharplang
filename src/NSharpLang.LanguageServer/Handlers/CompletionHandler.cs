@@ -209,9 +209,6 @@ public class CompletionHandler : CompletionHandlerBase
         _logger.LogDebug("Found MemberAccessExpression, resolving Object type for: {MemberName}",
             memberAccess.MemberName);
 
-        // Prefer source-defined N# symbols over same-named CLR types already loaded in the test/app domain.
-        // Reflection is only a fallback for framework/external types; otherwise a local `Person` can be
-        // shadowed by an unrelated CLR `Person` and hide source members such as Age/Greet.
         if (memberAccess.Object is IdentifierExpression sourceId)
         {
             var sourceTypeInfo = doc.SemanticModel!.LookupIdentifier(sourceId.Name);
@@ -238,29 +235,6 @@ public class CompletionHandler : CompletionHandlerBase
                 return nsharpMembers;
             }
 
-            var clrType = ResolveClrType(objectTypeInfo);
-            if (clrType != null)
-            {
-                var mode = IsStaticTypeAccess(memberAccess.Object, doc)
-                    ? MemberAccessMode.StaticOnly
-                    : MemberAccessMode.InstanceOnly;
-
-                _logger.LogDebug("Resolved chained receiver as CLR type: {Type}, mode: {Mode}", clrType.FullName, mode);
-                return MembersToCompletionItems(_typeResolver.GetMembers(clrType, mode), doc, clrType);
-            }
-        }
-
-        // Try to resolve the type of the object expression (the part before the dot)
-        var objectType = resolver.ResolveExpressionType(memberAccess.Object);
-
-        if (objectType != null)
-        {
-            var mode = IsStaticTypeAccess(memberAccess.Object, doc)
-                ? MemberAccessMode.StaticOnly
-                : MemberAccessMode.InstanceOnly;
-
-            _logger.LogDebug("Resolved to System.Type: {Type}, mode: {Mode}", objectType.FullName, mode);
-            return MembersToCompletionItems(_typeResolver.GetMembers(objectType, mode), doc, objectType);
         }
 
         _logger.LogDebug("Could not resolve type for member access");
@@ -336,112 +310,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
 
         return items;
-    }
-
-    /// <summary>
-    /// Determine if a member access is on a type (static) vs on a variable (instance)
-    /// </summary>
-    private bool IsStaticTypeAccess(Expression objectExpr, Models.DocumentState doc)
-    {
-        if (objectExpr is not IdentifierExpression id) return false;
-
-        // If the identifier exists as a variable in the semantic model, it's instance access
-        if (doc.SemanticModel?.LookupIdentifier(id.Name) != null) return false;
-
-        // If the identifier resolves as a type name, it's static access
-        return _typeResolver.ResolveType(id.Name) != null;
-    }
-
-    private Type? ResolveClrType(TypeInfo typeInfo)
-    {
-        return typeInfo switch
-        {
-            ReflectionTypeInfo reflection => reflection.Type,
-            SimpleTypeInfo simple => _typeResolver.ResolveType(simple.Name),
-            ArrayTypeInfo array => ResolveClrType(array.ElementType)?.MakeArrayType(),
-            NullableTypeInfo nullable => ResolveNullableClrType(nullable.InnerType),
-            GenericTypeInfo generic => _typeResolver.ResolveType(generic.Name)
-                ?? _typeResolver.ResolveType(generic.ToString()),
-            _ => _typeResolver.ResolveType(typeInfo.ToString())
-        };
-    }
-
-    private Type? ResolveNullableClrType(TypeInfo innerType)
-    {
-        var clrInnerType = ResolveClrType(innerType);
-        if (clrInnerType == null)
-        {
-            return null;
-        }
-
-        return clrInnerType.IsValueType
-            ? typeof(Nullable<>).MakeGenericType(clrInnerType)
-            : clrInnerType;
-    }
-
-    /// <summary>
-    /// Convert MemberCompletionItems to LSP CompletionItems, optionally attaching auto-import edits
-    /// when the resolved type's namespace isn't already imported.
-    /// </summary>
-    private List<CompletionItem> MembersToCompletionItems(
-        List<MemberCompletionItem> members,
-        Models.DocumentState? doc,
-        Type? resolvedType)
-    {
-        TextEditContainer? autoImportEdits = null;
-        if (resolvedType != null && doc != null)
-        {
-            var ns = _typeResolver.GetImportNamespace(resolvedType);
-            if (ns != null)
-            {
-                autoImportEdits = BuildAutoImportEdits(doc, ns);
-            }
-        }
-
-        return MembersToCompletionItems(members, autoImportEdits);
-    }
-
-    /// <summary>
-    /// Convert MemberCompletionItems to LSP CompletionItems
-    /// </summary>
-    private static List<CompletionItem> MembersToCompletionItems(
-        List<MemberCompletionItem> members,
-        TextEditContainer? autoImportEdits = null)
-    {
-        return members.Select(member => new CompletionItem
-        {
-            Label = member.Name,
-            Kind = member.Kind switch
-            {
-                MemberKind.Method => CompletionItemKind.Method,
-                MemberKind.Property => CompletionItemKind.Property,
-                MemberKind.Field => CompletionItemKind.Field,
-                MemberKind.Event => CompletionItemKind.Event,
-                _ => CompletionItemKind.Text
-            },
-            Detail = GetMemberCompletionDetail(member),
-            InsertText = member.Name,
-            Documentation = !string.IsNullOrEmpty(member.Documentation)
-                ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
-                : null,
-            AdditionalTextEdits = autoImportEdits
-        }).ToList();
-    }
-
-    private static string GetMemberCompletionDetail(MemberCompletionItem member)
-    {
-        var detail = member.Parameters != null
-            ? $"{member.Name}({member.Parameters}): {member.Type}"
-            : $"{member.Name}: {member.Type}";
-
-        if (member.OverloadCount <= 1)
-        {
-            return detail;
-        }
-
-        var additionalOverloads = member.OverloadCount - 1;
-        var overloadLabel = additionalOverloads == 1 ? "overload" : "overloads";
-        return $"{detail} (+{additionalOverloads} {overloadLabel})";
     }
 
     private void AddLanguageCompletionItems(List<CompletionItem> items, HashSet<string> itemKeys)
