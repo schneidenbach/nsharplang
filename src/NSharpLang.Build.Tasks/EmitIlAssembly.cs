@@ -47,12 +47,6 @@ public class EmitIlAssembly : Task
                 .Select(source => source.ItemSpec)
                 .ToArray();
 
-            if (sourceFiles.Length == 0)
-            {
-                Log.LogMessage(MessageImportance.Low, "No N# source files to emit as IL.");
-                return true;
-            }
-
             var config = ProjectFileParser.Parse(ProjectFile!);
             if (string.IsNullOrWhiteSpace(config.Version) && !string.IsNullOrWhiteSpace(AssemblyVersion))
             {
