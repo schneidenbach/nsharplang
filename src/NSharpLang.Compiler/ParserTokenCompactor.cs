@@ -15,15 +15,11 @@ internal static class ParserTokenCompactor
         compactedTokens = [];
 
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var tokenCount = tokens.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(tokenCount);
 
-        try
-        {
             for (var i = 0; i < tokenCount; i++)
             {
                 scratch.TokenKinds[i] = (int)tokens[i].Type;
@@ -55,12 +51,6 @@ internal static class ParserTokenCompactor
 
             compactedTokens = result;
             return true;
-        }
-        catch
-        {
-            compactedTokens = [];
-            return false;
-        }
     }
 
     private static Bindings? LoadBindings()

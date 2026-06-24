@@ -17,8 +17,6 @@ internal static class SourceFileDeduplicator
         deduplicatedSourceFiles = [];
 
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var count = sourceFiles.Count;
         var scratch = t_scratch ??= new Scratch(StringComparer.OrdinalIgnoreCase);
@@ -66,11 +64,6 @@ internal static class SourceFileDeduplicator
 
             deduplicatedSourceFiles = result;
             return true;
-        }
-        catch
-        {
-            deduplicatedSourceFiles = [];
-            return false;
         }
         finally
         {
