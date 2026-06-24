@@ -166,10 +166,6 @@ nlc query help
 nlc build --verbose --timings
 ```
 
-There is intentionally no public source-conversion workflow. Write N# directly, use `nlc check`,
-`nlc fix --dry-run`, `nlc format --check`, and tests for feedback. Direct IL emission is the
-product build path.
-
 ## Current CLI Surface
 
 Current `nlc --help` lists these top-level commands:

@@ -10,7 +10,6 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 ## CLI
 
-- **No public source-conversion contract.** N# is authored directly. Direct IL emission is the product path.
 - **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
 ## Language Semantics
