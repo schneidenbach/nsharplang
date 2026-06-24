@@ -22921,11 +22921,6 @@ public class Analyzer : IDisposable
             // MetadataLoadContext rejects duplicate identities; suppress to keep machine-readable
             // output like `nlc check --json` clean when ResolveReferences returns overlapping facades.
         }
-        catch (Exception ex)
-        {
-            RecordReferenceLoadFailure(assemblyPath, ex);
-            Console.Error.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
-        }
     }
 
     /// <summary>
