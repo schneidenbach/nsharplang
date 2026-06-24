@@ -348,43 +348,6 @@ func main() {
         finally { Cleanup(filePath); }
     }
 
-    // ── Namespace Completions ───────────────────────────────────────────
-
-    [Fact]
-    public void GetCompletions_NamespaceAccess_SystemTypes()
-    {
-        var source = "func main() {\n    System.\n}";
-        var (engine, snapshot, filePath) = SetupWithSource(source);
-
-        try
-        {
-            var result = engine.GetCompletions(snapshot, filePath, 2, 11);
-
-            Assert.Equal(CompletionContext.Namespace, result.Context);
-            Assert.Equal("System", result.Receiver);
-            Assert.True(result.Completions.ContainsKey("types"));
-            Assert.True(result.Completions["types"].Count > 0, "System namespace should have types");
-        }
-        finally { Cleanup(filePath); }
-    }
-
-    [Fact]
-    public void GetCompletions_NamespaceAccess_SystemIO()
-    {
-        var source = "func main() {\n    System.IO.\n}";
-        var (engine, snapshot, filePath) = SetupWithSource(source);
-
-        try
-        {
-            var result = engine.GetCompletions(snapshot, filePath, 2, 14);
-
-            Assert.Equal(CompletionContext.Namespace, result.Context);
-            Assert.Equal("System.IO", result.Receiver);
-            Assert.True(result.Completions.ContainsKey("types"));
-        }
-        finally { Cleanup(filePath); }
-    }
-
     // ── N# Type Member Completions ──────────────────────────────────────
 
     [Fact]

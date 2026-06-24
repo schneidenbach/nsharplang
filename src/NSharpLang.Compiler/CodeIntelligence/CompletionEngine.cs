@@ -67,7 +67,6 @@ public class CompletionEngine
     // Cache of loaded assemblies for type resolution
     private List<Assembly>? _loadedAssemblies;
     private readonly Dictionary<string, Type> _typeCache = new();
-    private readonly Dictionary<string, Type[]> _exportedTypesCache = new();
 
     /// <summary>
     /// Get completions at a position in a project.
@@ -224,17 +223,6 @@ public class CompletionEngine
                     completions,
                     MemberFilter.InstanceOnly);
                 if (memberResult != null) return memberResult;
-            }
-        }
-
-        // Try as namespace
-        if (IsKnownNamespace(receiver))
-        {
-            var nsItems = GetNamespaceCompletions(receiver);
-            if (nsItems.Count > 0)
-            {
-                completions["types"] = nsItems;
-                return new CompletionResult(CompletionContext.Namespace, receiver, null, completions);
             }
         }
 
@@ -630,39 +618,6 @@ public class CompletionEngine
             : ResolveTypeReferenceToTypeInfo(functionType.Declaration.ReturnType, snapshot);
     }
 
-    private List<CompletionItem> GetNamespaceCompletions(string ns)
-    {
-        var items = new List<CompletionItem>();
-        EnsureAssembliesLoaded();
-
-        var seen = new HashSet<string>();
-
-        foreach (var assembly in _loadedAssemblies!)
-        {
-            Type[] types;
-            if (!_exportedTypesCache.TryGetValue(assembly.FullName ?? "", out types!))
-            {
-                try { types = assembly.GetExportedTypes(); }
-                catch { types = Array.Empty<Type>(); }
-                _exportedTypesCache[assembly.FullName ?? ""] = types;
-            }
-
-            foreach (var type in types)
-            {
-                if (type.Namespace == ns && !type.IsNested)
-                {
-                    var cleanName = type.Name.Contains('`') ? type.Name.Split('`')[0] : type.Name;
-                    if (seen.Add(cleanName))
-                    {
-                        items.Add(new CompletionItem(cleanName, "type", type.FullName, null, null, type.IsAbstract && type.IsSealed));
-                    }
-                }
-            }
-        }
-
-        return items;
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private bool IsStaticAccess(string name, SemanticModel? semanticModel)
@@ -770,15 +725,6 @@ public class CompletionEngine
             "Dictionary" or "System.Collections.Generic.Dictionary" => typeof(Dictionary<,>),
             _ => null
         };
-
-    private static readonly HashSet<string> WellKnownNamespaces = new()
-    {
-        "System", "System.Collections", "System.Collections.Generic", "System.IO",
-        "System.Linq", "System.Text", "System.Threading", "System.Threading.Tasks",
-        "System.Net", "System.Net.Http", "System.Reflection", "System.Diagnostics"
-    };
-
-    private bool IsKnownNamespace(string name) => WellKnownNamespaces.Contains(name);
 
     private void EnsureAssembliesLoaded()
     {
