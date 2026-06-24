@@ -20,8 +20,6 @@ internal static class BindingLookupKernels
         candidateColumns = Array.Empty<int>();
 
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         var maxCandidateCount = 3;
         if (span is { } spanValue && spanValue.StartColumn > 0 && spanValue.EndColumn >= spanValue.StartColumn)
@@ -65,8 +63,6 @@ internal static class BindingLookupKernels
         declaration = null;
 
         var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
 
         if (candidateColumns.Length == 0)
             return true;
