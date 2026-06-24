@@ -14108,7 +14108,6 @@ public class Analyzer : IDisposable
                 ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
                 : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
 
-        _semanticModel.RecordReflectionCallTarget(call.Line, call.Column, method);
 
         return new FunctionTypeInfo(null)
         {

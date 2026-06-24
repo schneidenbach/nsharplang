@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.Performance;
@@ -44,33 +43,12 @@ public sealed record AotBlocker(
 /// </summary>
 public sealed class AotBlockerAnalyzer
 {
-    private readonly string _file;
     private readonly AbiClassifier _abi;
-    private readonly SemanticModel? _semanticModel;
     private readonly List<AotBlocker> _blockers = new();
-
-    // Member names that, when invoked on any receiver, read runtime metadata reflectively.
-    // Kept deliberately conservative: only members that are reflection-specific, so ordinary
-    // APIs that merely share a verb (e.g. a domain `GetType()` is rare) are not over-reported.
-    private static readonly HashSet<string> ReflectionMembers = new(StringComparer.Ordinal)
-    {
-        "GetType",
-        "GetMethod", "GetMethods",
-        "GetProperty", "GetProperties",
-        "GetField", "GetFields",
-        "GetMember", "GetMembers",
-        "GetConstructor", "GetConstructors",
-        "GetCustomAttribute", "GetCustomAttributes",
-        "GetInterface", "GetInterfaces",
-        "InvokeMember",
-        "GetRuntimeMethod", "GetRuntimeProperty", "GetRuntimeField",
-    };
 
     public AotBlockerAnalyzer(string file, AbiClassifier abi, SemanticModel? semanticModel = null)
     {
-        _file = file ?? string.Empty;
         _abi = abi ?? new AbiClassifier(file ?? string.Empty);
-        _semanticModel = semanticModel;
     }
 
     /// <summary>All AOT blockers discovered during <see cref="Analyze"/>, in source order.</summary>
@@ -340,7 +318,6 @@ public sealed class AotBlockerAnalyzer
                 break;
 
             case CallExpression call:
-                InspectCall(call, context);
                 WalkChildExpressions(call, context);
                 break;
 
@@ -376,167 +353,4 @@ public sealed class AotBlockerAnalyzer
         }
     }
 
-    private void InspectCall(CallExpression call, DeclarationContext context)
-    {
-        if (call.Callee is not MemberAccessExpression member)
-        {
-            return;
-        }
-
-        var name = member.MemberName;
-
-        if (_semanticModel != null)
-        {
-            if (_semanticModel.LookupReflectionCallTarget(call.Line, call.Column) is { } target
-                && TryClassifyResolvedCall(target, name, out var resolvedKind, out var resolvedConstruct))
-            {
-                Record(resolvedKind, member, resolvedConstruct, context);
-            }
-
-            return;
-        }
-    }
-
-    private static bool TryClassifyResolvedCall(
-        MethodInfo method,
-        string sourceMemberName,
-        out AotSafetyKind kind,
-        out string construct)
-    {
-        kind = AotSafetyKind.NoReflection;
-        construct = sourceMemberName;
-
-        var declaringType = method.DeclaringType;
-        var declaringFullName = declaringType?.FullName ?? string.Empty;
-
-        if (method.Name == "MakeGenericType" && IsTypeLike(declaringType))
-        {
-            kind = AotSafetyKind.DynamicCodeRequired;
-            construct = method.Name;
-            return true;
-        }
-
-        if (method.Name == "MakeGenericMethod" && IsMethodInfoLike(declaringType))
-        {
-            kind = AotSafetyKind.DynamicCodeRequired;
-            construct = method.Name;
-            return true;
-        }
-
-        if (method.Name == "CreateInstance" && HasClrFullName(declaringType, "System.Activator"))
-        {
-            kind = AotSafetyKind.DynamicCodeRequired;
-            construct = "Activator.CreateInstance";
-            return true;
-        }
-
-        if (method.Name == "DynamicInvoke" && IsDelegateLike(declaringType))
-        {
-            kind = AotSafetyKind.DynamicCodeRequired;
-            construct = method.Name;
-            return true;
-        }
-
-        if (method.Name == "CreateDelegate" && declaringType != null
-            && (IsMethodInfoLike(declaringType) || IsDelegateLike(declaringType)))
-        {
-            kind = AotSafetyKind.DynamicCodeRequired;
-            construct = method.Name;
-            return true;
-        }
-
-        if (IsReflectionMetadataMethod(method, declaringType, declaringFullName))
-        {
-            kind = AotSafetyKind.MetadataRequired;
-            construct = method.Name;
-            return true;
-        }
-
-        if (declaringFullName == "System.Linq.Expressions.Expression"
-            || declaringFullName.StartsWith("System.Linq.Expressions.", StringComparison.Ordinal))
-        {
-            kind = AotSafetyKind.ExpressionTreeRequired;
-            construct = declaringFullName == "System.Linq.Expressions.Expression"
-                ? $"Expression.{method.Name}"
-                : method.Name;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsReflectionMetadataMethod(MethodInfo method, Type? declaringType, string declaringFullName)
-    {
-        if (!ReflectionMembers.Contains(method.Name))
-        {
-            return false;
-        }
-
-        if (method.Name == "GetType"
-            && method.GetParameters().Length == 0
-            && HasClrFullName(method.ReturnType, "System.Type"))
-        {
-            return true;
-        }
-
-        return IsTypeLike(declaringType)
-            || IsMemberInfoLike(declaringType)
-            || declaringFullName.StartsWith("System.Reflection.", StringComparison.Ordinal);
-    }
-
-    private static bool IsTypeLike(Type? type) => HasClrTypeInBaseChain(type, "System.Type");
-
-    private static bool IsMemberInfoLike(Type? type) => HasClrTypeInBaseChain(type, "System.Reflection.MemberInfo");
-
-    private static bool IsMethodInfoLike(Type? type) => HasClrTypeInBaseChain(type, "System.Reflection.MethodInfo");
-
-    private static bool IsDelegateLike(Type? type)
-        => HasClrTypeInBaseChain(type, "System.Delegate")
-            || HasClrTypeInBaseChain(type, "System.MulticastDelegate");
-
-    private static bool HasClrTypeInBaseChain(Type? type, string fullName)
-    {
-        while (type != null)
-        {
-            if (HasClrFullName(type, fullName))
-            {
-                return true;
-            }
-
-            try
-            {
-                type = type.BaseType;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasClrFullName(Type? type, string fullName)
-        => string.Equals(type?.FullName, fullName, StringComparison.Ordinal);
-
-    private void Record(AotSafetyKind kind, MemberAccessExpression member, string construct, DeclarationContext context)
-    {
-        // MemberAccessExpression.Column points at the access dot; the member name begins one
-        // column later. Underline the member name itself for a precise caret. Use the member
-        // name length (not the full reported construct, which may include a receiver prefix).
-        Record(kind, member.Line, member.Column + 1, Math.Max(1, member.MemberName.Length), construct, context);
-    }
-
-    private void Record(AotSafetyKind kind, int line, int column, int length, string construct, DeclarationContext context)
-    {
-        _blockers.Add(new AotBlocker(
-            kind,
-            _file,
-            line,
-            column,
-            Math.Max(1, length),
-            construct,
-            context.Boundary,
-            context.Name));
-    }
 }

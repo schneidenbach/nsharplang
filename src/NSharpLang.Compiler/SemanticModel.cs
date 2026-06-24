@@ -66,12 +66,6 @@ public class SemanticModel
     public Dictionary<(int Line, int Column), TypeInfo> TypeReferenceTypes { get; } = new();
 
     /// <summary>
-    /// Maps call expression positions to the CLR method selected by overload resolution.
-    /// Key: (line, column), Value: selected method.
-    /// </summary>
-    public Dictionary<(int Line, int Column), System.Reflection.MethodInfo> ReflectionCallTargets { get; } = new();
-
-    /// <summary>
     /// Maps variable/parameter names to their resolved types (flat, last-write-wins).
     /// Use LookupIdentifierAtPosition for scope-aware lookups.
     /// </summary>
@@ -260,14 +254,6 @@ public class SemanticModel
         TypeReferenceTypes[(line, column)] = type;
     }
 
-    /// <summary>
-    /// Record the CLR method selected for a call expression.
-    /// </summary>
-    public void RecordReflectionCallTarget(int line, int column, System.Reflection.MethodInfo method)
-    {
-        ReflectionCallTargets[(line, column)] = method;
-    }
-
     // ── Lookups ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -395,14 +381,6 @@ public class SemanticModel
     public TypeInfo? LookupTypeReferenceAtPosition(int line, int column)
     {
         return TypeReferenceTypes.TryGetValue((line, column), out var type) ? type : null;
-    }
-
-    /// <summary>
-    /// Try to find the CLR method selected for a call expression at a source position.
-    /// </summary>
-    public System.Reflection.MethodInfo? LookupReflectionCallTarget(int line, int column)
-    {
-        return ReflectionCallTargets.TryGetValue((line, column), out var method) ? method : null;
     }
 
     // ── Internal helpers ────────────────────────────────────────────────
