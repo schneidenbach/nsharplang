@@ -23571,9 +23571,6 @@ public class Analyzer : IDisposable
                 }
             }
         }
-
-        // Fallback: try to load by name (runtime will resolve)
-        LoadReferencedAssemblyByName(packageName);
     }
 
     /// <summary>
