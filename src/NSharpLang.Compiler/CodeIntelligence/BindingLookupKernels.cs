@@ -25,9 +25,6 @@ internal static class BindingLookupKernels
         if (span is { } spanValue && spanValue.StartColumn > 0 && spanValue.EndColumn >= spanValue.StartColumn)
         {
             var spanLength = spanValue.EndColumn - spanValue.StartColumn + 1;
-            if (spanLength < 0)
-                return false;
-
             maxCandidateCount += spanLength;
         }
 
