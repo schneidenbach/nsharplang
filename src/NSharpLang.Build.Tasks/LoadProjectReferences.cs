@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NSharpLang.Compiler;
@@ -21,13 +20,7 @@ public class LoadProjectReferences : Task
     {
         try
         {
-            if (string.IsNullOrEmpty(ProjectFile) || !File.Exists(ProjectFile))
-            {
-                Log.LogMessage(MessageImportance.Low, "No project.yml file found, skipping reference loading.");
-                return true;
-            }
-
-            var config = ProjectFileParser.Parse(ProjectFile);
+            var config = ProjectFileParser.Parse(ProjectFile!);
 
             var packageRefs = new List<ITaskItem>();
             var frameworkRefs = new List<ITaskItem>();

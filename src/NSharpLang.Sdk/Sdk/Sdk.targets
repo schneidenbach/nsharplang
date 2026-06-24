@@ -128,7 +128,9 @@
   </Target>
 
   <!-- Load dependencies from project.yml and add them to MSBuild items -->
-  <Target Name="LoadNSharpReferences" BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences">
+  <Target Name="LoadNSharpReferences"
+          BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences"
+          Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectReferences ProjectFile="$(NSharpProjectFile)">
       <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
       <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
