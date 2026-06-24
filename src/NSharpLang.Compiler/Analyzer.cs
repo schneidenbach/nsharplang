@@ -15760,8 +15760,6 @@ public class Analyzer : IDisposable
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
-        try
-        {
             for (var current = type; current != null; current = current.BaseType)
             {
                 if (current.GetFields(flags).Any(field => field.Name == memberName))
@@ -15776,11 +15774,6 @@ public class Analyzer : IDisposable
                     return false;
                 }
             }
-        }
-        catch (NotSupportedException)
-        {
-            return null; // an emitted instantiation — unresolvable here.
-        }
 
         return false;
     }
@@ -16060,8 +16053,6 @@ public class Analyzer : IDisposable
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
         resolvedFieldName = string.Empty;
 
-        try
-        {
             for (var current = type; current != null; current = current.BaseType)
             {
                 var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
@@ -16083,11 +16074,6 @@ public class Analyzer : IDisposable
                     return false;
                 }
             }
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
 
         return false;
     }
@@ -16177,8 +16163,6 @@ public class Analyzer : IDisposable
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
         resolvedFieldName = string.Empty;
 
-        try
-        {
             for (var current = type; current != null; current = current.BaseType)
             {
                 var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
@@ -16200,11 +16184,6 @@ public class Analyzer : IDisposable
                     return false;
                 }
             }
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
 
         return false;
     }
@@ -16959,14 +16938,7 @@ public class Analyzer : IDisposable
         yield return type;
 
         Type[] interfaces;
-        try
-        {
             interfaces = type.GetInterfaces();
-        }
-        catch (NotSupportedException)
-        {
-            yield break;
-        }
 
         foreach (var interfaceType in interfaces)
         {
@@ -18029,8 +18001,6 @@ public class Analyzer : IDisposable
     {
         resultType = BuiltInTypes.Unknown;
 
-        try
-        {
             var runtimeType = Nullable.GetUnderlyingType(type) ?? type;
             var getAwaiterMethod = runtimeType.GetMethod(
                 "GetAwaiter",
@@ -18059,11 +18029,6 @@ public class Analyzer : IDisposable
                 ? BuiltInTypes.Void
                 : ConvertReflectionType(getResultMethod.ReturnType);
             return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private TypeInfo AnalyzeThrowExpression(ThrowExpression throwExpr)
