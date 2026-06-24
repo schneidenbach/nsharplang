@@ -45,8 +45,6 @@ public class Formatter
     {
         var warnings = new List<string>();
 
-        try
-        {
             var formatted = Format(ast, comments);
             var lexer = new Lexer(formatted, fileName);
             var tokens = lexer.Tokenize();
@@ -71,12 +69,6 @@ public class Formatter
             }
 
             return new FormatResult { Text = formatted, Success = true, Warnings = warnings };
-        }
-        catch (Exception ex)
-        {
-            warnings.Add($"Formatter safety check failed ({ex.Message}). Returning original source.");
-            return new FormatResult { Text = originalSource, Success = false, Warnings = warnings };
-        }
     }
 
     public string Format(CompilationUnit ast, List<CommentTrivia>? comments = null)
