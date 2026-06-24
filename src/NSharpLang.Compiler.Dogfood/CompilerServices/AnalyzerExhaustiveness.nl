@@ -11,6 +11,37 @@ struct AnalyzerMissingMemberResultTable {
     Indices: int[]
 }
 
+func AnalyzerMissingMemberNamesInto(memberNames: string[], coveredNames: string[], resultNames: string[]): int {
+    count := AnalyzerExhaustivenessMinInt(memberNames.Length, resultNames.Length)
+
+    resultCount := 0
+    i := 0
+    while i < count {
+        memberName := memberNames[i]
+        if !AnalyzerExhaustivenessContainsName(coveredNames, memberName) {
+            resultNames[resultCount] = memberName
+            resultCount = resultCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func AnalyzerExhaustivenessContainsName(names: string[], target: string): bool {
+    i := 0
+    while i < names.Length {
+        if names[i] == target {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
 struct AnalyzerUnionMissingCaseResultTable {
     MissingIndices: int[]
     PartialMissingIndices: int[]
@@ -106,4 +137,12 @@ func AnalyzerUnionMissingCaseIndicesCore(
     result.Counts[1] = partialMissingCount
     result.Counts[2] = neverCoveredCount
     return missingCount
+}
+
+func AnalyzerExhaustivenessMinInt(left: int, right: int): int {
+    if left < right {
+        return left
+    }
+
+    return right
 }

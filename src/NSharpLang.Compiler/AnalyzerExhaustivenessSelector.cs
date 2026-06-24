@@ -8,8 +8,6 @@ internal static class AnalyzerExhaustivenessSelector
 {
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
-    private static MissingEnumMemberScratch? t_missingEnumMemberScratch;
-    [ThreadStatic]
     private static MissingUnionCaseScratch? t_missingUnionCaseScratch;
 
     internal static List<string> SelectMissingEnumMembers(
@@ -19,24 +17,25 @@ internal static class AnalyzerExhaustivenessSelector
         var bindings = RequiredBindings;
 
         var memberCount = members.Count;
-        var scratch = t_missingEnumMemberScratch ??= new MissingEnumMemberScratch();
-        scratch.EnsureCapacity(memberCount);
-
+        var memberNames = new string[memberCount];
         for (var i = 0; i < memberCount; i++)
         {
-            scratch.CoveredFlags[i] = coveredMembers.Contains(members[i].Name) ? 1 : 0;
+            memberNames[i] = members[i].Name;
         }
 
-        var missingCount = bindings.AnalyzerMissingMemberIndices(
-            scratch.CoveredFlags,
-            memberCount,
-            scratch.ResultIndices);
+        var coveredNames = new string[coveredMembers.Count];
+        coveredMembers.CopyTo(coveredNames, 0);
+
+        var resultNames = new string[memberCount];
+        var missingCount = bindings.AnalyzerMissingMemberNames(
+            memberNames,
+            coveredNames,
+            resultNames);
 
         var result = new List<string>(missingCount);
         for (var i = 0; i < missingCount; i++)
         {
-            var sourceIndex = scratch.ResultIndices[i];
-            result.Add(members[sourceIndex].Name);
+            result.Add(resultNames[i]);
         }
 
         return result;
@@ -90,9 +89,9 @@ internal static class AnalyzerExhaustivenessSelector
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<AnalyzerMissingMemberIndicesInto>(
+            DogfoodKernelLoader.CreateDelegate<AnalyzerMissingMemberNamesInto>(
                 programType,
-                "AnalyzerMissingMemberIndicesInto"),
+                "AnalyzerMissingMemberNamesInto"),
             DogfoodKernelLoader.CreateDelegate<AnalyzerUnionMissingCaseIndicesInto>(
                 programType,
                 "AnalyzerUnionMissingCaseIndicesInto")));
@@ -101,7 +100,7 @@ internal static class AnalyzerExhaustivenessSelector
         s_bindings.Value
         ?? throw new InvalidOperationException("N# analyzer exhaustiveness kernels are unavailable.");
 
-    private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
+    private delegate int AnalyzerMissingMemberNamesInto(string[] memberNames, string[] coveredNames, string[] resultNames);
     private delegate int AnalyzerUnionMissingCaseIndicesInto(
         int[] coveredFlags,
         int[] partialFlags,
@@ -112,23 +111,8 @@ internal static class AnalyzerExhaustivenessSelector
         int[] resultCounts);
 
     private sealed record Bindings(
-        AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices,
+        AnalyzerMissingMemberNamesInto AnalyzerMissingMemberNames,
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices);
-
-    private sealed class MissingEnumMemberScratch
-    {
-        internal int[] CoveredFlags = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (CoveredFlags.Length < count)
-            {
-                CoveredFlags = new int[count];
-                ResultIndices = new int[count];
-            }
-        }
-    }
 
     private sealed class MissingUnionCaseScratch
     {
