@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Xml.Linq;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -958,29 +957,7 @@ public class DocQuery
     }
 
     private static string StripGenericArity(string name)
-    {
-        if (name.IndexOf('`') < 0) return name;
-
-        var sb = new StringBuilder(name.Length);
-        for (int i = 0; i < name.Length; i++)
-        {
-            if (name[i] == '`')
-            {
-                i++;
-                while (i < name.Length && char.IsDigit(name[i]))
-                {
-                    i++;
-                }
-
-                i--;
-                continue;
-            }
-
-            sb.Append(name[i]);
-        }
-
-        return sb.ToString();
-    }
+        => DocQueryKernels.StripGenericArity(name);
 
     private static string? FormatDocText(XElement? element)
     {

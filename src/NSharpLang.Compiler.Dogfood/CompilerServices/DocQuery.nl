@@ -1,3 +1,5 @@
+import System.Text
+
 struct DocQueryTypeCandidateTable {
     Scores: int[]
     NamespaceLengths: int[]
@@ -343,6 +345,34 @@ func DocQueryCompareOrdinalIgnoreCase(left: string, right: string): int {
     }
 
     return 0
+}
+
+func DocQueryStripGenericArity(name: string): string {
+    if name.IndexOf('`') < 0 {
+        return name
+    }
+
+    builder := new StringBuilder(name.Length)
+    i := 0
+    while i < name.Length {
+        if name[i] == '`' {
+            i = i + 1
+            while i < name.Length && DocQueryIsDigit(name[i]) {
+                i = i + 1
+            }
+
+            continue
+        }
+
+        builder.Append(name[i])
+        i = i + 1
+    }
+
+    return builder.ToString()
+}
+
+func DocQueryIsDigit(ch: char): bool {
+    return ch >= '0' && ch <= '9'
 }
 
 func DocQueryMinInt(left: int, right: int): int {

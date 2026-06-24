@@ -215,6 +215,9 @@ internal static class DocQueryKernels
         }
     }
 
+    internal static string StripGenericArity(string name)
+        => RequiredBindings.DocQueryStripGenericArity(name);
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<StableDistinctRankIndicesInto>(
@@ -225,7 +228,10 @@ internal static class DocQueryKernels
                 "DocQueryBestTypeIndex"),
             DogfoodKernelLoader.CreateDelegate<DocQueryMemberOrderIndicesInto>(
                 programType,
-                "DocQueryMemberOrderIndicesInto")));
+                "DocQueryMemberOrderIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<DocQueryStripGenericArity>(
+                programType,
+                "DocQueryStripGenericArity")));
 
     private static int GetDocMemberKindRank(string kind) =>
         kind switch
@@ -265,10 +271,13 @@ internal static class DocQueryKernels
         int[] tempIndices,
         int[] resultIndices);
 
+    private delegate string DocQueryStripGenericArity(string name);
+
     private sealed record Bindings(
         StableDistinctRankIndicesInto StableDistinctRankIndices,
         DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
-        DocQueryMemberOrderIndicesInto DocQueryMemberOrderIndices);
+        DocQueryMemberOrderIndicesInto DocQueryMemberOrderIndices,
+        DocQueryStripGenericArity DocQueryStripGenericArity);
 
     private sealed class DocQueryBestTypeScratch
     {
