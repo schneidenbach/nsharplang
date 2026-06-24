@@ -256,6 +256,60 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
     }
 }
 
+internal static class CodeFixActionKernels
+{
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    [ThreadStatic]
+    private static int[]? t_editInfo;
+
+    [ThreadStatic]
+    private static string[]? t_replacementText;
+
+    internal static bool TryGetUnnecessaryNullCheckEdit(
+        string sourceCode,
+        int line,
+        out int startColumn,
+        out int endColumn,
+        out string newText)
+    {
+        startColumn = 0;
+        endColumn = 0;
+        newText = string.Empty;
+
+        var editInfo = t_editInfo ??= new int[2];
+        var replacementText = t_replacementText ??= new string[1];
+        var code = RequiredBindings.GetUnnecessaryNullCheckEditInto(sourceCode, line, editInfo, replacementText);
+        if (code < 0)
+            throw new InvalidOperationException("N# code-fix action kernel returned an invalid edit result.");
+
+        if (code == 0)
+            return false;
+
+        startColumn = editInfo[0];
+        endColumn = editInfo[1];
+        newText = replacementText[0];
+        return true;
+    }
+
+    private static Bindings? LoadBindings()
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CodeFixUnnecessaryNullCheckEditInto>(
+                programType,
+                "CodeFixUnnecessaryNullCheckEditInto")));
+
+    private delegate int CodeFixUnnecessaryNullCheckEditInto(
+        string source,
+        int line,
+        int[] editInfo,
+        string[] replacementText);
+
+    private sealed record Bindings(CodeFixUnnecessaryNullCheckEditInto GetUnnecessaryNullCheckEditInto);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# code-fix action kernels are unavailable.");
+}
+
 /// <summary>
 /// Code fix provider for NL003: Unnecessary Null Check.
 /// Replaces value-type null comparisons with the literal boolean they evaluate to.
@@ -270,80 +324,26 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
-        if (line <= 0 || line > sourceLines.Length)
-            return actions;
-
-        var sourceLine = sourceLines[line - 1];
-
-        // Replace "== null" or "!= null" comparisons with the literal boolean they evaluate to:
-        // x != null (where x is a value type) is always true  → replace with "true"
-        // x == null (where x is a value type) is always false → replace with "false"
-        string? newCondition = null;
-        string? oldPattern = null;
-
-        if (sourceLine.Contains("!= null"))
+        if (CodeFixActionKernels.TryGetUnnecessaryNullCheckEdit(
+                sourceCode,
+                line,
+                out var conditionStart,
+                out var conditionEnd,
+                out var newCondition))
         {
-            oldPattern = "!= null";
-            newCondition = "true";
-        }
-        else if (sourceLine.Contains("== null"))
-        {
-            oldPattern = "== null";
-            newCondition = "false";
-        }
+            var edit = new TextEdit(line, conditionStart, line, conditionEnd, newCondition);
 
-        if (oldPattern != null && newCondition != null)
-        {
-            var patternStart = sourceLine.IndexOf(oldPattern, StringComparison.Ordinal);
-            if (patternStart >= 0 && TryFindStatementConditionRange(sourceLine, patternStart, out var conditionStart, out var conditionEnd))
-            {
-                var edit = new TextEdit(line, conditionStart, line, conditionEnd, newCondition);
-
-                actions.Add(new CodeAction(
-                    $"Remove unnecessary null check (always {newCondition})",
-                    "NL003",
-                    new List<TextEdit> { edit },
-                    CodeActionKind.QuickFix,
-                    FixSafety.Safe));
-            }
+            actions.Add(new CodeAction(
+                $"Remove unnecessary null check (always {newCondition})",
+                "NL003",
+                new List<TextEdit> { edit },
+                CodeActionKind.QuickFix,
+                FixSafety.Safe));
         }
 
         return actions;
-    }
-
-    private static bool TryFindStatementConditionRange(string sourceLine, int patternStart, out int conditionStart, out int conditionEnd)
-    {
-        conditionStart = 0;
-        conditionEnd = 0;
-
-        var ifIndex = sourceLine.IndexOf("if ", StringComparison.Ordinal);
-        var whileIndex = sourceLine.IndexOf("while ", StringComparison.Ordinal);
-
-        var keywordIndex = ifIndex >= 0 && ifIndex < patternStart ? ifIndex : -1;
-        var keywordLength = 2;
-
-        if (whileIndex >= 0 && whileIndex < patternStart && (keywordIndex < 0 || whileIndex > keywordIndex))
-        {
-            keywordIndex = whileIndex;
-            keywordLength = 5;
-        }
-
-        if (keywordIndex < 0)
-            return false;
-
-        conditionStart = keywordIndex + keywordLength;
-        while (conditionStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[conditionStart]))
-            conditionStart++;
-
-        var braceIndex = sourceLine.IndexOf('{', patternStart);
-        conditionEnd = braceIndex >= 0 ? braceIndex : sourceLine.Length;
-        while (conditionEnd > conditionStart && char.IsWhiteSpace(sourceLine[conditionEnd - 1]))
-            conditionEnd--;
-
-        return conditionStart < conditionEnd;
     }
 }
 
@@ -515,4 +515,3 @@ public class RemoveUnusedImportCodeFixProvider : CodeFixProvider
         return actions;
     }
 }
-
