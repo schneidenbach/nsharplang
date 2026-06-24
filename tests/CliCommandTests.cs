@@ -3095,30 +3095,6 @@ func Main() {
         }
     }
 
-    [Theory]
-    [InlineData("/tmp/project/bin/Debug/net10.0/App.dll", '/', "ref", false)]
-    [InlineData("/tmp/project/bin/Debug/net10.0/ref/App.dll", '/', "ref", true)]
-    [InlineData("/tmp/project/bin/Debug/net10.0/REF/App.dll", '/', "ref", true)]
-    [InlineData("/tmp/project/bin/Debug/net10.0/reference/App.dll", '/', "ref", false)]
-    [InlineData("ref/App.dll", '/', "ref", true)]
-    [InlineData("lib/ref", '/', "ref", true)]
-    [InlineData("lib//ref/App.dll", '/', "ref", true)]
-    [InlineData("lib/ref2/App.dll", '/', "ref", false)]
-    [InlineData(@"lib\ref\App.dll", '/', "ref", false)]
-    [InlineData(@"lib\ref\App.dll", '\\', "ref", true)]
-    public void CompilationReferenceResolverKernels_DetectsPathSegments(
-        string path,
-        char separator,
-        string segment,
-        bool expected)
-    {
-        var hasSegment = CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
-            path,
-            separator,
-            segment);
-        Assert.Equal(expected, hasSegment);
-    }
-
     [Fact]
     public void CompilationReferenceResolverKernels_NormalizesNuGetDependencyVersions()
     {

@@ -9,7 +9,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml.Linq;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Cli;
 
@@ -68,14 +67,6 @@ internal static class CompilationReferenceResolver
         Timeout = TimeSpan.FromMinutes(2)
     };
 
-    // Backstop for a hung `dotnet build` of a C# project reference (deadlock/runaway). Generous so a
-    // legitimately slow first build (with restore) is never falsely killed.
-    private static readonly TimeSpan ProjectReferenceBuildTimeout = TimeSpan.FromMinutes(10);
-
-    // After the build process exits, bound how long we wait to drain its redirected streams (a
-    // grandchild holding the pipe could otherwise stall the read indefinitely).
-    private static readonly TimeSpan StreamDrainTimeout = TimeSpan.FromSeconds(15);
-
     internal static ReferenceResolutionResult AddResolvedDllReferences(
         string projectDir,
         ProjectConfig config,
@@ -132,14 +123,6 @@ internal static class CompilationReferenceResolver
                 AddDllReference(config, runtimeAsset);
                 result.AddRuntimeAsset(runtimeAsset);
             }
-
-            foreach (var analyzerAssembly in packageAssets.AnalyzerAssemblies)
-            {
-                SourceGeneratorReferenceResolver.AddDirectReference(
-                    config,
-                    analyzerAssembly,
-                    $"{packageReference.Nuget}@{packageReference.Version ?? "latest"}");
-            }
         }
 
         foreach (var projectReference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Project))
@@ -150,24 +133,6 @@ internal static class CompilationReferenceResolver
             }
 
             var resolvedProjectReferencePath = ResolveProjectReferencePath(projectRoot, projectReference.Project!);
-            if (resolvedProjectReferencePath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
-                && !ProjectReferenceResolver.IsNSharpProjectReference(resolvedProjectReferencePath))
-            {
-                var outputAssembly = BuildCSharpProjectReference(resolvedProjectReferencePath, options);
-                AddDllReference(config, outputAssembly);
-                result.AddRuntimeAsset(outputAssembly);
-                if (SourceGeneratorReferenceResolver.IsRoslynComponentProject(resolvedProjectReferencePath))
-                {
-                    SourceGeneratorReferenceResolver.AddProjectReference(
-                        config,
-                        outputAssembly,
-                        projectReference.Project!);
-                }
-
-                config.Dependencies.Remove(projectReference);
-                continue;
-            }
-
             var referencedProjectRoot = ProjectReferenceResolver.ResolveNSharpProjectRoot(
                 resolvedProjectReferencePath);
             var referencedProjectYml = Path.Combine(referencedProjectRoot, "project.yml");
@@ -265,116 +230,6 @@ internal static class CompilationReferenceResolver
         finally
         {
             _ = context.ActiveProjectRoots.Pop();
-        }
-    }
-
-    private static string BuildCSharpProjectReference(string projectPath, ReferenceResolutionOptions options)
-    {
-        projectPath = Path.GetFullPath(projectPath);
-        if (!File.Exists(projectPath))
-        {
-            throw new FileNotFoundException($"Project reference not found: {projectPath}", projectPath);
-        }
-
-        if (!options.Quiet)
-        {
-            Console.Error.WriteLine(
-                CompilationReferenceResolverKernels.GetCSharpProjectReferenceBuildMessage(projectPath));
-        }
-
-        var startInfo = new System.Diagnostics.ProcessStartInfo("dotnet")
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory
-        };
-        startInfo.ArgumentList.Add("build");
-        startInfo.ArgumentList.Add(projectPath);
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(options.Configuration);
-        startInfo.ArgumentList.Add("--nologo");
-        startInfo.ArgumentList.Add("-v:q");
-        startInfo.ArgumentList.Add("--disable-build-servers");
-
-        using var process = System.Diagnostics.Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Could not start dotnet build for project reference '{projectPath}'.");
-
-        // Drain BOTH redirected streams concurrently (async) rather than ReadToEnd-ing stdout then
-        // stderr in sequence: a verbose/erroring `dotnet build` that fills the stderr OS pipe buffer
-        // while the parent blocks reading stdout would deadlock the build forever (H3). A timeout
-        // bounds the wait as a backstop.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-
-        if (!process.WaitForExit((int)ProjectReferenceBuildTimeout.TotalMilliseconds))
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Best-effort termination; the throw below reports the timeout regardless.
-            }
-
-            throw new InvalidOperationException(
-                $"Project reference '{projectPath}' build timed out after {ProjectReferenceBuildTimeout.TotalMinutes:0} minutes and was terminated.");
-        }
-
-        // The process has exited, but a grandchild that inherited the pipe could keep it open and
-        // stall the reads. Bound the drain too, then proceed with whatever was captured.
-        System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, StreamDrainTimeout);
-        var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : string.Empty;
-        var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : string.Empty;
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"Project reference '{projectPath}' failed to build with exit code {process.ExitCode}.{Environment.NewLine}{stdout}{stderr}");
-        }
-
-        var outputAssembly = FindBuiltCSharpProjectAssembly(projectPath, options.Configuration);
-        if (outputAssembly == null)
-        {
-            throw new InvalidOperationException(
-                $"Project reference '{projectPath}' built successfully, but no output assembly was found under bin/{options.Configuration}.");
-        }
-
-        return outputAssembly;
-    }
-
-    private static string? FindBuiltCSharpProjectAssembly(string projectPath, string configuration)
-    {
-        var projectDirectory = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory;
-        var assemblyName = ReadCSharpProjectAssemblyName(projectPath) ?? Path.GetFileNameWithoutExtension(projectPath);
-        var outputRoot = Path.Combine(projectDirectory, "bin", configuration);
-        if (!Directory.Exists(outputRoot))
-        {
-            return null;
-        }
-
-        return Directory.GetFiles(outputRoot, $"{assemblyName}.dll", SearchOption.AllDirectories)
-            .Where(path => !CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
-                path,
-                Path.DirectorySeparatorChar,
-                "ref"))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
-    }
-
-    private static string? ReadCSharpProjectAssemblyName(string projectPath)
-    {
-        try
-        {
-            var document = XDocument.Load(projectPath);
-            return document.Descendants()
-                .FirstOrDefault(element => element.Name.LocalName == "AssemblyName")
-                ?.Value;
-        }
-        catch
-        {
-            return null;
         }
     }
 
@@ -516,11 +371,6 @@ internal static class CompilationReferenceResolver
             {
                 assets.CompileAssemblies.Add(runtimeAssembly);
             }
-        }
-
-        foreach (var analyzerAssembly in SourceGeneratorReferenceResolver.EnumerateAnalyzerAssemblies(versionDirectory))
-        {
-            assets.AnalyzerAssemblies.Add(analyzerAssembly);
         }
 
         return assets;
@@ -836,7 +686,6 @@ internal static class CompilationReferenceResolver
     {
         public HashSet<string> CompileAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> RuntimeAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public HashSet<string> AnalyzerAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public void Add(NuGetPackageAssets other)
         {
@@ -848,11 +697,6 @@ internal static class CompilationReferenceResolver
             foreach (var assembly in other.RuntimeAssemblies)
             {
                 RuntimeAssemblies.Add(assembly);
-            }
-
-            foreach (var assembly in other.AnalyzerAssemblies)
-            {
-                AnalyzerAssemblies.Add(assembly);
             }
         }
     }

@@ -322,9 +322,6 @@ possible:
 - `System.Threading.Volatile`
 - `System.Threading.Interlocked`
 - `ArrayPool<T>` and `MemoryPool<T>` rent/return effects
-- source-generated interop shapes for `LibraryImport`
-- source-generated serialization shapes for `System.Text.Json`
-- `[GeneratedRegex]` where generated code is visible and summarized
 
 The pack is fail-closed:
 
@@ -339,8 +336,6 @@ Reasoning:
   example.
 - A lock-free ring buffer that cannot call `Volatile` or `Interlocked` is not a
   credible systems example.
-- Source generators are the AOT-correct path for JSON, P/Invoke, and regex in
-  modern .NET.
 
 ## Hot-Readiness Model
 
@@ -630,10 +625,6 @@ Rules:
   values when crossing into systems code.
 - The exported boundary surface must not leak systems-hostile shapes into
   `[hot]` code.
-- Source-generated paths are preferred for AOT-sensitive work:
-  `LibraryImport` over `DllImport`, `System.Text.Json` source-generation over
-  reflection serialization, and `[GeneratedRegex]` over runtime regex
-  compilation when possible.
 - AOT blockers inside a boundary are reported as `aotSafe(target): false`.
   `allow(aot: blocked)` bookkeeping is cut from v1.
 
@@ -1397,8 +1388,6 @@ trim/AOT report facts.
 | 25 | Wrap unsafe memory copy safely. | restricted `unsafe`, `[memory(safe)]`, `[trusted(reason, owner, review)]`, small-body lint. | Must pass. | [Project](systems-samples/proofs/25-trusted-memory-copy/) |
 | 26 | Open a native device handle. | `[boundary]`, `LibraryImport`, explicit handle owner/disposal, `Result<T,E>`. | Executable analysis/build proof; real native device run remains deployment-specific. | [Project](systems-samples/proofs/26-native-device-handle/) |
 | 27 | Call a C library from a systems CLI. | source-generated P/Invoke, AOT facts, boundary adaptation. | Executable analysis/build proof; real native library run remains deployment-specific. | [Project](systems-samples/proofs/27-c-library-cli/) |
-| 28 | Parse command-line options and emit JSON in NativeAOT. | Boundary allocation, `System.Text.Json` source-gen, target-qualified AOT facts. | Executable proof covers check/build, real System.Text.Json Roslyn-generated `JsonSerializerContext` members/codegen, emitted JSON runtime output, and AOT/trim analysis; native image publication remains a separate deployment gate. | [Project](systems-samples/proofs/28-nativeaot-json-cli/) |
-| 29 | Use generated regex in a boundary parser. | `[GeneratedRegex]` summary, boundary allocation report, AOT/trimming facts. | Executable proof covers a dedicated IL-backend generated-regex factory with preserved `[GeneratedRegex]` metadata, cached `Regex` behavior, reviewed boundary allocation, and no delegate, closure, boxing, dispatch, trap, hot-readiness, or AOT blocker sites. Native image publication remains separate deployment work; `[GeneratedRegex]` is not yet routed through the general Roslyn source-generator pipeline. | [Project](systems-samples/proofs/29-generated-regex-boundary/) |
 | 30 | Log diagnostic details only on cold failures. | `[hot]` success path, narrow `allow(alloc)` in cold branch, allocation report. | In scope. | [Project](systems-samples/proofs/30-cold-failure-logging/) |
 | 31 | Emit metrics from hot code. | `Interlocked`, no string formatting in hot path, boundary exporter. | In scope. | [Project](systems-samples/proofs/31-hot-metrics/) |
 | 32 | Prewarm caches before accepting traffic. | hot-readiness model, warmup config, `.cctor` and pool warmup reports. | In scope. | [Project](systems-samples/proofs/32-cache-prewarm/) |
@@ -1416,7 +1405,6 @@ trim/AOT report facts.
 | 44 | Validate no unexpected allocation in CI. | `nlc check --systems-report`, `nlc build --perf-report`, precise per-fact diffs. | In scope; lockfile deferred. | [Project](systems-samples/proofs/44-ci-allocation-gate/) |
 | 45 | Audit unsafe wrappers before release. | `[trusted]` governance, owner/review/expiry metadata, `nlc query trusted`. | In scope. | [Project](systems-samples/proofs/45-trusted-audit/) |
 | 46 | Adapt Dapper/EF/database calls. | `[boundary]`, allocation/reflection reports, explicit DTO/result handoff. | Executable proof covers the database-adapter boundary contract and DTO/result handoff; direct Dapper/EF package execution remains external interop work. | [Project](systems-samples/proofs/46-dapper-boundary/) |
-| 47 | Keep a CLI startup path honest. | hot-readiness, AOT/trimming facts, IL-shape report, source-generated JSON/regex. | Executable proof covers warmup registration, reviewed startup allocation warnings, generated JSON context shape, emitted JSON runtime output, and AOT/trim analysis; native image startup timing remains separate. | [Project](systems-samples/proofs/47-cli-startup-honesty/) |
 | 48 | Diagnose a dependency helper that became allocation-heavy. | HotSummary body identity, source-inferred facts, `NSYS150` per-fact drift. | In scope for source/referenced N# projects; broad NuGet proof deferred. | [Project](systems-samples/proofs/48-effect-drift/) |
 
 ## Appendix B: Basic One-File Samples

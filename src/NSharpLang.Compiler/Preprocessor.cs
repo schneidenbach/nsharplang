@@ -9,7 +9,7 @@ namespace NSharpLang.Compiler;
 /// defined symbols, dropping the tokens that belong to inactive branches.
 ///
 /// This runs between the lexer and the parser so that every downstream stage
-/// (parse, analyze, IL emit, C# export) only ever sees the live branch. N# owns
+/// (parse, analyze, IL emit) only ever sees the live branch. N# owns
 /// conditional compilation rather than passing directives through to the C#
 /// compiler — the defined-symbol set comes from the project (<c>project.yml</c>
 /// <c>defines:</c>), the CLI (<c>--define</c>), and the build configuration

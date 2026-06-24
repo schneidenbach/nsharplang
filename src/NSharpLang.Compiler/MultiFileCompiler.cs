@@ -7,7 +7,6 @@ using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Columnar;
 using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Compiler.Performance;
-using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Compiler;
 
@@ -37,8 +36,6 @@ public class MultiFileCompiler
     private readonly HashSet<string> _filesInReportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _resolvedFileImportDiagnosticKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly PerformanceFactStore _performanceFacts = new();
-    private SourceGeneratorRunResult _sourceGeneratorAnalysisResult = SourceGeneratorRunResult.Inactive;
-    private bool _sourceGeneratorAnalysisAttempted;
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -564,10 +561,10 @@ public class MultiFileCompiler
                 // Use the shared analyzer (assemblies already loaded in constructor)
                 var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile));
 
-                // Save semantic model for C# export.
+                // Save semantic model for project-wide tooling.
                 _semanticModels[sourceFile] = result.SemanticModel;
 
-                // Capture auto-resolved namespaces for C# using-directive generation.
+                // Capture auto-resolved namespaces for project-wide semantic lookup.
                 var autoNs = _sharedAnalyzer.GetAutoResolvedNamespaces();
                 if (autoNs.Count > 0)
                 {
@@ -614,95 +611,6 @@ public class MultiFileCompiler
         AnalyzeAotBlockers();
         AnalyzeSystemsPolicy();
     }
-
-    private void RunSourceGeneratorsForAnalysisIfNeeded(string? assemblyName = null)
-    {
-        if (_sourceGeneratorAnalysisAttempted || _config == null)
-        {
-            return;
-        }
-
-        _sourceGeneratorAnalysisAttempted = true;
-        if (_compilationUnits.Count == 0)
-        {
-            return;
-        }
-
-        var orderedUnits = _sourceFiles
-            .Select(sourceFile => _compilationUnits.TryGetValue(sourceFile, out var compilationUnit) ? compilationUnit : null)
-            .Where(compilationUnit => compilationUnit != null)
-            .Cast<CompilationUnit>()
-            .ToList();
-
-        if (orderedUnits.Count == 0)
-        {
-            return;
-        }
-
-        var effectiveAssemblyName = !string.IsNullOrWhiteSpace(assemblyName)
-            ? assemblyName!
-            : GetProjectAssemblyName();
-
-        // The source-generator pipeline runs on the analysis fast path (nlc check / LSP). It must
-        // never crash analysis: an unexpected failure is converted into a clean diagnostic (H6).
-        try
-        {
-            var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
-            var stubPath = Path.Combine(
-                _projectRoot,
-                "obj",
-                "nsharp",
-                "generator-input",
-                $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
-
-            _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
-                _config,
-                _projectRoot,
-                effectiveAssemblyName,
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [stubPath] = stubSource
-                },
-                orderedUnits);
-        }
-        catch (Exception ex)
-        {
-            _sourceGeneratorAnalysisResult = SourceGeneratorRunResult.Inactive;
-            _allErrors.Add(new CompilerError(
-                ErrorCode.SourceGeneratorFailure,
-                $"Source generator analysis failed: {ex.Message}",
-                0,
-                0,
-                ErrorSeverity.Error)
-            {
-                DiagnosticIdOverride = "NL921",
-                HumanExplanation = "The source-generator analysis pass threw unexpectedly.",
-                ContextualHint = "Generated members may be missing from analysis; the failure is reported rather than crashing nlc check / the language server.",
-                Suggestion = "Inspect the generator dependency, restore packages, or remove the offending generator reference.",
-                RelatedInfo = new Dictionary<string, string> { ["exception"] = ex.ToString() }
-            });
-            return;
-        }
-
-        if (!_sourceGeneratorAnalysisResult.IsActive)
-        {
-            return;
-        }
-
-        _allErrors.AddRange(_sourceGeneratorAnalysisResult.Diagnostics);
-        _sharedAnalyzer.SetGeneratedSymbols(_sourceGeneratorAnalysisResult.GeneratedSymbols);
-
-        if (!string.IsNullOrWhiteSpace(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath)
-            && File.Exists(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath))
-        {
-            _sharedAnalyzer.LoadReferencedAssembly(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath);
-        }
-    }
-
-    private bool ShouldEmitWithSourceGenerators()
-        => _sourceGeneratorAnalysisResult is { IsActive: true, HasLoadedGenerators: true }
-           && _sourceGeneratorAnalysisResult.GeneratedSourcePaths.Count > 0
-           && !_sourceGeneratorAnalysisResult.Diagnostics.Any(diagnostic => diagnostic.Severity == ErrorSeverity.Error);
 
     /// <summary>
     /// AOT-blocker analysis pass: classifies each file's ABI surface, walks every compilation
@@ -858,14 +766,11 @@ public class MultiFileCompiler
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
 
-            if (ShouldEmitWithSourceGenerators())
-            {
-            }
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission with NO C# AST). General user code may
             // still decline to the C# ILCompiler while the language surface converges, but shipped dogfood sources
             // are the replacement compiler/tooling path and must not silently fall back.
-            else if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
+            if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
                 if (RequiresColumnarDogfoodEmission(assemblyName))
                 {
@@ -1139,20 +1044,6 @@ public class MultiFileCompiler
         var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
         return string.Equals(value, "1", StringComparison.Ordinal) ||
             string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string GetProjectAssemblyName()
-        => !string.IsNullOrWhiteSpace(_config?.Name)
-            ? _config!.Name!
-            : Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_projectRoot))) ?? "Project";
-
-    private static string SanitizeGeneratedInputFileName(string value)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var chars = value
-            .Select(character => invalid.Contains(character) ? '_' : character)
-            .ToArray();
-        return chars.Length == 0 ? "Project" : new string(chars);
     }
 
     private void AppendDebugLog(string message)

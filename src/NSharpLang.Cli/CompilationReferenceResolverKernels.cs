@@ -182,18 +182,6 @@ internal static class CompilationReferenceResolverKernels
         return selectedIndex;
     }
 
-    internal static bool PathHasSegmentIgnoreCase(string path, char separator, string segment)
-    {
-        var code = RequiredBindings.PathHasSegmentIgnoreCase(path, separator, segment);
-        if (code is not 0 and not 1)
-            throw new InvalidOperationException("N# reference resolver path segment kernel returned an invalid code.");
-
-        return code == 1;
-    }
-
-    internal static string GetCSharpProjectReferenceBuildMessage(string projectPath)
-        => RequiredBindings.CSharpProjectReferenceBuildMessage(projectPath);
-
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -219,13 +207,7 @@ internal static class CompilationReferenceResolverKernels
                 "CliLatestNuGetVersionIndex"),
             DogfoodKernelLoader.CreateDelegate<CliBestNuGetVersionIndex>(
                 programType,
-                "CliBestNuGetVersionIndex"),
-            DogfoodKernelLoader.CreateDelegate<CliPathHasSegmentIgnoreCase>(
-                programType,
-                "CliPathHasSegmentIgnoreCase"),
-            DogfoodKernelLoader.CreateDelegate<CliCSharpProjectReferenceBuildMessage>(
-                programType,
-                "CliCSharpProjectReferenceBuildMessage")));
+                "CliBestNuGetVersionIndex")));
 
     private static Bindings RequiredBindings
         => s_bindings.Value
@@ -260,10 +242,6 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliBestNuGetVersionIndex(string[] versions, int[] compareScratch);
 
-    private delegate int CliPathHasSegmentIgnoreCase(string path, char separator, string segment);
-
-    private delegate string CliCSharpProjectReferenceBuildMessage(string projectPath);
-
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
@@ -272,9 +250,7 @@ internal static class CompilationReferenceResolverKernels
         CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange,
         CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex,
         CliLatestNuGetVersionIndex LatestNuGetVersionIndex,
-        CliBestNuGetVersionIndex BestNuGetVersionIndex,
-        CliPathHasSegmentIgnoreCase PathHasSegmentIgnoreCase,
-        CliCSharpProjectReferenceBuildMessage CSharpProjectReferenceBuildMessage);
+        CliBestNuGetVersionIndex BestNuGetVersionIndex);
 
     private sealed class ReferenceTypeFilterScratch
     {

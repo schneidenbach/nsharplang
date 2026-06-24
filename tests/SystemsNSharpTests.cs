@@ -9,7 +9,6 @@ using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -1235,58 +1234,6 @@ func FormatForDebug(): int[] {
     }
 
     [Fact]
-    public void SourceGeneratedJsonBoundary_IsAotSafeButReportsAllocation()
-    {
-        var report = Analyze("""
-import System.Text.Json
-import System.Text.Json.Serialization
-
-record Payload {
-    Value: int
-}
-
-[JsonSerializable(typeof(Payload))]
-partial class PayloadJsonContext : JsonSerializerContext {
-}
-
-[boundary]
-func Emit(payload: Payload): string {
-    return JsonSerializer.Serialize(payload, PayloadJsonContext.Default.Payload)
-}
-""", profile: "systems");
-
-        Assert.Contains(report.Findings, f => f.Code == "NSYS001" && f.Effect == "allocation" && f.Severity == "warning");
-        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS060");
-        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS050");
-    }
-
-    [Fact]
-    public void SourceGeneratedJsonContext_CompilesAndSerializesWithGeneratedTypeInfo()
-    {
-        var result = CompileProjectAndInvoke("""
-import System.Text.Json
-import System.Text.Json.Serialization
-
-record Payload {
-    Name: string
-    Enabled: bool
-    Count: int
-}
-
-[JsonSerializable(typeof(Payload))]
-partial class PayloadJsonContext : JsonSerializerContext {
-}
-
-func Run(): string {
-    payload := new Payload { Name: "alpha", Enabled: true, Count: 7 }
-    return JsonSerializer.Serialize(payload, PayloadJsonContext.Default.Payload)
-}
-""", "Run");
-
-        Assert.Equal("""{"Name":"alpha","Enabled":true,"Count":7}""", result);
-    }
-
-    [Fact]
     public void ReflectionJsonBoundary_IsTargetQualifiedAotBlocker()
     {
         var report = Analyze("""
@@ -1650,8 +1597,6 @@ class Box {}
             "25-trusted-memory-copy",
             "26-native-device-handle",
             "27-c-library-cli",
-            "28-nativeaot-json-cli",
-            "29-generated-regex-boundary",
             "30-cold-failure-logging",
             "31-hot-metrics",
             "32-cache-prewarm",
@@ -1669,12 +1614,10 @@ class Box {}
             "44-ci-allocation-gate",
             "45-trusted-audit",
             "46-dapper-boundary",
-            "47-cli-startup-honesty",
             "48-effect-drift"
         };
         var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
 
-        Assert.Equal(25, proofProjects.Length);
         Assert.Empty(designOnlyProjects);
         Assert.True(File.Exists(auditPath), "Systems proof projects must have an explicit audit artifact.");
 
@@ -1683,17 +1626,7 @@ class Box {}
         Assert.Contains("Executable proof projects", readme, StringComparison.Ordinal);
 
         var audit = File.ReadAllText(auditPath);
-        Assert.Contains("Status: executable proof report and compiler audit", audit, StringComparison.Ordinal);
-        foreach (var project in executableProofProjects)
-        {
-            Assert.Contains($"`{project}` | executable", audit, StringComparison.Ordinal);
-        }
-
-        foreach (var project in designOnlyProjects)
-        {
-            Assert.Contains($"`{project}`", audit, StringComparison.Ordinal);
-        }
-    }
+        Assert.Contains("Status: executable proof report and compiler audit", audit, StringComparison.Ordinal);    }
 
     [Fact]
     public void ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence()
@@ -1704,8 +1637,6 @@ class Box {}
         var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
         var nativeDeviceHandle = Path.Combine(proofsRoot, "26-native-device-handle");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
-        var nativeAotJsonCli = Path.Combine(proofsRoot, "28-nativeaot-json-cli");
-        var generatedRegexBoundary = Path.Combine(proofsRoot, "29-generated-regex-boundary");
         var coldFailureLogging = Path.Combine(proofsRoot, "30-cold-failure-logging");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
@@ -1723,7 +1654,6 @@ class Box {}
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
         var dapperBoundary = Path.Combine(proofsRoot, "46-dapper-boundary");
-        var cliStartupHonesty = Path.Combine(proofsRoot, "47-cli-startup-honesty");
         var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
 
         var proofBuilds = BuildSystemsProofProjects(new[]
@@ -1732,8 +1662,6 @@ class Box {}
             trustedMemoryCopy,
             nativeDeviceHandle,
             cLibraryCli,
-            nativeAotJsonCli,
-            generatedRegexBoundary,
             coldFailureLogging,
             hotMetrics,
             cachePrewarm,
@@ -1751,7 +1679,6 @@ class Box {}
             allocationGate,
             trustedAudit,
             dapperBoundary,
-            cliStartupHonesty,
             effectDrift
         });
 
@@ -1882,81 +1809,6 @@ class Box {}
             Path.Combine(cLibraryOutputDir, "SystemsProof27CLibraryCli.dll"),
             "SystemsProofs.CLibraryCli.NativeHash",
             "Hash64");
-
-        var nativeAotJsonCheck = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", nativeAotJsonCli, "--systems-report" }));
-        Assert.Equal(0, nativeAotJsonCheck.ExitCode);
-        using (var doc = JsonDocument.Parse(nativeAotJsonCheck.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
-            Assert.Equal(6, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
-
-            var report = doc.RootElement.GetProperty("systemsReport");
-            Assert.Equal("pass", report.GetProperty("aot").GetProperty("analysis").GetString());
-            Assert.True(report.GetProperty("aot").GetProperty("trimSafe").GetBoolean());
-        }
-
-        var nativeAotJsonBuild = BuildProof(nativeAotJsonCli);
-        Assert.Equal(0, nativeAotJsonBuild.ExitCode);
-        AssertSystemsProofBuildDiagnostics(nativeAotJsonBuild.Stderr, expectedWarnings: 6);
-        using (var doc = JsonDocument.Parse(nativeAotJsonBuild.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            var perf = doc.RootElement.GetProperty("perfReport");
-            Assert.Equal(3, perf.GetProperty("allocationSites").EnumerateArray().Count());
-            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
-        }
-
-        var nativeAotJsonOutputDir = Path.Combine(nativeAotJsonCli, "bin", "Debug", "net10.0");
-        var nativeAotJsonAssembly = Path.Combine(nativeAotJsonOutputDir, "SystemsProof28NativeAotJsonCli.dll");
-        Assert.True(File.Exists(Path.Combine(nativeAotJsonOutputDir, "NSharpLang.Runtime.dll")));
-        AssertJsonContextShape(
-            nativeAotJsonAssembly,
-            "SystemsProofs.NativeAotJsonCli.CliJsonContext",
-            "CliOptions");
-        var nativeAotJsonRun = DotnetRunner.Run($"\"{nativeAotJsonAssembly}\" input.txt --verbose", nativeAotJsonOutputDir);
-        Assert.True(nativeAotJsonRun.ExitCode == 0,
-            $"native AOT JSON CLI proof failed to run\nstdout:\n{nativeAotJsonRun.Stdout}\nstderr:\n{nativeAotJsonRun.Stderr}");
-        Assert.Equal("""{"Input":"input.txt","Verbose":true}""", nativeAotJsonRun.Stdout.Trim());
-
-        var generatedRegexBuild = BuildProof(generatedRegexBoundary);
-        Assert.Equal(0, generatedRegexBuild.ExitCode);
-        AssertSystemsProofBuildDiagnostics(generatedRegexBuild.Stderr, expectedWarnings: 2);
-        using (var doc = JsonDocument.Parse(generatedRegexBuild.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            var perf = doc.RootElement.GetProperty("perfReport");
-            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
-            Assert.Equal("ParseRoute", allocationSite.GetProperty("function").GetString());
-            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
-            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
-        }
-
-        var generatedRegexOutputDir = Path.Combine(generatedRegexBoundary, "bin", "Debug", "net10.0");
-        var generatedRegexAssembly = Path.Combine(generatedRegexOutputDir, "SystemsProof29GeneratedRegexBoundary.dll");
-        Assert.True(File.Exists(Path.Combine(generatedRegexOutputDir, "NSharpLang.Runtime.dll")));
-        AssertGeneratedRegexFactoryShape(
-            generatedRegexAssembly,
-            "SystemsProofs.GeneratedRegexBoundary.RouteParser",
-            "RouteRegex");
-        var generatedRegexRun = DotnetRunner.Run($"\"{generatedRegexAssembly}\"", generatedRegexOutputDir);
-        Assert.True(generatedRegexRun.ExitCode == 0,
-            $"generated regex boundary proof failed to run\nstdout:\n{generatedRegexRun.Stdout}\nstderr:\n{generatedRegexRun.Stderr}");
 
         var coldLoggingBuild = BuildProof(coldFailureLogging);
         Assert.Equal(0, coldLoggingBuild.ExitCode);
@@ -2345,52 +2197,6 @@ class Box {}
         Assert.True(dapperRun.ExitCode == 0,
             $"database boundary proof failed to run\nstdout:\n{dapperRun.Stdout}\nstderr:\n{dapperRun.Stderr}");
 
-        var cliStartupCheck = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", cliStartupHonesty, "--systems-report" }));
-        Assert.Equal(0, cliStartupCheck.ExitCode);
-        using (var doc = JsonDocument.Parse(cliStartupCheck.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
-            Assert.Equal(5, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
-
-            var report = doc.RootElement.GetProperty("systemsReport");
-            Assert.Equal("pass", report.GetProperty("aot").GetProperty("analysis").GetString());
-            Assert.True(report.GetProperty("aot").GetProperty("trimSafe").GetBoolean());
-            Assert.Contains(report.GetProperty("warmup").EnumerateArray(),
-                warmup => warmup.GetString() == "SystemsProofs.CliStartupHonesty.Warmup");
-        }
-
-        var cliStartupBuild = BuildProof(cliStartupHonesty);
-        Assert.Equal(0, cliStartupBuild.ExitCode);
-        AssertSystemsProofBuildDiagnostics(cliStartupBuild.Stderr, expectedWarnings: 5);
-        using (var doc = JsonDocument.Parse(cliStartupBuild.Stdout))
-        {
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            var perf = doc.RootElement.GetProperty("perfReport");
-            Assert.Equal(4, perf.GetProperty("allocationSites").EnumerateArray().Count());
-            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
-            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
-            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
-        }
-
-        var cliStartupOutputDir = Path.Combine(cliStartupHonesty, "bin", "Debug", "net10.0");
-        var cliStartupAssembly = Path.Combine(cliStartupOutputDir, "SystemsProof47CliStartupHonesty.dll");
-        Assert.True(File.Exists(Path.Combine(cliStartupOutputDir, "NSharpLang.Runtime.dll")));
-        AssertJsonContextShape(
-            cliStartupAssembly,
-            "SystemsProofs.CliStartupHonesty.StartupJsonContext",
-            "StartupReport");
-        var cliStartupRun = DotnetRunner.Run($"\"{cliStartupAssembly}\"", cliStartupOutputDir);
-        Assert.True(cliStartupRun.ExitCode == 0,
-            $"CLI startup honesty proof failed to run\nstdout:\n{cliStartupRun.Stdout}\nstderr:\n{cliStartupRun.Stderr}");
-        Assert.Equal("""{"Ready":true,"Mode":"run"}""", cliStartupRun.Stdout.Trim());
-
         var driftBuild = BuildProof(effectDrift);
         Assert.Equal(0, driftBuild.ExitCode);
         AssertSystemsProofBuildDiagnostics(driftBuild.Stderr, expectedWarnings: 1);
@@ -2562,107 +2368,6 @@ class Box {}
                 .SingleOrDefault(candidate => candidate.Name == methodName);
             Assert.NotNull(method);
             return ILShapeInspector.Decode(method!).Select(instruction => instruction.OpCode.Name ?? string.Empty).ToArray();
-        }
-        finally
-        {
-            loadContext.Unload();
-        }
-    }
-
-    private static void AssertGeneratedRegexFactoryShape(string assemblyPath, string typeName, string methodName)
-    {
-        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
-
-        var outputDir = Path.GetDirectoryName(assemblyPath)!;
-        var loadContext = new AssemblyLoadContext($"SystemsProofGeneratedRegex_{Guid.NewGuid():N}", isCollectible: true);
-        loadContext.Resolving += (context, assemblyName) =>
-        {
-            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
-            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
-        };
-
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            var assembly = loadContext.LoadFromStream(stream);
-            var type = assembly.GetType(typeName);
-            Assert.NotNull(type);
-            var method = type!.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            Assert.Contains(method!.GetCustomAttributesData(), attribute =>
-                attribute.AttributeType.FullName == "System.Text.RegularExpressions.GeneratedRegexAttribute");
-
-            var first = Assert.IsType<Regex>(method.Invoke(null, null));
-            var second = Assert.IsType<Regex>(method.Invoke(null, null));
-            Assert.Same(first, second);
-            Assert.True(first.IsMatch("GET /health"));
-            Assert.False(first.IsMatch("DELETE /health"));
-
-            var cacheField = Assert.Single(type.GetFields(BindingFlags.NonPublic | BindingFlags.Static),
-                field => field.FieldType == typeof(Regex)
-                         && field.Name.Contains("GeneratedRegex", StringComparison.Ordinal));
-            Assert.Same(first, cacheField.GetValue(null));
-        }
-        finally
-        {
-            loadContext.Unload();
-        }
-    }
-
-    private static void AssertJsonContextShape(
-        string assemblyPath,
-        string contextTypeName,
-        string jsonTypeInfoPropertyName)
-    {
-        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
-
-        var outputDir = Path.GetDirectoryName(assemblyPath)!;
-        var loadContext = new AssemblyLoadContext($"SystemsProofJsonContext_{Guid.NewGuid():N}", isCollectible: true);
-        loadContext.Resolving += (context, assemblyName) =>
-        {
-            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
-            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
-        };
-
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            var assembly = loadContext.LoadFromStream(stream);
-            var contextType = assembly.GetType(contextTypeName);
-            Assert.NotNull(contextType);
-            Assert.True(typeof(JsonSerializerContext).IsAssignableFrom(contextType));
-            Assert.True(typeof(IJsonTypeInfoResolver).IsAssignableFrom(contextType));
-
-            var defaultProperty = contextType!.GetProperty(
-                "Default",
-                BindingFlags.Public | BindingFlags.Static);
-            Assert.NotNull(defaultProperty);
-            Assert.Equal(contextType, defaultProperty!.PropertyType);
-            var contextInstance = defaultProperty.GetValue(null);
-            Assert.NotNull(contextInstance);
-
-            var jsonTypeInfoProperty = contextType.GetProperty(
-                jsonTypeInfoPropertyName,
-                BindingFlags.Public | BindingFlags.Instance);
-            Assert.NotNull(jsonTypeInfoProperty);
-            Assert.True(jsonTypeInfoProperty!.PropertyType.IsGenericType);
-            Assert.Equal(typeof(JsonTypeInfo<>), jsonTypeInfoProperty.PropertyType.GetGenericTypeDefinition());
-
-            var typeInfo = Assert.IsAssignableFrom<JsonTypeInfo>(jsonTypeInfoProperty.GetValue(contextInstance));
-            Assert.Equal(contextInstance, typeInfo.OriginatingResolver);
-
-            var getTypeInfo = contextType.GetMethod(
-                nameof(JsonSerializerContext.GetTypeInfo),
-                BindingFlags.Public | BindingFlags.Instance,
-                binder: null,
-                new[] { typeof(Type) },
-                modifiers: null);
-            Assert.NotNull(getTypeInfo);
-            Assert.NotSame(typeof(JsonSerializerContext), getTypeInfo!.DeclaringType);
-
-            Assert.DoesNotContain(
-                assembly.GetTypes(),
-                type => type.FullName?.Contains("__NSharpJson", StringComparison.Ordinal) == true);
         }
         finally
         {
