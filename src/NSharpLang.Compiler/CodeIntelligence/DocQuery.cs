@@ -103,8 +103,7 @@ public class DocQuery
         // Discover additional assemblies from reference packs
         foreach (var asmName in DiscoverReferencePackAssemblyNames())
         {
-            try { AddAssembly(Assembly.Load(asmName)); }
-            catch { /* not available at runtime */ }
+            AddAssembly(Assembly.Load(asmName));
         }
     }
 
