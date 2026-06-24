@@ -10185,12 +10185,8 @@ public class Analyzer : IDisposable
 
     private static bool HasExtensionAttribute(MethodInfo method)
     {
-        try
-        {
             return method.GetCustomAttributesData()
                 .Any(a => a.AttributeType.FullName == "System.Runtime.CompilerServices.ExtensionAttribute");
-        }
-        catch { return false; }
     }
 
     private bool IsExtensionParameterCompatible(Type parameterType, Type targetClrType)
