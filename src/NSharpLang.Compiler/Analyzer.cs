@@ -5320,11 +5320,6 @@ public class Analyzer : IDisposable
         elementType = BuiltInTypes.Unknown;
 
         var resolved = NormalizeShapeType(collectionType);
-        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
-        {
-            return false;
-        }
-
         switch (resolved)
         {
             case ArrayTypeInfo arrayType when !requireAsync:
