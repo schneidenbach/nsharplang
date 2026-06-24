@@ -690,9 +690,6 @@ public class MultiFileCompiler
     {
         if (_sourceFiles.Count == 0)
             return false;
-        if (RequiresColumnarSoaEmission())
-            return false;
-
         var sources = new List<string>(_sourceFiles.Count);
         foreach (var sourceFile in _sourceFiles)
         {
