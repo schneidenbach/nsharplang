@@ -48,22 +48,6 @@ public record DocParameterResult(
 /// </summary>
 public class DocQuery
 {
-    private static readonly string[] PreferredNamespaces =
-    {
-        "System",
-        "System.Collections",
-        "System.Collections.Generic",
-        "System.IO",
-        "System.Linq",
-        "System.Net",
-        "System.Net.Http",
-        "System.Text",
-        "System.Text.Json",
-        "System.Text.RegularExpressions",
-        "System.Threading",
-        "System.Threading.Tasks"
-    };
-
     private readonly Dictionary<string, XDocument> _loadedDocs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, XElement>> _docIndexes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, XElement> _globalDocIndex = new(StringComparer.Ordinal);
@@ -673,74 +657,15 @@ public class DocQuery
 
     private static int ScoreTypeMatch(string query, Type type)
     {
-        var score = 0;
         var strippedQuery = StripGenericArity(query);
         var qualifiedName = GetLookupTypeName(type);
         var simpleName = StripGenericArity(type.Name);
-
-        if (qualifiedName.Equals(strippedQuery, StringComparison.OrdinalIgnoreCase))
-        {
-            score += 1000;
-        }
-
-        if (qualifiedName.EndsWith($".{strippedQuery}", StringComparison.OrdinalIgnoreCase))
-        {
-            score += 400;
-        }
-
-        if (simpleName.Equals(strippedQuery.Split('.').Last(), StringComparison.OrdinalIgnoreCase))
-        {
-            score += 250;
-        }
-
-        var queryNamespace = GetQueryNamespace(strippedQuery);
-        if (queryNamespace != null &&
-            type.Namespace?.EndsWith(queryNamespace, StringComparison.OrdinalIgnoreCase) == true)
-        {
-            score += 300;
-        }
-
-        score += GetNamespacePriority(type.Namespace);
-
-        if (!type.IsNested)
-        {
-            score += 10;
-        }
-
-        return score;
-    }
-
-    private static int GetNamespacePriority(string? ns)
-    {
-        if (string.IsNullOrWhiteSpace(ns)) return 0;
-
-        for (int i = 0; i < PreferredNamespaces.Length; i++)
-        {
-            if (ns.Equals(PreferredNamespaces[i], StringComparison.OrdinalIgnoreCase))
-            {
-                return 200 - i;
-            }
-        }
-
-        if (ns.Equals("System", StringComparison.OrdinalIgnoreCase) ||
-            ns.StartsWith("System.", StringComparison.OrdinalIgnoreCase))
-        {
-            return 120;
-        }
-
-        if (ns.Equals("Microsoft", StringComparison.OrdinalIgnoreCase) ||
-            ns.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase))
-        {
-            return 60;
-        }
-
-        return 10;
-    }
-
-    private static string? GetQueryNamespace(string query)
-    {
-        var lastDot = query.LastIndexOf('.');
-        return lastDot > 0 ? query[..lastDot] : null;
+        return DocQueryKernels.ScoreTypeMatch(
+            strippedQuery,
+            qualifiedName,
+            simpleName,
+            type.Namespace ?? string.Empty,
+            type.IsNested ? 1 : 0);
     }
 
     private static string GetLookupTypeName(Type type)

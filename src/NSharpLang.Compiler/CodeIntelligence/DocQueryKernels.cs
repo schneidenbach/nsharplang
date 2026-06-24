@@ -218,6 +218,14 @@ internal static class DocQueryKernels
     internal static string StripGenericArity(string name)
         => RequiredBindings.DocQueryStripGenericArity(name);
 
+    internal static int ScoreTypeMatch(
+        string strippedQuery,
+        string qualifiedName,
+        string simpleName,
+        string namespaceName,
+        int isNested)
+        => RequiredBindings.DocQueryTypeMatchScore(strippedQuery, qualifiedName, simpleName, namespaceName, isNested);
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<StableDistinctRankIndicesInto>(
@@ -231,7 +239,10 @@ internal static class DocQueryKernels
                 "DocQueryMemberOrderIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<DocQueryStripGenericArity>(
                 programType,
-                "DocQueryStripGenericArity")));
+                "DocQueryStripGenericArity"),
+            DogfoodKernelLoader.CreateDelegate<DocQueryTypeMatchScore>(
+                programType,
+                "DocQueryTypeMatchScore")));
 
     private static int GetDocMemberKindRank(string kind) =>
         kind switch
@@ -272,12 +283,19 @@ internal static class DocQueryKernels
         int[] resultIndices);
 
     private delegate string DocQueryStripGenericArity(string name);
+    private delegate int DocQueryTypeMatchScore(
+        string strippedQuery,
+        string qualifiedName,
+        string simpleName,
+        string namespaceName,
+        int isNested);
 
     private sealed record Bindings(
         StableDistinctRankIndicesInto StableDistinctRankIndices,
         DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
         DocQueryMemberOrderIndicesInto DocQueryMemberOrderIndices,
-        DocQueryStripGenericArity DocQueryStripGenericArity);
+        DocQueryStripGenericArity DocQueryStripGenericArity,
+        DocQueryTypeMatchScore DocQueryTypeMatchScore);
 
     private sealed class DocQueryBestTypeScratch
     {

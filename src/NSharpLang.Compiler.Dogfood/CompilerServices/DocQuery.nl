@@ -1,3 +1,4 @@
+import System
 import System.Text
 
 struct DocQueryTypeCandidateTable {
@@ -369,6 +370,173 @@ func DocQueryStripGenericArity(name: string): string {
     }
 
     return builder.ToString()
+}
+
+func DocQueryTypeMatchScore(
+    strippedQuery: string,
+    qualifiedName: string,
+    simpleName: string,
+    namespaceName: string,
+    isNested: int): int {
+    score := 0
+
+    if DocQueryEqualsIgnoreCase(qualifiedName, strippedQuery) {
+        score = score + 1000
+    }
+
+    if DocQueryEndsWithSegmentIgnoreCase(qualifiedName, strippedQuery) {
+        score = score + 400
+    }
+
+    lastSegmentStart := DocQueryLastSegmentStart(strippedQuery)
+    if DocQueryEqualsSubstringIgnoreCase(simpleName, 0, simpleName.Length, strippedQuery, lastSegmentStart, strippedQuery.Length - lastSegmentStart) {
+        score = score + 250
+    }
+
+    queryNamespaceLength := DocQueryQueryNamespaceLength(strippedQuery)
+    if queryNamespaceLength > 0 && DocQueryEndsWithSubstringIgnoreCase(namespaceName, strippedQuery, 0, queryNamespaceLength) {
+        score = score + 300
+    }
+
+    score = score + DocQueryNamespacePriority(namespaceName)
+
+    if isNested == 0 {
+        score = score + 10
+    }
+
+    return score
+}
+
+func DocQueryNamespacePriority(ns: string): int {
+    if ns.Length == 0 {
+        return 0
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System") {
+        return 200
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Collections") {
+        return 199
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Collections.Generic") {
+        return 198
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.IO") {
+        return 197
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Linq") {
+        return 196
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Net") {
+        return 195
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Net.Http") {
+        return 194
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Text") {
+        return 193
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Text.Json") {
+        return 192
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Text.RegularExpressions") {
+        return 191
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Threading") {
+        return 190
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "System.Threading.Tasks") {
+        return 189
+    }
+
+    if DocQueryStartsWithIgnoreCase(ns, "System.") {
+        return 120
+    }
+
+    if DocQueryEqualsIgnoreCase(ns, "Microsoft") || DocQueryStartsWithIgnoreCase(ns, "Microsoft.") {
+        return 60
+    }
+
+    return 10
+}
+
+func DocQueryLastSegmentStart(text: string): int {
+    i := text.Length - 1
+    while i >= 0 {
+        if text[i] == '.' {
+            return i + 1
+        }
+
+        i = i - 1
+    }
+
+    return 0
+}
+
+func DocQueryQueryNamespaceLength(text: string): int {
+    i := text.Length - 1
+    while i >= 0 {
+        if text[i] == '.' {
+            return i
+        }
+
+        i = i - 1
+    }
+
+    return 0
+}
+
+func DocQueryEqualsIgnoreCase(left: string, right: string): bool {
+    return left.Length == right.Length && String.Compare(left, right, StringComparison.OrdinalIgnoreCase) == 0
+}
+
+func DocQueryStartsWithIgnoreCase(text: string, prefix: string): bool {
+    if prefix.Length > text.Length {
+        return false
+    }
+
+    return String.Compare(text, 0, prefix, 0, prefix.Length, StringComparison.OrdinalIgnoreCase) == 0
+}
+
+func DocQueryEndsWithSegmentIgnoreCase(text: string, suffix: string): bool {
+    if suffix.Length >= text.Length {
+        return false
+    }
+
+    start := text.Length - suffix.Length
+    if text[start - 1] != '.' {
+        return false
+    }
+
+    return String.Compare(text, start, suffix, 0, suffix.Length, StringComparison.OrdinalIgnoreCase) == 0
+}
+
+func DocQueryEndsWithSubstringIgnoreCase(text: string, query: string, queryStart: int, queryLength: int): bool {
+    if queryLength <= 0 || queryLength > text.Length {
+        return false
+    }
+
+    textStart := text.Length - queryLength
+    return String.Compare(text, textStart, query, queryStart, queryLength, StringComparison.OrdinalIgnoreCase) == 0
+}
+
+func DocQueryEqualsSubstringIgnoreCase(left: string, leftStart: int, leftLength: int, right: string, rightStart: int, rightLength: int): bool {
+    if leftLength != rightLength {
+        return false
+    }
+
+    return String.Compare(left, leftStart, right, rightStart, leftLength, StringComparison.OrdinalIgnoreCase) == 0
 }
 
 func DocQueryIsDigit(ch: char): bool {
