@@ -841,8 +841,9 @@ func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count:
 
 // Parser declaration safety guard for top-level functions. The declaration scans intentionally skip
 // unknown depth-0 tokens, so this validates the token immediately before each `func` keyword: only
-// recognized modifiers (`static`, `async`), a previous declaration close, or a package/import dotted
-// header prefix may precede a top-level function. Returns 1 when every function preamble is valid.
+// recognized modifiers (`static`, `async`), a previous declaration close, a package/namespace import
+// dotted header prefix, or a quoted file-import header may precede a top-level function. Returns 1
+// when every function preamble is valid.
 func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream, count: int, indices: &TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
@@ -857,6 +858,15 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
         }
 
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
+            if tokens.Kinds[preceding] == 4 {
+                if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
+                    return 0
+                }
+
+                i = i + 1
+                continue
+            }
+
             headerWalk := preceding
             while headerWalk >= 0 && (tokens.Kinds[headerWalk] == 0 || tokens.Kinds[headerWalk] == 124) {
                 headerWalk = headerWalk - 1
