@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace NSharpLang.Compiler.Columnar;
@@ -7,16 +8,19 @@ namespace NSharpLang.Compiler.Columnar;
 /// `$` and the holes inside it) into text segments and holes, mirroring the production parser's
 /// re-lex (Parser.ParseInterpolatedString): `{{`/`}}` collapse to literal braces in TEXT, escape
 /// pairs stay VERBATIM in text segments (StringLiteralDecoder.DecodeBody decodes at emit, exactly
-/// like the oracle's EmitInterpolatedString), and a `{…}` hole splits at the first colon into an
+/// like the backend's emitted interpolation), and a `{…}` hole splits at the first colon into an
 /// expression part and a format clause. The modelled HOLE GRAMMAR is identifier chains only —
 /// `name` / `name.field.field` — with an optional non-empty `:format`; any richer hole content
 /// (calls, operators, ternaries, whitespace, nested strings/braces) returns false and the consumer
-/// DECLINES to the C# fallback, which compiles it via the full sub-parse. Both the columnar emitter
-/// and the diagnostics pass consume this splitter, so hole identifier USES and emitted IL agree by
-/// construction (a program one of them cannot model declines for both).
+/// declines it. The columnar emitter consumes this splitter, so unsupported hole forms cannot enter
+/// IL emission through this path.
 /// </summary>
 internal static class ColumnarInterpolationSplitter
 {
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+    [ThreadStatic]
+    private static Scratch? t_scratch;
+
     internal readonly struct Part
     {
         internal Part(bool isHole, string text, string? format)
@@ -38,95 +42,88 @@ internal static class ColumnarInterpolationSplitter
 
     internal static bool TrySplit(string literal, List<Part> parts)
     {
-        // The token text is `$"…"`: strip the `$"` prefix and the closing quote.
-        if (literal.Length < 3 || literal[0] != '$' || literal[1] != '"' || literal[^1] != '"')
+        var capacity = literal.Length + 1;
+        var scratch = t_scratch ??= new Scratch();
+        scratch.EnsureCapacity(capacity);
+
+        var count = RequiredBindings.Split(
+            literal,
+            scratch.Kinds,
+            scratch.Texts,
+            scratch.Formats,
+            scratch.FormatFlags);
+        if (count < 0)
             return false;
-        var text = new System.Text.StringBuilder();
-        var i = 2;
-        var end = literal.Length - 1;
-        while (i < end)
+
+        if (count > capacity)
+            throw new InvalidOperationException("N# columnar interpolation splitter returned too many parts.");
+
+        try
         {
-            var c = literal[i];
-            if (c == '\\' && i + 1 < end)
+            for (var i = 0; i < count; i++)
             {
-                // Escape pairs stay VERBATIM in the text segment (decoded at emit, the oracle's rule).
-                text.Append(c).Append(literal[i + 1]);
-                i += 2;
-                continue;
+                var kind = scratch.Kinds[i];
+                if (kind is not 0 and not 1)
+                    throw new InvalidOperationException("N# columnar interpolation splitter returned an invalid part kind.");
+
+                parts.Add(new Part(
+                    kind == 1,
+                    scratch.Texts[i] ?? throw new InvalidOperationException("N# columnar interpolation splitter returned a null part text."),
+                    scratch.FormatFlags[i] == 0
+                        ? null
+                        : scratch.Formats[i] ?? throw new InvalidOperationException("N# columnar interpolation splitter returned a null format text.")));
             }
-            if (c == '{')
-            {
-                if (i + 1 < end && literal[i + 1] == '{')
-                {
-                    text.Append('{');
-                    i += 2;
-                    continue;
-                }
-                var close = literal.IndexOf('}', i + 1);
-                if (close < 0 || close >= end)
-                    return false; // unterminated hole.
-                var content = literal.Substring(i + 1, close - i - 1);
-                var colon = content.IndexOf(':');
-                var expr = colon >= 0 ? content.Substring(0, colon) : content;
-                var format = colon >= 0 ? content.Substring(colon + 1) : null;
-                if (!IsIdentifierChain(expr) || format is { Length: 0 })
-                    return false; // beyond the modelled hole grammar — decline.
-                // The production hole scan is BRACE-DEPTH aware (and respects nested strings/escapes);
-                // this splitter closes at the FIRST `}`. A format clause containing braces, quotes, or
-                // backslashes could therefore disagree on the hole boundary — decline those outright so
-                // the boundary rules can never diverge (plain `:F2`-style clauses, the entire observed
-                // surface, contain none of them).
-                if (format != null && format.IndexOfAny(new[] { '{', '}', '"', '\\' }) >= 0)
-                    return false;
-                if (text.Length > 0)
-                {
-                    parts.Add(new Part(false, text.ToString(), null));
-                    text.Clear();
-                }
-                parts.Add(new Part(true, expr, format));
-                i = close + 1;
-                continue;
-            }
-            if (c == '}')
-            {
-                if (i + 1 < end && literal[i + 1] == '}')
-                {
-                    text.Append('}');
-                    i += 2;
-                    continue;
-                }
-                return false; // a lone `}` — not modelled.
-            }
-            text.Append(c);
-            i++;
+
+            return true;
         }
-        if (text.Length > 0)
-            parts.Add(new Part(false, text.ToString(), null));
-        return true;
+        finally
+        {
+            scratch.Clear(count);
+        }
     }
 
-    private static bool IsIdentifierChain(string s)
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# columnar interpolation splitter kernel is unavailable.");
+
+    private static Bindings? LoadBindings()
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<ColumnarInterpolatedStringPartsInto>(
+                programType,
+                "ColumnarInterpolatedStringPartsInto")));
+
+    private delegate int ColumnarInterpolatedStringPartsInto(
+        string literal,
+        int[] outKinds,
+        string[] outTexts,
+        string[] outFormats,
+        int[] outFormatFlags);
+
+    private sealed record Bindings(ColumnarInterpolatedStringPartsInto Split);
+
+    private sealed class Scratch
     {
-        if (s.Length == 0)
-            return false;
-        var expectIdentStart = true;
-        foreach (var ch in s)
+        internal int[] FormatFlags = Array.Empty<int>();
+        internal string[] Formats = Array.Empty<string>();
+        internal int[] Kinds = Array.Empty<int>();
+        internal string[] Texts = Array.Empty<string>();
+
+        internal void EnsureCapacity(int capacity)
         {
-            if (expectIdentStart)
-            {
-                if (!char.IsLetter(ch) && ch != '_')
-                    return false;
-                expectIdentStart = false;
-            }
-            else if (ch == '.')
-            {
-                expectIdentStart = true;
-            }
-            else if (!char.IsLetterOrDigit(ch) && ch != '_')
-            {
-                return false;
-            }
+            if (Kinds.Length >= capacity)
+                return;
+
+            Kinds = new int[capacity];
+            Texts = new string[capacity];
+            Formats = new string[capacity];
+            FormatFlags = new int[capacity];
         }
-        return !expectIdentStart; // no trailing dot.
+
+        internal void Clear(int count)
+        {
+            Array.Clear(Kinds, 0, count);
+            Array.Clear(Texts, 0, count);
+            Array.Clear(Formats, 0, count);
+            Array.Clear(FormatFlags, 0, count);
+        }
     }
 }
