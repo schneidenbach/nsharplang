@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Compiler;
 
@@ -163,12 +164,6 @@ public class Linter
         return visitor.Diagnostics;
     }
 
-    internal static string[] NormalizeSourceLines(string? sourceText)
-        => string.IsNullOrEmpty(sourceText)
-            ? Array.Empty<string>()
-            : sourceText.Replace("\r\n", "\n", StringComparison.Ordinal)
-                .Replace('\r', '\n')
-                .Split('\n');
 }
 
 /// <summary>
@@ -179,7 +174,7 @@ internal class LintVisitor
     private readonly string? _filePath;
     private readonly LinterConfig _config;
     private readonly Dictionary<int, HashSet<string>> _suppressedDiagnosticsByLine;
-    private readonly string[] _sourceLines;
+    private readonly string? _sourceText;
     private readonly List<Diagnostic> _diagnostics = new();
     private Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
@@ -216,7 +211,7 @@ internal class LintVisitor
         _filePath = filePath;
         _config = config ?? LinterConfig.Default();
         _suppressedDiagnosticsByLine = BuildSuppressions(filePath, sourceText);
-        _sourceLines = Linter.NormalizeSourceLines(sourceText);
+        _sourceText = sourceText;
     }
 
     public void Visit(CompilationUnit unit)
@@ -314,8 +309,8 @@ internal class LintVisitor
     }
 
     private string SourceLine(int oneBasedLine)
-        => oneBasedLine > 0 && oneBasedLine <= _sourceLines.Length
-            ? _sourceLines[oneBasedLine - 1]
+        => !string.IsNullOrEmpty(_sourceText) && oneBasedLine > 0
+            ? CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, oneBasedLine) ?? string.Empty
             : string.Empty;
 
     // NL010: resolve the diagnostic span for a namespace import to the imported
