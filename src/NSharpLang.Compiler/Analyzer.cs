@@ -23094,17 +23094,7 @@ public class Analyzer : IDisposable
                     _referencedPackageNames.Add(reference.Nuget);
                 }
 
-                try
-                {
                     LoadProjectReference(reference, projectDirectory, config.TargetFramework);
-                }
-                catch (Exception ex)
-                {
-                    RecordReferenceLoadFailure(
-                        reference.Nuget ?? reference.Project ?? reference.ToString() ?? "<unknown reference>",
-                        ex);
-                    Console.Error.WriteLine($"Warning: Failed to load reference: {ex.Message}");
-                }
             }
         }
 
