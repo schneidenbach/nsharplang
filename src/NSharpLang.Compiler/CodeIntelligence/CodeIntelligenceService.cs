@@ -497,8 +497,6 @@ public class CodeIntelligenceService
 
     /// <summary>
     /// Find references only when the selected position has a strict BindingMap declaration/binding.
-    /// Rename uses this path because name/source-context fallbacks can bind comments or ambiguous
-    /// text to the wrong declaration.
     /// </summary>
     public List<ReferenceResult> FindStrictReferences(ProjectSnapshot snapshot, string file, int line, int col)
     {
@@ -519,44 +517,7 @@ public class CodeIntelligenceService
         if (declaration != null)
             return declaration;
 
-        if (snapshot.Bindings == null)
             return null;
-
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (span == null)
-            return null;
-
-        var name = ExtractWordAtPosition(snapshot, filePath, line, col);
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        return snapshot.Bindings.AllDeclarations.FirstOrDefault(candidate =>
-            string.Equals(candidate.File, filePath, StringComparison.Ordinal)
-            && candidate.Line == line
-            && string.Equals(candidate.Name, name, StringComparison.Ordinal)
-            && SelectedSpanMatchesDeclarationName(snapshot, filePath, line, span.Value, candidate));
-    }
-
-    private static bool SelectedSpanMatchesDeclarationName(ProjectSnapshot snapshot, string filePath, int line,
-        (int StartColumn, int EndColumn) selectedSpan, SymbolDeclaration declaration)
-    {
-        var source = GetSourceText(snapshot, filePath);
-        if (source == null)
-            return false;
-
-        if (!CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
-                snapshot,
-                filePath,
-                source,
-                line,
-                declaration.Column,
-                declaration.Name,
-                selectedSpan.StartColumn,
-                selectedSpan.EndColumn,
-                out var dogfoodMatches))
-            throw new InvalidOperationException("N# declaration-name match kernel rejected the source.");
-
-        return dogfoodMatches;
     }
 
     private List<ReferenceResult> BuildReferenceResultsFromDeclaration(ProjectSnapshot snapshot, SymbolDeclaration declaration)

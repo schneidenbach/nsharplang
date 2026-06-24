@@ -729,7 +729,6 @@ Migration note: the earlier tree JSON wrapper exposed raw `dotnet list package` 
 - Success responses include `ok: true` and command-specific payloads
 - Failures use `ok: false` plus `error.message`
 - Position-based misses use `error.code: "noSymbol"` plus structured `error.details.file` / `error.details.position`
-- Reference positions that resolve by definition fallback but not by precise binding use `error.code: "semanticReferencesUnavailable"` and do not return text-search guesses
 - `outline` normalizes the file path relative to the project root
 - Project-aware query results normalize file paths to project-relative form where the command can resolve them
 
