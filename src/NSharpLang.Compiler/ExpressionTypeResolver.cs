@@ -1,6 +1,4 @@
 using System;
-using System.Linq;
-using System.Reflection;
 using System.Collections.Generic;
 using NSharpLang.Compiler.Ast;
 
@@ -44,52 +42,6 @@ public class ExpressionTypeResolver
             return clrType;
 
         return ResolveExpressionTypeFallback(expr);
-    }
-
-    /// <summary>
-    /// Resolves member info for a member access expression
-    /// Returns the MemberInfo (MethodInfo, PropertyInfo, or FieldInfo)
-    /// </summary>
-    public MemberInfo? ResolveMemberInfo(MemberAccessExpression memberAccess)
-    {
-        // Resolve the type of the object being accessed
-        var objectType = ResolveExpressionType(memberAccess.Object);
-        if (objectType == null) return null;
-
-        var memberName = memberAccess.MemberName;
-
-        // Try to find method
-        var methods = objectType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
-            .Where(m => m.Name == memberName)
-            .ToArray();
-
-        if (methods.Length > 0)
-        {
-            // Return first overload for now
-            return methods[0];
-        }
-
-        // Try property
-        var property = objectType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
-        if (property != null) return property;
-
-        // Try field
-        var field = objectType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
-        return field;
-    }
-
-    /// <summary>
-    /// Gets all method overloads for a member access
-    /// </summary>
-    public MethodInfo[] GetMethodOverloads(MemberAccessExpression memberAccess)
-    {
-        var objectType = ResolveExpressionType(memberAccess.Object);
-        if (objectType == null) return Array.Empty<MethodInfo>();
-
-        var memberName = memberAccess.MemberName;
-        return objectType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
-            .Where(m => m.Name == memberName)
-            .ToArray();
     }
 
     private Type? ResolveExpressionTypeFallback(Expression expr)
