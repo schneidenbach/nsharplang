@@ -22934,8 +22934,6 @@ public class Analyzer : IDisposable
     public void LoadReferencedAssemblyByName(string assemblyName)
     {
         if (_mlc == null) return;
-        try
-        {
             if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
             {
                 return;
@@ -22943,11 +22941,6 @@ public class Analyzer : IDisposable
 
             var assembly = _mlc.LoadFromAssemblyName(assemblyName);
             RegisterMetadataAssembly(assembly);
-        }
-        catch
-        {
-            // Assembly not found — the MLC resolver already searched all configured paths
-        }
     }
 
     private void RegisterMetadataAssembly(Assembly assembly)
