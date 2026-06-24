@@ -2085,7 +2085,6 @@ public class Analyzer : IDisposable
         var resolvedReturnType = ResolveTypeAlias(GetNonNullableType(returnType));
         var isAsyncGenerator = func.Modifiers.HasFlag(Modifiers.Async);
         if (BuiltInTypes.IsUnknown(resolvedReturnType)
-            || resolvedReturnType is ExternalTypeInfo
             || IsGeneratorSequenceReturnType(resolvedReturnType, isAsyncGenerator))
         {
             return false;
