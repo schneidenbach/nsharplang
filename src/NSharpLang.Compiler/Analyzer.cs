@@ -404,11 +404,6 @@ public class Analyzer : IDisposable
             AnalyzeDeclaration(decl);
         }
 
-        // Set end line for global scope (use source line count or last declaration)
-        var sourceLineCount = GetSourceLineCount();
-        if (sourceLineCount > 0)
-            _currentLine = sourceLineCount;
-
         PopScope();
 
         ReportReferenceLoadFailures();
@@ -21291,16 +21286,6 @@ public class Analyzer : IDisposable
         if (sourceText == null)
             return fallbackColumn;
 
-        if (CodeIntelligenceSourceTextKernels.TryFindIdentifierNameColumn(
-            sourceText,
-            name,
-            line,
-            fallbackColumn,
-            out var dogfoodColumn))
-        {
-            return dogfoodColumn;
-        }
-
         return fallbackColumn;
     }
 
@@ -21887,26 +21872,7 @@ public class Analyzer : IDisposable
 
     private string? GetSourceSnippet(int line)
     {
-        if (line <= 0)
-            return null;
-
-        return _sourceText != null
-            ? CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, line)
-            : null;
-    }
-
-    private int GetSourceLineCount()
-    {
-        if (_sourceText == null)
-            return 0;
-
-        var line = 1;
-        while (CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, line) != null)
-        {
-            line++;
-        }
-
-        return line - 1;
+        return null;
     }
 
     // Package validation
@@ -23434,12 +23400,6 @@ public class Analyzer : IDisposable
             Func3 = Resolve("System.Func`3");
             Func4 = Resolve("System.Func`4");
             Func5 = Resolve("System.Func`5");
-
-            {
-                var runtime = mlc.LoadFromAssemblyName("NSharpLang.Runtime");
-                RuntimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
-                RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
-            }
 
             {
                 var json = mlc.LoadFromAssemblyName("System.Text.Json");
