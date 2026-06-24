@@ -1846,8 +1846,6 @@ public class CodeIntelligenceService
 
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        try
-        {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
@@ -1864,17 +1862,10 @@ public class CodeIntelligenceService
             }
 
             return null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string? ExtractMemberReceiverName(ProjectSnapshot snapshot, string filePath, int line, int memberStartColumn)
     {
-        try
-        {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
@@ -1891,17 +1882,10 @@ public class CodeIntelligenceService
             }
 
             return null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static (int StartColumn, int EndColumn)? ExtractIdentifierSpanAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        try
-        {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
@@ -1918,11 +1902,6 @@ public class CodeIntelligenceService
             }
 
             return null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static IEnumerable<int> GetNearbyColumns(int col, int maxDistance)
@@ -1941,8 +1920,6 @@ public class CodeIntelligenceService
 
     private static string? ExtractVariableDeclarationNameAtPosition(ProjectSnapshot snapshot, string filePath, int line)
     {
-        try
-        {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
@@ -1958,11 +1935,6 @@ public class CodeIntelligenceService
             }
 
             return null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string? ExtractSourceLine(IReadOnlyDictionary<string, string> sourceTexts, string filePath, int line)
