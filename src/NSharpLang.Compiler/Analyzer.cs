@@ -9180,16 +9180,6 @@ public class Analyzer : IDisposable
             return false;
 
         receiverType = ResolveAliasAndMetadata(receiverType);
-        if (BuiltInTypes.IsUnknown(receiverType)
-            || receiverType == BuiltInTypes.Null
-            || receiverType == BuiltInTypes.Never
-            || receiverType == BuiltInTypes.Void
-            || receiverType is FunctionTypeInfo or NSharpMethodGroupInfo or ReflectionMethodGroupInfo
-                or ReflectionMethodInfo or ExternalTypeInfo)
-        {
-            return false;
-        }
-
         return receiverType switch
         {
             SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
