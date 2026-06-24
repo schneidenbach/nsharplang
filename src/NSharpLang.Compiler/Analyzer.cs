@@ -22559,8 +22559,6 @@ public class Analyzer : IDisposable
 
         foreach (var filePath in ProjectConfig.EnumerateSourceFiles(projectRoot))
         {
-            try
-            {
                 var source = File.ReadAllText(filePath);
                 var lexer = new Lexer(source, filePath);
                 var parser = new Parser(lexer.Tokenize(), filePath, source);
@@ -22570,11 +22568,6 @@ public class Analyzer : IDisposable
                 {
                     namespaces.Add(declaredNamespace);
                 }
-            }
-            catch
-            {
-                // Namespace validation is best-effort; syntax issues will be reported elsewhere.
-            }
         }
 
         _projectNamespaceCache[projectRoot] = namespaces;
@@ -22600,8 +22593,6 @@ public class Analyzer : IDisposable
             return null;
         }
 
-        try
-        {
             var source = File.ReadAllText(fullPath);
             var lexer = new Lexer(source, fullPath);
             var parser = new Parser(lexer.Tokenize(), fullPath, source);
@@ -22609,12 +22600,6 @@ public class Analyzer : IDisposable
             var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
             _projectFileNamespaceCache[fullPath] = declaredNamespace;
             return declaredNamespace;
-        }
-        catch
-        {
-            _projectFileNamespaceCache[fullPath] = null;
-            return null;
-        }
     }
 
     private static string? GetUnitNamespace(CompilationUnit? unit)
