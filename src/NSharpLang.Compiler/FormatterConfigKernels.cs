@@ -16,9 +16,6 @@ internal static class FormatterConfigKernels
         if (code == 0)
             return null;
 
-        if (code != 1)
-            throw new InvalidOperationException("N# formatter config integer parser kernel rejected the result buffer.");
-
         return result[0];
     }
 

@@ -22,9 +22,6 @@ internal static class AssemblyVersionKernels
             if (code == 0)
                 return false;
 
-            if (code != 1)
-                throw new InvalidOperationException("N# assembly-version parser kernel rejected the result buffer.");
-
             value = result[0];
             return true;
     }
