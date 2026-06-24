@@ -76,7 +76,6 @@ internal static class BindingLookupKernels
             DogfoodKernelLoader.CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
             DogfoodKernelLoader.CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
             DogfoodKernelLoader.CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
-            DogfoodKernelLoader.CreateDelegate<BindingLookupBuildNearestDeclarationIndexInto>(programType, "BindingLookupBuildNearestDeclarationIndexInto"),
             DogfoodKernelLoader.CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto")));
 
     private delegate int BindingLookupCandidateColumnsInto(
@@ -108,19 +107,6 @@ internal static class BindingLookupKernels
         int[] queryColumns,
         int[] resultDeclarationIndices);
 
-    private delegate int BindingLookupBuildNearestDeclarationIndexInto(
-        int[] declarationNameIds,
-        int[] declarationFileRanks,
-        int[] declarationLineNumbers,
-        int[] declarationColumns,
-        int[] tempDeclarationIndices,
-        int[] stackLefts,
-        int[] sortedNameIds,
-        int[] sortedFileRanks,
-        int[] sortedLineNumbers,
-        int[] sortedColumns,
-        int[] sortedDeclarationIndices);
-
     private delegate int BindingLookupFindNearestDeclarationIndicesInto(
         int[] sortedNameIds,
         int[] sortedFileRanks,
@@ -136,7 +122,6 @@ internal static class BindingLookupKernels
         BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
-        BindingLookupBuildNearestDeclarationIndexInto BindingLookupBuildNearestDeclarationIndex,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices);
 
     private sealed class BindingCandidateColumnScratch
