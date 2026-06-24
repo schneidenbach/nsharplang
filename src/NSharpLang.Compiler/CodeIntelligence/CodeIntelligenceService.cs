@@ -2301,7 +2301,6 @@ public class CodeIntelligenceService
         {
             NullableTypeInfo => NullState.MaybeNull,
             UnknownTypeInfo => NullState.Unknown,
-            ExternalTypeInfo => NullState.Oblivious,
             ReflectionTypeInfo reflectionType => reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
                 ? NullState.NotNull
                 : NullState.Oblivious,
