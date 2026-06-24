@@ -163,7 +163,6 @@ public class Analyzer : IDisposable
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string? _sourceText;
-    private string[]? _sourceLines;  // Source code lines for error snippets
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
     private MetadataLoadContext? _mlc;
@@ -301,7 +300,6 @@ public class Analyzer : IDisposable
         _projectRoot = projectRoot;
         _compilationUnit = unit;
         _sourceText = sourceCode;
-        _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
         _projectNamespaceCache.Clear();
         _projectFileNamespaceCache.Clear();
@@ -407,8 +405,9 @@ public class Analyzer : IDisposable
         }
 
         // Set end line for global scope (use source line count or last declaration)
-        if (_sourceLines != null)
-            _currentLine = _sourceLines.Length;
+        var sourceLineCount = GetSourceLineCount();
+        if (sourceLineCount > 0)
+            _currentLine = sourceLineCount;
 
         PopScope();
 
@@ -4225,10 +4224,10 @@ public class Analyzer : IDisposable
     {
         const int IsKeywordLength = 2;
 
-        if (_sourceLines == null || isExpr.Line <= 0 || isExpr.Line > _sourceLines.Length)
+        var sourceLine = GetSourceSnippet(isExpr.Line);
+        if (sourceLine == null)
             return (isExpr.Line, isExpr.Column, IsKeywordLength);
 
-        var sourceLine = _sourceLines[isExpr.Line - 1];
         var start = isExpr.Column - 1;
         if (start < 0 || start >= sourceLine.Length)
             return (isExpr.Line, isExpr.Column, IsKeywordLength);
@@ -4256,10 +4255,10 @@ public class Analyzer : IDisposable
 
     private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
     {
-        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+        var sourceLine = GetSourceSnippet(line);
+        if (sourceLine == null)
             return 1;
 
-        var sourceLine = _sourceLines[line - 1];
         var start = column - 1;
         if (start < 0 || start >= sourceLine.Length || sourceLine[start] != openDelimiter)
             return GetTokenLength(line, column);
@@ -4377,9 +4376,9 @@ public class Analyzer : IDisposable
         int fallbackColumn)
     {
         var (line, column) = GetExpressionStartPosition(expression, fallbackLine, fallbackColumn);
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
+        var sourceLine = GetSourceSnippet(line);
+        if (sourceLine != null)
         {
-            var sourceLine = _sourceLines[line - 1];
             var startIndex = Math.Clamp(column - 1, 0, sourceLine.Length);
             var index = sourceLine.IndexOf(path, startIndex, StringComparison.Ordinal);
             if (index < 0)
@@ -4413,10 +4412,10 @@ public class Analyzer : IDisposable
 
     private int GetTokenLength(int line, int column)
     {
-        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+        var sourceLine = GetSourceSnippet(line);
+        if (sourceLine == null)
             return 1;
 
-        var sourceLine = _sourceLines[line - 1];
         var start = column - 1;
         if (start < 0 || start >= sourceLine.Length)
             return 1;
@@ -4471,10 +4470,10 @@ public class Analyzer : IDisposable
 
     private int GetExpressionLength(int line, int column)
     {
-        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+        var sourceLine = GetSourceSnippet(line);
+        if (sourceLine == null)
             return 1;
 
-        var sourceLine = _sourceLines[line - 1];
         if (column <= 0 || column > sourceLine.Length)
             return Math.Max(1, sourceLine.TrimEnd().Length);
 
@@ -8957,9 +8956,7 @@ public class Analyzer : IDisposable
     private int GetMemberNameColumn(MemberAccessExpression member)
     {
         var fallbackColumn = member.Column + (member.IsNullConditional ? 2 : 1);
-        var sourceText = _sourceLines != null
-            ? _sourceText
-            : TryGetProjectSourceText(_currentFilePath);
+        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, member.MemberName, member.Line, fallbackColumn);
     }
@@ -21273,9 +21270,7 @@ public class Analyzer : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             return fallbackColumn;
 
-        var sourceText = _sourceLines != null
-            ? _sourceText
-            : TryGetProjectSourceText(_currentFilePath);
+        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
     }
@@ -21898,6 +21893,20 @@ public class Analyzer : IDisposable
         return _sourceText != null
             ? CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, line)
             : null;
+    }
+
+    private int GetSourceLineCount()
+    {
+        if (_sourceText == null)
+            return 0;
+
+        var line = 1;
+        while (CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, line) != null)
+        {
+            line++;
+        }
+
+        return line - 1;
     }
 
     // Package validation
