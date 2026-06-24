@@ -21931,14 +21931,8 @@ public class Analyzer : IDisposable
         if (line <= 0)
             return null;
 
-        if (_sourceText != null &&
-            CodeIntelligenceSourceTextKernels.TryExtractSourceLine(_sourceText, line, out var dogfoodLine))
-        {
-            return dogfoodLine;
-        }
-
-        return _sourceLines != null && line <= _sourceLines.Length
-            ? _sourceLines[line - 1]
+        return _sourceText != null
+            ? CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, line)
             : null;
     }
 

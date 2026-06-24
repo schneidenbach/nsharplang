@@ -11,7 +11,6 @@ public class Parser
     private readonly List<Token> _tokens;
     private readonly string? _fileName;
     private readonly string? _sourceCode;
-    private string[]? _sourceLines;
     private readonly List<CompilerError> _errors = new();
     private int _position;
     private bool _panicMode;
@@ -7344,14 +7343,6 @@ public class Parser
         if (_sourceCode == null || line < 1)
             return null;
 
-        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(_sourceCode, line, out var dogfoodLine))
-        {
-            return dogfoodLine;
-        }
-
-        var sourceLines = _sourceLines ??= _sourceCode.Split('\n');
-        return line <= sourceLines.Length
-            ? sourceLines[line - 1]
-            : null;
+        return CodeIntelligenceTextUtilities.GetSourceLine(_sourceCode, line);
     }
 }

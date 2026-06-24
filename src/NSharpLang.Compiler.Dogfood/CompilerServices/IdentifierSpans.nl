@@ -845,6 +845,20 @@ func BuildCodeIntelligenceLineRangesCore(source: string, lines: &CodeIntelligenc
     count := 0
 
     while position < sourceLength {
+        if source[position] == '\r' {
+            if position + 1 < sourceLength && source[position + 1] == '\n' {
+                position = position + 1
+                continue
+            }
+
+            lines.Starts[count] = lineStart
+            lines.Lengths[count] = position - lineStart
+            count = count + 1
+            position = position + 1
+            lineStart = position
+            continue
+        }
+
         if source[position] == '\n' {
             lines.Starts[count] = lineStart
             lines.Lengths[count] = position - lineStart

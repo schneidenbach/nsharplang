@@ -456,17 +456,7 @@ public class MultiFileCompiler
         if (line <= 0)
             return null;
 
-            var source = ReadSourceText(filePath);
-            if (source.IndexOf('\r') < 0 &&
-                CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
-            {
-                return dogfoodLine;
-            }
-
-            return source
-                .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None)
-                .Skip(line - 1)
-                .FirstOrDefault();
+            return CodeIntelligenceTextUtilities.GetSourceLine(ReadSourceText(filePath), line);
     }
 
     private bool ShouldSuppressAnalyzerDiagnostic(CompilerError error)
