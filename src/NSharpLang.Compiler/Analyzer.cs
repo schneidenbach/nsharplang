@@ -20063,8 +20063,6 @@ public class Analyzer : IDisposable
             var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
         }
-        // One side is reflection, other is N#-declared — accept for now (C# compiler will verify)
-        if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
         // Method types are callable, not assignable in the normal sense
         if (resolvedSource is ReflectionMethodInfo || resolvedTarget is ReflectionMethodInfo) return true;
         if (resolvedSource is ReflectionMethodGroupInfo || resolvedTarget is ReflectionMethodGroupInfo) return true;
