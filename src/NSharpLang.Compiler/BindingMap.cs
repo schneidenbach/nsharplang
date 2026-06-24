@@ -152,18 +152,6 @@ public class BindingMap
     }
 
     /// <summary>
-    /// Find a declaration by name. Returns all declarations with matching name.
-    /// Used as fallback when position-based lookup doesn't find a binding.
-    /// </summary>
-    public List<SymbolDeclaration> FindDeclarationsByName(string name)
-    {
-        return _declarations.Values
-            .Where(d => d.Name == name)
-            .Distinct()
-            .ToList();
-    }
-
-    /// <summary>
     /// Get all declarations in this binding map.
     /// </summary>
     public IReadOnlyCollection<SymbolDeclaration> AllDeclarations => _declarations.Values;

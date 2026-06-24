@@ -102,16 +102,9 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
 
         if (!hasSynchronizedProjectSnapshot)
         {
-            var documentReferences = _documentManager.FindStrictDocumentReferences(
-                uri,
-                request.Position.Line,
-                request.Position.Character);
-            if (documentReferences == null || documentReferences.Count == 0)
-            {
                 throw RenameRefused(
                     $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
                     "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
-            }
         }
 
         // Return the range of the word and a placeholder

@@ -166,35 +166,6 @@ public class BindingMapTests
 
     // ── FindDeclarationsByName ──────────────────────────────────────────
 
-    [Fact]
-    public void FindDeclarationsByName_FindsMatchingDeclarations()
-    {
-        var map = new BindingMap();
-        var decl1 = new SymbolDeclaration("Person", "models.nl", 1, 1, "class");
-        var decl2 = new SymbolDeclaration("Person", "other.nl", 5, 1, "record");
-        var decl3 = new SymbolDeclaration("Animal", "models.nl", 10, 1, "class");
-
-        map.RecordDeclaration(decl1);
-        map.RecordDeclaration(decl2);
-        map.RecordDeclaration(decl3);
-
-        var results = map.FindDeclarationsByName("Person");
-
-        Assert.Equal(2, results.Count);
-        Assert.All(results, r => Assert.Equal("Person", r.Name));
-    }
-
-    [Fact]
-    public void FindDeclarationsByName_ReturnsEmpty_WhenNoMatch()
-    {
-        var map = new BindingMap();
-        map.RecordDeclaration(new SymbolDeclaration("Foo", "test.nl", 1, 1, "class"));
-
-        var results = map.FindDeclarationsByName("NonExistent");
-
-        Assert.Empty(results);
-    }
-
     // ── Scope Boundaries ────────────────────────────────────────────────
 
     [Fact]

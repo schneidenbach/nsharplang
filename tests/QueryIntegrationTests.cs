@@ -889,17 +889,6 @@ func Main() {
     }
 
     [Fact]
-    public void BindingMap_HelloWorld_HasMainBinding()
-    {
-        var bindings = HelloWorld.Bindings!;
-
-        // Main function should be findable by name
-        var mainDecls = bindings.FindDeclarationsByName("Main");
-        Assert.NotEmpty(mainDecls);
-        Assert.Contains(mainDecls, d => d.Kind == "function");
-    }
-
-    [Fact]
     public void BindingMap_MultiFile_PersonDeclarationFound()
     {
         var bindings = MultiFile.Bindings!;
@@ -908,11 +897,6 @@ func Main() {
         var allDecls = bindings.AllDeclarations;
         Assert.NotEmpty(allDecls);
 
-        // Person should be recorded as a record declaration
-        var personDecls = bindings.FindDeclarationsByName("Person");
-        Assert.True(personDecls.Count > 0,
-            $"Expected Person declaration in BindingMap. All declarations ({allDecls.Count}): [{string.Join(", ", allDecls.Take(20).Select(d => $"{d.Kind}:{d.Name}"))}]");
-        Assert.Contains(personDecls, d => d.Kind == "record");
     }
 
     [Fact]

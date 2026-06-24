@@ -416,92 +416,9 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
-    public List<ReferenceResult>? FindStrictDocumentReferences(string uri, int line0, int character0)
-    {
-        var doc = GetDocument(uri);
-        if (doc?.Bindings == null || doc.Text == null)
-        {
-            return null;
-        }
-
-        var span = TryGetIdentifierSpanAtPosition(doc.Text, line0, character0);
-        if (span == null)
-        {
-            return null;
-        }
-
-        var filePath = UriToFilePath(uri);
-        var line = line0 + 1;
-        var declaration = doc.Bindings.GetBindingAt(filePath, line, span.Value.StartColumn)
-            ?? doc.Bindings.FindDeclarationsByName(span.Value.Name).FirstOrDefault(candidate =>
-                string.Equals(candidate.File, filePath, StringComparison.Ordinal)
-                && candidate.Line == line
-                && candidate.Column == span.Value.StartColumn);
-
-        if (declaration == null
-            || !string.Equals(declaration.File, filePath, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var results = new List<ReferenceResult>
-        {
-            new(
-                filePath,
-                declaration.Line,
-                declaration.Column,
-                declaration.Name.Length,
-                GetSourceContext(doc.Text, declaration.Line),
-                IsDefinition: true)
-        };
-
-        foreach (var usage in doc.Bindings.GetReferences(declaration))
-        {
-            var isDefinition = usage.File == declaration.File
-                && usage.Line == declaration.Line
-                && usage.Column == declaration.Column;
-            var overlapsDefinitionName = usage.File == declaration.File
-                && usage.Line == declaration.Line
-                && usage.Column >= declaration.Column
-                && usage.Column < declaration.Column + declaration.Name.Length;
-
-            if (isDefinition || overlapsDefinitionName)
-            {
-                continue;
-            }
-
-            if (!string.Equals(usage.File, filePath, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            results.Add(new ReferenceResult(
-                filePath,
-                usage.Line,
-                usage.Column,
-                usage.Length,
-                GetSourceContext(doc.Text, usage.Line),
-                IsDefinition: false));
-        }
-
-        return results
-            .GroupBy(r => (r.File, r.Line, r.Column))
-            .Select(g => g.First())
-            .OrderBy(r => r.Line)
-            .ThenBy(r => r.Column)
-            .ToList();
-    }
-
     public int CountDocumentDeclarations(string uri, string name)
     {
         var doc = GetDocument(uri);
-        if (doc?.Bindings != null)
-        {
-            var filePath = UriToFilePath(uri);
-            return doc.Bindings.FindDeclarationsByName(name)
-                .Count(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal));
-        }
-
         return doc?.SymbolLocations?.TryGetValue(name, out var locations) == true
             ? locations.Count
             : 0;

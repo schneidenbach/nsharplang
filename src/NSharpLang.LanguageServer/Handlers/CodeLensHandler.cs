@@ -145,22 +145,8 @@ public class CodeLensHandler : CodeLensHandlerBase
 
     private (int Count, bool IsClickable)? CountReferencesForCodeLens(string name, string declarationUri, Declaration declaration, int line0, int character0)
     {
-        var semanticCount = CountSemanticReferencesExcludingDeclarations(declarationUri, line0, character0);
-        if (semanticCount != null)
-        {
-            return (semanticCount.Value, IsClickable: true);
-        }
-
         var sameDocumentCount = CountSingleDocumentTextReferencesExcludingDeclaration(name, declarationUri, declaration);
         return sameDocumentCount != null ? (sameDocumentCount.Value, IsClickable: false) : null;
-    }
-
-    private int? CountSemanticReferencesExcludingDeclarations(string declarationUri, int line0, int character0)
-    {
-        var references = _documentManager.FindProjectReferences(declarationUri, line0, character0)
-            ?? _documentManager.FindStrictDocumentReferences(declarationUri, line0, character0);
-
-        return references?.Count(reference => !reference.IsDefinition);
     }
 
     private int? CountSingleDocumentTextReferencesExcludingDeclaration(string name, string declarationUri, Declaration declaration)

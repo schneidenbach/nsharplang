@@ -1907,91 +1907,6 @@ func main(): void {
     #region References Tests
 
     [Fact]
-    public async Task References_LocalVariable_FindsAllUsagesAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let x := 1
-    let y := x + 2
-    print(x)";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from the declaration of x (line 2, col 8)
-        var refs = await harness.GetReferencesAsync(uri, 2, 8);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
-    }
-
-    [Fact]
-    public async Task References_LocalVariable_FromUsageSiteAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let x := 1
-    let y := x + 2
-    print(x)";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from a usage of x (line 3, col 13 = "x" in "x + 2")
-        var refs = await harness.GetReferencesAsync(uri, 3, 13);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
-    }
-
-    [Fact]
-    public async Task References_LocalVariable_FromInterpolatedStringHoleAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let name := ""Spencer""
-    print($""Hello, {name}!"")
-    print(name)";
-
-        harness.OpenDocument(uri, source);
-
-        var refs = await harness.GetReferencesAsync(uri, 3, 21);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 3, $"Expected declaration plus two uses of 'name', got {refs!.Count()}");
-        Assert.Contains(refs!, r => r.Range.Start.Line == 2 && r.Range.Start.Character == 8);
-        Assert.Contains(refs!, r => r.Range.Start.Line == 3 && r.Range.Start.Character == 20);
-        Assert.Contains(refs!, r => r.Range.Start.Line == 4 && r.Range.Start.Character == 10);
-    }
-
-    [Fact]
-    public async Task References_TopLevelFunction_FindsAllCallsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Foo()
-    Foo()
-
-func Foo(): void
-    return";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from "Foo" on line 2
-        var refs = await harness.GetReferencesAsync(uri, 2, 4);
-        Assert.NotNull(refs);
-        // Should find at least: declaration + 2 call sites
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'Foo', got {refs!.Count()}");
-    }
-
-    [Fact]
     public async Task References_EmptyPosition_ReturnsEmptyAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -2659,64 +2574,6 @@ func outer(): void
         Assert.Contains(edit.Changes[serviceDocUri], change => change.NewText == "FetchAll" &&
             change.Range.Start.Line == 67 &&
             change.Range.Start.Character == 9);
-    }
-
-    [Fact]
-    public async Task Rename_InterpolatedStringHole_LocalVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let name := ""Spencer""
-    print($""Hello, {name}!"")
-    print(name)";
-
-        harness.OpenDocument(uri, source);
-
-        var edit = await harness.RenameAsync(uri, 3, 21, "displayName");
-        Assert.NotNull(edit);
-        Assert.NotNull(edit!.Changes);
-
-        var docUri = DocumentUri.From(uri);
-        Assert.True(edit.Changes!.ContainsKey(docUri));
-        var edits = edit.Changes[docUri].ToList();
-        Assert.Equal(3, edits.Count);
-        Assert.All(edits, e => Assert.Equal("displayName", e.NewText));
-        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
-        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 20);
-        Assert.Contains(edits, e => e.Range.Start.Line == 4 && e.Range.Start.Character == 10);
-    }
-
-    [Fact]
-    public async Task Rename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/unsafe-rename.nl";
-        var source = @"
-func main(): void
-    let value := 1
-    print(value)
-
-func other(): void
-    let value := 2
-    print(value)";
-
-        harness.OpenDocument(uri, source);
-
-        var edit = await harness.RenameAsync(uri, 2, 8, "renamed");
-
-        Assert.NotNull(edit);
-        Assert.NotNull(edit!.Changes);
-        var docEdits = Assert.Single(edit.Changes!);
-        var edits = docEdits.Value.ToList();
-        Assert.Equal(2, edits.Count);
-        Assert.All(edits, e => Assert.Equal("renamed", e.NewText));
-        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
-        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 10);
-        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 6);
-        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 7);
     }
 
     [Fact]
@@ -4186,24 +4043,6 @@ func main() {
     #region Prepare Rename Tests
 
     [Fact]
-    public async Task PrepareRename_AcceptsKnownSymbol()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename.nl";
-        var source = @"func greet(name: string): string {
-    return ""Hello "" + name
-}
-";
-        harness.OpenDocument(uri, source);
-
-        // "greet" starts at line 0, col 5 (0-based)
-        var result = await harness.PrepareRenameAsync(uri, 0, 5);
-        Assert.NotNull(result);
-        Assert.True(result!.IsPlaceholderRange);
-        Assert.Equal("greet", result.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_RejectsKeyword()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -4260,26 +4099,6 @@ func main() {
     }
 
     [Fact]
-    public async Task PrepareRename_AllowsInterpolatedExpressionHole()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename_interpolated_hole.nl";
-        var source = """
-func main() {
-    oldName := "world"
-    message := $"hello {oldName}"
-    print message
-}
-""";
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 2, source.Split('\n')[2].IndexOf("oldName", StringComparison.Ordinal));
-
-        Assert.NotNull(result);
-        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_RejectsEscapedInterpolatedBraceLiteralContent()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -4296,28 +4115,6 @@ func main() {
         var result = await harness.PrepareRenameAsync(uri, 2, source.Split('\n')[2].IndexOf("oldName", StringComparison.Ordinal));
 
         Assert.Null(result);
-    }
-
-    [Fact]
-    public async Task PrepareRename_AllowsInterpolatedRawStringExpressionHole()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename_interpolated_raw_hole.nl";
-        var source = """"
-func main() {
-    oldName := "world"
-    message := $"""
-hello {oldName}
-"""
-    print message
-}
-"""";
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 3, source.Split('\n')[3].IndexOf("oldName", StringComparison.Ordinal));
-
-        Assert.NotNull(result);
-        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
     }
 
     [Fact]
@@ -4387,29 +4184,6 @@ func Read(widget: Widget): string {
         {
             Directory.Delete(tempRoot, recursive: true);
         }
-    }
-
-    [Fact]
-    public async Task PrepareRename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/unsafe-prepare-rename.nl";
-        var source = @"
-func main(): void
-    let value := 1
-    print(value)
-
-func other(): void
-    let value := 2
-    print(value)";
-
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 2, 8);
-
-        Assert.NotNull(result);
-        Assert.True(result!.IsPlaceholderRange);
-        Assert.Equal("value", result.PlaceholderRange.Placeholder);
     }
 
     [Fact]
@@ -5072,85 +4846,6 @@ func helper() {
         Assert.NotNull(mainLens.Command);
         Assert.Equal("Entry point", mainLens.Command!.Title);
         Assert.Equal("nsharp.noop", mainLens.Command!.Name);
-    }
-
-    [Fact]
-    public async Task CodeLens_DuplicateCrossFileMemberNames_CountsOnlySemanticReferencesAndIsClickable()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-codelens-duplicates-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempRoot);
-
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
-            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
-            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: TempCodeLensDuplicateTest
-targetFramework: net10.0
-""");
-
-            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
-            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
-            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
-            var barUsePath = Path.Combine(tempRoot, "Bar", "UseWidget.nl");
-
-            File.WriteAllText(fooWidgetPath, """
-namespace TempCodeLensDuplicateTest.Foo
-
-record Widget {
-    Value: string
-}
-""");
-            File.WriteAllText(fooUsePath, """
-namespace TempCodeLensDuplicateTest.Foo
-
-func Read(widget: Widget): string {
-    return widget.Value
-}
-""");
-            File.WriteAllText(barWidgetPath, """
-namespace TempCodeLensDuplicateTest.Bar
-
-record Widget {
-    Value: int
-}
-""");
-            File.WriteAllText(barUsePath, """
-namespace TempCodeLensDuplicateTest.Bar
-
-func Read(widget: Widget): int {
-    return widget.Value
-}
-""");
-
-            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
-            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
-            var barWidgetUri = new Uri(barWidgetPath).AbsoluteUri;
-            var barUseUri = new Uri(barUsePath).AbsoluteUri;
-
-            harness.OpenDocument(fooWidgetUri, File.ReadAllText(fooWidgetPath));
-            harness.OpenDocument(fooUseUri, File.ReadAllText(fooUsePath));
-            harness.OpenDocument(barWidgetUri, File.ReadAllText(barWidgetPath));
-            harness.OpenDocument(barUseUri, File.ReadAllText(barUsePath));
-
-            var lenses = await harness.GetCodeLensesAsync(fooWidgetUri);
-
-            Assert.NotNull(lenses);
-            var widgetLens = Assert.Single(lenses!.Where(l => l.Range.Start.Line == 2));
-            Assert.NotNull(widgetLens.Command);
-            Assert.Equal("1 reference", widgetLens.Command!.Title);
-            Assert.Equal("nsharp.showReferences", widgetLens.Command!.Name);
-            Assert.NotNull(widgetLens.Command!.Arguments);
-            var args = widgetLens.Command!.Arguments!.ToList();
-            Assert.Equal(fooWidgetUri, args[0]!.ToString());
-            Assert.Equal(2, (int)args[1]!);
-            Assert.Equal(7, (int)args[2]!);
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
     }
 
     [Fact]
