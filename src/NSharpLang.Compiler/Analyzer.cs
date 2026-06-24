@@ -12453,10 +12453,7 @@ public class Analyzer : IDisposable
         var resolvedParam = ResolveTypeAlias(parameterType);
         var resolvedArg = ResolveTypeAlias(argumentType);
 
-        // Exact match by reference or string representation
         if (resolvedParam == resolvedArg)
-            return 8;
-        if (resolvedParam.ToString() == resolvedArg.ToString())
             return 8;
 
         // Cross-representation exact match (SimpleTypeInfo vs ReflectionTypeInfo for the same CLR type)
@@ -21043,7 +21040,6 @@ public class Analyzer : IDisposable
 
         // Same type — trivially possible
         if (resolvedSource == resolvedTarget) return true;
-        if (resolvedSource.ToString() == resolvedTarget.ToString()) return true;
 
         // Either is interface — always possible at runtime (boxing, duck typing)
         if (resolvedSource is InterfaceTypeInfo || resolvedTarget is InterfaceTypeInfo) return true;
