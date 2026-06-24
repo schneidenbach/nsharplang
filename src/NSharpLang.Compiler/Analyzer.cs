@@ -19520,12 +19520,6 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        // Fall back to project-level auto-discovered symbols
-        if (TryResolveProjectSymbol(name, line, column, out type!))
-        {
-            return true;
-        }
-
         type = BuiltInTypes.Unknown;
         return false;
     }
