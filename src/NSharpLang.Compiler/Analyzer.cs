@@ -17002,7 +17002,6 @@ public class Analyzer : IDisposable
             ReflectionTypeInfo reflectionType
                 when IsReflectionCollectionExpressionTarget(reflectionType.Type)
                      && !CanMaterializeReflectionCollectionExpressionTarget(reflectionType.Type) => true,
-            ExternalTypeInfo externalType when externalType.Name.Contains("IQueryable<", StringComparison.Ordinal) => true,
             _ => false
         };
     }
