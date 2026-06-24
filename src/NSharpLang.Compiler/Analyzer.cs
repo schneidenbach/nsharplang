@@ -10162,14 +10162,7 @@ public class Analyzer : IDisposable
 
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
     {
-        try
-        {
             return assembly.GetTypes();
-        }
-        catch (ReflectionTypeLoadException ex)
-        {
-            return ex.Types.Where(type => type != null)!;
-        }
     }
 
     private static bool HasExtensionAttribute(MethodInfo method)
