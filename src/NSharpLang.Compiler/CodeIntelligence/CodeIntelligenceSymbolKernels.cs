@@ -30,16 +30,10 @@ internal static class CodeIntelligenceSymbolKernels
             (int)targetKind,
             scratch.ResultIndices);
 
-        if (filteredCount < 0 || filteredCount > symbolCount)
-            throw new InvalidOperationException("N# symbol kind filter kernel rejected the symbols.");
-
         var results = new List<SymbolResult>(filteredCount);
         for (var i = 0; i < filteredCount; i++)
         {
             var sourceIndex = scratch.ResultIndices[i];
-            if (sourceIndex < 0 || sourceIndex >= symbolCount)
-                throw new InvalidOperationException("N# symbol kind filter kernel returned an invalid index.");
-
             results.Add(symbols[sourceIndex]);
         }
 

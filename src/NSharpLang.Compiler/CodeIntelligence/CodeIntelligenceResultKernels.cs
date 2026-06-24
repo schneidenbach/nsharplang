@@ -64,9 +64,6 @@ internal static class CodeIntelligenceResultKernels
                 scratch.ShadowFileFlags,
                 scratch.ResultIndices);
 
-            if (count < 0 || count > diagnosticCount)
-                throw new InvalidOperationException("N# lint shadow suppression kernel rejected the diagnostics.");
-
             return (scratch.ResultIndices, count);
         }
         finally
@@ -115,9 +112,6 @@ internal static class CodeIntelligenceResultKernels
                 scratch.SlotIndices,
                 scratch.ResultIndices);
 
-            if (count < 0 || count > diagnosticCount)
-                throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
-
             return (scratch.ResultIndices, count);
         }
         finally
@@ -158,9 +152,6 @@ internal static class CodeIntelligenceResultKernels
                 scratch.MessageIds,
                 scratch.SlotIndices,
                 scratch.ResultIndices);
-
-            if (count < 0 || count > diagnosticCount)
-                throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
 
             return (scratch.ResultIndices, count);
         }
@@ -204,9 +195,6 @@ internal static class CodeIntelligenceResultKernels
                 scratch.Columns,
                 scratch.SlotIndices,
                 scratch.ResultIndices);
-
-            if (count < 0 || count > referenceCount)
-                throw new InvalidOperationException("N# reference deduplication kernel rejected the references.");
 
             return (scratch.ResultIndices, count);
         }
