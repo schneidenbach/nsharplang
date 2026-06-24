@@ -23433,8 +23433,6 @@ public class Analyzer : IDisposable
             // Prefix search in NuGet cache
             if (Directory.Exists(nugetRoot))
             {
-                try
-                {
                     var prefix = simpleName.ToLowerInvariant();
                     foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
                     {
@@ -23445,8 +23443,6 @@ public class Analyzer : IDisposable
                             if (result != null) return result;
                         }
                     }
-                }
-                catch { /* NuGet prefix search failed */ }
             }
 
             return null;
