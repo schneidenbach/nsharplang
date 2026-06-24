@@ -78,8 +78,6 @@ public class LinterConfig
 
     private static void ParseEditorConfig(string path, LinterConfig config)
     {
-        try
-        {
             var lines = File.ReadAllLines(path);
             bool inNSharpSection = false;
 
@@ -133,11 +131,6 @@ public class LinterConfig
                     }
                 }
             }
-        }
-        catch
-        {
-            // If parsing fails, use defaults
-        }
     }
 
     public DiagnosticSeverity GetSeverity(string ruleCode)
@@ -441,14 +434,7 @@ internal class LintVisitor
     {
         if (string.IsNullOrEmpty(sourceText) && !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
         {
-            try
-            {
                 sourceText = File.ReadAllText(filePath);
-            }
-            catch
-            {
-                sourceText = null;
-            }
         }
 
         var suppressions = new Dictionary<int, HashSet<string>>();
@@ -1974,8 +1960,6 @@ internal class LintVisitor
     private static List<string> ExtractExportedSymbols(string filePath)
     {
         var symbols = new List<string>();
-        try
-        {
             var source = File.ReadAllText(filePath);
             var lexer = new Lexer(source, filePath);
             var tokens = lexer.Tokenize();
@@ -2002,11 +1986,6 @@ internal class LintVisitor
                 if (name != null)
                     symbols.Add(name);
             }
-        }
-        catch
-        {
-            // If we can't parse the file, return empty (caller will be conservative)
-        }
         return symbols;
     }
 
