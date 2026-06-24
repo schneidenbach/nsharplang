@@ -32,7 +32,6 @@ public class Parser
     {
         CompilationUnit? unit = null;
 
-        try
         {
             var line = Current.Line;
             var column = Current.Column;
@@ -134,17 +133,6 @@ public class Parser
             }
 
             unit = new CompilationUnit(namespaceDecl, imports, fileImports, packageDecl, declarations, line, column);
-        }
-        catch (Exception ex)
-        {
-            // Shouldn't happen after we replace all throws, but safety net
-            ReportError(
-                ErrorCode.InvalidSyntax,
-                ex.Message,
-                Current.Line,
-                Current.Column,
-                humanExplanation: "An unexpected error occurred while parsing."
-            );
         }
 
         return new ParseResult
