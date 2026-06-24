@@ -1732,12 +1732,6 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
-    // A FIELDLESS type is legal when it has at least one other member (a pure-behavior class — e.g. an
-    // inheritance base with only methods). A fully EMPTY body (no fields, methods, ctors, or properties)
-    // still returns -1 (unmodelled shape — the host declines to the C# path).
-    if fieldCount == 0 && methodCount == 0 && ctorCount == 0 && propCount == 0 {
-        return -1
-    }
     result.Values[2] = methodCount
     result.Values[3] = ctorCount
     result.Values[4] = propCount
