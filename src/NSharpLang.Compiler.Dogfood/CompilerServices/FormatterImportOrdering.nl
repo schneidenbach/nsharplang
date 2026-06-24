@@ -1,14 +1,8 @@
+import System
+
 // Mirrors Formatter.Format import/using ordering: "System* first, then namespace
-// alphabetical". The production C# shape is
-//   ast.Imports
-//     .OrderByDescending(i => i.Namespace.StartsWith("System"))
-//     .ThenBy(i => i.Namespace)
-//     .ToList()
-// LINQ OrderBy/OrderByDescending are stable, so identical namespaces keep their
-// input order. The host compacts each import to a dense ordinal namespace rank
-// (1-based) plus a System-prefix flag (1/0); the kernel performs a two-pass
-// stable counting sort and writes the resulting permutation into a caller-owned
-// int[] — no public string materialization across the boundary.
+// alphabetical". The product entry point accepts the import namespaces directly
+// so N# owns the System-prefix classification and namespace comparison.
 
 struct FormatterImportSortKeyTable {
     SystemFlags: int[]
@@ -23,6 +17,51 @@ struct FormatterImportBucketTable {
 
 struct FormatterImportIndexTable {
     Indices: int[]
+}
+
+func FormatterImportOrderIndicesFromNamespacesInto(namespaces: string[], resultIndices: int[]): int {
+    count := FormatterImportOrderMinInt(namespaces.Length, resultIndices.Length)
+
+    i := 0
+    while i < count {
+        resultIndices[i] = i
+        i = i + 1
+    }
+
+    i = 1
+    while i < count {
+        currentIndex := resultIndices[i]
+        j := i
+
+        while j > 0 && FormatterImportNamespaceComesAfter(namespaces[resultIndices[j - 1]], namespaces[currentIndex]) {
+            resultIndices[j] = resultIndices[j - 1]
+            j = j - 1
+        }
+
+        resultIndices[j] = currentIndex
+        i = i + 1
+    }
+
+    return count
+}
+
+func FormatterImportNamespaceComesAfter(left: string, right: string): bool {
+    leftIsSystem := FormatterImportNamespaceStartsWithSystem(left)
+    rightIsSystem := FormatterImportNamespaceStartsWithSystem(right)
+
+    if leftIsSystem != rightIsSystem {
+        return !leftIsSystem && rightIsSystem
+    }
+
+    return String.Compare(left, right, StringComparison.CurrentCulture) > 0
+}
+
+func FormatterImportNamespaceStartsWithSystem(namespaceName: string): bool {
+    if namespaceName.Length < 6 {
+        return false
+    }
+
+    return String.Compare(namespaceName, 0, "System", 0, 6, StringComparison.CurrentCulture) == 0
 }
 
 func FormatterImportOrderIndicesInto(
