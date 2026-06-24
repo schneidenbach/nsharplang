@@ -21029,7 +21029,6 @@ public class Analyzer : IDisposable
 
         // Conservative: unknown/external/reflection types — don't warn
         if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
-        if (resolvedSource is ExternalTypeInfo || resolvedTarget is ExternalTypeInfo) return true;
         if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
 
         // Generic type parameters — conservative, don't warn
