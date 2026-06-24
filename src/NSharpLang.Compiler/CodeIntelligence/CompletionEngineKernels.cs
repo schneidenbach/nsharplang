@@ -69,19 +69,6 @@ internal static class CompletionEngineKernels
                 scratch.ResultCounts,
                 scratch.ResultIndices);
 
-            var total = 0;
-            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
-            {
-                var start = scratch.ResultStarts[groupIndex];
-                var itemCount = scratch.ResultCounts[groupIndex];
-                total += itemCount;
-            }
-
-            for (var resultIndex = 0; resultIndex < count; resultIndex++)
-            {
-                var sourceIndex = scratch.ResultIndices[resultIndex];
-            }
-
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
             {
                 var kindId = scratch.ResultKindIds[groupIndex];
