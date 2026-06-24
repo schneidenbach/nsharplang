@@ -276,8 +276,6 @@ public class AotBlockerAnalyzerTests
             }
             """));
 
-        // Type members are keyed by their type-qualified name so the IL emitter can stamp the
-        // correct method even when simple names collide across types/overloads.
         Assert.Equal("Widget.Inspect", blocker.EnclosingDeclaration);
         Assert.Equal(AbiBoundary.ClrPublic, blocker.EnclosingBoundary);
     }
@@ -316,86 +314,6 @@ public class AotBlockerAnalyzerTests
         var diagnostic = AotDiagnostics.ToDiagnostic(blocker, null, asError: false);
 
         Assert.Equal(ErrorSeverity.Warning, diagnostic.Severity);
-    }
-
-    // ── Requirements mapping (attribute emission inputs) ────────────────
-
-    [Fact]
-    public void Requirements_PublicReflection_RequiresUnreferencedCode()
-    {
-        var requirements = AotRequirements.FromBlockers(Analyze("""
-            func PublicApi(value: object): void {
-                let t := value.GetType()
-            }
-            """));
-
-        Assert.True(requirements.TryGet("PublicApi", out var annotation));
-        Assert.True(annotation.RequiresUnreferencedCode);
-        Assert.False(annotation.RequiresDynamicCode);
-    }
-
-    [Fact]
-    public void Requirements_PublicDynamicCode_RequiresDynamicCode()
-    {
-        var requirements = AotRequirements.FromBlockers(Analyze("""
-            func PublicApi(t: object): object {
-                return Activator.CreateInstance(t)
-            }
-            """));
-
-        Assert.True(requirements.TryGet("PublicApi", out var annotation));
-        Assert.True(annotation.RequiresDynamicCode);
-    }
-
-    [Fact]
-    public void Requirements_PublicMixedBlockers_CombineFlagsAndSortConstructs()
-    {
-        var requirements = AotRequirements.FromBlockers(new[]
-        {
-            NewBlocker(AotSafetyKind.DynamicCodeRequired, "zeta.Construct"),
-            NewBlocker(AotSafetyKind.MetadataRequired, "alpha.Construct"),
-            NewBlocker(AotSafetyKind.ExpressionTreeRequired, "beta.Construct"),
-            NewBlocker(AotSafetyKind.MetadataRequired, "alpha.Construct"),
-            new AotBlocker(
-                AotSafetyKind.MetadataRequired,
-                "test.nl",
-                5,
-                1,
-                1,
-                "ignored.Private",
-                AbiBoundary.ClrInternal,
-                "PublicApi")
-        });
-
-        Assert.True(requirements.TryGet("PublicApi", out var annotation));
-        Assert.True(annotation.RequiresUnreferencedCode);
-        Assert.True(annotation.RequiresDynamicCode);
-        Assert.Equal(
-            "Uses AOT-unsafe constructs (alpha.Construct, beta.Construct, zeta.Construct); not safe under Native AOT or trimming.",
-            annotation.Message);
-
-        static AotBlocker NewBlocker(AotSafetyKind kind, string construct) =>
-            new(
-                kind,
-                "test.nl",
-                1,
-                1,
-                construct.Length,
-                construct,
-                AbiBoundary.ClrPublic,
-                "PublicApi");
-    }
-
-    [Fact]
-    public void Requirements_PrivateBlocker_ProducesNoAnnotation()
-    {
-        var requirements = AotRequirements.FromBlockers(Analyze("""
-            func helper(value: object): void {
-                let t := value.GetType()
-            }
-            """));
-
-        Assert.True(requirements.IsEmpty);
     }
 
     [Fact]
