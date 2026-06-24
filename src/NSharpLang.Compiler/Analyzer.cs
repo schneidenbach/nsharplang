@@ -7830,14 +7830,7 @@ public class Analyzer : IDisposable
         var rightClr = TryResolveOperandClrType(right);
 
         MethodInfo[] candidates;
-        try
-        {
             candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-        }
-        catch (Exception ex) when (ex is NotSupportedException or TypeLoadException or FileNotFoundException)
-        {
-            return false;
-        }
 
         foreach (var candidate in candidates)
         {
@@ -7914,14 +7907,7 @@ public class Analyzer : IDisposable
             typeArguments[i] = argumentClr;
         }
 
-        try
-        {
             return openType.MakeGenericType(typeArguments);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or TypeLoadException)
-        {
-            return null;
-        }
     }
 
     private static bool IsRuntimeOperatorParameterCompatible(Type parameterType, Type? argumentType)
@@ -7935,18 +7921,9 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        try
-        {
             return parameterType.IsAssignableFrom(argumentType)
                 || parameterType == argumentType
                 || (parameterType.IsByRef && parameterType.GetElementType() == argumentType);
-        }
-        catch (NotSupportedException)
-        {
-            // Reflection couldn't decide (e.g. open generic parameter). Be conservative and reject;
-            // a real binary-operator mismatch is preferable to a spurious accept.
-            return false;
-        }
     }
 
     private static string? GetUnaryOperatorClrName(UnaryOperator op) => op switch
@@ -8033,14 +8010,7 @@ public class Analyzer : IDisposable
         }
 
         MethodInfo[] candidates;
-        try
-        {
             candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-        }
-        catch (Exception ex) when (ex is NotSupportedException or TypeLoadException or FileNotFoundException)
-        {
-            return false;
-        }
 
         foreach (var candidate in candidates)
         {
