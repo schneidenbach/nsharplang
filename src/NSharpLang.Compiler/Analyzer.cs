@@ -14739,7 +14739,6 @@ public class Analyzer : IDisposable
     {
         var resolved = ResolveTypeAlias(type);
         return BuiltInTypes.IsUnknown(resolved)
-            || resolved is ExternalTypeInfo
             || resolved is GenericTypeInfo
             || resolved is NullableTypeInfo
             || IsReferenceType(resolved)
