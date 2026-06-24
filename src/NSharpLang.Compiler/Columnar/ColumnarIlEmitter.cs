@@ -827,14 +827,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (t is EnumBuilder)
             return true;
-        try
-        {
             return t.IsEnum;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     private static bool IsSupportedByRefElementType(Type t) =>
@@ -857,14 +850,7 @@ internal sealed class ColumnarIlEmitter
         if (t is TypeBuilder || t is EnumBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
         Type def;
-        try
-        {
             def = t.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
         return def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>);
     }
 
@@ -895,14 +881,7 @@ internal sealed class ColumnarIlEmitter
         if (!t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
         Type def;
-        try
-        {
             def = t.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return true; // an exotic emitted instantiation — builder-bound by construction.
-        }
         if (def is TypeBuilder)
             return true; // a USER-headed closed instantiation (Box<int>): its very DEFINITION is un-baked
                          // — every handle on it (and TypeHandle itself) is builder-bound even when all
@@ -932,14 +911,7 @@ internal sealed class ColumnarIlEmitter
         if (!t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
         Type def;
-        try
-        {
             def = t.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return true;
-        }
         if (def is TypeBuilder)
             return true;
         foreach (var arg in t.GetGenericArguments())
@@ -1049,14 +1021,7 @@ internal sealed class ColumnarIlEmitter
         if (t.IsGenericType && !t.IsGenericTypeDefinition)
         {
             Type def;
-            try
-            {
                 def = t.GetGenericTypeDefinition();
-            }
-            catch (NotSupportedException)
-            {
-                return false;
-            }
             if (def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>))
                 return true;
             if (ContainsBuilderBoundType(t))
@@ -1081,14 +1046,7 @@ internal sealed class ColumnarIlEmitter
         if (t is TypeBuilder || t is EnumBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
         Type def;
-        try
-        {
             def = t.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
         if (def != typeof(Action<>) && def != typeof(Action<,>) && def != typeof(Action<,,>) && def != typeof(Action<,,,>)
             && def != typeof(Func<>) && def != typeof(Func<,>) && def != typeof(Func<,,>) && def != typeof(Func<,,,>)
             && def != typeof(Func<,,,,>))
@@ -1110,14 +1068,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (t is TypeBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
-        try
-        {
             return t.GetGenericTypeDefinition() is TypeBuilder;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
     }
 
     // A positional System.ValueTuple of arity 2-7 whose every element is itself a supported type. (1-tuples and
@@ -2072,15 +2023,8 @@ internal sealed class ColumnarIlEmitter
         if (!actual.IsGenericType || actual.IsGenericTypeDefinition)
             return false;
         Type declaredDef, actualDef;
-        try
-        {
             declaredDef = declared.GetGenericTypeDefinition();
             actualDef = actual.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
         if (!ReferenceEquals(declaredDef, actualDef))
             return false;
         var declaredArgs = declared.GetGenericArguments();
@@ -2167,14 +2111,7 @@ internal sealed class ColumnarIlEmitter
         if (declaredReturn.IsGenericType && !declaredReturn.IsGenericTypeDefinition && ContainsBuilderBoundType(declaredReturn))
         {
             Type returnDef;
-            try
-            {
                 returnDef = declaredReturn.GetGenericTypeDefinition();
-            }
-            catch (NotSupportedException)
-            {
-                return false;
-            }
             if (returnDef != typeof(List<>) && returnDef != typeof(Dictionary<,>) && returnDef != typeof(HashSet<>))
                 return false; // an unmodelled builder-bound generic return — decline, never leak it open.
             var collectionArgs = declaredReturn.GetGenericArguments();
@@ -2190,14 +2127,7 @@ internal sealed class ColumnarIlEmitter
         // Defensively refuse any OTHER shape still containing a generic parameter (the fallthrough below
         // must only pass fully-concrete declared returns into the caller's context).
         bool stillOpen;
-        try
-        {
             stillOpen = declaredReturn.ContainsGenericParameters;
-        }
-        catch (NotSupportedException)
-        {
-            stillOpen = true;
-        }
         if (stillOpen && declaredReturn is not TypeBuilder && declaredReturn is not EnumBuilder)
             return false;
         substituted = declaredReturn;
@@ -2400,14 +2330,7 @@ internal sealed class ColumnarIlEmitter
         if (signatureType.IsGenericParameter)
         {
             bool isMethodParameter;
-            try
-            {
                 isMethodParameter = signatureType.DeclaringMethod != null;
-            }
-            catch (NotSupportedException)
-            {
-                isMethodParameter = false;
-            }
             if (!isMethodParameter && signatureType.GenericParameterPosition < closedArguments.Length)
                 return closedArguments[signatureType.GenericParameterPosition];
             return signatureType;
@@ -2418,19 +2341,12 @@ internal sealed class ColumnarIlEmitter
             return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeArrayType();
         if (signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition)
         {
-            try
-            {
                 var definition = signatureType.GetGenericTypeDefinition();
                 var arguments = signatureType.GetGenericArguments();
                 var substituted = new Type[arguments.Length];
                 for (var i = 0; i < arguments.Length; i++)
                     substituted[i] = SubstituteClosedTypeArguments(arguments[i], closedArguments);
                 return definition.MakeGenericType(substituted);
-            }
-            catch (NotSupportedException)
-            {
-                return signatureType;
-            }
         }
         return signatureType;
     }
@@ -10156,15 +10072,8 @@ internal sealed class ColumnarIlEmitter
         if (!a.IsGenericType || !b.IsGenericType || a.IsGenericTypeDefinition || b.IsGenericTypeDefinition)
             return false;
         Type aDef, bDef;
-        try
-        {
             aDef = a.GetGenericTypeDefinition();
             bDef = b.GetGenericTypeDefinition();
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
         if (!ReferenceEquals(aDef, bDef))
             return false;
         var aArgs = a.GetGenericArguments();
@@ -10183,14 +10092,8 @@ internal sealed class ColumnarIlEmitter
     {
         if (!IsEnumType(a) || !IsEnumType(b))
             return false;
-        try
-        {
             if (a.TypeHandle.Equals(b.TypeHandle))
                 return true;
-        }
-        catch (NotSupportedException)
-        {
-        }
         return string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)
             && ReferenceEquals(a.Module, b.Module);
     }
