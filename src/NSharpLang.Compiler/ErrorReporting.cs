@@ -760,8 +760,6 @@ public record ParseResult
     public bool Success => CompilationUnit != null && !Errors.Any(e => e.Severity == ErrorSeverity.Error);
     public bool HasWarnings => Errors.Any(e => e.Severity == ErrorSeverity.Warning);
 
-    // Implicit conversion for backwards compatibility
-    public static implicit operator Ast.CompilationUnit?(ParseResult result) => result.CompilationUnit;
 }
 
 /// <summary>
