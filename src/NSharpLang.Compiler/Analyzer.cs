@@ -21157,24 +21157,6 @@ public class Analyzer : IDisposable
             }
         }
 
-        // Handle external type info (qualified names we couldn't fully resolve)
-        if (type is ExternalTypeInfo externalType)
-        {
-            var typeName = externalType.Name;
-
-            // Check common patterns
-            if (typeName.Contains("List<") ||
-                typeName.Contains("HashSet<") ||
-                typeName.Contains("IList<") ||
-                typeName.Contains("ICollection<") ||
-                typeName.Contains("IEnumerable<"))
-            {
-                // We can't easily extract the element type here, so we'll accept Unknown
-                elementType = BuiltInTypes.Unknown;
-                return true;
-            }
-        }
-
         return false;
     }
 
