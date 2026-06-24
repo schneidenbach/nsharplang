@@ -293,21 +293,6 @@ public class CompletionHandler : CompletionHandlerBase
                 });
             }
         }
-        else if (resolvedTypes != null)
-        {
-            // No SymbolsInfo available — use SemanticModel alone as fallback
-            foreach (var (memberName, memberType) in resolvedTypes)
-            {
-                items.Add(new CompletionItem
-                {
-                    Label = memberName,
-                    Kind = CompletionItemKind.Field,
-                    Detail = memberType.ToString(),
-                    InsertText = memberName
-                });
-            }
-        }
-
         return items;
     }
 
