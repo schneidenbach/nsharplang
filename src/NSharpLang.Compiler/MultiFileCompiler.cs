@@ -139,7 +139,7 @@ public class MultiFileCompiler
     {
         return SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
             ? dogfoodSourceFiles
-            : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            : throw new InvalidOperationException("N# source-file deduplication declined.");
     }
 
     private static IReadOnlyDictionary<string, string> NormalizeSourceTextOverrides(IReadOnlyDictionary<string, string>? sourceTextOverrides)
