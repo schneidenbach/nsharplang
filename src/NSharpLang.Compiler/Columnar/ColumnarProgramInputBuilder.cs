@@ -97,7 +97,6 @@ internal static class ColumnarProgramInputBuilder
         out List<ColumnarFunctionInput> inputs)
     {
         inputs = [];
-        try
         {
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
@@ -114,11 +113,6 @@ internal static class ColumnarProgramInputBuilder
             }
             return true;
         }
-        catch
-        {
-            inputs = [];
-            return false;
-        }
     }
 
     private static bool TryGetColumnarEnumInputs(
@@ -126,7 +120,6 @@ internal static class ColumnarProgramInputBuilder
         out List<ColumnarEnumInput> enums)
     {
         enums = [];
-        try
         {
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
@@ -163,11 +156,6 @@ internal static class ColumnarProgramInputBuilder
             }
             return true;
         }
-        catch
-        {
-            enums = [];
-            return false;
-        }
     }
 
     private static bool TryGetColumnarStructInputs(
@@ -176,7 +164,6 @@ internal static class ColumnarProgramInputBuilder
         out List<ColumnarStructInput> structs)
     {
         structs = [];
-        try
         {
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
@@ -298,11 +285,6 @@ internal static class ColumnarProgramInputBuilder
             }
             return true;
         }
-        catch
-        {
-            structs = [];
-            return false;
-        }
     }
 
     private static bool TryGetColumnarUnionInputs(
@@ -310,7 +292,6 @@ internal static class ColumnarProgramInputBuilder
         out List<ColumnarUnionInput> unions)
     {
         unions = [];
-        try
         {
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
@@ -393,11 +374,6 @@ internal static class ColumnarProgramInputBuilder
                 unions.Add(new ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames, isValueStruct));
             }
             return true;
-        }
-        catch
-        {
-            unions = [];
-            return false;
         }
     }
 
@@ -705,7 +681,6 @@ internal static class ColumnarProgramInputBuilder
         out List<ColumnarInterfaceInput> interfaceInputs)
     {
         interfaceInputs = [];
-        try
         {
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
@@ -798,11 +773,6 @@ internal static class ColumnarProgramInputBuilder
                     interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies));
             }
             return true;
-        }
-        catch
-        {
-            interfaceInputs = [];
-            return false;
         }
     }
 
