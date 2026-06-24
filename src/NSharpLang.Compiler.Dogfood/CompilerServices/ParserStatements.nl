@@ -430,8 +430,7 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
 
     // `throw <expr>` (Throw 37) -- ThrowStatement kind 48, ONE child [the exception expression].
     // A bare `throw` (rethrow, catch-only) is unmodeled (-1) until the catch rung lands. Throw
-    // ALWAYS EXITS: both AlwaysReturns mirrors (the emitter's and ColumnarDiagnosticsPass's) treat
-    // kind 48 like Return -- added in the SAME slice (the pass's faithfulness is by construction).
+    // ALWAYS EXITS: the emitter's AlwaysReturns mirror treats kind 48 like Return.
     if kind == 37 {
         throwStart := tokens.Starts[start]
         st.Pos = start + 1

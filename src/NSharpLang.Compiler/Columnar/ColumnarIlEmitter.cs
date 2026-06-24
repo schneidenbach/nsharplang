@@ -2468,8 +2468,7 @@ internal sealed class ColumnarIlEmitter
             type = typeof(System.Text.StringBuilder);
             return true;
         }
-        // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical (from the N#
-        // TypeReferenceCanonicalTextInto helper / the C# ColumnarFunctionSymbol.CanonicalType) is parens + comma-joined element canons;
+        // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical is parens + comma-joined element canons;
         // split at the TOP level (respecting nested ()/<>/[]), resolve each element recursively, then
         // MakeGenericType the matching open ValueTuple. (Only Tuple type nodes produce a `(...)` canonical.)
         if (canonical.Length >= 2 && canonical[0] == '(' && canonical[^1] == ')')
@@ -6751,7 +6750,7 @@ internal sealed class ColumnarIlEmitter
         switch (_nodes.Kind(idx))
         {
             case 20: // Return
-            case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
+            case 48: // Throw — always exits (E1).
                 return true;
             case 49: // Try — the analyzer's rule VERBATIM: exits iff the TRY block exits AND there is at
             {        // least ONE catch AND every catch clause's block exits. The FINALLY (a trailing
