@@ -22111,11 +22111,8 @@ public class Analyzer : IDisposable
 
     private bool IsValidDefaultValue(Expression expr)
     {
-        // Valid default values are compile-time constants
-        // We check for common literal types and allow the C# compiler to validate more complex cases
         return expr switch
         {
-            // Literals are always valid
             IntLiteralExpression => true,
             FloatLiteralExpression => true,
             CharLiteralExpression => true,
@@ -22123,40 +22120,12 @@ public class Analyzer : IDisposable
             StringLiteralExpression => true,
             NullLiteralExpression => true,
 
-            // Unary expressions with literal operands (e.g., -5, +3.14)
             UnaryExpression unary when IsValidDefaultValue(unary.Operand) => true,
-
-            // Binary expressions with literal operands (e.g., 2 + 3)
             BinaryExpression binary when IsValidDefaultValue(binary.Left) && IsValidDefaultValue(binary.Right) => true,
-
-            // Allow identifiers and member access - C# compiler will validate if they're const
-            // This covers: enum values, const fields, etc.
-            IdentifierExpression => true,
-            MemberAccessExpression => true,
-
-            // Allow new expressions - C# compiler will validate compile-time constructibility
-            NewExpression newExpr when HasConstantArguments(newExpr) => true,
-
-            // Array literals with constant elements
             ArrayLiteralExpression arrayLit => arrayLit.Elements.All(IsValidDefaultValue),
 
             _ => false
         };
-    }
-
-    private bool HasConstantArguments(NewExpression newExpr)
-    {
-        // Check if all constructor arguments are valid default values
-        if (newExpr.ConstructorArguments != null)
-        {
-            foreach (var arg in newExpr.ConstructorArguments)
-            {
-                if (!IsValidDefaultValue(arg.Value))
-                    return false;
-            }
-        }
-
-        return true;
     }
 
     private bool IsValidParamsType(TypeReference typeRef)

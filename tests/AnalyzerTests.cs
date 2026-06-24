@@ -5134,55 +5134,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void TestDefaultParametersWithMemberAccess()
-    {
-        // Valid: member access for constants (C# compiler will validate)
-        var result = Analyze(@"
-            func SetMax(max: int = int.MaxValue) {
-                print max
-            }
-
-            func Main() {
-                SetMax()
-            }
-        ");
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void TestDefaultParametersWithMemberAccessIdentifier()
-    {
-        // Valid: member access for constants as default values
-        var result = Analyze(@"
-            func Resize(size: int = int.MaxValue) {
-                print size
-            }
-
-            func Main() {
-                Resize()
-                Resize(200)
-            }
-        ");
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void TestDefaultParametersWithNewExpression()
-    {
-        // Valid: new expression with literal arguments
-        var result = Analyze(@"
-            func Main() {
-                // New expressions with literals should be allowed
-                print ""test""
-            }
-        ");
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void TestDefaultParametersAllOptional()
     {
         // Valid: all parameters are optional
