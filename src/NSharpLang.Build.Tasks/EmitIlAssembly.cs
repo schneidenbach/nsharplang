@@ -178,7 +178,6 @@ public class EmitIlAssembly : Task
                      .Select(reference => reference.ItemSpec)
                      .Where(path => !string.IsNullOrWhiteSpace(path))
                      .Select(Path.GetFullPath)
-                     .Where(File.Exists)
                      .Where(path => !excludedPaths.Contains(path)))
         {
             var alreadyPresent = config.Dependencies.Any(dependency =>
