@@ -72,8 +72,7 @@ internal static class BindingLookupKernels
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
             DogfoodKernelLoader.CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
-            DogfoodKernelLoader.CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
-            DogfoodKernelLoader.CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto")));
+            DogfoodKernelLoader.CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto")));
 
     private delegate int BindingLookupCandidateColumnsInto(
         int[] queryColumns,
@@ -104,22 +103,10 @@ internal static class BindingLookupKernels
         int[] queryColumns,
         int[] resultDeclarationIndices);
 
-    private delegate int BindingLookupFindNearestDeclarationIndicesInto(
-        int[] sortedNameIds,
-        int[] sortedFileRanks,
-        int[] sortedLineNumbers,
-        int[] sortedColumns,
-        int[] sortedDeclarationIndices,
-        int[] queryNameIds,
-        int[] queryFileRanks,
-        int[] queryLineNumbers,
-        int[] resultDeclarationIndices);
-
     private sealed record Bindings(
         BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
-        BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
-        BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices);
+        BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices);
 
     private sealed class BindingCandidateColumnScratch
     {
