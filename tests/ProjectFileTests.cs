@@ -282,27 +282,6 @@ outputType: invalid
     }
 
     [Fact]
-    public void TestInvalidBackend()
-    {
-        var yaml = @"name: BadProject
-backend: wasm
-";
-
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(tempFile, yaml);
-
-            Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(tempFile));
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
-    }
-
-    [Fact]
     public void TestInvalidAsyncDefaultType()
     {
         var yaml = @"name: BadProject

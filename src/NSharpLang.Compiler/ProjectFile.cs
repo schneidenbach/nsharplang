@@ -585,8 +585,6 @@ public class ProjectFileParser
     /// </summary>
     private static void ValidateConfig(ProjectConfig config, string projectDirectory)
     {
-        CompilationBackendExtensions.Validate(config.Backend);
-
         // Validate outputType
         if (config.OutputType != "exe" && config.OutputType != "library")
         {
