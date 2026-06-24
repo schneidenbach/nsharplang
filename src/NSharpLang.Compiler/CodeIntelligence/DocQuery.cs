@@ -418,7 +418,6 @@ public class DocQuery
         var index = new Dictionary<string, XElement>();
         _docIndexes[assemblyName] = index;
 
-        try
         {
             var xmlPath = GetXmlDocPath(assembly);
             if (!File.Exists(xmlPath)) return;
@@ -434,7 +433,6 @@ public class DocQuery
                 if (name != null) index[name] = member;
             }
         }
-        catch { /* graceful degradation — no docs is fine */ }
     }
 
     // ── Type Formatting ──────────────────────────────────────────────────
