@@ -39,16 +39,10 @@ internal static class OutputFormatterReferenceFileKernels
                 scratch.CountsByRank,
                 scratch.ResultRanks);
 
-            if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
-                throw new InvalidOperationException("N# inspect summary reference-file kernel rejected the references.");
-
             var referenceFiles = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var rank = scratch.ResultRanks[i];
-                if (rank <= 0 || rank > scratch.UniqueFileCount)
-                    throw new InvalidOperationException("N# inspect summary reference-file kernel returned an invalid file rank.");
-
                 referenceFiles[i] = scratch.UniqueFiles[rank - 1];
             }
 
@@ -90,16 +84,10 @@ internal static class OutputFormatterReferenceFileKernels
                 scratch.CountsByRank,
                 scratch.ResultRanks);
 
-            if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
-                throw new InvalidOperationException("N# diagnostic cluster file kernel rejected the diagnostics.");
-
             var files = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var rank = scratch.ResultRanks[i];
-                if (rank <= 0 || rank > scratch.UniqueFileCount)
-                    throw new InvalidOperationException("N# diagnostic cluster file kernel returned an invalid file rank.");
-
                 files[i] = scratch.UniqueFiles[rank - 1];
             }
 

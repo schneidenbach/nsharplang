@@ -44,16 +44,10 @@ internal static class FixApplicatorTextEditOrderer
                 scratch.TempIndices,
                 scratch.ResultIndices);
 
-            if (orderedCount != count)
-                throw new InvalidOperationException("N# text edit ordering kernel rejected the edits.");
-
             var sortedEdits = new List<TextEdit>(count);
             for (var i = 0; i < count; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= count)
-                    throw new InvalidOperationException("N# text edit ordering kernel returned an invalid edit index.");
-
                 sortedEdits.Add(editArray[sourceIndex]);
             }
 

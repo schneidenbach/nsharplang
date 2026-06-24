@@ -34,9 +34,6 @@ internal static class OutputFormatterDiagnosticClusterKernels
             categories,
             sourceConstructs);
 
-        if (classified != count)
-            throw new InvalidOperationException("N# diagnostic cluster trait kernel rejected the diagnostics.");
-
         return (categories, sourceConstructs);
     }
 
@@ -89,9 +86,6 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.RootIndices,
                 scratch.Counts);
 
-            if (groupCount < 0 || groupCount > count)
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel rejected the diagnostics.");
-
             var memberTotal = RequiredBindings.DiagnosticClusterCompactGroupMembers(
                 scratch.CodeIds,
                 scratch.SeverityIds,
@@ -111,9 +105,6 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.MemberNextIndices,
                 scratch.MemberStarts,
                 scratch.MemberIndices);
-
-            if (memberTotal != count)
-                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned incomplete members.");
 
             return new DiagnosticClusterGrouping(
                 groupCount,

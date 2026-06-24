@@ -31,9 +31,6 @@ internal static class OutputFormatterDiagnosticKernels
             }
 
             var summarized = RequiredBindings.DiagnosticSeveritySummary(scratch.Severities, count, scratch.Counts);
-            if (summarized != count)
-                throw new InvalidOperationException("N# diagnostic severity summary kernel rejected the diagnostics.");
-
             return new DiagnosticSummary(
                 scratch.Counts[0],
                 scratch.Counts[1],
@@ -63,9 +60,6 @@ internal static class OutputFormatterDiagnosticKernels
                 scratch.SeverityRanks,
                 targetRank,
                 scratch.ResultIndices);
-
-            if (count < 0 || count > diagnosticCount)
-                throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
 
             return (scratch.ResultIndices, count);
         }

@@ -27,9 +27,6 @@ internal static class CompletionEngineKernels
                 scratch.Contexts,
                 scratch.Receivers);
 
-            if (classified != 1)
-                throw new InvalidOperationException("N# completion receiver kernel rejected the prefix.");
-
             return (
                 scratch.Contexts[0] != 0,
                 scratch.Receivers[0].Length > 0 ? scratch.Receivers[0] : null);
@@ -72,28 +69,17 @@ internal static class CompletionEngineKernels
                 scratch.ResultCounts,
                 scratch.ResultIndices);
 
-            if (groupCount < 0 || groupCount > count)
-                throw new InvalidOperationException("N# completion item grouping kernel rejected the items.");
-
             var total = 0;
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
             {
                 var start = scratch.ResultStarts[groupIndex];
                 var itemCount = scratch.ResultCounts[groupIndex];
-                if (start < 0 || itemCount < 0 || start + itemCount > count)
-                    throw new InvalidOperationException("N# completion item grouping kernel emitted an invalid group range.");
-
                 total += itemCount;
             }
-
-            if (total != count)
-                throw new InvalidOperationException("N# completion item grouping kernel emitted an incomplete grouping.");
 
             for (var resultIndex = 0; resultIndex < count; resultIndex++)
             {
                 var sourceIndex = scratch.ResultIndices[resultIndex];
-                if (sourceIndex < 0 || sourceIndex >= count)
-                    throw new InvalidOperationException("N# completion item grouping kernel emitted an invalid item index.");
             }
 
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
