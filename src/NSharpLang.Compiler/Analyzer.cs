@@ -19395,28 +19395,18 @@ public class Analyzer : IDisposable
             // Search all MLC-loaded assemblies
             foreach (var assembly in _mlcAssemblies)
             {
-                try
-                {
                     var type = assembly.GetType(fullName);
                     if (type != null)
                     {
                         _externalTypeCache[fullName] = type;
                         return new ReflectionTypeInfo(type);
                     }
-                }
-                catch (Exception ex)
-                {
-                    RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
-                    continue;
-                }
             }
         }
 
         // Try without namespace (by simple name) in MLC assemblies
         foreach (var assembly in _mlcAssemblies)
         {
-            try
-            {
                 var matchingType = assembly.GetExportedTypes()
                     .FirstOrDefault(t => t.Name == name || t.FullName == name);
                 if (matchingType != null)
@@ -19424,12 +19414,6 @@ public class Analyzer : IDisposable
                     _externalTypeCache[name] = matchingType;
                     return new ReflectionTypeInfo(matchingType);
                 }
-            }
-            catch (Exception ex)
-            {
-                RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
-                continue;
-            }
         }
 
         return null;
@@ -22503,20 +22487,12 @@ public class Analyzer : IDisposable
         // Search MLC assemblies for the exact fully-qualified type name
         foreach (var assembly in _mlcAssemblies)
         {
-            try
-            {
                 var resolved = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
                 if (resolved != null)
                 {
                     _externalTypeCache[fullName] = resolved;
                     return resolved;
                 }
-            }
-            catch (Exception ex)
-            {
-                RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
-                continue;
-            }
         }
 
         return null;
@@ -22538,18 +22514,7 @@ public class Analyzer : IDisposable
         foreach (var assembly in GetExternalSearchAssemblies())
         {
             IEnumerable<Type> exportedTypes;
-            try
-            {
                 exportedTypes = assembly.GetExportedTypes();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                exportedTypes = ex.Types.Where(t => t != null).Cast<Type>();
-            }
-            catch
-            {
-                continue;
-            }
 
             if (exportedTypes.Any(t => string.Equals(t.Namespace, namespaceName, StringComparison.Ordinal)))
             {
