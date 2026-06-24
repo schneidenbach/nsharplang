@@ -22918,11 +22918,8 @@ public class Analyzer : IDisposable
     /// <summary>
     /// Load assemblies from project configuration (References and Dependencies)
     /// </summary>
-    public void LoadFromProjectConfig(ProjectConfig? config, string? projectDirectory = null)
+    public void LoadFromProjectConfig(ProjectConfig config, string? projectDirectory = null)
     {
-        if (config == null)
-            return;
-
         projectDirectory ??= Environment.CurrentDirectory;
 
         // Load dependencies
