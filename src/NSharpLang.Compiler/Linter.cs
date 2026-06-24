@@ -436,12 +436,12 @@ internal class LintVisitor
         if (string.IsNullOrEmpty(sourceText))
             return suppressions;
 
-        var lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var lineCount = GetSourceLineCount(sourceText);
         var pendingCodes = new List<string>();
 
-        for (var i = 0; i < lines.Length; i++)
+        for (var lineNumber = 1; lineNumber <= lineCount; lineNumber++)
         {
-            var line = lines[i];
+            var line = GetSourceLine(sourceText, lineNumber);
             var trimmed = line.Trim();
             var codes = ParseSuppressionCodes(line);
             if (codes.Count == 0)
@@ -455,13 +455,13 @@ internal class LintVisitor
             var hasCodeBeforeComment = commentIndex > 0 && !string.IsNullOrWhiteSpace(line[..commentIndex]);
             if (hasCodeBeforeComment)
             {
-                AddSuppression(suppressions, i + 1, codes);
+                AddSuppression(suppressions, lineNumber, codes);
                 pendingCodes.Clear();
                 continue;
             }
 
             pendingCodes.AddRange(codes);
-            var nextLine = FindNextCodeLine(lines, i + 1);
+            var nextLine = FindNextCodeLine(sourceText, lineNumber + 1, lineCount);
             if (nextLine > 0)
                 AddSuppression(suppressions, nextLine, pendingCodes);
             pendingCodes.Clear();
@@ -470,21 +470,35 @@ internal class LintVisitor
         return suppressions;
     }
 
-    private static int FindNextCodeLine(string[] lines, int startIndex)
+    private static int FindNextCodeLine(string sourceText, int startLine, int lineCount)
     {
-        for (var i = startIndex; i < lines.Length; i++)
+        for (var lineNumber = startLine; lineNumber <= lineCount; lineNumber++)
         {
-            var trimmed = lines[i].Trim();
+            var trimmed = GetSourceLine(sourceText, lineNumber).Trim();
             if (string.IsNullOrWhiteSpace(trimmed))
                 continue;
 
             if (trimmed.StartsWith("//", StringComparison.Ordinal))
                 continue;
 
-            return i + 1;
+            return lineNumber;
         }
 
         return -1;
+    }
+
+    private static string GetSourceLine(string sourceText, int oneBasedLine)
+        => CodeIntelligenceTextUtilities.GetSourceLine(sourceText, oneBasedLine) ?? string.Empty;
+
+    private static int GetSourceLineCount(string sourceText)
+    {
+        var line = 1;
+        while (CodeIntelligenceTextUtilities.GetSourceLine(sourceText, line) != null)
+        {
+            line++;
+        }
+
+        return line - 1;
     }
 
     private static List<string> ParseSuppressionCodes(string line)
