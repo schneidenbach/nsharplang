@@ -8957,13 +8957,11 @@ public class Analyzer : IDisposable
     private int GetMemberNameColumn(MemberAccessExpression member)
     {
         var fallbackColumn = member.Column + (member.IsNullConditional ? 2 : 1);
-        if (_sourceLines == null || member.Line <= 0 || member.Line > _sourceLines.Length)
-            return fallbackColumn;
+        var sourceText = _sourceLines != null
+            ? _sourceText
+            : TryGetProjectSourceText(_currentFilePath);
 
-        var lineText = _sourceLines[member.Line - 1];
-        var searchStart = Math.Max(0, member.Column - 1);
-        var index = lineText.IndexOf(member.MemberName, searchStart, StringComparison.Ordinal);
-        return index >= 0 ? index + 1 : fallbackColumn;
+        return FindIdentifierNameColumn(sourceText, member.MemberName, member.Line, fallbackColumn);
     }
 
     private bool TryFindMemberDeclaration(TypeInfo objectType, string memberName, out SymbolDeclaration declaration)
