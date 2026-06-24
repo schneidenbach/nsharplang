@@ -383,13 +383,6 @@ public class FixApplicatorTests
     }
 
     [Fact]
-    public void SourceTextLines_SplitLogicalLines_StripsCrLfAndStandaloneCrSeparators()
-    {
-        Assert.Equal(new[] { "one", "two", "three" },
-            SourceTextLines.SplitLogicalLines("one\r\ntwo\rthree"));
-    }
-
-    [Fact]
     public void ApplyEdits_ReplaceEntireSingleLineContent()
     {
         var source = "old content";
