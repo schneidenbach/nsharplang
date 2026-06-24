@@ -147,21 +147,6 @@ public class CompletionEngine
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 
-        // Source-defined types win over CLR types with the same simple name.
-        // This matters for playground samples that define ordinary names like
-        // Console while still keeping System.Console available when no local type
-        // owns the name.
-        if (receiver != null && IsStaticAccess(receiver, semanticModel) && ResolveSourceTypeByName(receiver, snapshot) is { } sourceTypeInfo)
-        {
-            var memberResult = ResolveMemberCompletionsFromTypeInfo(
-                sourceTypeInfo,
-                receiver,
-                snapshot,
-                completions,
-                MemberFilter.StaticOnly);
-            if (memberResult != null) return memberResult;
-        }
-
         // Resolve the full receiver expression semantically. This is the path for chains
         // such as message.ToUpper().| or factory.Create().| where the receiver is not a
         // plain identifier and must come from Analyzer-recorded expression types.
@@ -495,24 +480,6 @@ public class CompletionEngine
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
-
-    private bool IsStaticAccess(string name, SemanticModel? semanticModel)
-    {
-        // If the name is exported and isn't a variable, it's likely a static type access
-        if (VisibilityConventions.IsExportedIdentifier(name))
-        {
-            if (semanticModel != null)
-            {
-                var lookup = semanticModel.LookupIdentifier(name);
-                if (lookup is ClassTypeInfo or StructTypeInfo or EnumTypeInfo)
-                    return true;
-                if (lookup != null)
-                    return false; // It's a variable
-            }
-            return true; // Default: uppercase = type = static
-        }
-        return false;
-    }
 
     private static CompletionItem? DeclarationToCompletionItem(Declaration decl, bool memberContext = false) => decl switch
     {
