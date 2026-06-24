@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -10,8 +9,6 @@ internal static class CompletionEngineKernels
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
     private static CompletionItemGroupingScratch? t_completionItemGroupingScratch;
-    [ThreadStatic]
-    private static CompletionMethodGroupingScratch? t_completionMethodGroupingScratch;
     [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
 
@@ -122,85 +119,6 @@ internal static class CompletionEngineKernels
         }
     }
 
-    internal static CompletionMethodGrouping GroupReflectionMethodsByName(MethodInfo[] methods)
-    {
-        var bindings = RequiredBindings;
-
-        var count = methods.Length;
-        if (count == 0)
-            return new CompletionMethodGrouping(0, Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
-
-        var scratch = t_completionMethodGroupingScratch ??= new CompletionMethodGroupingScratch();
-        scratch.EnsureCapacity(count);
-
-        try
-        {
-            scratch.ResetNameIds();
-            var includedCount = 0;
-            for (var i = 0; i < count; i++)
-            {
-                var method = methods[i];
-                if (IsIncludedCompletionMethod(method))
-                {
-                    scratch.IncludeFlags[i] = 1;
-                    scratch.NameIds[i] = scratch.GetNameId(method.Name);
-                    includedCount++;
-                }
-                else
-                {
-                    scratch.IncludeFlags[i] = 0;
-                    scratch.NameIds[i] = 0;
-                }
-            }
-
-            var groupCount = bindings.CompletionMethodOverloadGroups(
-                scratch.NameIds,
-                scratch.IncludeFlags,
-                scratch.NameCounts,
-                scratch.ResultNameIds,
-                scratch.ResultFirstIndices,
-                scratch.ResultCounts);
-
-            if (groupCount < 0 || groupCount > count)
-                throw new InvalidOperationException("N# completion method grouping kernel rejected the methods.");
-
-            var total = 0;
-            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
-            {
-                var firstIndex = scratch.ResultFirstIndices[groupIndex];
-                var methodCount = scratch.ResultCounts[groupIndex];
-                var nameId = scratch.ResultNameIds[groupIndex];
-
-                if (firstIndex < 0 || firstIndex >= count
-                    || methodCount <= 0
-                    || nameId <= 0
-                    || nameId >= scratch.NameCounts.Length
-                    || scratch.IncludeFlags[firstIndex] == 0)
-                {
-                    throw new InvalidOperationException("N# completion method grouping kernel emitted an invalid group.");
-                }
-
-                total += methodCount;
-            }
-
-            if (total != includedCount)
-                throw new InvalidOperationException("N# completion method grouping kernel emitted an incomplete grouping.");
-
-            return new CompletionMethodGrouping(
-                groupCount,
-                scratch.ResultNameIds,
-                scratch.ResultFirstIndices,
-                scratch.ResultCounts);
-        }
-        finally
-        {
-            scratch.ResetNameIds();
-        }
-    }
-
-    internal static bool IsIncludedCompletionMethod(MethodInfo method) =>
-        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
-
     private static Bindings RequiredBindings =>
         s_bindings.Value
         ?? throw new InvalidOperationException("N# completion engine kernels are unavailable.");
@@ -243,26 +161,6 @@ internal static class CompletionEngineKernels
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         CompletionItemKindGroupsInto CompletionItemKindGroups,
         CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups);
-
-    internal sealed class CompletionMethodGrouping
-    {
-        public CompletionMethodGrouping(
-            int groupCount,
-            int[] nameIds,
-            int[] firstIndices,
-            int[] counts)
-        {
-            GroupCount = groupCount;
-            NameIds = nameIds;
-            FirstIndices = firstIndices;
-            Counts = counts;
-        }
-
-        public int GroupCount { get; }
-        public int[] NameIds { get; }
-        public int[] FirstIndices { get; }
-        public int[] Counts { get; }
-    }
 
     private sealed class CompletionReceiverScratch
     {
@@ -336,51 +234,4 @@ internal static class CompletionEngineKernels
         }
     }
 
-    private sealed class CompletionMethodGroupingScratch
-    {
-        private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
-
-        public int[] IncludeFlags = Array.Empty<int>();
-        public int[] NameCounts = Array.Empty<int>();
-        public int[] NameIds = Array.Empty<int>();
-        public int[] ResultCounts = Array.Empty<int>();
-        public int[] ResultFirstIndices = Array.Empty<int>();
-        public int[] ResultNameIds = Array.Empty<int>();
-
-        public void EnsureCapacity(int count)
-        {
-            if (NameIds.Length != count)
-            {
-                NameIds = new int[count];
-                IncludeFlags = new int[count];
-                ResultNameIds = new int[count];
-                ResultFirstIndices = new int[count];
-                ResultCounts = new int[count];
-            }
-
-            var bucketCapacity = count + 1;
-            if (NameCounts.Length < bucketCapacity)
-            {
-                NameCounts = new int[bucketCapacity];
-            }
-        }
-
-        public int GetNameId(string name)
-        {
-            if (_nameIds.TryGetValue(name, out var id))
-                return id;
-
-            id = _nameIds.Count + 1;
-            _nameIds.Add(name, id);
-            return id;
-        }
-
-        public void ResetNameIds()
-        {
-            if (_nameIds.Count > 0)
-            {
-                _nameIds.Clear();
-            }
-        }
-    }
 }

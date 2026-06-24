@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -63,10 +62,6 @@ public class CompletionEngine
         "int", "long", "float", "double", "bool", "string", "void", "object",
         "byte", "short", "char", "decimal", "uint", "ulong", "ushort", "sbyte"
     };
-
-    // Cache of loaded assemblies for type resolution
-    private List<Assembly>? _loadedAssemblies;
-    private readonly Dictionary<string, Type> _typeCache = new();
 
     /// <summary>
     /// Get completions at a position in a project.
@@ -416,75 +411,6 @@ public class CompletionEngine
     // ── Type Member Resolution ──────────────────────────────────────────
 
     private enum MemberFilter { All, StaticOnly, InstanceOnly }
-    private const DynamicallyAccessedMemberTypes CompletionMemberTypes =
-        DynamicallyAccessedMemberTypes.PublicMethods |
-        DynamicallyAccessedMemberTypes.PublicProperties |
-        DynamicallyAccessedMemberTypes.PublicFields;
-
-    private List<CompletionItem> GetTypeMembers(Type type, MemberFilter filter)
-    {
-        var items = new List<CompletionItem>();
-        var bindingFlags = BindingFlags.Public |
-            (filter == MemberFilter.StaticOnly ? BindingFlags.Static :
-             filter == MemberFilter.InstanceOnly ? BindingFlags.Instance :
-             BindingFlags.Static | BindingFlags.Instance);
-
-        AddMethodCompletionItems(type.GetMethods(bindingFlags), items);
-
-        // Properties
-        foreach (var prop in type.GetProperties(bindingFlags))
-        {
-            if (prop.DeclaringType?.FullName == "System.Object") continue;
-            items.Add(new CompletionItem(
-                prop.Name,
-                "property",
-                FormatClrType(prop.PropertyType),
-                null,
-                null,
-                prop.GetMethod?.IsStatic ?? false));
-        }
-
-        // Fields
-        foreach (var field in type.GetFields(bindingFlags))
-        {
-            if (field.DeclaringType?.FullName == "System.Object") continue;
-            items.Add(new CompletionItem(
-                field.Name,
-                "field",
-                FormatClrType(field.FieldType),
-                null,
-                null,
-                field.IsStatic));
-        }
-
-        return items;
-    }
-
-    private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
-    {
-        var grouping = CompletionEngineKernels.GroupReflectionMethodsByName(methods);
-        for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
-        {
-            AddMethodCompletionItem(
-                methods[grouping.FirstIndices[groupIndex]],
-                grouping.Counts[groupIndex],
-                items);
-        }
-    }
-
-    private static void AddMethodCompletionItem(MethodInfo method, int overloads, List<CompletionItem> items)
-    {
-        var paramStr = FormatMethodParameters(method);
-        var detail = overloads > 1 ? $"(+{overloads - 1} overloads)" : null;
-        items.Add(new CompletionItem(
-            method.Name,
-            "method",
-            FormatClrType(method.ReturnType),
-            paramStr,
-            detail,
-            method.IsStatic));
-    }
-
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot, MemberFilter filter)
     {
         var items = new List<CompletionItem>();
@@ -603,109 +529,6 @@ public class CompletionEngine
         return false;
     }
 
-    private Type? TryResolveType(string name, ProjectSnapshot snapshot)
-    {
-        if (_typeCache.TryGetValue(name, out var cached))
-            return cached;
-
-        EnsureAssembliesLoaded();
-
-        if (TryResolveWellKnownType(name) is { } wellKnownType)
-        {
-            _typeCache[name] = wellKnownType;
-            return wellKnownType;
-        }
-
-        // Common aliases
-        var fullName = name switch
-        {
-            "int" => "System.Int32",
-            "long" => "System.Int64",
-            "string" => "System.String",
-            "bool" => "System.Boolean",
-            "double" => "System.Double",
-            "float" => "System.Single",
-            "object" => "System.Object",
-            "Console" => "System.Console",
-            "Math" => "System.Math",
-            "DateTime" => "System.DateTime",
-            "List" => "System.Collections.Generic.List`1",
-            "Dictionary" => "System.Collections.Generic.Dictionary`2",
-            _ => name
-        };
-
-        foreach (var assembly in _loadedAssemblies!)
-        {
-            var type = assembly.GetType(fullName);
-            if (type != null)
-            {
-                _typeCache[name] = type;
-                return type;
-            }
-        }
-
-        // Try with System. prefix
-        foreach (var prefix in new[] { "System.", "System.Collections.Generic.", "System.Linq.", "System.IO.", "System.Threading.Tasks." })
-        {
-            foreach (var assembly in _loadedAssemblies!)
-            {
-                var type = assembly.GetType(prefix + name);
-                if (type != null)
-                {
-                    _typeCache[name] = type;
-                    return type;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    [DynamicDependency(CompletionMemberTypes, typeof(Console))]
-    [DynamicDependency(CompletionMemberTypes, typeof(Math))]
-    [DynamicDependency(CompletionMemberTypes, typeof(DateTime))]
-    [DynamicDependency(CompletionMemberTypes, typeof(string))]
-    [DynamicDependency(CompletionMemberTypes, typeof(int))]
-    [DynamicDependency(CompletionMemberTypes, typeof(long))]
-    [DynamicDependency(CompletionMemberTypes, typeof(bool))]
-    [DynamicDependency(CompletionMemberTypes, typeof(double))]
-    [DynamicDependency(CompletionMemberTypes, typeof(float))]
-    [DynamicDependency(CompletionMemberTypes, typeof(object))]
-    [DynamicDependency(CompletionMemberTypes, typeof(List<>))]
-    [DynamicDependency(CompletionMemberTypes, typeof(Dictionary<,>))]
-    private static Type? TryResolveWellKnownType(string name)
-        => name switch
-        {
-            "int" or "System.Int32" => typeof(int),
-            "long" or "System.Int64" => typeof(long),
-            "string" or "System.String" => typeof(string),
-            "bool" or "System.Boolean" => typeof(bool),
-            "double" or "System.Double" => typeof(double),
-            "float" or "System.Single" => typeof(float),
-            "object" or "System.Object" => typeof(object),
-            "Console" or "System.Console" => typeof(Console),
-            "Math" or "System.Math" => typeof(Math),
-            "DateTime" or "System.DateTime" => typeof(DateTime),
-            "List" or "System.Collections.Generic.List" => typeof(List<>),
-            "Dictionary" or "System.Collections.Generic.Dictionary" => typeof(Dictionary<,>),
-            _ => null
-        };
-
-    private void EnsureAssembliesLoaded()
-    {
-        if (_loadedAssemblies != null) return;
-        _loadedAssemblies = new List<Assembly>();
-
-        try
-        {
-            _loadedAssemblies.Add(typeof(object).Assembly);
-            _loadedAssemblies.Add(typeof(Console).Assembly);
-            _loadedAssemblies.Add(typeof(System.Linq.Enumerable).Assembly);
-            _loadedAssemblies.Add(Assembly.Load("System.Runtime"));
-        }
-        catch { /* assemblies not available */ }
-    }
-
     private static CompletionItem? DeclarationToCompletionItem(Declaration decl, bool memberContext = false) => decl switch
     {
         FunctionDeclaration f => new CompletionItem(f.Name, memberContext ? "method" : "function",
@@ -732,31 +555,6 @@ public class CompletionEngine
             return p.DefaultValue != null ? $"{p.Name} {typeStr} = ..." : $"{p.Name} {typeStr}";
         });
         return $"({string.Join(", ", parts)})";
-    }
-
-    private static string FormatMethodParameters(MethodInfo method)
-    {
-        var parts = method.GetParameters().Select(p => $"{p.Name} {FormatClrType(p.ParameterType)}");
-        return $"({string.Join(", ", parts)})";
-    }
-
-    private static string FormatClrType(Type type)
-    {
-        if (type.FullName == "System.Void") return "void";
-        if (type.FullName == "System.Int32") return "int";
-        if (type.FullName == "System.Int64") return "long";
-        if (type.FullName == "System.String") return "string";
-        if (type.FullName == "System.Boolean") return "bool";
-        if (type.FullName == "System.Double") return "double";
-        if (type.FullName == "System.Single") return "float";
-        if (type.FullName == "System.Object") return "object";
-        if (type.IsGenericType)
-        {
-            var baseName = type.Name.Split('`')[0];
-            var args = string.Join(", ", type.GetGenericArguments().Select(FormatClrType));
-            return $"{baseName}<{args}>";
-        }
-        return type.Name;
     }
 
     private static string FormatTypeInfo(TypeInfo typeInfo)
