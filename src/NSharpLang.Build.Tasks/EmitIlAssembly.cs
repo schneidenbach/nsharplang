@@ -54,9 +54,7 @@ public class EmitIlAssembly : Task
                 return true;
             }
 
-            var config = !string.IsNullOrEmpty(ProjectFile) && File.Exists(ProjectFile)
-                ? ProjectFileParser.Parse(ProjectFile)
-                : ProjectFileParser.CreateDefault(Path.GetFileName(ProjectRoot));
+            var config = ProjectFileParser.Parse(ProjectFile!);
             if (string.IsNullOrWhiteSpace(config.Version) && !string.IsNullOrWhiteSpace(AssemblyVersion))
             {
                 config.Version = AssemblyVersion;
