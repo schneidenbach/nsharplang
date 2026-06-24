@@ -193,33 +193,6 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
-    public void DefinitionSearchToJson_IncludesNoteForMultipleResults()
-    {
-        var results = new List<DefinitionResult>
-        {
-            new("Point", "record", "Models.nl", 5, 0, 5),
-            new("Point", "struct", "Other.nl", 10, 0, 5)
-        };
-
-        var json = OutputFormatter.DefinitionSearchToJson("Point", results);
-        Assert.Contains("Multiple matches", json);
-        Assert.Contains("\"query\":", json);
-        Assert.Contains("\"name\": \"Point\"", json);
-    }
-
-    [Fact]
-    public void DefinitionSearchToJson_NoNoteForSingleResult()
-    {
-        var results = new List<DefinitionResult>
-        {
-            new("Person", "class", "Models.nl", 5, 0, 6)
-        };
-
-        var json = OutputFormatter.DefinitionSearchToJson("Person", results);
-        Assert.DoesNotContain("Multiple matches", json);
-    }
-
-    [Fact]
     public void ReferencesToJson_IncludesSymbolAndCount()
     {
         var results = new List<ReferenceResult>
@@ -503,16 +476,6 @@ public class CodeIntelligenceOutputTests
         AssertJsonContract("definition",
             OutputFormatter.DefinitionToJson(
                 new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8)),
-            expected);
-
-        AssertJsonContract("definitionSearch",
-            OutputFormatter.DefinitionSearchToJson(
-                "Person",
-                new List<DefinitionResult>
-                {
-                    new("Person", "record", "Models.nl", 5, 0, 5),
-                    new("Person", "class", "Other.nl", 10, 0, 5)
-                }),
             expected);
 
         AssertJsonContract("references",
@@ -970,33 +933,6 @@ public class CodeIntelligenceOutputTests
         var text = OutputFormatter.DefinitionToText(result);
 
         Assert.Equal("function Hi at Program.nl:2:6", text);
-    }
-
-    [Fact]
-    public void DefinitionSearchToText_FormatsResults()
-    {
-        var results = new List<DefinitionResult>
-        {
-            new("Point", "record", "Models.nl", 5, 0, 5),
-            new("Point", "struct", "Other.nl", 10, 0, 5)
-        };
-
-        var text = OutputFormatter.DefinitionSearchToText("Point", results);
-        Assert.Equal(
-            string.Join(Environment.NewLine,
-                "Definitions of 'Point':",
-                "  record Point at Models.nl:5:0",
-                "  struct Point at Other.nl:10:0",
-                string.Empty),
-            text);
-    }
-
-    [Fact]
-    public void DefinitionSearchToText_EmptyReturnsNoDefinitions()
-    {
-        var text = OutputFormatter.DefinitionSearchToText("Missing", new List<DefinitionResult>());
-
-        Assert.Equal("No definitions found for 'Missing'.", text);
     }
 
     [Fact]

@@ -560,22 +560,6 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-    public static string DefinitionSearchToJson(string name, List<DefinitionResult> results)
-    {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "definition",
-            ok = results.Count > 0,
-            query = new { name },
-            results = results.Select(Normalize).ToList(),
-            note = results.Count > 1
-                ? "Multiple matches. Use --file --pos for unambiguous semantic resolution."
-                : (string?)null
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
-    }
-
     public static string ReferencesToJson(string symbolName, string symbolKind,
         LocationResult? definedAt, List<ReferenceResult> results)
     {
@@ -1487,20 +1471,6 @@ public static class OutputFormatter
     public static string DefinitionToText(DefinitionResult result)
     {
         return OutputFormatterTextKernels.GetDefinitionLineText(result);
-    }
-
-    public static string DefinitionSearchToText(string name, List<DefinitionResult> results)
-    {
-        if (results.Count == 0)
-            return OutputFormatterTextKernels.GetNoDefinitionsText(name);
-
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetDefinitionsHeaderText(name));
-        foreach (var r in results)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetDefinitionSearchResultLineText(r));
-        }
-        return sb.ToString();
     }
 
     public static string ReferencesToText(string symbolName, List<ReferenceResult> results)

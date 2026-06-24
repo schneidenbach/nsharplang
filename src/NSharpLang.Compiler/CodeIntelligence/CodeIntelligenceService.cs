@@ -480,22 +480,6 @@ public class CodeIntelligenceService
     }
 
     /// <summary>
-    /// Find definitions by name (search sugar — explicitly returns a list).
-    /// </summary>
-    public List<DefinitionResult> FindDefinitionByName(ProjectSnapshot snapshot, string name)
-    {
-        var results = new List<DefinitionResult>();
-
-        foreach (var (filePath, cu) in snapshot.CompilationUnits)
-        {
-            var relativeFile = GetRelativePath(snapshot.ProjectRoot, filePath);
-            FindAllDeclarationsInUnit(cu, name, relativeFile, results);
-        }
-
-        return results;
-    }
-
-    /// <summary>
     /// Find all semantic references to the symbol at a position.
     /// Position-based ONLY — this is a semantic operation.
     /// </summary>
@@ -1298,31 +1282,6 @@ public class CodeIntelligenceService
 
             _ => null
         };
-    }
-
-    private void FindAllDeclarationsInUnit(CompilationUnit cu, string name, string file, List<DefinitionResult> results)
-    {
-        foreach (var decl in cu.Declarations)
-        {
-            var declName = GetDeclarationName(decl);
-            if (declName != null && (name == "*" || declName.Contains(name, StringComparison.OrdinalIgnoreCase)))
-            {
-                results.Add(new DefinitionResult(declName, GetDeclarationKind(decl), file, decl.Line, decl.Column, declName.Length));
-            }
-
-            var members = GetDeclarationMembers(decl);
-            if (members != null)
-            {
-                foreach (var member in members)
-                {
-                    var memberName = GetDeclarationName(member);
-                    if (memberName != null && (name == "*" || memberName.Contains(name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        results.Add(new DefinitionResult(memberName, GetDeclarationKind(member), file, member.Line, member.Column, memberName.Length));
-                    }
-                }
-            }
-        }
     }
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)

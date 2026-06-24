@@ -57,7 +57,7 @@ Updated: 2026-06-01
 | `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned diagnostic-cluster JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
 | `nlc query type --file <file> --pos <line:col>` | Type at a position | `nlc query type --file Program.nl --pos 5:12` |
 | `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call; add `--compact` for token-efficient agent context (`--summary` is kept as an alias) | `nlc query inspect --compact --file Program.nl --pos 5:12` |
-| `nlc query definition` | Go-to-definition by position or name | `nlc query definition --name Person` |
+| `nlc query definition` | Go-to-definition by position | `nlc query definition --file Program.nl --pos 5:12` |
 | `nlc query def` | Alias for `definition` | `nlc query def --file Program.nl --pos 5:12` |
 | `nlc query references` | Find references to a symbol | `nlc query references --file Program.nl --pos 5:12` |
 | `nlc query refs` | Alias for `references` | `nlc query refs --file Program.nl --pos 5:12` |

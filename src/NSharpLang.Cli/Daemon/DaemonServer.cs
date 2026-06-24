@@ -372,11 +372,6 @@ public class DaemonServer
 
     private string HandleDefinition(string? file, int line, int col, string? name)
     {
-        if (name != null)
-        {
-            var results = _service.FindDefinitionByName(_snapshot!, name);
-            return OutputFormatter.DefinitionSearchToJson(name, results);
-        }
         if (file == null) return OutputFormatter.ErrorToJson("definition", DaemonServerKernels.GetDefinitionTargetRequiredMessage());
         var result = _service.FindDefinition(_snapshot!, file, line, col);
         if (result == null)

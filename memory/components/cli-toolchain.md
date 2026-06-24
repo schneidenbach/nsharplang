@@ -62,7 +62,6 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query inspect --file F --pos L:C` | One-shot symbol/type/definition/refs/completions bundle | `nlc query inspect --file Program.nl --pos 5:4` |
 | `nlc query inspect --summary --file F --pos L:C` | Compact envelope for tooling that only needs the high-level inspection summary | `nlc query inspect --summary --file Program.nl --pos 85:22` |
 | `nlc query def --file F --pos L:C` | Definition at position (semantic) | `nlc query def --file Program.nl --pos 5:12` |
-| `nlc query def --name N` | Definition by name (search) | `nlc query def --name Person` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions --file F --pos L:C` | Completions at position | `nlc query completions --file Program.nl --pos 5:12` |
 | `nlc query hover --file F --pos L:C` | Signature + docs at position (shared model with LSP) | `nlc query hover --file Program.nl --pos 5:6` |

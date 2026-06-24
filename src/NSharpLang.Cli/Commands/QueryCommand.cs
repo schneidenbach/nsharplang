@@ -612,10 +612,8 @@ public static class QueryCommand
     {
         var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
         var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
-        var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
-        var name = summary.Name ?? commandSummary.LeadingOperand;
 
         // Position-based (primary, semantic)
         if (file != null && posStr != null)
@@ -664,32 +662,6 @@ public static class QueryCommand
             }
 
             return 0;
-        }
-
-        // Name-based (search sugar)
-        if (name != null)
-        {
-            if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, new Dictionary<string, object?>
-            {
-                ["name"] = name
-            }, out var daemonExitCode))
-                return daemonExitCode;
-
-            var snapshot = LoadProjectOrFail(options);
-            if (snapshot == null) return 1;
-
-            var results = Service.FindDefinitionByName(snapshot, name);
-
-            if (outputMode == 2)
-            {
-                Console.Write(OutputFormatter.DefinitionSearchToText(name, results));
-            }
-            else
-            {
-                Console.Write(OutputFormatter.DefinitionSearchToJson(name, results));
-            }
-
-            return results.Count > 0 ? 0 : 1;
         }
 
         return QueryError(QueryCommandKernels.GetDefinitionUsageMessage());

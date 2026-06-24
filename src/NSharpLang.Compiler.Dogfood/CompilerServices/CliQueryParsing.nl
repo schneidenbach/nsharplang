@@ -385,7 +385,6 @@ func CliQueryHelpText(commandLines: string): string {
         + "  nlc query inspect --file Program.nl --pos 5:4\n"
         + "  nlc query inspect --file Program.nl --pos 5:4 --compact\n"
         + "  nlc query def --file Program.nl --pos 5:4      # Definition at position\n"
-        + "  nlc query def --name Person                    # Search by name\n"
         + "  nlc query refs --file Program.nl --pos 5:4     # All references\n"
         + "  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position\n"
         + "  nlc query call-graph --function Main           # Callers/callees of Main\n"
@@ -479,7 +478,7 @@ func CliQueryFileNotFoundMessage(filePath: string): string {
 }
 
 func CliQueryDefinitionUsageMessage(): string {
-    return "Usage: nlc query definition --file <path> --pos <line>:<col>\n       nlc query definition --name <name>"
+    return "Usage: nlc query definition --file <path> --pos <line>:<col>"
 }
 
 func CliQueryInspectCompactTextUnsupportedMessage(): string {

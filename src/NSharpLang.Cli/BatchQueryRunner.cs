@@ -356,11 +356,6 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service)
     {
         var snapshot = getSnapshot();
-        if (!string.IsNullOrWhiteSpace(request.Name))
-        {
-            var results = service.FindDefinitionByName(snapshot, request.Name);
-            return OutputFormatter.DefinitionSearchToJson(request.Name, results);
-        }
 
         if (!TryGetFileAndPosition(request, projectRoot, "definition", out var file, out var line, out var column, out var invalid))
         {

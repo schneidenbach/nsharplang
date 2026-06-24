@@ -428,47 +428,6 @@ func helper(): int {
     //  DEFINITION — can we find where stuff is defined?
     // ═══════════════════════════════════════════════════════════════════
 
-    [Fact]
-    public void Definition_ByName_FindsPersonInMultiFile()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "Person");
-        Assert.NotEmpty(results);
-        var person = results.First(d => d.Kind == "record");
-        Assert.Contains("Person.nl", person.File);
-    }
-
-    [Fact]
-    public void Definition_ByName_FindsPersonService()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "PersonService");
-        Assert.NotEmpty(results);
-        Assert.Contains(results, d => d.Kind == "class");
-        Assert.Contains(results, d => d.File.Contains("PersonService.nl"));
-    }
-
-    [Fact]
-    public void Definition_ByName_FindsNothingForNonexistent()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "Nonexistent_XYZ_12345");
-        Assert.Empty(results);
-    }
-
-    [Fact]
-    public void Definition_ByName_FindsMultiplePoints()
-    {
-        // ClassesAndRecords has Point defined in multiple files
-        var results = _service.FindDefinitionByName(ClassesAndRecords, "Point");
-        Assert.True(results.Count >= 2, $"Expected at least 2 Point definitions, got {results.Count}");
-    }
-
-    [Fact]
-    public void Definition_ByName_FindsEnumMembers()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "Status");
-        Assert.NotEmpty(results);
-        Assert.Contains(results, d => d.Kind == "enum");
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     //  COMPLETIONS — does the engine return sensible items?
     // ═══════════════════════════════════════════════════════════════════
@@ -633,54 +592,11 @@ func Main() {
     //   Line 11: func Main() {           (col 1 = "func", col 6 = "Main")
     //   Line 12:     name := "Spencer"   (col 5 = "name")
 
-    [Fact]
-    public void Definition_AtPosition_FindsMainFunction()
-    {
-        var results = _service.FindDefinitionByName(HelloWorld, "Main");
-        Assert.NotEmpty(results);
-        var main = results.First(d => d.Name == "Main");
-        Assert.Equal("function", main.Kind);
-        var expectedLine = FindLineInFile(Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), "func Main()");
-        Assert.Equal(expectedLine, main.Line);
-    }
-
     // MultiFile Person.nl layout:
     //   Line 4:  record Person {         (col 1 = "record", col 8 = "Person")
     //   Line 5:      Name: string
     //   Line 9:      func GetInfo(): string {
     //   Line 15: enum Status {
-
-    [Fact]
-    public void Definition_MultiFile_PersonRecordAtCorrectLine()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "Person");
-        Assert.NotEmpty(results);
-        var person = results.First(d => d.Kind == "record");
-        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
-        Assert.Equal(FindLineInFile(personFile, "record Person"), person.Line);
-        Assert.Contains("Person.nl", person.File);
-    }
-
-    [Fact]
-    public void Definition_MultiFile_GetInfoMethodFound()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "GetInfo");
-        Assert.NotEmpty(results);
-        var getInfo = results.First(d => d.Kind == "function");
-        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
-        Assert.Equal(FindLineInFile(personFile, "func GetInfo"), getInfo.Line);
-    }
-
-    [Fact]
-    public void Definition_MultiFile_StatusEnumAtCorrectLine()
-    {
-        var results = _service.FindDefinitionByName(MultiFile, "Status");
-        Assert.NotEmpty(results);
-        var status = results.First(d => d.Kind == "enum");
-        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
-        Assert.Equal(FindLineInFile(personFile, "enum Status"), status.Line);
-        Assert.Contains("Person.nl", status.File);
-    }
 
     [Fact]
     public void References_FindsPersonUsagesAcrossFiles()
@@ -1182,31 +1098,6 @@ func Main() {
         Assert.Equal("record", result.Kind);
         Assert.Equal("Models.nl", result.File);
         Assert.Equal(35, result.Line);
-    }
-
-    [Fact]
-    public void Definition_IssueTracker_LocalVariableInInterpolation_Resolves()
-    {
-        // Program.nl line 29: print "Issue Tracker running..."
-        // Use definition by name as a reliable test path
-        var results = _service.FindDefinitionByName(IssueTracker, "IssueService");
-        Assert.NotEmpty(results);
-        var issueService = results.First(d => d.Name == "IssueService");
-        Assert.Equal("class", issueService.Kind);
-        Assert.Equal("Service.nl", issueService.File);
-        Assert.Equal(10, issueService.Line);
-    }
-
-    [Fact]
-    public void Definition_IssueTracker_UnionDeclaration_Resolves()
-    {
-        // Models.nl line 20: union IssueStatus {
-        var results = _service.FindDefinitionByName(IssueTracker, "IssueStatus");
-        Assert.NotEmpty(results);
-        var status = results.First(d => d.Name == "IssueStatus");
-        Assert.Equal("union", status.Kind);
-        Assert.Equal("Models.nl", status.File);
-        Assert.Equal(20, status.Line);
     }
 
     [Fact]
