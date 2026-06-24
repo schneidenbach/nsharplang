@@ -5198,8 +5198,6 @@ public class Parser
                 }
 
                 Expression expr;
-                try
-                {
                     var subLexer = new Lexer(exprContent);
                     var subTokens = subLexer.Tokenize();
 
@@ -5225,14 +5223,6 @@ public class Parser
                             length: Math.Max(1, subParser.Current.Value.Length));
                     }
                     _errors.AddRange(subParser._errors);
-                }
-                catch
-                {
-                    var trimmed = exprContent.Trim();
-                    expr = new IdentifierExpression(
-                        string.IsNullOrEmpty(trimmed) ? "<error>" : trimmed,
-                        exprStartLine, exprStartCol);
-                }
 
                 parts.Add(new InterpolatedStringHole(expr, formatClause, holeLine, holeCol));
 

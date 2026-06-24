@@ -135,14 +135,7 @@ public class ProjectConfig
     private static IEnumerable<string> EnumerateSourceFilesRecursive(string directory)
     {
         string[] files;
-        try
-        {
             files = Directory.GetFiles(directory, "*.nl", SearchOption.TopDirectoryOnly);
-        }
-        catch
-        {
-            yield break;
-        }
 
         foreach (var file in files)
         {
@@ -150,14 +143,7 @@ public class ProjectConfig
         }
 
         string[] subdirectories;
-        try
-        {
             subdirectories = Directory.GetDirectories(directory, "*", SearchOption.TopDirectoryOnly);
-        }
-        catch
-        {
-            yield break;
-        }
 
         foreach (var subdirectory in subdirectories)
         {
