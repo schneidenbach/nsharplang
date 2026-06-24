@@ -12,8 +12,6 @@ internal static class ColumnarProgramInputBuilder
     {
         program = null!;
         var bindings = s_bindings.Value;
-        if (bindings == null || string.IsNullOrEmpty(source))
-            return false;
         if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
             return false;
 
@@ -65,7 +63,6 @@ internal static class ColumnarProgramInputBuilder
     private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
     {
         tokens = null!;
-        try
         {
             var capacity = 3 * (source.Length + 1) + 8;
             var rawKinds = new int[capacity];
@@ -92,10 +89,6 @@ internal static class ColumnarProgramInputBuilder
                 rawKinds, rawStarts, rawValueLengths, rawCount,
                 kinds, starts, valueLengths, count);
             return true;
-        }
-        catch
-        {
-            return false;
         }
     }
 
