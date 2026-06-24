@@ -188,8 +188,7 @@ public class EmitIlAssembly : Task
                      .Where(path => !string.IsNullOrWhiteSpace(path))
                      .Select(Path.GetFullPath)
                      .Where(File.Exists)
-                     .Where(path => !excludedPaths.Contains(path))
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+                     .Where(path => !excludedPaths.Contains(path)))
         {
             var alreadyPresent = config.Dependencies.Any(dependency =>
                 dependency.Type == ReferenceType.Dll &&
