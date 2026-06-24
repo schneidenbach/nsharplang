@@ -806,18 +806,12 @@ public class DocQuery
         foreach (var refDir in GetReferencePackDirectories())
         {
             IEnumerable<string> xmlFiles;
-            try
             {
                 xmlFiles = Directory.EnumerateFiles(refDir, "*.xml");
-            }
-            catch
-            {
-                continue;
             }
 
             foreach (var xmlFile in xmlFiles)
             {
-                try
                 {
                     var doc = XDocument.Load(xmlFile);
                     var members = doc.Root?.Element("members")?.Elements("member");
@@ -832,10 +826,6 @@ public class DocQuery
                         }
                     }
                 }
-                catch
-                {
-                    // Ignore malformed or unreadable XML docs and keep building the index.
-                }
             }
         }
     }
@@ -846,13 +836,8 @@ public class DocQuery
         foreach (var dir in GetReferencePackDirectories())
         {
             string[] dllFiles;
-            try
             {
                 dllFiles = Directory.GetFiles(dir, "*.dll");
-            }
-            catch
-            {
-                continue;
             }
 
             foreach (var dllFile in dllFiles)
@@ -903,7 +888,6 @@ public class DocQuery
             var packsDir = Path.Combine(root, "packs");
             if (!Directory.Exists(packsDir)) continue;
 
-            try
             {
                 foreach (var packDir in Directory.EnumerateDirectories(packsDir, "*.Ref"))
                 {
@@ -918,10 +902,6 @@ public class DocQuery
                         }
                     }
                 }
-            }
-            catch
-            {
-                // Ignore broken SDK layouts and keep searching other roots.
             }
         }
 
