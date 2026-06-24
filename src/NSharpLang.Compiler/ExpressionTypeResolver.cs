@@ -12,17 +12,14 @@ namespace NSharpLang.Compiler;
 public class ExpressionTypeResolver
 {
     private readonly SemanticModel _semanticModel;
-    private readonly Dictionary<string, Type> _importedTypes;
 
     public ExpressionTypeResolver(SemanticModel semanticModel, Dictionary<string, Type>? importedTypes = null)
     {
         _semanticModel = semanticModel;
-        _importedTypes = importedTypes ?? new Dictionary<string, Type>();
     }
 
     /// <summary>
     /// Resolves the semantic TypeInfo of an expression using the Analyzer's recorded
-    /// expression types first, then falls back to lightweight AST/reflection resolution.
     /// </summary>
     public TypeInfo? ResolveExpressionTypeInfo(Expression expr)
     {
@@ -32,24 +29,6 @@ public class ExpressionTypeResolver
 
         return expr switch
         {
-            IdentifierExpression id => ResolveIdentifierTypeInfo(id.Name),
-            MemberAccessExpression memberAccess => ResolveMemberAccessTypeInfo(memberAccess),
-            CallExpression call => ResolveCallTypeInfo(call),
-            MustExpression must => ResolveMustTypeInfo(must),
-            IntLiteralExpression => BuiltInTypes.Int,
-            FloatLiteralExpression => BuiltInTypes.Double,
-            CharLiteralExpression => BuiltInTypes.Char,
-            StringLiteralExpression => BuiltInTypes.String,
-            InterpolatedStringExpression => BuiltInTypes.String,
-            BoolLiteralExpression => BuiltInTypes.Bool,
-            NullLiteralExpression => BuiltInTypes.Object,
-            NewExpression newExpr when newExpr.Type != null => ResolveTypeReference(newExpr.Type),
-            AllocExpression alloc => ResolveExpressionTypeInfo(alloc.Expression),
-            StackAllocExpression stackAlloc => new GenericTypeInfo("Span", new List<TypeInfo>
-            {
-                ResolveTypeReference(stackAlloc.ElementType) ?? BuiltInTypes.Unknown
-            }),
-            ArrayLiteralExpression => new ReflectionTypeInfo(typeof(Array)), // Simplified fallback
             _ => null
         };
     }
@@ -113,179 +92,11 @@ public class ExpressionTypeResolver
             .ToArray();
     }
 
-    private Type? ResolveIdentifierType(string name)
-    {
-        // Check semantic model first
-        var typeRef = _semanticModel.LookupIdentifier(name);
-        if (typeRef != null)
-        {
-            return ResolveTypeFromString(typeRef.ToString());
-        }
-
-        // Check imported types
-        if (_importedTypes.TryGetValue(name, out var importedType))
-        {
-            return importedType;
-        }
-
-        return null;
-    }
-
-    private TypeInfo? ResolveIdentifierTypeInfo(string name)
-    {
-        var typeInfo = _semanticModel.LookupIdentifier(name);
-        if (typeInfo != null)
-            return typeInfo;
-
-        if (_importedTypes.TryGetValue(name, out var importedType))
-            return new ReflectionTypeInfo(importedType);
-
-        var clrType = ResolveTypeFromString(name);
-        return clrType != null ? ConvertClrTypeToTypeInfo(clrType) : null;
-    }
-
-    private Type? ResolveMemberAccessType(MemberAccessExpression memberAccess)
-    {
-        var memberInfo = ResolveMemberInfo(memberAccess);
-
-        return memberInfo switch
-        {
-            MethodInfo method => method.ReturnType,
-            PropertyInfo property => property.PropertyType,
-            FieldInfo field => field.FieldType,
-            _ => null
-        };
-    }
-
-    private TypeInfo? ResolveMemberAccessTypeInfo(MemberAccessExpression memberAccess)
-    {
-        var memberInfo = ResolveMemberInfo(memberAccess);
-
-        return memberInfo switch
-        {
-            MethodInfo method => NullabilityMetadata.ConvertReturn(method),
-            PropertyInfo property => NullabilityMetadata.ConvertProperty(property),
-            FieldInfo field => NullabilityMetadata.ConvertField(field),
-            _ => null
-        };
-    }
-
-    private Type? ResolveCallType(CallExpression call)
-    {
-        // If calling a member access like numbers.Select(...)
-        if (call.Callee is MemberAccessExpression memberAccess)
-        {
-            var memberInfo = ResolveMemberInfo(memberAccess);
-            if (memberInfo is MethodInfo method)
-            {
-                // Check if it's a generic method definition
-                if (method.IsGenericMethodDefinition)
-                {
-                    var constructedMethod = TryConstructGenericMethod(method, memberAccess, call);
-                    return constructedMethod?.ReturnType ?? method.ReturnType;
-                }
-
-                return method.ReturnType;
-            }
-        }
-
-        // If calling an identifier directly (e.g., hi())
-        if (call.Callee is IdentifierExpression id)
-        {
-            // First check if it's a function in the semantic model
-            if (_semanticModel.Functions.TryGetValue(id.Name, out var funcReturnType))
-            {
-                // Convert TypeInfo to System.Type
-                return ResolveTypeFromString(funcReturnType.ToString());
-            }
-
-            // Check if it's a known type constructor
-            var type = ResolveTypeFromString(id.Name);
-            if (type != null) return type;
-        }
-
-        return null;
-    }
-
-    private TypeInfo? ResolveCallTypeInfo(CallExpression call)
-    {
-        if (call.Callee is MemberAccessExpression memberAccess)
-        {
-            var memberInfo = ResolveMemberInfo(memberAccess);
-            if (memberInfo is MethodInfo method)
-            {
-                if (method.IsGenericMethodDefinition)
-                {
-                    var constructedMethod = TryConstructGenericMethod(method, memberAccess, call);
-                    return constructedMethod != null
-                        ? NullabilityMetadata.ConvertReturn(constructedMethod)
-                        : NullabilityMetadata.ConvertReturn(method);
-                }
-
-                return NullabilityMetadata.ConvertReturn(method);
-            }
-        }
-
-        if (call.Callee is IdentifierExpression id)
-        {
-            if (_semanticModel.Functions.TryGetValue(id.Name, out var funcReturnType))
-                return funcReturnType;
-
-            var type = ResolveTypeFromString(id.Name);
-            if (type != null)
-                return ConvertClrTypeToTypeInfo(type);
-        }
-
-        return null;
-    }
-
     private Type? ResolveExpressionTypeFallback(Expression expr)
     {
         return expr switch
         {
-            IdentifierExpression id => ResolveIdentifierType(id.Name),
-            MemberAccessExpression memberAccess => ResolveMemberAccessType(memberAccess),
-            CallExpression call => ResolveCallType(call),
-            MustExpression must => ResolveMustType(must),
-            IntLiteralExpression => typeof(int),
-            FloatLiteralExpression => typeof(double),
-            CharLiteralExpression => typeof(char),
-            StringLiteralExpression => typeof(string),
-            InterpolatedStringExpression => typeof(string),
-            BoolLiteralExpression => typeof(bool),
-            NullLiteralExpression => typeof(object),
-            AllocExpression alloc => ResolveExpressionTypeFallback(alloc.Expression),
-            StackAllocExpression stackAlloc => typeof(Span<>).MakeGenericType(
-                ResolveTypeInfoToClrType(ResolveTypeReference(stackAlloc.ElementType) ?? BuiltInTypes.Unknown) ?? typeof(object)),
-            ArrayLiteralExpression => typeof(Array),
             _ => null
-        };
-    }
-
-    private TypeInfo? ResolveMustTypeInfo(MustExpression must)
-    {
-        var operandType = ResolveExpressionTypeInfo(must.Expression);
-        return operandType is NullableTypeInfo nullable ? nullable.InnerType : operandType;
-    }
-
-    private Type? ResolveMustType(MustExpression must)
-    {
-        var operandType = ResolveExpressionType(must.Expression);
-        return operandType != null ? Nullable.GetUnderlyingType(operandType) ?? operandType : null;
-    }
-
-    private TypeInfo ResolveTypeReference(TypeReference typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference s => new SimpleTypeInfo(s.Name),
-            GenericTypeReference g => new GenericTypeInfo(g.Name,
-                g.TypeArguments.Select(ResolveTypeReference).ToList()),
-            ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReference(a.ElementType)),
-            NullableTypeReference n => new NullableTypeInfo(ResolveTypeReference(n.InnerType)),
-            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(ResolveTypeReference).ToList()),
-            ByRefTypeReference b => new ByRefTypeInfo(ResolveTypeReference(b.InnerType)),
-            _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
         };
     }
 
@@ -343,138 +154,6 @@ public class ExpressionTypeResolver
         }
 
         return typeDefinition.MakeGenericType(typeArguments.ToArray());
-    }
-
-    private static TypeInfo ConvertClrTypeToTypeInfo(Type type)
-    {
-        if (type.IsByRef)
-            return ConvertClrTypeToTypeInfo(type.GetElementType()!);
-
-        if (type.IsArray)
-            return new ArrayTypeInfo(ConvertClrTypeToTypeInfo(type.GetElementType()!));
-
-        return type.FullName switch
-        {
-            "System.Int32" => BuiltInTypes.Int,
-            "System.Int64" => BuiltInTypes.Long,
-            "System.Int16" => BuiltInTypes.Short,
-            "System.Byte" => BuiltInTypes.Byte,
-            "System.Single" => BuiltInTypes.Float,
-            "System.Double" => BuiltInTypes.Double,
-            "System.Decimal" => BuiltInTypes.Decimal,
-            "System.Boolean" => BuiltInTypes.Bool,
-            "System.Char" => BuiltInTypes.Char,
-            "System.String" => BuiltInTypes.String,
-            "System.Void" => BuiltInTypes.Void,
-            "System.Object" => BuiltInTypes.Object,
-            _ when type.IsGenericType && type.GetGenericTypeDefinition() == typeof(NSharpLang.Runtime.Union<,>) => new UnionTypeInfo(
-                type.GetGenericArguments().Select(ConvertClrTypeToTypeInfo).ToList()),
-            _ when type.IsGenericType => new GenericTypeInfo(
-                type.Name[..type.Name.IndexOf('`')],
-                type.GetGenericArguments().Select(ConvertClrTypeToTypeInfo).ToList()),
-            _ => new ReflectionTypeInfo(type)
-        };
-    }
-
-    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeReference)
-    {
-        if (typeReference is UnionTypeReference union)
-        {
-            foreach (var arm in union.Arms)
-            {
-                foreach (var nested in FlattenUnionTypeReference(arm))
-                    yield return nested;
-            }
-        }
-        else
-        {
-            yield return typeReference;
-        }
-    }
-
-    /// <summary>
-    /// Attempts to construct a generic method with inferred type arguments
-    /// </summary>
-    private MethodInfo? TryConstructGenericMethod(MethodInfo genericMethod, MemberAccessExpression memberAccess, CallExpression call)
-    {
-        // Get the type of the object (e.g., int[] for numbers.Select)
-        var objectType = ResolveExpressionType(memberAccess.Object);
-        if (objectType == null) return null;
-
-        var typeArgs = new List<Type>();
-        var genericParams = genericMethod.GetGenericArguments();
-
-        // Handle common LINQ extension methods
-        if (genericMethod.Name == "Select" || genericMethod.Name == "Where" ||
-            genericMethod.Name == "ToList" || genericMethod.Name == "ToArray" ||
-            genericMethod.Name == "FirstOrDefault" || genericMethod.Name == "First" ||
-            genericMethod.Name == "Last" || genericMethod.Name == "LastOrDefault" ||
-            genericMethod.Name == "Any" || genericMethod.Name == "All" ||
-            genericMethod.Name == "Count" || genericMethod.Name == "Sum")
-        {
-            // Infer TSource from the collection
-            if (TryGetEnumerableElementType(objectType, out var elementType))
-            {
-                typeArgs.Add(elementType!);
-
-                // For Select, we need TResult as well
-                if (genericMethod.Name == "Select" && genericParams.Length == 2)
-                {
-                    // TODO: Analyze lambda to determine result type
-                    // For now, assume same type (Select<int, int>)
-                    typeArgs.Add(elementType!);
-                }
-            }
-        }
-
-        // Only construct if we have all type arguments
-        if (typeArgs.Count == genericParams.Length)
-        {
-            try
-            {
-                return genericMethod.MakeGenericMethod(typeArgs.ToArray());
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Tries to get the element type of an IEnumerable<T> or array
-    /// </summary>
-    private bool TryGetEnumerableElementType(Type type, out Type? elementType)
-    {
-        // Check if it's an array
-        if (type.IsArray)
-        {
-            elementType = type.GetElementType();
-            return elementType != null;
-        }
-
-        // Check if it implements IEnumerable<T>
-        var enumerableInterface = type.GetInterfaces()
-            .FirstOrDefault(i => i.IsGenericType &&
-                               i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
-
-        if (enumerableInterface != null)
-        {
-            elementType = enumerableInterface.GetGenericArguments()[0];
-            return true;
-        }
-
-        // Check if the type itself is IEnumerable<T>
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>))
-        {
-            elementType = type.GetGenericArguments()[0];
-            return true;
-        }
-
-        elementType = null;
-        return false;
     }
 
     private Type? ResolveTypeFromString(string typeName)
