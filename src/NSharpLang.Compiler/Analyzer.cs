@@ -22869,7 +22869,6 @@ public class Analyzer : IDisposable
     public void LoadReferencedAssembly(string assemblyPath)
     {
         if (_mlc == null) return;
-        try
         {
             var fullPath = Path.GetFullPath(assemblyPath);
             _metadataResolver?.AddSearchDirectory(Path.GetDirectoryName(fullPath)!);
@@ -22880,14 +22879,8 @@ public class Analyzer : IDisposable
             }
 
             AssemblyName assemblyName;
-            try
             {
                 assemblyName = AssemblyName.GetAssemblyName(fullPath);
-            }
-            catch (BadImageFormatException)
-            {
-                // Non-managed assets are irrelevant for metadata analysis.
-                return;
             }
 
             if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
@@ -22897,11 +22890,6 @@ public class Analyzer : IDisposable
 
             var assembly = _mlc.LoadFromAssemblyPath(fullPath);
             RegisterMetadataAssembly(assembly);
-        }
-        catch (FileLoadException ex) when (IsDuplicateMetadataAssemblyLoad(ex))
-        {
-            // MetadataLoadContext rejects duplicate identities; suppress to keep machine-readable
-            // output like `nlc check --json` clean when ResolveReferences returns overlapping facades.
         }
     }
 
@@ -22959,12 +22947,6 @@ public class Analyzer : IDisposable
                     normalizedPath,
                     StringComparison.OrdinalIgnoreCase);
         });
-    }
-
-    private static bool IsDuplicateMetadataAssemblyLoad(FileLoadException exception)
-    {
-        return exception.Message.Contains("already loaded into this MetadataLoadContext", StringComparison.OrdinalIgnoreCase)
-            || exception.Message.Contains("already loaded been loaded into this MetadataLoadContext", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -23555,23 +23537,18 @@ public class Analyzer : IDisposable
             Func4 = Resolve("System.Func`4");
             Func5 = Resolve("System.Func`5");
 
-            try
             {
                 var runtime = mlc.LoadFromAssemblyName("NSharpLang.Runtime");
                 RuntimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
                 RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
             }
-            catch { /* runtime assembly not available in analysis-only contexts */ }
 
-            try
             {
                 var json = mlc.LoadFromAssemblyName("System.Text.Json");
                 JsonTypeInfoOpen = json.GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1");
             }
-            catch { /* System.Text.Json assembly not available in analysis-only contexts */ }
 
             // Collections — may be in a separate assembly
-            try
             {
                 var collections = mlc.LoadFromAssemblyName("System.Collections");
                 ListOpen = collections.GetType("System.Collections.Generic.List`1") ?? Resolve("System.Collections.Generic.List`1");
@@ -23580,7 +23557,6 @@ public class Analyzer : IDisposable
                 DictionaryOpen = collections.GetType("System.Collections.Generic.Dictionary`2") ?? Resolve("System.Collections.Generic.Dictionary`2");
                 IDictionaryOpen = collections.GetType("System.Collections.Generic.IDictionary`2") ?? Resolve("System.Collections.Generic.IDictionary`2");
             }
-            catch { /* collections assembly not available */ }
             ListOpen ??= Resolve("System.Collections.Generic.List`1");
             ICollectionOpen ??= Resolve("System.Collections.Generic.ICollection`1");
             IListOpen ??= Resolve("System.Collections.Generic.IList`1");
@@ -23590,25 +23566,21 @@ public class Analyzer : IDisposable
             // IEnumerable<T> is in System.Runtime
             IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1");
 
-            try
             {
                 var expressions = mlc.LoadFromAssemblyName("System.Linq.Expressions");
                 IQueryableOpen = expressions.GetType("System.Linq.IQueryable`1");
             }
-            catch { /* System.Linq.Expressions assembly not available */ }
 
             // Tasks — try core first, then dedicated assembly
             TaskOpen = Resolve("System.Threading.Tasks.Task`1");
             ValueTaskOpen = Resolve("System.Threading.Tasks.ValueTask`1");
             if (TaskOpen == null || ValueTaskOpen == null)
             {
-                try
                 {
                     var threading = mlc.LoadFromAssemblyName("System.Threading.Tasks");
                     TaskOpen ??= threading.GetType("System.Threading.Tasks.Task`1");
                     ValueTaskOpen ??= threading.GetType("System.Threading.Tasks.ValueTask`1");
                 }
-                catch { /* threading assembly not available */ }
             }
         }
     }
