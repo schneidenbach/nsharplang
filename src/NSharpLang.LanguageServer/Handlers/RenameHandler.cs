@@ -91,12 +91,8 @@ public class RenameHandler : RenameHandlerBase
                     "Save or fix the project files and retry; refusing text-only rename to avoid editing unrelated symbols.");
             }
 
-            // Verify the symbol exists in our symbol locations or semantic model before
-            // falling back to same-document text edits for synthetic/non-project files.
             var isKnownSymbol = false;
             if (doc.SymbolLocations?.ContainsKey(oldName) == true)
-                isKnownSymbol = true;
-            else if (doc.SemanticModel?.LookupIdentifier(oldName) != null)
                 isKnownSymbol = true;
 
             if (!isKnownSymbol)

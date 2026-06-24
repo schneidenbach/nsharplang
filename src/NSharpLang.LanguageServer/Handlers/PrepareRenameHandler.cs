@@ -87,12 +87,6 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         var isKnownSymbol = hasStrictProjectRenameTarget;
         if (doc.SymbolLocations?.ContainsKey(word) == true)
             isKnownSymbol = true;
-        else if (doc.SemanticModel?.LookupIdentifier(word) != null)
-            isKnownSymbol = true;
-        else if (doc.SemanticModel?.Variables.ContainsKey(word) == true)
-            isKnownSymbol = true;
-        else if (doc.SemanticModel?.Functions.ContainsKey(word) == true)
-            isKnownSymbol = true;
 
         if (!isKnownSymbol)
         {
