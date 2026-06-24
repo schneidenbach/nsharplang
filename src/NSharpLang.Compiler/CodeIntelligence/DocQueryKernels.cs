@@ -51,16 +51,10 @@ internal static class DocQueryKernels
                 scratch.SeenRanks,
                 scratch.ResultIndices);
 
-            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-                throw new InvalidOperationException("N# doc query string deduplication kernel returned an invalid result count.");
-
             var result = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= valueCount)
-                    throw new InvalidOperationException("N# doc query string deduplication kernel returned an invalid value index.");
-
                 result[i] = values[sourceIndex];
             }
 
@@ -108,16 +102,10 @@ internal static class DocQueryKernels
                 scratch.SeenRanks,
                 scratch.ResultIndices);
 
-            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-                throw new InvalidOperationException("N# doc query type deduplication kernel returned an invalid result count.");
-
             var result = new Type[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= valueCount)
-                    throw new InvalidOperationException("N# doc query type deduplication kernel returned an invalid type index.");
-
                 result[i] = values[sourceIndex];
             }
 
@@ -162,9 +150,6 @@ internal static class DocQueryKernels
                 scratch.NamespaceLengths,
                 scratch.FullNames,
                 candidateCount);
-
-            if (bestIndex < 0 || bestIndex >= candidateCount)
-                throw new InvalidOperationException("N# doc query best-type selector kernel returned an invalid type index.");
 
             return candidates[bestIndex];
         }
@@ -215,16 +200,10 @@ internal static class DocQueryKernels
                 scratch.TempIndices,
                 scratch.ResultIndices);
 
-            if (orderedCount != memberCount)
-                throw new InvalidOperationException("N# doc query member ordering kernel returned an invalid result count.");
-
             var orderedMembers = new DocMemberResult[memberCount];
             for (var i = 0; i < memberCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= memberCount)
-                    throw new InvalidOperationException("N# doc query member ordering kernel returned an invalid member index.");
-
                 orderedMembers[i] = members[sourceIndex];
             }
 
