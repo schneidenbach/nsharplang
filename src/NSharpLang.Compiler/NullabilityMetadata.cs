@@ -225,38 +225,17 @@ public static class NullabilityMetadata
 
     private static NullabilityInfo? TryCreateNullabilityInfo(PropertyInfo property)
     {
-        try
-        {
             return new NullabilityInfoContext().Create(property);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(FieldInfo field)
     {
-        try
-        {
             return new NullabilityInfoContext().Create(field);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(ParameterInfo parameter)
     {
-        try
-        {
             return new NullabilityInfoContext().Create(parameter);
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static NullabilityInfo? GetFirstGenericArgument(NullabilityInfo? info)
@@ -302,15 +281,8 @@ public static class NullabilityMetadata
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-        try
-        {
             return parameter.GetCustomAttributesData()
                 .Any(attribute => attribute.AttributeType.FullName == "System.ParamArrayAttribute");
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static string FormatFlowAttributes(IEnumerable<CustomAttributeData> attributes)
