@@ -445,8 +445,6 @@ internal sealed class ColumnarUnionDef
     // types a value; closed work rebinds case members via TypeBuilder.GetConstructor/GetField (the cases
     // REDECLARE the base's parameters positionally, so a closed BASE's arguments apply to its cases 1:1).
     internal int TypeParamCount { get; }
-    internal bool IsGeneric => TypeParamCount > 0;
-
     // VALUE-STRUCT layout: a small, closed, payload-free, non-generic union emits as a readonly tag struct
     // (mirroring the C# oracle's DeclareValueStructUnion) instead of a class hierarchy, so Base is the STRUCT and
     // there is no abstract reference base. TagGetter is the public `get_Tag` used to read a scrutinee's
