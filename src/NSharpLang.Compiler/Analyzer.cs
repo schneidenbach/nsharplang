@@ -7227,57 +7227,7 @@ public class Analyzer : IDisposable
     }
 
     private TypeInfo AnalyzeStringLiteral(StringLiteralExpression strExpr)
-    {
-        // Check identifiers inside interpolated strings: $"...{identifier}..."
-        var value = strExpr.Value;
-        if (value.StartsWith("$\""))
-        {
-            // Scan for {identifier} patterns and validate each identifier against scope
-            for (int i = 2; i < value.Length; i++)
-            {
-                if (value[i] == '{' && i + 1 < value.Length && value[i + 1] != '{')
-                {
-                    // Extract the expression inside { }
-                    int start = i + 1;
-                    int depth = 1;
-                    int end = start;
-                    while (end < value.Length && depth > 0)
-                    {
-                        if (value[end] == '{') depth++;
-                        else if (value[end] == '}') depth--;
-                        if (depth > 0) end++;
-                    }
-
-                    if (end > start)
-                    {
-                        var expr = value.Substring(start, end - start).Trim();
-                        // Only validate bare identifiers (e.g. {foo}, {count}).
-                        // Complex expressions (method calls, member access, casts, ternaries, etc.)
-                        // are left to the C# backend to validate.
-                        var ident = expr;
-                        var isBareIdentifier = ident.Length > 0 && char.IsLetter(ident[0]) &&
-                            ident.All(c => char.IsLetterOrDigit(c) || c == '_');
-                        if (isBareIdentifier && !IsKeyword(ident))
-                        {
-                            var col = strExpr.Column + start;
-                            if (!TryResolveIdentifierBindingTarget(ident, strExpr.Line, col, out _))
-                            {
-                                _errors.Add(CompilerError.Create(
-                                    ErrorCode.UndefinedVariable,
-                                    $"Undeclared identifier '{ident}' in string interpolation",
-                                    strExpr.Line,
-                                    col,
-                                    ErrorSeverity.Error
-                                ));
-                            }
-                        }
-                    }
-                    i = end; // skip past the interpolation
-                }
-            }
-        }
-        return BuiltInTypes.String;
-    }
+        => BuiltInTypes.String;
 
     private TypeInfo AnalyzeInterpolatedString(InterpolatedStringExpression expr)
     {
@@ -7292,12 +7242,6 @@ public class Analyzer : IDisposable
         }
         return BuiltInTypes.String;
     }
-
-    private static bool IsKeyword(string name) =>
-        name is "true" or "false" or "null" or "this" or "base" or "new" or "typeof" or "nameof"
-            // Built-in type names (used in casts inside interpolated strings)
-            or "int" or "long" or "float" or "double" or "bool" or "string" or "object"
-            or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "decimal" or "char" or "void";
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
     {
