@@ -20578,9 +20578,6 @@ public class Analyzer : IDisposable
     {
         var resolved = ResolveTypeAlias(type);
 
-        if (resolved is UnknownTypeInfo or ExternalTypeInfo)
-            return true;
-
         if (resolved is GenericTypeInfo genericType)
             return genericType.Name != "Nullable";
 
