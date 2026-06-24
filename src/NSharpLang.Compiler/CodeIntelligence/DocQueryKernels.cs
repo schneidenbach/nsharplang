@@ -32,9 +32,6 @@ internal static class DocQueryKernels
             for (var i = 0; i < valueCount; i++)
             {
                 var value = values[i];
-                if (value == null)
-                    throw new InvalidOperationException("N# doc query string deduplication kernel rejected a null value.");
-
                 if (!scratch.RanksByValue.TryGetValue(value, out var rank))
                 {
                     rank = ++scratch.UniqueRankCount;
@@ -83,9 +80,6 @@ internal static class DocQueryKernels
             for (var i = 0; i < valueCount; i++)
             {
                 var value = values[i];
-                if (value == null)
-                    throw new InvalidOperationException("N# doc query type deduplication kernel rejected a null value.");
-
                 if (!scratch.RanksByValue.TryGetValue(value, out var rank))
                 {
                     rank = ++scratch.UniqueRankCount;
@@ -136,13 +130,9 @@ internal static class DocQueryKernels
             for (var i = 0; i < candidateCount; i++)
             {
                 var candidate = candidates[i];
-                var fullName = candidate.FullName;
-                if (fullName == null)
-                    throw new InvalidOperationException("N# doc query best-type selector kernel rejected a candidate without a full name.");
-
                 scratch.Scores[i] = scoreTypeMatch(query, candidate);
                 scratch.NamespaceLengths[i] = candidate.Namespace?.Length ?? int.MaxValue;
-                scratch.FullNames[i] = fullName;
+                scratch.FullNames[i] = candidate.FullName!;
             }
 
             var bestIndex = bindings.DocQueryBestTypeIndex(
