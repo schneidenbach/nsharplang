@@ -222,8 +222,7 @@ public class CompletionHandler : CompletionHandlerBase
             }
         }
 
-        var resolver = new ExpressionTypeResolver(doc.SemanticModel!);
-        var objectTypeInfo = resolver.ResolveExpressionTypeInfo(memberAccess.Object);
+        var objectTypeInfo = doc.SemanticModel!.LookupTypeAtPosition(memberAccess.Object.Line, memberAccess.Object.Column);
         if (objectTypeInfo != null && !BuiltInTypes.IsUnknown(objectTypeInfo))
         {
             var nsharpMembers = GetNSharpTypeMembers(objectTypeInfo, doc);

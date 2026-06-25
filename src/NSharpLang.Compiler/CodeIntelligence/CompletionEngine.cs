@@ -152,8 +152,7 @@ public class CompletionEngine
         // plain identifier and must come from Analyzer-recorded expression types.
         if (semanticModel != null && memberAccess != null)
         {
-            var resolver = new ExpressionTypeResolver(semanticModel);
-            var receiverType = resolver.ResolveExpressionTypeInfo(memberAccess.Object);
+            var receiverType = semanticModel.LookupTypeAtPosition(memberAccess.Object.Line, memberAccess.Object.Column);
             if (receiverType != null && !BuiltInTypes.IsUnknown(receiverType))
             {
                 var displayReceiver = receiver ?? FormatReceiverExpression(memberAccess.Object) ?? "<expression>";

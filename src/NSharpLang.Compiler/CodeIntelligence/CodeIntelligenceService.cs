@@ -1357,7 +1357,7 @@ public class CodeIntelligenceService
     {
         if (expr != null && semanticModel != null)
         {
-            var resolved = new ExpressionTypeResolver(semanticModel).ResolveExpressionTypeInfo(expr);
+            var resolved = semanticModel.LookupTypeAtPosition(expr.Line, expr.Column);
             if (resolved != null && !BuiltInTypes.IsUnknown(resolved))
                 return resolved;
         }
