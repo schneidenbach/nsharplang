@@ -114,19 +114,6 @@ public class CodeFixService
         return actions;
     }
 
-    /// <summary>
-    /// Get all available code actions for a document (not tied to a specific diagnostic)
-    /// </summary>
-    public List<CodeAction> GetCodeActionsForDocument(
-        CompilationUnit ast,
-        string sourceCode,
-        int line,
-        int column)
-    {
-        // For now, we'll focus on diagnostic-based fixes
-        // Future: Add refactorings that don't require a diagnostic
-        return new List<CodeAction>();
-    }
 }
 
 /// <summary>
