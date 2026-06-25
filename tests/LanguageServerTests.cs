@@ -313,7 +313,6 @@ public class LanguageServerTests
         public TypeHierarchySupertypesHandler TypeHierarchySupertypesHandler { get; }
         public TypeHierarchySubtypesHandler TypeHierarchySubtypesHandler { get; }
         public DocumentLinkHandler DocumentLinkHandler { get; }
-        public CodeLensHandler CodeLensHandler { get; }
         public OnTypeFormattingHandler OnTypeFormattingHandler { get; }
 
         public LspTestHarness(
@@ -402,7 +401,6 @@ public class LanguageServerTests
             TypeHierarchySupertypesHandler = new TypeHierarchySupertypesHandler(DocumentManager, NullLogger<TypeHierarchySupertypesHandler>.Instance);
             TypeHierarchySubtypesHandler = new TypeHierarchySubtypesHandler(DocumentManager, NullLogger<TypeHierarchySubtypesHandler>.Instance);
             DocumentLinkHandler = new DocumentLinkHandler(DocumentManager, NullLogger<DocumentLinkHandler>.Instance);
-            CodeLensHandler = new CodeLensHandler(DocumentManager, NullLogger<CodeLensHandler>.Instance);
             OnTypeFormattingHandler = new OnTypeFormattingHandler(DocumentManager, NullLogger<OnTypeFormattingHandler>.Instance);
         }
 
@@ -655,16 +653,6 @@ public class LanguageServerTests
             };
 
             return await DocumentLinkHandler.Handle(request, CancellationToken.None);
-        }
-
-        public async Task<CodeLensContainer?> GetCodeLensesAsync(string uri)
-        {
-            var request = new CodeLensParams
-            {
-                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri))
-            };
-
-            return await CodeLensHandler.Handle(request, CancellationToken.None);
         }
 
         public async Task<TextEditContainer?> OnTypeFormattingAsync(string uri, int line, int character, string triggerChar, int tabSize = 4, bool insertSpaces = true)
@@ -2002,51 +1990,6 @@ func outer(): void
     #endregion
 
     #region Rename / FindAllReferences Tests
-
-    [Fact]
-    public void FindAllReferences_FindsIdentifierInsideStringInterpolation()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/interpolation.nl";
-        var source = @"func Main() {
-    name := ""Spencer""
-    greeting := $""Hello, {name}!""
-    print name
-}";
-        harness.OpenDocument(uri, source);
-
-        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
-
-        // Should find 3 references: declaration, interpolation, and print
-        Assert.Equal(3, refs.Count);
-
-        // Line 1: name := "Spencer"
-        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration on line 1");
-        // Line 2: $"Hello, {name}!" — inside interpolation, should NOT be skipped
-        Assert.True(refs.Any(r => r.Line == 2 && r.Column > 20), "Should find 'name' inside string interpolation on line 2");
-        // Line 3: print name
-        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement on line 3");
-    }
-
-    [Fact]
-    public void FindAllReferences_DoesNotFindIdentifierInsideRegularString()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/regularstring.nl";
-        var source = @"func Main() {
-    name := ""Spencer""
-    greeting := ""Hello, name!""
-    print name
-}";
-        harness.OpenDocument(uri, source);
-
-        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
-
-        // Should find only 2 references: declaration and print (NOT inside regular string)
-        Assert.Equal(2, refs.Count);
-        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration");
-        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement");
-    }
 
     [Fact]
     public async Task Rename_CrossFileType_UsesCompilerProjectSnapshotAsync()
@@ -4193,151 +4136,6 @@ class Cat : IAnimal {
 
         var links = await harness.GetDocumentLinksAsync("file:///nonexistent.nl");
         Assert.Null(links);
-    }
-
-    #endregion
-
-    #region Code Lens Tests
-
-    [Fact]
-    public async Task CodeLens_FunctionDeclarationsHaveLenses()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens.nl";
-        var source = @"func greet(name: string): string {
-    return ""Hello, "" + name
-}
-
-func helper() {
-    greet(""world"")
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-        Assert.NotNull(lenses);
-        Assert.True(lenses!.Count() >= 2,
-            $"Expected at least 2 code lenses (one per function), got {lenses!.Count()}");
-
-        // Each non-entry-point lens should have a command with a title containing "reference"
-        Assert.All(lenses!, lens =>
-        {
-            Assert.NotNull(lens.Command);
-            Assert.Contains("reference", lens.Command!.Title);
-        });
-
-        var greetLens = lenses!.FirstOrDefault(l =>
-            l.Range.Start.Line == 0); // greet is on line 0
-        Assert.NotNull(greetLens);
-        Assert.Equal("1 reference", greetLens!.Command!.Title);
-    }
-
-    [Fact]
-    public async Task CodeLens_UnreferencedFunctionExcludesItsDeclarationFromReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_unreferenced.nl";
-        var source = @"func unused() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var unusedLens = Assert.Single(lenses!);
-        Assert.NotNull(unusedLens.Command);
-        Assert.Equal("0 references", unusedLens.Command!.Title);
-    }
-
-    [Fact]
-    public async Task CodeLens_MainFunctionShowsEntryPointInsteadOfReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_main.nl";
-        var source = @"func Main() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var mainLens = Assert.Single(lenses!);
-        Assert.NotNull(mainLens.Command);
-        Assert.Equal("Entry point", mainLens.Command!.Title);
-        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
-    }
-
-    [Fact]
-    public async Task CodeLens_StaticMainMemberShowsEntryPointInsteadOfReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_static_main.nl";
-        var source = @"class Program {
-    static func Main() {
-    }
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var mainLens = lenses!.Single(l => l.Range.Start.Line == 1);
-        Assert.NotNull(mainLens.Command);
-        Assert.Equal("Entry point", mainLens.Command!.Title);
-        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
-    }
-
-    [Fact]
-    public async Task CodeLens_ClassWithMembers()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_class.nl";
-        var source = @"class Person {
-    name: string
-
-    func greet(): string {
-        return ""Hello""
-    }
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-        Assert.NotNull(lenses);
-        // Should have lenses for the class and its members
-        Assert.NotEmpty(lenses!);
-    }
-
-    [Fact]
-    public async Task CodeLens_SoaRecordDeclarationHasLens()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_soa.nl";
-        var source = @"soa record NodeTable {
-    kind: int
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-        Assert.NotNull(lenses);
-
-        var lens = Assert.Single(lenses!);
-        Assert.NotNull(lens.Command);
-        Assert.Equal("0 references", lens.Command!.Title);
-    }
-
-    [Fact]
-    public async Task CodeLens_MissingDocumentReturnsEmptyContainer()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-
-        var lenses = await harness.GetCodeLensesAsync("file:///nonexistent.nl");
-        Assert.NotNull(lenses);
-        Assert.Empty(lenses!);
     }
 
     #endregion

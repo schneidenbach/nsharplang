@@ -404,26 +404,6 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
-    public int CountDocumentDeclarations(string uri, string name)
-    {
-        var doc = GetDocument(uri);
-        return doc?.SymbolLocations?.TryGetValue(name, out var locations) == true
-            ? locations.Count
-            : 0;
-    }
-
-    private static (int StartColumn, int EndColumn, string Name)? TryGetIdentifierSpanAtPosition(string text, int line0, int character0)
-    {
-        return CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(text, line0, character0, out var span)
-            ? (span.StartColumn, span.EndColumn, span.Name)
-            : null;
-    }
-
-    private static string GetSourceContext(string source, int line)
-    {
-        return CodeIntelligenceTextUtilities.GetSourceLine(source, line) ?? string.Empty;
-    }
-
     public bool HasSynchronizedProjectSnapshot(string uri)
     {
         return TryGetSynchronizedProjectSnapshot(uri, out _, out _, out _);
@@ -528,98 +508,6 @@ public class DocumentManager
         }
 
         return publications;
-    }
-
-    /// <summary>
-    /// Find all references to a symbol name in a document's source text.
-    /// Returns 0-based line/column positions of each whole-word occurrence
-    /// that is a valid identifier (not inside a string literal or comment).
-    /// </summary>
-    public List<(int Line, int Column, int Length)> FindAllReferences(string uri, string symbolName)
-    {
-        var results = new List<(int Line, int Column, int Length)>();
-        var doc = GetDocument(uri);
-        if (doc?.Text == null || string.IsNullOrEmpty(symbolName)) return results;
-
-        // NOTE: BindingMap is stored for future use by handlers that need semantic resolution.
-        // For FindAllReferences in the LSP context, we continue using the battle-tested text search
-        // because the BindingMap doesn't yet cover all expression paths (interpolation, etc.).
-        // The CLI's CodeIntelligenceService.FindReferences() uses BindingMap directly.
-
-        // Text-based search
-        var lines = doc.Text.Split('\n');
-        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
-        {
-            var line = lines[lineIdx];
-            int searchStart = 0;
-            while (searchStart < line.Length)
-            {
-                int idx = line.IndexOf(symbolName, searchStart, StringComparison.Ordinal);
-                if (idx < 0) break;
-
-                // Check whole-word boundary
-                bool leftBound = idx == 0 || !IsIdentChar(line[idx - 1]);
-                bool rightBound = idx + symbolName.Length >= line.Length || !IsIdentChar(line[idx + symbolName.Length]);
-
-                if (leftBound && rightBound && !IsInsideStringOrComment(line, idx))
-                {
-                    results.Add((lineIdx, idx, symbolName.Length));
-                }
-
-                searchStart = idx + 1;
-            }
-        }
-
-        return results;
-    }
-
-    private static bool IsIdentChar(char c) => char.IsLetterOrDigit(c) || c == '_';
-
-    private static bool IsInsideStringOrComment(string line, int position)
-    {
-        // Track string/comment/interpolation state up to `position`.
-        // Inside an interpolated string, content between { } is CODE, not string.
-        bool inString = false;
-        bool isInterpolated = false;
-        int interpolationDepth = 0; // nesting depth of { } inside interpolated string
-        for (int i = 0; i < position && i < line.Length; i++)
-        {
-            var c = line[i];
-            if (inString && isInterpolated && interpolationDepth > 0)
-            {
-                // Inside an interpolation expression — treat as code
-                if (c == '{') interpolationDepth++;
-                else if (c == '}') interpolationDepth--;
-                // Don't check for string end while inside interpolation
-            }
-            else if (inString)
-            {
-                if (c == '\\') { i++; continue; } // skip escaped char
-                if (c == '"') inString = false;
-                else if (isInterpolated && c == '{')
-                {
-                    // Check for {{ (escaped brace, stays in string)
-                    if (i + 1 < line.Length && line[i + 1] == '{') { i++; continue; }
-                    interpolationDepth = 1; // entering interpolation expression
-                }
-            }
-            else
-            {
-                if (c == '$' && i + 1 < line.Length && line[i + 1] == '"')
-                {
-                    inString = true;
-                    isInterpolated = true;
-                    interpolationDepth = 0;
-                    i++; // skip the '"'
-                }
-                else if (c == '"') { inString = true; isInterpolated = false; interpolationDepth = 0; }
-                else if (c == '\'') { inString = true; isInterpolated = false; interpolationDepth = 0; }
-                else if (c == '/' && i + 1 < line.Length && line[i + 1] == '/') return true; // line comment
-            }
-        }
-        // If we're in a string but inside an interpolation expression, it's code
-        if (inString && isInterpolated && interpolationDepth > 0) return false;
-        return inString;
     }
 
     private bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)

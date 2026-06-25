@@ -72,7 +72,6 @@ class Program
                     .WithHandler<TypeHierarchySupertypesHandler>()
                     .WithHandler<TypeHierarchySubtypesHandler>()
                     .WithHandler<DocumentLinkHandler>()
-                    .WithHandler<CodeLensHandler>()
                     .WithHandler<OnTypeFormattingHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
