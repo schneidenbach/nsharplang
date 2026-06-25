@@ -511,14 +511,6 @@ public class MultiFileCompiler
         AnalyzeSystemsPolicy();
     }
 
-    /// <summary>
-    /// Read a single source line (1-based) for diagnostic snippets, honoring source overrides.
-    /// </summary>
-    public string? TryReadSourceSnippet(string file, int line)
-    {
-        return TryReadSourceLine(file, line)?.TrimEnd();
-    }
-
     private void AnalyzeSystemsPolicy()
     {
         // The semantic models from the Analyzer pass drive call-site resolution: systems
@@ -743,26 +735,6 @@ public class MultiFileCompiler
         File.AppendAllText(logPath, message + Environment.NewLine);
     }
 
-    /// <summary>
-    /// Get the entry file from config or use Program.nl by default
-    /// </summary>
-    public string? GetEntryFile()
-    {
-        if (_config?.Entry != null)
-        {
-            var entryPath = Path.Combine(_projectRoot, _config.Entry);
-            if (File.Exists(entryPath))
-            {
-                return Path.GetFullPath(entryPath);
-            }
-        }
-
-        // Default to Program.nl
-        var defaultEntry = _sourceFiles.FirstOrDefault(f =>
-            Path.GetFileName(f).Equals("Program.nl", StringComparison.OrdinalIgnoreCase));
-
-        return defaultEntry;
-    }
 }
 
 /// <summary>
