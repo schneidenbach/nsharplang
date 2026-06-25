@@ -318,13 +318,9 @@ public class SemanticModel
     /// <summary>
     /// Get all variables visible at a given source position, respecting scope boundaries.
     /// For each variable name, returns the binding from the innermost scope.
-    /// Falls back to flat Variables dict if no scopes are recorded.
     /// </summary>
     public Dictionary<string, TypeInfo> GetVisibleVariablesAtPosition(int line, int column)
     {
-        if (_scopes.Count == 0)
-            return new Dictionary<string, TypeInfo>(Variables);
-
         // Collect containing scopes sorted by depth (deepest first)
         var containingScopes = new List<ScopeInfo>();
         foreach (var scope in _scopes)
@@ -334,7 +330,7 @@ public class SemanticModel
         }
 
         if (containingScopes.Count == 0)
-            return new Dictionary<string, TypeInfo>(Variables);
+            return new Dictionary<string, TypeInfo>();
 
         // Sort by depth (deepest first) so inner bindings shadow outer ones
         containingScopes.Sort((a, b) => GetScopeDepth(b.Id).CompareTo(GetScopeDepth(a.Id)));
