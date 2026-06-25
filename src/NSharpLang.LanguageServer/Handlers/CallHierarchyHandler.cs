@@ -141,61 +141,6 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
             }
         }
 
-        // Fallback: walk AST declarations directly
-        if (doc.CompilationUnit?.Declarations != null)
-        {
-            var funcDecl = FindFunctionDeclaration(doc.CompilationUnit.Declarations, functionName);
-            if (funcDecl != null)
-            {
-                // AST line/column are 1-based; LSP is 0-based
-                var lspLine = Math.Max(0, funcDecl.Line - 1);
-                var lspColumn = Math.Max(0, funcDecl.Column - 1);
-
-                var selectionRange = new LspRange(
-                    lspLine, lspColumn,
-                    lspLine, lspColumn + functionName.Length);
-
-                var bodyEndLine = GetFunctionEndLine(funcDecl);
-                // Ensure end character >= start character when on the same line
-                var endChar = bodyEndLine == lspLine ? lspColumn + functionName.Length : 0;
-                var range = new LspRange(lspLine, lspColumn, bodyEndLine, endChar);
-
-                return (doc.Uri, range, selectionRange);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Searches AST declarations (including nested type members) for a FunctionDeclaration by name.
-    /// </summary>
-    private static FunctionDeclaration? FindFunctionDeclaration(List<Declaration> declarations, string name)
-    {
-        foreach (var decl in declarations)
-        {
-            if (decl is FunctionDeclaration func && string.Equals(func.Name, name, StringComparison.Ordinal))
-            {
-                return func;
-            }
-
-            // Search inside type declarations for methods
-            var members = decl switch
-            {
-                ClassDeclaration c => c.Members,
-                StructDeclaration s => s.Members,
-                RecordDeclaration r => r.Members,
-                InterfaceDeclaration i => i.Members,
-                _ => null
-            };
-
-            if (members != null)
-            {
-                var nested = FindFunctionDeclaration(members, name);
-                if (nested != null) return nested;
-            }
-        }
-
         return null;
     }
 
@@ -831,22 +776,6 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
         if (bestLoc != null)
         {
             return CreateCallHierarchyItemFromLocation(bestLoc);
-        }
-
-        // Last resort: create a synthetic item from symbol info if available
-        if (originDoc.SymbolsInfo != null && originDoc.SymbolsInfo.TryGetValue(calleeName, out var symbolInfo))
-        {
-            if (symbolInfo.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method)
-            {
-                return new CallHierarchyItem
-                {
-                    Name = calleeName,
-                    Kind = LspSymbolKind.Function,
-                    Uri = DocumentUri.From(originDoc.Uri),
-                    Range = new LspRange(0, 0, 0, 0),
-                    SelectionRange = new LspRange(0, 0, 0, 0)
-                };
-            }
         }
 
         return null;
