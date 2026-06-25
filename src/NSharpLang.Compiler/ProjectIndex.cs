@@ -31,17 +31,4 @@ public class ProjectIndex
         _typeDeclarationFiles = typeDeclarationFiles;
     }
 
-    /// <summary>
-    /// Merge another ProjectIndex into this one during multi-file aggregation.
-    /// BindingMap entries and TypeDeclarationFiles are union-merged (last writer wins per key).
-    /// </summary>
-    internal void Merge(ProjectIndex other)
-    {
-        Bindings.Merge(other.Bindings);
-
-        foreach (var (typeName, filePath) in other._typeDeclarationFiles)
-        {
-            _typeDeclarationFiles[typeName] = filePath;
-        }
-    }
 }
