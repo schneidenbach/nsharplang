@@ -557,8 +557,7 @@ public class CodeIntelligenceService
         var definedIn = definition?.File;
 
         // Build a human-readable signature
-        var (filePath, cu) = FindCompilationUnit(snapshot, file);
-        var signature = BuildSignature(cu, name, kind, type?.ResolvedType);
+        var signature = BuildSignature(name, kind, type?.ResolvedType);
 
         // Extract doc comment from the definition site
         var documentation = definedIn != null
@@ -568,7 +567,7 @@ public class CodeIntelligenceService
         return new HoverResult(signature, documentation, definedIn, kind);
     }
 
-    private static string BuildSignature(CompilationUnit? cu, string name, string kind, string? typeName)
+    private static string BuildSignature(string name, string kind, string? typeName)
     {
         return CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, typeName);
     }
