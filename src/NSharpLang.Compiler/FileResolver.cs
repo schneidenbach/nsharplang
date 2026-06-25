@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 
 namespace NSharpLang.Compiler;
@@ -48,31 +47,4 @@ public class FileResolver
         return resolvedPath;
     }
 
-    /// <summary>
-    /// Checks if a file exists at the given path.
-    /// </summary>
-    public bool FileExists(string path)
-    {
-        return File.Exists(path);
-    }
-
-    /// <summary>
-    /// Validates that an import path resolves to an existing file.
-    /// </summary>
-    /// <param name="importPath">The import path from the import statement</param>
-    /// <param name="errorMessage">Error message if validation fails</param>
-    /// <returns>The resolved path if valid, null otherwise</returns>
-    public string? ValidateImportPath(string importPath, out string? errorMessage)
-    {
-        var resolvedPath = ResolveFilePath(importPath);
-
-        if (!FileExists(resolvedPath))
-        {
-            errorMessage = $"Imported file not found: {importPath} (resolved to {resolvedPath})";
-            return null;
-        }
-
-        errorMessage = null;
-        return resolvedPath;
-    }
 }

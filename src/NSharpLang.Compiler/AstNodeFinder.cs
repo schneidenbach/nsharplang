@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -19,23 +18,12 @@ public class AstNodeFinder
         return visitor.FoundExpression;
     }
 
-    /// <summary>
-    /// Finds the statement at the given line and column position
-    /// </summary>
-    public static Statement? FindStatementAtPosition(CompilationUnit ast, int line, int column)
-    {
-        var visitor = new PositionVisitor(line, column);
-        visitor.VisitCompilationUnit(ast);
-        return visitor.FoundStatement;
-    }
-
     private class PositionVisitor
     {
         private readonly int _targetLine;
         private readonly int _targetColumn;
 
         public Expression? FoundExpression { get; private set; }
-        public Statement? FoundStatement { get; private set; }
 
         public PositionVisitor(int line, int column)
         {
@@ -80,11 +68,6 @@ public class AstNodeFinder
 
         private void VisitStatement(Statement stmt)
         {
-            if (IsAtPosition(stmt.Line, stmt.Column))
-            {
-                FoundStatement = stmt;
-            }
-
             switch (stmt)
             {
                 case BlockStatement block:
