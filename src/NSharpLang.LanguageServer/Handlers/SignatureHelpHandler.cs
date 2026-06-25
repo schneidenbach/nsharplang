@@ -4,8 +4,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
-using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
@@ -142,25 +140,11 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
     /// <summary>
     /// Build signatures for a user-defined N# function.
-    /// Checks the AST for top-level functions, then falls back to SymbolsInfo
-    /// (which includes local functions extracted by DocumentManager).
     /// </summary>
     private List<SignatureInformation> BuildNSharpFunctionSignatures(DocumentState doc, string functionName)
     {
         var signatures = new List<SignatureInformation>();
 
-        // First, check top-level function declarations in the AST
-        if (doc.CompilationUnit != null)
-        {
-            Models.SymbolInfo? symbolInfo = null;
-            doc.SymbolsInfo?.TryGetValue(functionName, out symbolInfo);
-            foreach (var funcDecl in FindTopLevelFunctions(doc.CompilationUnit, functionName))
-            {
-                signatures.Add(BuildSignatureFromDeclaration(funcDecl, symbolInfo?.Documentation));
-            }
-        }
-
-        // Fall back to SymbolsInfo which also includes local functions
         if (signatures.Count == 0 && doc.SymbolsInfo != null)
         {
             if (doc.SymbolsInfo.TryGetValue(functionName, out var symbolInfo) &&
@@ -360,38 +344,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Build a SignatureInformation from an N# FunctionDeclaration AST node.
-    /// </summary>
-    private SignatureInformation BuildSignatureFromDeclaration(FunctionDeclaration funcDecl, string? documentation = null)
-    {
-        var paramInfos = new List<ParameterInformation>();
-
-        foreach (var param in funcDecl.Parameters)
-        {
-            var paramType = FormatTypeReference(param.Type);
-            var paramLabel = FormatParameterLabel(param.Name, paramType, param.Modifier, param.DefaultValue != null);
-
-            paramInfos.Add(new ParameterInformation
-            {
-                Label = paramLabel
-            });
-        }
-
-        var returnType = funcDecl.ReturnType != null
-            ? FormatTypeReference(funcDecl.ReturnType)
-            : "void";
-        var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
-        var label = $"{funcDecl.Name}({paramList}): {returnType}";
-
-        return new SignatureInformation
-        {
-            Label = label,
-            Documentation = CreateDocumentationMarkup(documentation),
-            Parameters = new Container<ParameterInformation>(paramInfos)
-        };
-    }
-
-    /// <summary>
     /// Build a SignatureInformation from a SymbolInfo (for N# type members).
     /// </summary>
     private SignatureInformation BuildSignatureFromSymbolInfo(Models.SymbolInfo symbolInfo)
@@ -428,21 +380,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 Kind = MarkupKind.Markdown,
                 Value = documentation
             };
-    }
-
-    /// <summary>
-    /// Find top-level FunctionDeclaration nodes matching a given name in the compilation unit.
-    /// Does not search class/struct members (those are resolved via BuildNSharpMemberSignatures).
-    /// </summary>
-    private static IEnumerable<FunctionDeclaration> FindTopLevelFunctions(CompilationUnit unit, string name)
-    {
-        foreach (var decl in unit.Declarations)
-        {
-            if (decl is FunctionDeclaration func && func.Name == name)
-            {
-                yield return func;
-            }
-        }
     }
 
     /// <summary>
@@ -606,30 +543,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         return CountCommas(text) + 1;
-    }
-
-    /// <summary>
-    /// Format a parameter label with modifier prefix if applicable.
-    /// </summary>
-    private static string FormatParameterLabel(string name, string typeName, Compiler.Ast.ParameterModifier modifier, bool hasDefault)
-    {
-        var prefix = modifier switch
-        {
-            Compiler.Ast.ParameterModifier.Ref => "ref ",
-            Compiler.Ast.ParameterModifier.Out => "out ",
-            Compiler.Ast.ParameterModifier.Params => "params ",
-            _ => ""
-        };
-
-        return $"{prefix}{name}: {typeName}";
-    }
-
-    /// <summary>
-    /// Format an N# TypeReference for display using CodeIntelligenceService.
-    /// </summary>
-    private static string FormatTypeReference(TypeReference? typeRef)
-    {
-        return CodeIntelligenceService.FormatTypeReferencePublic(typeRef);
     }
 
 }
