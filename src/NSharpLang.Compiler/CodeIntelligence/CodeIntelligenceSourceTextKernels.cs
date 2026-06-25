@@ -41,23 +41,6 @@ internal static class CodeIntelligenceSourceTextKernels
         return cache.TryExtractDocComment(bindings, definitionLine, out documentation);
     }
 
-    internal static bool TryFindIdentifierNameColumn(
-        string? source,
-        string name,
-        int line,
-        int fallbackColumn,
-        out int column)
-    {
-        column = fallbackColumn;
-        if (source == null || string.IsNullOrWhiteSpace(name))
-            return false;
-
-        var bindings = s_bindings.Value;
-
-        var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
-        return cache.TryFindIdentifierNameColumn(bindings, name, line, fallbackColumn, out column);
-    }
-
     internal static bool TryExtractCompletionPrefix(
         ProjectSnapshot snapshot,
         string filePath,
@@ -162,7 +145,6 @@ internal static class CodeIntelligenceSourceTextKernels
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<BuildCodeIntelligenceLineRangesInto>(programType, "BuildCodeIntelligenceLineRangesInto"),
             DogfoodKernelLoader.CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
-            DogfoodKernelLoader.CreateDelegate<CodeIntelligenceIdentifierNameColumnsFromLinesInto>(programType, "CodeIntelligenceIdentifierNameColumnsFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceEditorIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceEditorIdentifierSpansFromLinesInto"),
             DogfoodKernelLoader.CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
@@ -200,16 +182,6 @@ internal static class CodeIntelligenceSourceTextKernels
         int[] queryColumns,
         int[] resultStarts,
         int[] resultLengths);
-
-    private delegate int CodeIntelligenceIdentifierNameColumnsFromLinesInto(
-        string source,
-        int[] lineStarts,
-        int[] lineLengths,
-        int lineCount,
-        int[] queryLines,
-        string[] declarationNames,
-        int[] fallbackColumns,
-        int[] resultColumns);
 
     private delegate int CodeIntelligenceCompletionPrefixesFromLinesInto(
         int[] lineStarts,
@@ -257,7 +229,6 @@ internal static class CodeIntelligenceSourceTextKernels
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
-        CodeIntelligenceIdentifierNameColumnsFromLinesInto IdentifierNameColumnsFromLines,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceEditorIdentifierSpansFromLinesInto EditorIdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
@@ -271,7 +242,6 @@ internal static class CodeIntelligenceSourceTextKernels
         private readonly object _gate = new();
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
-        private readonly string[] _queryNames = new string[1];
         private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
         private readonly int[] _resultLengths = new int[1];
@@ -286,7 +256,6 @@ internal static class CodeIntelligenceSourceTextKernels
             var capacity = source.Length + 1;
             _lineStarts = new int[capacity];
             _lineLengths = new int[capacity];
-            _queryNames[0] = string.Empty;
         }
 
         public bool TryExtractSourceLine(Bindings bindings, int line, out string? text)
@@ -311,45 +280,6 @@ internal static class CodeIntelligenceSourceTextKernels
 
                 text = _source.Substring(start, _resultLengths[0]);
                 return true;
-            }
-        }
-
-        public bool TryFindIdentifierNameColumn(
-            Bindings bindings,
-            string name,
-            int line,
-            int fallbackColumn,
-            out int column)
-        {
-            column = fallbackColumn;
-            lock (_gate)
-            {
-                EnsureLineRanges(bindings);
-
-                _queryLines[0] = line;
-                _queryNames[0] = name;
-                _queryColumns[0] = fallbackColumn;
-                _resultStarts[0] = fallbackColumn;
-
-                try
-                {
-                    bindings.IdentifierNameColumnsFromLines(
-                        _source,
-                        _lineStarts,
-                        _lineLengths,
-                        _lineCount,
-                        _queryLines,
-                        _queryNames,
-                        _queryColumns,
-                        _resultStarts);
-
-                    column = _resultStarts[0];
-                    return true;
-                }
-                finally
-                {
-                    _queryNames[0] = string.Empty;
-                }
             }
         }
 
