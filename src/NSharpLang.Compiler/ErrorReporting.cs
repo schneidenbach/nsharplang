@@ -758,8 +758,6 @@ public record ParseResult
     public Ast.CompilationUnit? CompilationUnit { get; init; }
     public List<CompilerError> Errors { get; init; } = new();
     public bool Success => CompilationUnit != null && !Errors.Any(e => e.Severity == ErrorSeverity.Error);
-    public bool HasWarnings => Errors.Any(e => e.Severity == ErrorSeverity.Warning);
-
 }
 
 /// <summary>
