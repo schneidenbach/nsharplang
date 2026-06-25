@@ -54,17 +54,8 @@ public static class NullabilityMetadata
         return $"{attributePrefix}{modifier}{type} {parameter.Name}";
     }
 
-    public static string FormatParameterType(ParameterInfo parameter)
-        => FormatTypeInfo(ConvertParameter(parameter));
-
     public static string FormatReturnType(MethodInfo method)
         => FormatTypeInfo(ConvertReturn(method));
-
-    public static string FormatPropertyType(PropertyInfo property)
-        => FormatTypeInfo(ConvertProperty(property));
-
-    public static string FormatFieldType(FieldInfo field)
-        => FormatTypeInfo(ConvertField(field));
 
     public static string FormatTypeInfo(TypeInfo typeInfo) => typeInfo switch
     {
