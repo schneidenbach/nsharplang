@@ -36,52 +36,6 @@ func test() {
     }
 
     [Fact]
-    public void AnalyzeFile_ReportsBothSyntaxAndSemanticErrors()
-    {
-        // File with a parse error in one function and a semantic error in another
-        var tempDir = CreateTempDir();
-        try
-        {
-            var filePath = Path.Combine(tempDir, "Mixed.nl");
-            File.WriteAllText(filePath, @"
-func broken() {
-    let x: int = @@
-}
-
-func semantic_error() {
-    Console.WriteLine(doesNotExist)
-}
-");
-            var service = new CodeIntelligenceService();
-            var snapshot = service.AnalyzeFile(filePath);
-
-            // Should have BOTH parse errors AND semantic errors
-            var parseErrors = snapshot.Errors.Where(e =>
-                e.Code == ErrorCode.InvalidSyntax || e.Code == ErrorCode.ExpectedToken ||
-                e.Code == ErrorCode.UnexpectedToken).ToList();
-            var semanticErrors = snapshot.Errors.Where(e =>
-                e.Code == ErrorCode.UndefinedVariable &&
-                e.Message.Contains("doesNotExist")).ToList();
-
-            Assert.True(snapshot.Errors.Count >= 2,
-                $"Expected at least 2 total errors (syntax + semantic), got {snapshot.Errors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-
-            // Lock in the headline behavior: BOTH syntax and semantic errors present
-            Assert.True(parseErrors.Count >= 1,
-                $"Expected at least 1 parse error, got {parseErrors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-            Assert.True(semanticErrors.Count >= 1,
-                $"Expected at least 1 semantic error, got {semanticErrors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void QueryDiagnostics_MalformedProject_ReturnsSyntaxAndSemanticDiagnosticsWithoutPlaceholderCascade()
     {
         var tempDir = CreateTempDir();

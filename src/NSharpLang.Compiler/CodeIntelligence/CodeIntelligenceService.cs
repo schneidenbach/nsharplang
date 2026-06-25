@@ -59,37 +59,6 @@ public class CodeIntelligenceService
         );
     }
 
-    /// <summary>
-    /// Analyze a single file (fast path for outline, single-file diagnostics).
-    /// Does not require project context.
-    /// </summary>
-    public SingleFileSnapshot AnalyzeFile(string filePath)
-    {
-        var source = File.ReadAllText(filePath);
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var parseResult = parser.ParseCompilationUnit();
-
-        var errors = new List<CompilerError>(parseResult.Errors);
-        SemanticModel? semanticModel = null;
-
-        // Run analysis even when there are parse errors, as long as we have an AST.
-        // This lets us report both syntax and semantic diagnostics in a single pass.
-        if (parseResult.CompilationUnit != null)
-        {
-            {
-                var analyzer = new Analyzer();
-                analyzer.LoadSystemAssemblies();
-                var analysisResult = analyzer.Analyze(parseResult.CompilationUnit, filePath, Path.GetDirectoryName(filePath), source);
-                semanticModel = analysisResult.SemanticModel;
-                errors.AddRange(analysisResult.Errors);
-            }
-        }
-
-        return new SingleFileSnapshot(filePath, source, parseResult.CompilationUnit, semanticModel, errors);
-    }
-
     // ── Symbol Queries ──────────────────────────────────────────────────
 
     /// <summary>
@@ -1945,27 +1914,5 @@ public class ProjectSnapshot
         SourceTexts = sourceTexts ?? new Dictionary<string, string>();
         PerformanceFacts = performanceFacts;
         SystemsReport = systemsReport ?? SystemsReport.Empty(null);
-    }
-}
-
-/// <summary>
-/// Snapshot of a single analyzed file (fast path).
-/// </summary>
-public class SingleFileSnapshot
-{
-    public string FilePath { get; }
-    public string Source { get; }
-    public CompilationUnit? CompilationUnit { get; }
-    public SemanticModel? SemanticModel { get; }
-    public IReadOnlyList<CompilerError> Errors { get; }
-
-    public SingleFileSnapshot(string filePath, string source, CompilationUnit? compilationUnit,
-        SemanticModel? semanticModel, IReadOnlyList<CompilerError> errors)
-    {
-        FilePath = filePath;
-        Source = source;
-        CompilationUnit = compilationUnit;
-        SemanticModel = semanticModel;
-        Errors = errors;
     }
 }
