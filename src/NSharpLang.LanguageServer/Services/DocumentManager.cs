@@ -28,7 +28,6 @@ public class DocumentManager
     private readonly object _analyzerLock = new();
     private readonly object _projectSnapshotLock = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
-    private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _diskProjectSnapshots = new();
     private readonly ConcurrentDictionary<string, byte> _editorOpenUris = new();
     private readonly ConcurrentDictionary<string, byte> _workspaceRoots = new();
 
@@ -438,21 +437,6 @@ public class DocumentManager
             || _workspaceRoots.Keys.Any(root => IsPathUnderProject(filePath, root));
     }
 
-    /// <summary>
-    /// Finds definition using the disk-based project snapshot, bypassing the sync check.
-    /// Used as a fallback when open buffers differ from disk but cross-file semantic
-    /// definition resolution is still desired.
-    /// </summary>
-    public DefinitionResult? FindProjectDefinitionFromDisk(string uri, int line0, int character0)
-    {
-        if (!TryGetProjectSnapshotFromDisk(uri, out var projectRoot, out var filePath, out var snapshot))
-        {
-            return null;
-        }
-
-        return _codeIntelligenceService.FindDefinition(snapshot, filePath, line0 + 1, character0 + 1);
-    }
-
     public string GetProjectRootForUri(string uri)
     {
         return ResolveSemanticProjectRoot(UriToFilePath(uri));
@@ -464,31 +448,6 @@ public class DocumentManager
     public string GetFilePathForUri(string uri)
     {
         return UriToFilePath(uri);
-    }
-
-    public bool HasUnsavedOpenBuffersInProject(string uri)
-    {
-        var projectRoot = ResolveSemanticProjectRoot(UriToFilePath(uri));
-        foreach (var openUri in _editorOpenUris.Keys)
-        {
-            if (!_documents.TryGetValue(openUri, out var document))
-            {
-                continue;
-            }
-
-            var documentPath = UriToFilePath(document.Uri);
-            if (!IsPathUnderProject(documentPath, projectRoot))
-            {
-                continue;
-            }
-
-            if (!IsDocumentSynchronizedWithDisk(document.Uri))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)
@@ -731,49 +690,6 @@ public class DocumentManager
                     ProjectSnapshotDegradedReason.LoadFailed,
                     null,
                     ex.Message), ex);
-                return false;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Loads a project snapshot from disk without requiring open buffers to match disk.
-    /// Uses a separate cache that is not invalidated by editor keystrokes.
-    /// </summary>
-    private bool TryGetProjectSnapshotFromDisk(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
-    {
-        filePath = UriToFilePath(uri);
-        projectRoot = ResolveSemanticProjectRoot(filePath);
-        snapshot = null!;
-
-        if (!File.Exists(filePath))
-        {
-            return false;
-        }
-
-        var stamp = ComputeProjectSnapshotStamp(projectRoot).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (stamp == "0")
-        {
-            return false;
-        }
-
-        lock (_projectSnapshotLock)
-        {
-            if (_diskProjectSnapshots.TryGetValue(projectRoot, out var cached) && cached.Stamp == stamp)
-            {
-                snapshot = cached.Snapshot;
-                return true;
-            }
-
-            try
-            {
-                snapshot = _codeIntelligenceService.LoadProject(projectRoot);
-                _diskProjectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, snapshot);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load disk-based project snapshot for {ProjectRoot}", projectRoot);
                 return false;
             }
         }

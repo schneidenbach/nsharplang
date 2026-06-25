@@ -53,29 +53,7 @@ public class DefinitionHandler : DefinitionHandlerBase
                 return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));
             }
 
-            // If the semantic snapshot exists but found nothing, that's authoritative.
-            if (_documentManager.HasSynchronizedProjectSnapshot(uri))
-            {
-                return Task.FromResult<LocationOrLocationLinks?>(null);
-            }
-
-            // Tier 2: Disk-based project snapshot, only when the semantic snapshot is degraded/unavailable
-            // and every open buffer in the project still matches disk. Never answer from stale disk
-            // semantics while any open project buffer has unsaved text.
-            if (_documentManager.HasUnsavedOpenBuffersInProject(uri))
-            {
-                projectDefinition = null;
-            }
-            else
-            {
-                projectDefinition = _documentManager.FindProjectDefinitionFromDisk(uri, request.Position.Line, request.Position.Character);
-            }
-            if (projectDefinition != null)
-            {
-                return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));
-            }
-
-                return Task.FromResult<LocationOrLocationLinks?>(null);
+            return Task.FromResult<LocationOrLocationLinks?>(null);
         }
         catch (Exception ex)
         {
