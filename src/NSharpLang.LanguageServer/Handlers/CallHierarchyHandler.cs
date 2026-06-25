@@ -503,19 +503,13 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
 
     /// <summary>
     /// Finds a FunctionDeclaration by name at a specific 1-based AST line.
-    /// Falls back to name-only match if no line match is found.
     /// </summary>
     private static FunctionDeclaration? FindFunctionDeclaration(
         List<Declaration> declarations,
         string name,
         int line1)
     {
-        // First try exact line match
-        var exact = FindFunctionByNameAndLine(declarations, name, line1);
-        if (exact != null) return exact;
-
-        // Fall back to first name match
-        return FindFunctionByName(declarations, name);
+        return FindFunctionByNameAndLine(declarations, name, line1);
     }
 
     private static FunctionDeclaration? FindFunctionByNameAndLine(List<Declaration> declarations, string name, int line1)
@@ -541,34 +535,6 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
             if (members != null)
             {
                 var nested = FindFunctionByNameAndLine(members, name, line1);
-                if (nested != null) return nested;
-            }
-        }
-
-        return null;
-    }
-
-    private static FunctionDeclaration? FindFunctionByName(List<Declaration> declarations, string name)
-    {
-        foreach (var decl in declarations)
-        {
-            if (decl is FunctionDeclaration func && string.Equals(func.Name, name, StringComparison.Ordinal))
-            {
-                return func;
-            }
-
-            var members = decl switch
-            {
-                ClassDeclaration c => c.Members,
-                StructDeclaration s => s.Members,
-                RecordDeclaration r => r.Members,
-                InterfaceDeclaration i => i.Members,
-                _ => null
-            };
-
-            if (members != null)
-            {
-                var nested = FindFunctionByName(members, name);
                 if (nested != null) return nested;
             }
         }
