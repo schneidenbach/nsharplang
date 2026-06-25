@@ -11,7 +11,6 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
-using LspTextEdit = OmniSharp.Extensions.LanguageServer.Protocol.Models.TextEdit;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -437,7 +436,6 @@ public class CompletionHandler : CompletionHandlerBase
                 Detail = isInScope ? type.FullName : $"{type.FullName} (auto-import {type.Namespace})",
                 InsertText = type.Name,
                 SortText = BuildSortText(isInScope ? SortExternalInScope : SortExternalImportable, type.Name, type.Namespace),
-                AdditionalTextEdits = isInScope ? null : BuildAutoImportEdits(doc, type.Namespace)
             };
 
             if (isInScope)
@@ -560,70 +558,11 @@ public class CompletionHandler : CompletionHandlerBase
         return compilationUnit?.Package?.Name ?? compilationUnit?.Namespace?.Name;
     }
 
-    private static TextEditContainer? BuildAutoImportEdits(Models.DocumentState? doc, string importNamespace)
-    {
-        if (doc == null || string.IsNullOrWhiteSpace(importNamespace))
-        {
-            return null;
-        }
-
-        // AST-based path: use CompilationUnit for accurate insertion
-        if (doc.CompilationUnit != null)
-        {
-            if (IsNamespaceAlreadyImported(doc.CompilationUnit, importNamespace))
-            {
-                return null;
-            }
-
-            var insertLine = GetNamespaceImportInsertionLine(doc.CompilationUnit);
-            var edit = new LspTextEdit
-            {
-                Range = new LspRange(insertLine - 1, 0, insertLine - 1, 0),
-                NewText = $"import {importNamespace}\n"
-            };
-
-            return new TextEditContainer(new[] { edit });
-        }
-
-        return null;
-    }
-
     private static bool IsNamespaceAlreadyImported(CompilationUnit compilationUnit, string importNamespace)
     {
         return compilationUnit.Imports.Any(import =>
             import.Alias == null &&
             string.Equals(import.Namespace, importNamespace, StringComparison.Ordinal));
-    }
-
-    private static int GetNamespaceImportInsertionLine(CompilationUnit compilationUnit)
-    {
-        var insertLine = 1;
-
-        if (compilationUnit.Package != null)
-        {
-            insertLine = Math.Max(insertLine, compilationUnit.Package.Line + 1);
-        }
-
-        if (compilationUnit.Namespace != null)
-        {
-            insertLine = Math.Max(insertLine, compilationUnit.Namespace.Line + 1);
-        }
-
-        if (compilationUnit.Imports.Count > 0)
-        {
-            insertLine = Math.Max(insertLine, compilationUnit.Imports[^1].Line + 1);
-        }
-
-        if (compilationUnit.FileImports.Count > 0)
-        {
-            insertLine = Math.Max(insertLine, compilationUnit.FileImports
-                .OfType<FileImport>()
-                .Select(fileImport => fileImport.Line)
-                .DefaultIfEmpty(insertLine)
-                .Max() + 1);
-        }
-
-        return insertLine;
     }
 
     private static bool TryExtractImportPrefix(string beforeCursor, out string importPrefix)
