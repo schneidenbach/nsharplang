@@ -110,14 +110,11 @@ public class CodeIntelligenceService
 
         if (kind != null)
         {
-            results = FilterSymbolsByKind(results, kind.Value);
+            results = CodeIntelligenceSymbolKernels.FilterSymbolsByKind(results, kind.Value);
         }
 
         return results;
     }
-
-    private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
-        => CodeIntelligenceSymbolKernels.FilterSymbolsByKind(symbols, kind);
 
     /// <summary>
     /// Get the structural outline of a single file.
@@ -422,7 +419,7 @@ public class CodeIntelligenceService
         var typeInfo = ResolveTypeInfoAtPosition(expr, candidateNames, semanticModel, snapshot, cu, out var resolvedName);
         if (typeInfo == null) return null;
 
-        var resolvedType = FormatTypeInfo(typeInfo);
+        var resolvedType = NullabilityMetadata.FormatTypeInfo(typeInfo);
         var kind = TypeInfoToKind(typeInfo);
         var definition = resolvedName != null ? FindDefinitionLocation(snapshot, resolvedName) : null;
         var displayName = resolvedName ?? name ?? GetTypeDisplayName(typeInfo, resolvedType);
@@ -557,7 +554,7 @@ public class CodeIntelligenceService
         var definedIn = definition?.File;
 
         // Build a human-readable signature
-        var signature = BuildSignature(name, kind, type?.ResolvedType);
+        var signature = CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, type?.ResolvedType);
 
         // Extract doc comment from the definition site
         var documentation = definedIn != null
@@ -565,11 +562,6 @@ public class CodeIntelligenceService
             : null;
 
         return new HoverResult(signature, documentation, definedIn, kind);
-    }
-
-    private static string BuildSignature(string name, string kind, string? typeName)
-    {
-        return CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, typeName);
     }
 
     private string? ExtractDocComment(ProjectSnapshot snapshot, string relativeFile, int definitionLine)
@@ -922,7 +914,7 @@ public class CodeIntelligenceService
             ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.StartColumn)
             : null;
 
-        var resolvedType = typeInfo != null ? FormatTypeInfo(typeInfo) : declaration.Name;
+        var resolvedType = typeInfo != null ? NullabilityMetadata.FormatTypeInfo(typeInfo) : declaration.Name;
         return new TypeResult(
             declaration.Name,
             resolvedType,
@@ -1622,7 +1614,7 @@ public class CodeIntelligenceService
             SoaRecordTypeInfo soa => soa.Declaration.Name,
             InterfaceTypeInfo i => i.Declaration.Name,
             EnumTypeInfo e => e.Declaration.Name,
-            UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),
+            UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
             UnionTypeInfo u => u.Declaration!.Name,
             ReflectionTypeInfo r => r.Type.Name,
             _ => fallback
@@ -1646,9 +1638,6 @@ public class CodeIntelligenceService
         FunctionTypeReference f => $"({string.Join(", ", f.ParameterTypes.Select(FormatTypeReference))}) -> {FormatTypeReference(f.ReturnType)}",
         _ => typeRef.ToString() ?? "unknown"
     };
-
-    private static string FormatTypeInfo(TypeInfo typeInfo)
-        => NullabilityMetadata.FormatTypeInfo(typeInfo);
 
     private static string GetNullabilityForExpression(SemanticModel? semanticModel, Expression? expression, TypeInfo typeInfo)
     {
