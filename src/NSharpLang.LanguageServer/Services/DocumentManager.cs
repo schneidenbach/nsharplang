@@ -218,29 +218,6 @@ public class DocumentManager
     /// </summary>
     public bool HasDocument(string uri) => _documents.ContainsKey(uri);
 
-    public bool IsDocumentSynchronizedWithDisk(string uri)
-    {
-        if (!_documents.TryGetValue(uri, out var document))
-        {
-            return true;
-        }
-
-        var filePath = UriToFilePath(uri);
-        if (!File.Exists(filePath))
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(document.Text, File.ReadAllText(filePath), StringComparison.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     public void UpdateDocument(string uri, string text, int version)
     {
         try
@@ -420,14 +397,6 @@ public class DocumentManager
     public string GetProjectRootForUri(string uri)
     {
         return ResolveSemanticProjectRoot(UriToFilePath(uri));
-    }
-
-    /// <summary>
-    /// Converts an LSP document URI into the filesystem path used by compiler services.
-    /// </summary>
-    public string GetFilePathForUri(string uri)
-    {
-        return UriToFilePath(uri);
     }
 
     public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)

@@ -503,12 +503,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
     }
 
-    private static bool NameMatchesPrefix(string name, string prefix)
-    {
-        return string.IsNullOrEmpty(prefix)
-            || name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string BuildSortText(string rank, string label, string qualifier)
     {
         return $"{rank}_{label.ToLowerInvariant()}_{qualifier.ToLowerInvariant()}";
@@ -637,22 +631,6 @@ public class CompletionHandler : CompletionHandlerBase
             TriggerCharacters = new Container<string>(".", ":", " ")
         };
     }
-
-    private CompletionItemKind GetCompletionItemKind(TypeInfo typeInfo)
-    {
-        return typeInfo switch
-        {
-            ClassTypeInfo => CompletionItemKind.Class,
-            StructTypeInfo => CompletionItemKind.Struct,
-            RecordTypeInfo => CompletionItemKind.Class,
-            InterfaceTypeInfo => CompletionItemKind.Interface,
-            EnumTypeInfo => CompletionItemKind.Enum,
-            UnionTypeInfo => CompletionItemKind.Class,
-            FunctionTypeInfo => CompletionItemKind.Function,
-            _ => CompletionItemKind.Variable
-        };
-    }
-
 
     private CompletionItemKind GetCompletionItemKindFromSymbol(LanguageServer.Models.SymbolKind kind)
     {

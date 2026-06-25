@@ -33,27 +33,11 @@ public class XmlDocReader
     }
 
     /// <summary>
-    /// Get documentation for a method
-    /// </summary>
-    public string? GetMethodDocumentation(MethodInfo method)
-    {
-        return GetMethodDocumentationInfo(method)?.Summary;
-    }
-
-    /// <summary>
     /// Get documentation for a method, including parameter documentation
     /// </summary>
     public XmlDocumentation? GetMethodDocumentationInfo(MethodInfo method)
     {
         return GetDocumentation(method.DeclaringType?.Assembly, BuildMethodDocId(method));
-    }
-
-    /// <summary>
-    /// Get documentation for a constructor, including parameter documentation
-    /// </summary>
-    public XmlDocumentation? GetConstructorDocumentationInfo(ConstructorInfo constructor)
-    {
-        return GetDocumentation(constructor.DeclaringType?.Assembly, BuildMethodDocId(constructor));
     }
 
     private string BuildMethodDocId(MethodBase method)
@@ -74,26 +58,6 @@ public class XmlDocReader
         }
 
         return $"M:{typePrefix}.{methodName}{paramString}";
-    }
-
-    /// <summary>
-    /// Get documentation for a property
-    /// </summary>
-    public string? GetPropertyDocumentation(PropertyInfo property)
-    {
-        var typePrefix = property.DeclaringType?.FullName?.Replace('+', '.');
-        var docId = $"P:{typePrefix}.{property.Name}";
-        return GetDocumentation(property.DeclaringType?.Assembly, docId)?.Summary;
-    }
-
-    /// <summary>
-    /// Get documentation for a field
-    /// </summary>
-    public string? GetFieldDocumentation(FieldInfo field)
-    {
-        var typePrefix = field.DeclaringType?.FullName?.Replace('+', '.');
-        var docId = $"F:{typePrefix}.{field.Name}";
-        return GetDocumentation(field.DeclaringType?.Assembly, docId)?.Summary;
     }
 
     /// <summary>
@@ -461,10 +425,4 @@ public sealed record XmlDocumentation(
 {
     public bool HasContent => !string.IsNullOrWhiteSpace(Summary) || Parameters.Count > 0;
 
-    public string? GetParameterDocumentation(string? parameterName)
-    {
-        return parameterName != null && Parameters.TryGetValue(parameterName, out var documentation)
-            ? documentation
-            : null;
-    }
 }

@@ -122,26 +122,6 @@ public class TypeResolver
     }
 
     /// <summary>
-    /// Load an assembly by name
-    /// </summary>
-    public void LoadAssembly(string assemblyName)
-    {
-        try
-        {
-            var assembly = Assembly.Load(assemblyName);
-            if (!_loadedAssemblies.Contains(assembly))
-            {
-                _loadedAssemblies.Add(assembly);
-                _logger.LogDebug("Loaded assembly: {AssemblyName}", assemblyName);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not load assembly: {AssemblyName}", assemblyName);
-        }
-    }
-
-    /// <summary>
     /// Try to resolve a type by name
     /// </summary>
     public Type? ResolveType(string typeName)
@@ -311,52 +291,6 @@ public class TypeResolver
     }
 
     /// <summary>
-    /// Get all public types in a namespace from loaded assemblies
-    /// </summary>
-    public List<(string Name, string FullName, bool IsStatic, bool IsInterface, bool IsEnum)> GetTypesInNamespace(string namespaceName)
-    {
-        EnsureAssembliesLoaded();
-
-        var results = new List<(string Name, string FullName, bool IsStatic, bool IsInterface, bool IsEnum)>();
-        var seen = new HashSet<string>();
-
-        foreach (var assembly in _loadedAssemblies)
-        {
-            try
-            {
-                var types = GetOrCacheExportedTypes(assembly);
-                if (types == null) continue;
-
-                foreach (var type in types)
-                {
-                    if (type.Namespace != namespaceName || !type.IsPublic || type.IsNested)
-                        continue;
-                    // Skip compiler-generated types
-                    if (type.Name.StartsWith("<") || type.Name.Contains("__"))
-                        continue;
-
-                    // Clean generic type names BEFORE dedup (Action`1, Action`2 → Action)
-                    var name = type.Name;
-                    var backtick = name.IndexOf('`');
-                    if (backtick >= 0)
-                        name = name.Substring(0, backtick);
-
-                    if (!seen.Add(name))
-                        continue;
-
-                    results.Add((name, type.FullName ?? name, type.IsAbstract && type.IsSealed, type.IsInterface, type.IsEnum));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error getting types from assembly {Assembly}", assembly.GetName().Name);
-            }
-        }
-
-        return results;
-    }
-
-    /// <summary>
     /// Get public CLR types that can be inserted with an import edit.
     /// Empty-prefix requests return a curated set so general completion stays useful
     /// without flooding the editor with framework types.
@@ -490,14 +424,6 @@ public class TypeResolver
         "Microsoft.Extensions.Logging",
         "Microsoft.AspNetCore.Mvc",
     };
-
-    public bool IsKnownNamespace(string name)
-    {
-        if (WellKnownNamespaces.Contains(name))
-            return true;
-
-        return GetKnownNamespaces().Contains(name);
-    }
 
     private HashSet<string> GetKnownNamespaces()
     {
@@ -633,62 +559,6 @@ public class TypeResolver
         };
     }
 
-    /// <summary>
-    /// Get all types from loaded assemblies (for import suggestions)
-    /// </summary>
-    public Dictionary<string, string> GetAllTypes()
-    {
-        EnsureAssembliesLoaded();
-
-        var types = new Dictionary<string, string>();
-
-        foreach (var assembly in _loadedAssemblies)
-        {
-            try
-            {
-                // CRITICAL FIX: Skip System.Private.CoreLib to avoid massive performance hit
-                var assemblyName = assembly.GetName().Name;
-                if (assemblyName == "System.Private.CoreLib")
-                {
-                    // Skip - too many types, causes hangs
-                    continue;
-                }
-
-                // Use cached exported types
-                if (!_exportedTypesCache.TryGetValue(assembly, out var exportedTypes))
-                {
-                    try
-                    {
-                        // Add a mark to prevent re-entry
-                        _exportedTypesCache[assembly] = Array.Empty<Type>();
-
-                        exportedTypes = assembly.GetExportedTypes();
-                        _exportedTypesCache[assembly] = exportedTypes;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Could not get exported types for {Assembly}", assemblyName);
-                        exportedTypes = Array.Empty<Type>();
-                    }
-                }
-
-                foreach (var type in exportedTypes)
-                {
-                    if (!types.ContainsKey(type.Name) && type.IsPublic)
-                    {
-                        types[type.Name] = type.Namespace ?? "";
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error enumerating types in {Assembly}",
-                    assembly.GetName().Name);
-            }
-        }
-
-        return types;
-    }
 }
 
 /// <summary>
