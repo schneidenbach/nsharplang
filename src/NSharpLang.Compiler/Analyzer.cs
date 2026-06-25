@@ -429,16 +429,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    /// <summary>
-    /// Records a reference assembly that failed to load or be inspected. Internal so tests
-    /// can exercise the NL923 surfacing contract without fabricating corrupt binaries.
-    /// </summary>
-    internal void RecordReferenceLoadFailure(string identity, Exception exception)
-    {
-        if (!_referenceLoadFailures.ContainsKey(identity))
-            _referenceLoadFailures[identity] = $"{exception.GetType().Name}: {exception.Message}";
-    }
-
     private void AnalyzeDeclaration(Declaration decl)
     {
         ValidateDeclarationAttributeArguments(decl);
