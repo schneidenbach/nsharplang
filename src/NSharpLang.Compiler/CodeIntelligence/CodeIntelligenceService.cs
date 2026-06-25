@@ -195,35 +195,6 @@ public class CodeIntelligenceService
         return DeduplicateDiagnostics(results);
     }
 
-    public static List<DiagnosticResult> GetLintDiagnostics(
-        string projectRoot,
-        IReadOnlyList<string> sourceFiles,
-        string? file = null)
-    {
-        var compilationUnits = new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase);
-        var sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var sourceFile in sourceFiles)
-        {
-            var fullPath = Path.GetFullPath(sourceFile);
-            string source;
-                source = File.ReadAllText(fullPath);
-
-            sourceTexts[fullPath] = source;
-
-                var lexer = new Lexer(source, fullPath);
-                var tokens = lexer.Tokenize();
-                var parser = new Parser(tokens, fullPath, source);
-                var parseResult = parser.ParseCompilationUnit();
-                if (parseResult.CompilationUnit != null && parseResult.Errors.Count == 0)
-                {
-                    compilationUnits[fullPath] = parseResult.CompilationUnit;
-                }
-        }
-
-        return GetLintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, file);
-    }
-
     private static List<string> GetCompilerShadowingErrorFiles(ProjectSnapshot snapshot)
     {
         var files = new List<string>();
