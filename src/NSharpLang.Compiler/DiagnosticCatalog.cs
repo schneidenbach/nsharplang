@@ -4,17 +4,6 @@ using System.Linq;
 
 namespace NSharpLang.Compiler;
 
-public sealed record DiagnosticDescriptor(
-    string Code,
-    string Title,
-    DiagnosticSource Source,
-    DiagnosticCategory Category,
-    DiagnosticSeverity DefaultSeverity,
-    bool BlocksBuildByDefault,
-    bool IsConfigurable = true,
-    string? DocsUrl = null,
-    string? Explanation = null);
-
 public static class DiagnosticCatalog
 {
     private static readonly Lazy<IReadOnlyDictionary<string, DiagnosticDescriptor>> DescriptorByCode =
