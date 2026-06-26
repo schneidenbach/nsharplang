@@ -266,17 +266,6 @@ public class Reference
 }
 
 /// <summary>
-/// Type of reference
-/// </summary>
-public enum ReferenceType
-{
-    NuGet,
-    Dll,
-    Project,
-    Framework
-}
-
-/// <summary>
 /// NuGet package metadata for 'nlc pack'
 /// </summary>
 public class PackageConfig
