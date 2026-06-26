@@ -252,37 +252,4 @@ internal static class CompilationReferenceResolverKernels
         CliLatestNuGetVersionIndex LatestNuGetVersionIndex,
         CliBestNuGetVersionIndex BestNuGetVersionIndex);
 
-    private sealed class ReferenceTypeFilterScratch
-    {
-        internal int[] TypeRanks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int referenceCount)
-        {
-            if (TypeRanks.Length != referenceCount)
-                TypeRanks = new int[referenceCount];
-
-            if (ResultIndices.Length != referenceCount)
-                ResultIndices = new int[referenceCount];
-        }
-    }
-
-    private sealed class SharedFrameworkCandidateScratch
-    {
-        internal int[] MajorVersions = Array.Empty<int>();
-        internal int[] MinorVersions = Array.Empty<int>();
-        internal int[] BuildVersions = Array.Empty<int>();
-        internal int[] RevisionVersions = Array.Empty<int>();
-
-        internal void EnsureCapacity(int candidateCount)
-        {
-            if (MajorVersions.Length >= candidateCount)
-                return;
-
-            MajorVersions = new int[candidateCount];
-            MinorVersions = new int[candidateCount];
-            BuildVersions = new int[candidateCount];
-            RevisionVersions = new int[candidateCount];
-        }
-    }
 }

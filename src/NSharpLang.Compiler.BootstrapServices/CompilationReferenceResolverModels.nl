@@ -63,6 +63,39 @@ public class ResolvedProjectReference {
     }
 }
 
+public class ReferenceTypeFilterScratch {
+    TypeRanks: int[] = new int[](0)
+    ResultIndices: int[] = new int[](0)
+
+    public func EnsureCapacity(referenceCount: int) {
+        if TypeRanks.Length != referenceCount {
+            TypeRanks = new int[](referenceCount)
+        }
+
+        if ResultIndices.Length != referenceCount {
+            ResultIndices = new int[](referenceCount)
+        }
+    }
+}
+
+public class SharedFrameworkCandidateScratch {
+    MajorVersions: int[] = new int[](0)
+    MinorVersions: int[] = new int[](0)
+    BuildVersions: int[] = new int[](0)
+    RevisionVersions: int[] = new int[](0)
+
+    public func EnsureCapacity(candidateCount: int) {
+        if MajorVersions.Length >= candidateCount {
+            return
+        }
+
+        MajorVersions = new int[](candidateCount)
+        MinorVersions = new int[](candidateCount)
+        BuildVersions = new int[](candidateCount)
+        RevisionVersions = new int[](candidateCount)
+    }
+}
+
 public class NuGetPackageAssets {
     CompileAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     RuntimeAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
