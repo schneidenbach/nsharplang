@@ -28,13 +28,6 @@ public record TupleDeconstructionStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
-public enum VariableKind
-{
-    Let,      // let or :=
-    Const,    // const
-    Readonly  // readonly
-}
-
 // Block statement
 public record BlockStatement(
     List<Statement> Statements,
