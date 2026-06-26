@@ -56,8 +56,6 @@ public record Parameter(
     bool IsScoped = false,
     string? Lifetime = null);
 
-public record TypeParameter(string Name);
-
 public record GenericConstraint(
     string TypeParameter,
     List<TypeReference> Constraints,
