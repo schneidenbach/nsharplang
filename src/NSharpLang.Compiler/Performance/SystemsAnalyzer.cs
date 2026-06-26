@@ -35,12 +35,6 @@ public sealed record SystemsReport(
         new SystemsReportSummary(0, 0, 0, 0, 0, 0, 0));
 }
 
-public sealed record SystemsAotReport(
-    string Target,
-    string Analysis,
-    bool NativeImageEmitted,
-    bool TrimSafe);
-
 public sealed record SystemsReportSummary(
     int Functions,
     int HotFunctions,
@@ -391,13 +385,6 @@ public sealed class SystemsAnalyzer
             summary.Calls.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToArray());
         if (_emittedFunctions.Add(function))
             _functions.Add(functionSummary);
-
-        performanceFacts?.Record(file, function.Line, function.Column, PerformanceFacts.Default with
-        {
-            Allocation = summary.Allocates ? AllocationKind.Unknown : AllocationKind.None,
-            Dispatch = summary.Dispatch ? DispatchKind.Virtual : DispatchKind.Direct,
-            AotSafety = facts.AotSafe ? AotSafetyKind.NoReflection : AotSafetyKind.MetadataRequired
-        });
 
         if (attributes.Has("trusted"))
         {
