@@ -287,31 +287,6 @@ internal static class DocQueryKernels
         DocQueryStripGenericArity DocQueryStripGenericArity,
         DocQueryTypeMatchScore DocQueryTypeMatchScore);
 
-    private sealed class DocQueryBestTypeScratch
-    {
-        public string[] FullNames = Array.Empty<string>();
-        public int[] NamespaceLengths = Array.Empty<int>();
-        public int[] Scores = Array.Empty<int>();
-
-        public void EnsureCapacity(int count)
-        {
-            if (Scores.Length < count)
-            {
-                Scores = new int[count];
-                NamespaceLengths = new int[count];
-                FullNames = new string[count];
-            }
-        }
-
-        public void ClearFullNames(int count)
-        {
-            if (count > 0)
-            {
-                Array.Clear(FullNames, 0, count);
-            }
-        }
-    }
-
     private sealed class DocQueryMemberOrderScratch
     {
         private readonly Dictionary<string, int> _nameRanks = new(StringComparer.OrdinalIgnoreCase);
