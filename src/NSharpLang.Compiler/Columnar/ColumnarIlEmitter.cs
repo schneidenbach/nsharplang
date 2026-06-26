@@ -360,69 +360,6 @@ internal sealed class ColumnarStructDef
     internal MethodBuilder? RecordClone { get; set; }
 }
 
-/// <summary>
-/// A user-defined union being emitted. <see cref="Base"/> is an ABSTRACT reference type (class) — the common base
-/// every case derives from, and the type a <c>match</c> scrutinee / a <c>Union</c>-typed param/return is statically
-/// seen as. <see cref="Cases"/> maps each case's QUALIFIED name ("Union.Case") to its
-/// <see cref="ColumnarUnionCaseDef"/>. Built in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>,
-/// </summary>
-internal sealed class ColumnarUnionDef
-{
-    internal ColumnarUnionDef(TypeBuilder baseBuilder, int typeParamCount = 0)
-    {
-        Base = baseBuilder;
-        TypeParamCount = typeParamCount;
-    }
-
-    internal TypeBuilder Base { get; }
-    // Qualified "Union.Case" -> case. Enumerated for match exhaustiveness; keyed for construction/pattern lookup.
-    internal Dictionary<string, ColumnarUnionCaseDef> Cases { get; } = new(StringComparer.Ordinal);
-    // Number of generic type parameters on the union (`union Result<T>` → 1); 0 for a non-generic union.
-    // A generic union's static surface is always a CLOSED instantiation (Result<int>) — the open base never
-    // types a value; closed work rebinds case members via TypeBuilder.GetConstructor/GetField (the cases
-    // REDECLARE the base's parameters positionally, so a closed BASE's arguments apply to its cases 1:1).
-    internal int TypeParamCount { get; }
-    // VALUE-STRUCT layout: a small, closed, payload-free, non-generic union emits as a readonly tag struct
-    // (mirroring the C# oracle's DeclareValueStructUnion) instead of a class hierarchy, so Base is the STRUCT and
-    // there is no abstract reference base. TagGetter is the public `get_Tag` used to read a scrutinee's
-    // discriminator during a match. Class-form unions leave IsValueStruct false / TagGetter null.
-    internal bool IsValueStruct { get; init; }
-    internal MethodInfo? TagGetter { get; init; }
-}
-
-/// <summary>
-/// One case of a <see cref="ColumnarUnionDef"/>: a SEALED reference type (class) deriving from the union base, with a
-/// public parameterless constructor (the <c>newobj</c> target for object-initializer construction) and a public
-/// field per declared case field. <see cref="UnionBase"/> is the enclosing union's base type — the STATIC type a
-/// constructed case is reported as (an upcast; the runtime object is the concrete case, recovered by a later match).
-/// </summary>
-internal sealed class ColumnarUnionCaseDef
-{
-    internal ColumnarUnionCaseDef(TypeBuilder caseType, ConstructorBuilder ctor, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, TypeBuilder unionBase)
-    {
-        CaseType = caseType;
-        Ctor = ctor;
-        FieldOrder = fieldOrder;
-        Fields = fields;
-        UnionBase = unionBase;
-    }
-
-    internal TypeBuilder CaseType { get; }
-    internal ConstructorBuilder Ctor { get; }
-    internal string[] FieldOrder { get; }
-    internal Dictionary<string, FieldBuilder> Fields { get; }
-    internal TypeBuilder UnionBase { get; }
-
-    // VALUE-STRUCT layout (see ColumnarUnionDef.IsValueStruct): the case is a payload-free tag of its union
-    // struct. Construction is `call ValueStructFactory` (the union's static `Create_<Case>` → `new U(tag)`, no
-    // allocation) and a bare `Union.Case` match tests `scrutinee.Tag == ValueStructTag`. CaseType is the nested
-    // marker type (reflection/tooling parity with the oracle, never instantiated). Class-form cases leave
-    // IsValueStruct false.
-    internal bool IsValueStruct { get; init; }
-    internal int ValueStructTag { get; init; }
-    internal MethodInfo? ValueStructFactory { get; init; }
-    internal MethodInfo? ValueStructTagGetter { get; init; }
-}
 
 /// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
