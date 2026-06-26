@@ -43,15 +43,6 @@ public record SymbolResult(
     ParameterResult[]? Parameters);
 
 /// <summary>
-/// A function/method parameter.
-/// </summary>
-public record ParameterResult(
-    string Name,
-    string Type,
-    bool HasDefault,
-    string? DefaultValue);
-
-/// <summary>
 /// Structural outline of a single file.
 /// </summary>
 public record OutlineResult(
