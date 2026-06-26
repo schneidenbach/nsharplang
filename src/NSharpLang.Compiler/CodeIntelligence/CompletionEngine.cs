@@ -8,26 +8,6 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler.CodeIntelligence;
 
 /// <summary>
-/// A single completion item with LLM-friendly metadata.
-/// </summary>
-public record CompletionItem(
-    string Name,
-    string Kind,        // "method", "property", "field", "variable", "function", "class", "keyword", etc.
-    string? Type,       // Return type or value type
-    string? Parameters, // For methods/functions: "(string value, int count)"
-    string? Documentation,
-    bool IsStatic);
-
-/// <summary>
-/// Result of a completion request, grouped by category for LLM consumption.
-/// </summary>
-public record CompletionResult(
-    CompletionContext Context,
-    string? Receiver,       // For member_access: "Console", "myVar"
-    string? ReceiverType,   // For member_access: "System.Console", "string"
-    Dictionary<string, List<CompletionItem>> Completions);  // Grouped: "methods", "properties", "variables", etc.
-
-/// <summary>
 /// Shared completion engine for both CLI and (eventually) LSP.
 /// Provides LLM-optimized completions grouped by category.
 /// </summary>
