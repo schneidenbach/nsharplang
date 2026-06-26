@@ -257,43 +257,6 @@ public record AttributeNode(
     int Line = 1,
     int Column = 1);
 
-// Source ranges use 1-based lines/columns and an exclusive end column.
-public readonly record struct SourceSpan(int StartLine, int StartColumn, int EndLine, int EndColumn)
-{
-    public static SourceSpan None => new(0, 0, 0, 0);
-
-    public bool IsValid => StartLine > 0 && StartColumn > 0 && EndLine > 0 && EndColumn > 0;
-
-    public int Length => IsValid && StartLine == EndLine
-        ? Math.Max(0, EndColumn - StartColumn)
-        : 0;
-
-    public bool Contains(int line, int column)
-    {
-        if (!IsValid)
-            return false;
-
-        if (line < StartLine || line > EndLine)
-            return false;
-
-        if (line == StartLine && column < StartColumn)
-            return false;
-
-        if (line == EndLine && column >= EndColumn)
-            return false;
-
-        return true;
-    }
-
-    public static SourceSpan FromStartAndLength(int line, int column, int length)
-    {
-        if (line <= 0 || column <= 0)
-            return None;
-
-        return new SourceSpan(line, column, line, column + Math.Max(1, length));
-    }
-}
-
 // Type references
 public abstract record TypeReference
 {
