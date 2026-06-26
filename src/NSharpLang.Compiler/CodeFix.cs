@@ -6,19 +6,6 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Represents a text edit to be applied to a document.
-/// Lines are 1-based. Columns are 0-based, end-exclusive UTF-16/code-unit offsets within the line.
-/// A whole-line deletion may use an end position of the next line at column 0, including one line
-/// past the final document line for deleting the last line.
-/// </summary>
-public record TextEdit(
-    int StartLine,
-    int StartColumn,
-    int EndLine,
-    int EndColumn,
-    string NewText);
-
-/// <summary>
 /// Indicates how safe a code action is to apply without human review
 /// </summary>
 public enum FixSafety
