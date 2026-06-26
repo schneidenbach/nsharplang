@@ -8,33 +8,6 @@ using System.Xml.Linq;
 namespace NSharpLang.Compiler.CodeIntelligence;
 
 /// <summary>
-/// Result of a documentation query.
-/// </summary>
-public record DocResult(
-    string Name,
-    string FullName,
-    string Kind,
-    string? Summary,
-    string? Namespace,
-    DocMemberResult[]? Members,
-    DocParameterResult[]? Parameters,
-    string? ReturnType,
-    string? ReturnDoc,
-    string[]? BaseTypes);
-
-public record DocMemberResult(
-    string Name,
-    string Kind,
-    string? Type,
-    string? Summary,
-    string? Parameters);
-
-public record DocParameterResult(
-    string Name,
-    string Type,
-    string? Summary);
-
-/// <summary>
 /// Queries .NET XML documentation for types and members.
 /// Standalone — no DI, no ILogger. Used by the CLI's `nlc query doc` command.
 ///
