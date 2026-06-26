@@ -16,18 +16,6 @@ public record CompilationUnit(
     int Line,
     int Column) : AstNode(Line, Column);
 
-// Package declaration
-public record PackageDeclaration(
-    string Name,
-    int Line,
-    int Column);
-
-// Namespace declaration
-public record NamespaceDeclaration(
-    string Name,
-    int Line,
-    int Column);
-
 // Function declaration
 public record FunctionDeclaration(
     string Name,
