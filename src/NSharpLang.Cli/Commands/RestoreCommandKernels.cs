@@ -219,42 +219,4 @@ internal static class RestoreCommandKernels
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# restore command kernels are unavailable.");
 
-    private sealed class ReferenceTypeFilterScratch
-    {
-        internal int[] TypeRanks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int referenceCount)
-        {
-            if (TypeRanks.Length != referenceCount)
-                TypeRanks = new int[referenceCount];
-
-            if (ResultIndices.Length != referenceCount)
-                ResultIndices = new int[referenceCount];
-        }
-    }
-
-    private sealed class StableDistinctScratch
-    {
-        internal readonly Dictionary<string, int> RanksByReference = new(StringComparer.OrdinalIgnoreCase);
-        internal int[] Ranks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SeenRanks = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (Ranks.Length != count)
-                Ranks = new int[count];
-
-            if (ResultIndices.Length != count)
-                ResultIndices = new int[count];
-        }
-
-        internal void EnsureRankCapacity(int uniqueRankCount)
-        {
-            var rankCapacity = uniqueRankCount + 1;
-            if (SeenRanks.Length != rankCapacity)
-                SeenRanks = new int[rankCapacity];
-        }
-    }
 }
