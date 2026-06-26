@@ -47,23 +47,6 @@ public sealed record SystemsFunctionSummary(
     SystemsEffectFacts Effects,
     IReadOnlyList<string> Calls);
 
-public sealed record SystemsEffectFacts(
-    bool Allocates,
-    bool Boxes,
-    bool ConstructsDelegate,
-    bool CapturesClosure,
-    bool UsesRuntimeDispatch,
-    bool UsesReflection,
-    bool UsesDynamicCode,
-    bool Throws,
-    bool HasImplicitTrapObligation,
-    bool UsesUnknownExternalCall,
-    bool UsesResource,
-    bool UsesPool,
-    bool UsesConcurrencyPrimitive,
-    bool RequiresWarmup,
-    bool AotSafe);
-
 public sealed record SystemsFinding(
     string Code,
     string Severity,
