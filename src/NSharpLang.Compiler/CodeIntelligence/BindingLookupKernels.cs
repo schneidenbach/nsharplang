@@ -105,24 +105,6 @@ internal static class BindingLookupKernels
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices);
 
-    private sealed class BindingCandidateColumnScratch
-    {
-        public int[] QueryColumns = new int[1];
-        public int[] ResultColumns = Array.Empty<int>();
-        public int[] ResultCounts = new int[1];
-        public int[] ResultStarts = new int[1];
-        public int[] SpanEndColumns = new int[1];
-        public int[] SpanStartColumns = new int[1];
-
-        public void EnsureCapacity(int resultCapacity)
-        {
-            if (ResultColumns.Length < resultCapacity)
-            {
-                ResultColumns = new int[resultCapacity];
-            }
-        }
-    }
-
     private sealed class BindingLookupCache
     {
         private readonly object _gate = new();
