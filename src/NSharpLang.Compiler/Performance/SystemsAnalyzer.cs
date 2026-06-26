@@ -35,15 +35,6 @@ public sealed record SystemsReport(
         new SystemsReportSummary(0, 0, 0, 0, 0, 0, 0));
 }
 
-public sealed record SystemsReportSummary(
-    int Functions,
-    int HotFunctions,
-    int BoundaryFunctions,
-    int Findings,
-    int Errors,
-    int Warnings,
-    int TrustedSites);
-
 public sealed record SystemsFunctionSummary(
     string Name,
     string File,
