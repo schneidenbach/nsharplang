@@ -844,35 +844,4 @@ internal static class ColumnarProgramInputBuilder
         ColumnarUnionIsValueStructEmittable UnionIsValueStructEmittable,
         ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
-    private sealed class ColumnarTokenizedSource
-    {
-        internal ColumnarTokenizedSource(
-            int[] rawKinds,
-            int[] rawStarts,
-            int[] rawValueLengths,
-            int rawCount,
-            int[] kinds,
-            int[] starts,
-            int[] valueLengths,
-            int count)
-        {
-            RawKinds = rawKinds;
-            RawStarts = rawStarts;
-            RawValueLengths = rawValueLengths;
-            RawCount = rawCount;
-            Kinds = kinds;
-            Starts = starts;
-            ValueLengths = valueLengths;
-            Count = count;
-        }
-
-        internal int[] RawKinds { get; }
-        internal int[] RawStarts { get; }
-        internal int[] RawValueLengths { get; }
-        internal int RawCount { get; }
-        internal int[] Kinds { get; }
-        internal int[] Starts { get; }
-        internal int[] ValueLengths { get; }
-        internal int Count { get; }
-    }
 }
