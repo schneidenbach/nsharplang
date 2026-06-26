@@ -228,26 +228,6 @@ public record HoverResult(
     string? DefinedIn,
     string Kind);
 
-// ── Call Graph ─────────────────────────────────────────────────────────
-
-/// <summary>
-/// A single call site edge: a callee name plus its source location.
-/// </summary>
-public record CallSiteResult(
-    string Name,
-    string? File,
-    int Line,
-    int Column);
-
-/// <summary>
-/// Call graph results for a function: all callers and callees found in the project.
-/// </summary>
-public record CallGraphResult(
-    string? Function,
-    List<CallSiteResult> Callers,
-    List<CallSiteResult> Callees,
-    bool Truncated);
-
 // ── Implementors ───────────────────────────────────────────────────────
 
 /// <summary>
