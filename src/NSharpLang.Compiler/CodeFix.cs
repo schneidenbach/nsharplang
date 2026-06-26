@@ -6,16 +6,6 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Represents a code action that can fix a diagnostic or perform a refactoring
-/// </summary>
-public record CodeAction(
-    string Title,
-    string DiagnosticCode,
-    List<TextEdit> Edits,
-    CodeActionKind Kind = CodeActionKind.QuickFix,
-    FixSafety Safety = FixSafety.Safe);
-
-/// <summary>
 /// Base class for code fix providers
 /// </summary>
 public abstract class CodeFixProvider
