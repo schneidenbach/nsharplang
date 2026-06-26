@@ -8,17 +8,6 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler.CodeIntelligence;
 
 /// <summary>
-/// Completion context types — what kind of completion is being requested.
-/// </summary>
-public enum CompletionContext
-{
-    MemberAccess,   // After a dot: Console.|
-    Identifier,     // Typing an identifier: Con|
-    Namespace,      // After a namespace dot: System.|
-    Unknown
-}
-
-/// <summary>
 /// A single completion item with LLM-friendly metadata.
 /// </summary>
 public record CompletionItem(
