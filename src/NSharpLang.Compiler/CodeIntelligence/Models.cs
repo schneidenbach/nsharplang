@@ -227,22 +227,3 @@ public record HoverResult(
     string? Documentation,
     string? DefinedIn,
     string Kind);
-
-// ── Implementors ───────────────────────────────────────────────────────
-
-/// <summary>
-/// A single concrete type that implements an interface.
-/// </summary>
-public record ImplementorResult(
-    string TypeName,
-    string Kind,
-    string? File,
-    int Line,
-    int Column);
-
-/// <summary>
-/// All concrete types that implement a given interface.
-/// </summary>
-public record ImplementorsResult(
-    string Interface,
-    List<ImplementorResult> Results);
