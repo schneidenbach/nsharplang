@@ -2447,10 +2447,4 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private sealed record Guard(GuardKind Kind, string Target, int Value = 0, string? Secondary = null)
-    {
-        public static Guard MinLength(string target, int value) => new(GuardKind.MinLength, target, value);
-        public static Guard IndexWithin(string target, string index) => new(GuardKind.IndexWithin, target, 0, index);
-        public static Guard NonZero(string target) => new(GuardKind.NonZero, target);
-    }
 }
