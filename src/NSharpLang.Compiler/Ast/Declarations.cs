@@ -250,30 +250,6 @@ public record PreprocessorDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
-// Modifiers
-[Flags]
-public enum Modifiers
-{
-    None = 0,
-    Public = 1 << 0,
-    Private = 1 << 1,
-    Internal = 1 << 2,
-    Protected = 1 << 3,
-    Static = 1 << 4,
-    Virtual = 1 << 5,
-    Abstract = 1 << 6,
-    Sealed = 1 << 7,
-    Partial = 1 << 8,
-    Readonly = 1 << 9,
-    Const = 1 << 10,
-    Async = 1 << 11,
-    Generator = 1 << 12, // For func* (yield)
-    Required = 1 << 13,  // C# 11 required properties
-    Init = 1 << 14,      // C# 9 init-only properties
-    File = 1 << 15,      // C# 11 file-scoped types
-    Override = 1 << 16,  // C# override methods
-}
-
 // Attributes
 public record AttributeNode(
     string Name,
