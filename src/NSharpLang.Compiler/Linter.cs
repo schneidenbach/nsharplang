@@ -8,22 +8,6 @@ using NSharpLang.Compiler.CodeIntelligence;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Location information for a diagnostic
-/// </summary>
-public record Location(int Line, int Column, string? FilePath = null);
-
-/// <summary>
-/// Represents a linter diagnostic (warning, error, or info)
-/// </summary>
-public record Diagnostic(
-    string Code,
-    string Message,
-    Location Location,
-    DiagnosticSeverity Severity,
-    string? Suggestion = null,
-    int Length = 1);
-
-/// <summary>
 /// Main linter class that analyzes code and returns diagnostics
 /// </summary>
 public class Linter
