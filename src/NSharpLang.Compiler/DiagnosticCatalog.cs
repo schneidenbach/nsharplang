@@ -4,29 +4,6 @@ using System.Linq;
 
 namespace NSharpLang.Compiler;
 
-public enum DiagnosticSource
-{
-    Compiler,
-    Linter
-}
-
-public enum DiagnosticCategory
-{
-    Syntax,
-    Type,
-    Semantic,
-    Function,
-    Pattern,
-    Operator,
-    Import,
-    TypeDeclaration,
-    Hygiene,
-    Nullability,
-    Style,
-    Performance,
-    Aot
-}
-
 public sealed record DiagnosticDescriptor(
     string Code,
     string Title,
