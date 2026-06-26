@@ -63,14 +63,6 @@ public record FunctionDeclaration(
     public string? ReturnLifetime { get; init; }
 };
 
-public enum ParameterModifier
-{
-    None,
-    Ref,
-    Out,
-    Params
-}
-
 public record Parameter(
     string Name,
     TypeReference Type,
@@ -201,12 +193,6 @@ public record EnumMember(
     Expression? Value,
     int Line = 0,
     int Column = 0);
-
-public enum EnumType
-{
-    Int,
-    String
-}
 
 // Field/Property declaration (auto-property)
 [Flags]
