@@ -96,24 +96,6 @@ public static class Preprocessor
         return result;
     }
 
-    /// <summary>
-    /// Tracks one <c>#if</c>/<c>#elif</c>/<c>#else</c>/<c>#endif</c> chain.
-    /// </summary>
-    private struct Frame
-    {
-        /// <summary>Whether the enclosing context was emitting when this chain opened.</summary>
-        public bool ParentActive;
-
-        /// <summary>Whether some branch in this chain has already matched.</summary>
-        public bool BranchTaken;
-
-        /// <summary>Whether the branch currently in scope emits its tokens.</summary>
-        public bool CurrentActive;
-
-        /// <summary>Whether an <c>#else</c> has been seen (no <c>#elif</c>/<c>#else</c> may follow).</summary>
-        public bool SeenElse;
-    }
-
     private static bool IsEmitting(Stack<Frame> stack)
         => stack.Count == 0 || stack.Peek().CurrentActive;
 
