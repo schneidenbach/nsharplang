@@ -16,13 +16,6 @@ public record CompilationUnit(
     int Line,
     int Column) : AstNode(Line, Column);
 
-// Import directive
-public record ImportDirective(
-    string Namespace,
-    string? Alias,
-    int Line,
-    int Column);
-
 // Package declaration
 public record PackageDeclaration(
     string Name,

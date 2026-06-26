@@ -2,9 +2,10 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler.Ast
 
 public class FormatterImportOrderer {
-    public static func OrderBySystemThenNamespace<T>(imports: IReadOnlyList<T>): List<T> {
+    public static func OrderBySystemThenNamespace(imports: List<ImportDirective>): List<ImportDirective> {
         count := imports.Count
         namespaces := new string[](count)
         resultIndices := new int[](count)
@@ -35,7 +36,7 @@ public class FormatterImportOrderer {
             i = i + 1
         }
 
-        result := new List<T>()
+        result := new List<ImportDirective>()
         i = 0
         while i < count {
             result.Add(imports[resultIndices[i]])
@@ -45,34 +46,8 @@ public class FormatterImportOrderer {
         return result
     }
 
-    static func FormatterImportNamespace(value: object): string {
-        property := value.GetType().GetProperty("Namespace")
-        if property != null {
-            name := FormatterImportNamespaceValue(property.GetValue(value))
-            if name.Length > 0 {
-                return name
-            }
-        }
-
-        field := value.GetType().GetField("Namespace")
-        if field == null {
-            return ""
-        }
-
-        return FormatterImportNamespaceValue(field.GetValue(value))
-    }
-
-    static func FormatterImportNamespaceValue(rawName: object): string {
-        if rawName == null {
-            return ""
-        }
-
-        name := rawName as string
-        if name == null {
-            return ""
-        }
-
-        return name
+    static func FormatterImportNamespace(value: ImportDirective): string {
+        return value.Namespace
     }
 
     static func FormatterImportNamespaceComesAfter(left: string, right: string): bool {

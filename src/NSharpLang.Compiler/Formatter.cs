@@ -6,21 +6,6 @@ using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
 
-/// <summary>
-/// Result of a safe formatting operation.
-/// </summary>
-public class FormatResult
-{
-    /// <summary>The formatted (or original, if formatting was unsafe) source text.</summary>
-    public required string Text { get; init; }
-
-    /// <summary>True if the formatter produced valid output and the result is formatted text.</summary>
-    public bool Success { get; init; }
-
-    /// <summary>Warning messages about formatting issues (e.g., reparse failures).</summary>
-    public List<string> Warnings { get; init; } = new();
-}
-
 public class Formatter
 {
     private int _indent = 0;
