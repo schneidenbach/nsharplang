@@ -3046,18 +3046,6 @@ public class Analyzer : IDisposable
     // switch) and treating loop bodies conservatively (they may run zero times).
     // The squiggle lands on the offending READ of the variable.
 
-    private sealed class DefiniteAssignmentState
-    {
-        // Locals declared without an initializer that must be definitely assigned before use.
-        public HashSet<string> Candidates { get; } = new(StringComparer.Ordinal);
-
-        // Currently-definitely-assigned locals on the path being analyzed.
-        public HashSet<string> Assigned { get; } = new(StringComparer.Ordinal);
-
-        // Reads already reported, keyed by name+position, to avoid duplicate squiggles.
-        public HashSet<(string Name, int Line, int Column)> Reported { get; } = new();
-    }
-
     /// <summary>
     /// Run definite-assignment analysis over a function/constructor body, reporting
     /// NL304 on reads of locals that are not definitely assigned on all paths.
