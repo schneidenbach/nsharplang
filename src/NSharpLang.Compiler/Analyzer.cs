@@ -492,20 +492,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private enum AttributeArgumentConstantKind
-    {
-        Null,
-        Bool,
-        Integer,
-        Floating,
-        Char,
-        String,
-        Type,
-        Enum,
-        Array,
-        UnknownStaticMember
-    }
-
     private sealed record AttributeArgumentValidationInfo(
         Argument Argument,
         string? Name,

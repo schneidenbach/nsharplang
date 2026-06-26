@@ -1,5 +1,18 @@
 namespace NSharpLang.Compiler
 
+public enum AttributeArgumentConstantKind {
+    Null,
+    Bool,
+    Integer,
+    Floating,
+    Char,
+    String,
+    Type,
+    Enum,
+    Array,
+    UnknownStaticMember
+}
+
 public class ErrorTupleResultGuard {
     ResultName: string
     ErrorName: string
