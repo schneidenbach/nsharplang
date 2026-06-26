@@ -163,25 +163,6 @@ internal sealed class ColumnarConstructorInput
     internal string[] ChainArgTexts { get; }
 }
 
-/// <summary>
-/// One top-level <c>enum</c> declaration's parsed members, as consumed by
-/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="MemberValues"/> are the resolved underlying
-/// ints (auto-incremented and/or explicit), positionally aligned with <see cref="MemberNames"/>. The parser kernel
-/// <c>ParseEnumDeclarationTextInfoInto</c> produces member names and values for the adapter.
-/// </summary>
-internal sealed class ColumnarEnumInput
-{
-    internal ColumnarEnumInput(string name, string[] memberNames, int[] memberValues)
-    {
-        Name = name;
-        MemberNames = memberNames;
-        MemberValues = memberValues;
-    }
-
-    internal string Name { get; }
-    internal string[] MemberNames { get; }
-    internal int[] MemberValues { get; }
-}
 
 /// <summary>
 /// A user-defined enum emitted by the columnar route: its finalized CLR <see cref="Type"/> plus its member-name →
@@ -299,38 +280,6 @@ internal sealed class ColumnarStructInput
     internal string[]? TypeParamNames { get; }
 }
 
-/// <summary>
-/// One top-level <c>union</c> declaration's parsed cases, as consumed by
-/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. Each case has a name and a (possibly empty) list of
-/// fields; <see cref="CaseFieldNames"/>[c] and <see cref="CaseFieldTypeCanonicals"/>[c] are positionally aligned
-/// for case <c>c</c>. The parser kernel <c>ParseUnionDeclarationInto</c> produces the per-case spans; the adapter
-/// materializes the names and type strings.
-/// </summary>
-internal sealed class ColumnarUnionInput
-{
-    internal ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null, bool isValueStruct = false)
-    {
-        Name = name;
-        CaseNames = caseNames;
-        CaseFieldNames = caseFieldNames;
-        CaseFieldTypeCanonicals = caseFieldTypeCanonicals;
-        TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
-        IsValueStruct = isValueStruct;
-    }
-
-    internal string Name { get; }
-    internal string[] CaseNames { get; }
-    internal string[][] CaseFieldNames { get; }
-    internal string[][] CaseFieldTypeCanonicals { get; }
-    // Generic type parameters declared on the union (`union Result<T>` → ["T"]); empty for a non-generic
-    // union. The base declares them; every nested case REDECLARES them (CLR metadata does not inherit
-    // generic parameters into nested types) and derives from the base closed over its own copies.
-    internal string[] TypeParamNames { get; }
-    // True when this union qualifies for the allocation-free value-struct (readonly tag struct) layout
-    // (UnionValueLayout.IsValueStructEmittable, decided by the N# ColumnarUnionIsValueStructEmittable kernel):
-    // small, closed, payload-free, non-generic. PASS 0 emits the tag struct for these instead of a class hierarchy.
-    internal bool IsValueStruct { get; }
-}
 
 /// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
