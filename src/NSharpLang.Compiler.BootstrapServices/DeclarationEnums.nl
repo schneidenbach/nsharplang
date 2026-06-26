@@ -18,3 +18,10 @@ public enum SpecialConstraintKind {
     Struct = 2,
     New = 4
 }
+
+public enum PropertyModifier {
+    None = 0,
+    Required = 1,
+    Init = 2,
+    Readonly = 4
+}
