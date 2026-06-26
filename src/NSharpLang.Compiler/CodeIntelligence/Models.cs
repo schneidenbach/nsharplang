@@ -91,11 +91,6 @@ public record DiagnosticResult(
     string? DocsUrl);
 
 /// <summary>
-/// Summary counts of diagnostics by severity.
-/// </summary>
-public record DiagnosticSummary(int Errors, int Warnings, int Info);
-
-/// <summary>
 /// Result of a type query at a position.
 /// </summary>
 public record TypeResult(
