@@ -3741,12 +3741,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private enum DiscardedExpressionContext
-    {
-        ExpressionStatement,
-        ForIterator
-    }
-
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
         => AnalyzeDiscardedExpression(
             exprStmt.Expression,

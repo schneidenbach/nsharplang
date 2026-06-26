@@ -13,6 +13,11 @@ public enum AttributeArgumentConstantKind {
     UnknownStaticMember
 }
 
+public enum DiscardedExpressionContext {
+    ExpressionStatement,
+    ForIterator
+}
+
 public class ErrorTupleResultGuard {
     ResultName: string
     ErrorName: string
