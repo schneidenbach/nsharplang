@@ -445,21 +445,6 @@ public class MultiFileCompiler
         return false;
     }
 
-    private sealed class ImportTraversalFrame(string sourceFile, IReadOnlyList<ImportEdge> edges)
-    {
-        public string SourceFile { get; } = sourceFile;
-        public IReadOnlyList<ImportEdge> Edges { get; } = edges;
-        public int NextEdgeIndex { get; set; }
-    }
-
-    private enum ImportVisitState
-    {
-        Visiting,
-        Visited,
-    }
-
-    private sealed record ImportEdge(string SourceFile, string TargetFile, string ImportPath, int Line, int Column, int Length);
-
     /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
