@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -158,22 +157,6 @@ public record InspectSummaryResult(
     InspectSummaryCompletionsResult Completions);
 
 /// <summary>
-/// Compact symbol summary for inspect summary mode.
-/// </summary>
-public record InspectSummarySymbolResult(
-    string Name,
-    string Kind);
-
-/// <summary>
-/// Compact type summary for inspect summary mode.
-/// </summary>
-public record InspectSummaryTypeResult(
-    string Name,
-    string ResolvedType,
-    string Kind,
-    string? Nullability = null);
-
-/// <summary>
 /// Compact reference sample for inspect summary mode.
 /// </summary>
 public record InspectReferenceSummaryResult(
@@ -190,26 +173,3 @@ public record InspectSummaryReferencesResult(
     int DefinitionCount,
     string[] Files,
     InspectReferenceSummaryResult[] Sample);
-
-/// <summary>
-/// Compact completion summary for inspect summary mode.
-/// </summary>
-public record InspectSummaryCompletionsResult(
-    string Context,
-    string? Receiver,
-    string? ReceiverType,
-    int TotalCount,
-    Dictionary<string, int> GroupCounts,
-    Dictionary<string, string[]> Groups);
-
-// ── Hover ──────────────────────────────────────────────────────────────
-
-/// <summary>
-/// Hover result: signature + docs + definition location for a symbol at a position.
-/// Shared by the CLI (nlc query hover) and the LSP HoverHandler.
-/// </summary>
-public record HoverResult(
-    string Signature,
-    string? Documentation,
-    string? DefinedIn,
-    string Kind);
