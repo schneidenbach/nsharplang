@@ -47,6 +47,22 @@ public class ReferenceResolutionResult {
     }
 }
 
+public class ResolutionContext {
+    PackageAssets: Dictionary<string, NuGetPackageAssets> = new Dictionary<string, NuGetPackageAssets>(StringComparer.OrdinalIgnoreCase)
+    ProjectOutputs: Dictionary<string, ResolvedProjectReference> = new Dictionary<string, ResolvedProjectReference>(StringComparer.OrdinalIgnoreCase)
+    ActiveProjectRoots: Stack<string> = new Stack<string>()
+}
+
+public class ResolvedProjectReference {
+    OutputAssemblyPath: string
+    References: ReferenceResolutionResult
+
+    constructor(OutputAssemblyPath: string, References: ReferenceResolutionResult) {
+        this.OutputAssemblyPath = OutputAssemblyPath
+        this.References = References
+    }
+}
+
 public class NuGetPackageAssets {
     CompileAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     RuntimeAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

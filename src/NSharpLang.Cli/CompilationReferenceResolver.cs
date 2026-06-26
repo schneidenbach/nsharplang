@@ -634,13 +634,4 @@ internal static class CompilationReferenceResolver
     private static Version? TryParseVersion(string? value)
         => Version.TryParse(value, out var version) ? version : null;
 
-    private sealed class ResolutionContext
-    {
-        public Dictionary<string, NuGetPackageAssets> PackageAssets { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public Dictionary<string, ResolvedProjectReference> ProjectOutputs { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public Stack<string> ActiveProjectRoots { get; } = new();
-    }
-
-    private sealed record ResolvedProjectReference(string OutputAssemblyPath, ReferenceResolutionResult References);
-
 }
