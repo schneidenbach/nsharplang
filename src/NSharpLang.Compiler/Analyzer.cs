@@ -23240,15 +23240,6 @@ public enum ScopeKind
     Block
 }
 
-public enum NullState
-{
-    Unknown,
-    Null,
-    MaybeNull,
-    NotNull,
-    Oblivious
-}
-
 internal sealed record ErrorTupleResultGuard(string ResultName, string ErrorName, int Line, int Column);
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
