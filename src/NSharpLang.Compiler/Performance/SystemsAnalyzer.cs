@@ -2447,13 +2447,6 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private enum GuardKind
-    {
-        MinLength,
-        IndexWithin,
-        NonZero
-    }
-
     private sealed record Guard(GuardKind Kind, string Target, int Value = 0, string? Secondary = null)
     {
         public static Guard MinLength(string target, int value) => new(GuardKind.MinLength, target, value);
