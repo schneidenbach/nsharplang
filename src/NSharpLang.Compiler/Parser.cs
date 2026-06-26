@@ -16,8 +16,6 @@ public class Parser
     private bool _panicMode;
     private int? _currentRecoveryBoundaryColumn;
 
-    private readonly record struct DiagnosticSpan(int Line, int Column, int Length);
-
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
         _tokens = ParserTokenCompactor.TryCompact(tokens, out var compactedTokens)
