@@ -2368,16 +2368,6 @@ public sealed class SystemsAnalyzer
 
     private sealed record CallSite(FunctionEntry Callee, int Line, int Column, int Length);
 
-    private sealed record PoolRent(string VariableName, int Line, int Column)
-    {
-        public bool Returned { get; set; }
-    }
-
-    private sealed record ResourceLocal(string VariableName, string Kind, int Line, int Column)
-    {
-        public bool Disposed { get; set; }
-    }
-
     private sealed class WalkContext
     {
         private readonly Stack<HashSet<string>> _allowStack = new();
