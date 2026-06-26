@@ -19,47 +19,6 @@ internal sealed record ReferenceResolutionOptions(
     bool Quiet = false,
     bool AotMode = false);
 
-internal sealed class ReferenceResolutionResult
-{
-    private readonly HashSet<string> _runtimeAssets = new(StringComparer.OrdinalIgnoreCase);
-
-    public IReadOnlyList<string> RuntimeAssets => _runtimeAssets
-        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-        .ToArray();
-
-    public void AddRuntimeAsset(string path)
-    {
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-        {
-            _runtimeAssets.Add(Path.GetFullPath(path));
-        }
-    }
-
-    public void Add(ReferenceResolutionResult other)
-    {
-        foreach (var asset in other.RuntimeAssets)
-        {
-            AddRuntimeAsset(asset);
-        }
-    }
-
-    public void CopyRuntimeAssets(string outputDirectory)
-    {
-        Directory.CreateDirectory(outputDirectory);
-
-        foreach (var asset in RuntimeAssets)
-        {
-            var destination = Path.Combine(outputDirectory, Path.GetFileName(asset));
-            if (string.Equals(Path.GetFullPath(asset), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            File.Copy(asset, destination, overwrite: true);
-        }
-    }
-}
-
 internal static class CompilationReferenceResolver
 {
     private static readonly HttpClient HttpClient = new()
