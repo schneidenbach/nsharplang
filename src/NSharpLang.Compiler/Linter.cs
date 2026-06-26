@@ -8,16 +8,6 @@ using NSharpLang.Compiler.CodeIntelligence;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Diagnostic severity levels
-/// </summary>
-public enum DiagnosticSeverity
-{
-    Warning,
-    Error,
-    Info
-}
-
-/// <summary>
 /// Location information for a diagnostic
 /// </summary>
 public record Location(int Line, int Column, string? FilePath = null);
