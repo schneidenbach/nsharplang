@@ -2,6 +2,9 @@ namespace NSharpLang.Compiler.Performance
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Text.Json
+import NSharpLang.Compiler
 
 public class HotSummaryDocument {
     schemaVersionValue: int = 1
@@ -379,7 +382,7 @@ public class HotSummaryEffects {
 }
 
 public class BclHotSummaryPack {
-    public static func Create(targetFramework: string): IReadOnlyList<HotSummaryEntry> {
+    public static func Create(targetFramework: string): List<HotSummaryEntry> {
         entries := new List<HotSummaryEntry>()
 
         Add(entries, targetFramework, "BinaryPrimitives.*")
@@ -474,5 +477,348 @@ public class BclHotSummaryPack {
         }
         entry.BodyIdentity = "nsharp-bcl-pack-v1"
         entries.Add(entry)
+    }
+}
+
+public class HotSummaryCatalog {
+    entriesValue: List<HotSummaryEntry>
+
+    constructor(entries: List<HotSummaryEntry>) {
+        entriesValue = entries
+    }
+
+    public static func Load(projectRoot: string, config: ProjectConfig): HotSummaryCatalog {
+        entries := new List<HotSummaryEntry>()
+        bclEntries := BclHotSummaryPack.Create(config.TargetFramework)
+        i := 0
+        while i < bclEntries.Count {
+            entries.Add(bclEntries[i])
+            i = i + 1
+        }
+
+        sidecars := config.Language.Systems.HotSummaryFiles
+        sidecarIndex := 0
+        while sidecarIndex < sidecars.Count {
+            sidecar := sidecars[sidecarIndex]
+            path := sidecar
+            if !Path.IsPathRooted(sidecar) {
+                path = Path.Combine(projectRoot, sidecar)
+            }
+
+            if File.Exists(path) {
+                document := JsonDocument.Parse(File.ReadAllText(path))
+                AddSidecarEntries(entries, document.RootElement, config.TargetFramework)
+                document.Dispose()
+            }
+
+            sidecarIndex = sidecarIndex + 1
+        }
+
+        return new HotSummaryCatalog(entries)
+    }
+
+    public func TryResolve(target: string, targetFramework: string, out entry: HotSummaryEntry): bool {
+        i := 0
+        while i < entriesValue.Count {
+            candidate := entriesValue[i]
+            if TargetFrameworkMatches(candidate.TargetFramework, targetFramework) {
+                if MethodMatches(candidate.Method, target) {
+                    entry = candidate
+                    return true
+                }
+            }
+
+            i = i + 1
+        }
+
+        entry = HotSummaryEntry.None
+        return false
+    }
+
+    public func HasReceiverSummary(receiver: string, targetFramework: string): bool {
+        i := 0
+        while i < entriesValue.Count {
+            entry := entriesValue[i]
+            if TargetFrameworkMatches(entry.TargetFramework, targetFramework) {
+                method := entry.Method
+                if method.StartsWith(receiver + ".", StringComparison.Ordinal) {
+                    return true
+                }
+
+                if method.StartsWith("System." + receiver + ".", StringComparison.Ordinal) {
+                    return true
+                }
+
+                if method.StartsWith(receiver + "*", StringComparison.Ordinal) {
+                    return true
+                }
+            }
+
+            i = i + 1
+        }
+
+        return false
+    }
+
+    static func AddSidecarEntries(entries: List<HotSummaryEntry>, root: JsonElement, targetFramework: string) {
+        if root.ValueKind != JsonValueKind.Object {
+            return
+        }
+
+        documentSchemaVersion := ReadIntProperty(root, "schemaVersion", 1)
+        entriesElement := new JsonElement()
+        if !TryGetJsonProperty(root, "entries", out entriesElement) {
+            return
+        }
+
+        if entriesElement.ValueKind != JsonValueKind.Array {
+            return
+        }
+
+        entryEnumerator := entriesElement.EnumerateArray()
+        while entryEnumerator.MoveNext() {
+            entryElement := entryEnumerator.Current
+            if entryElement.ValueKind != JsonValueKind.Object {
+                continue
+            }
+
+            entry := ParseHotSummaryEntry(entryElement)
+            if entry.SchemaVersion == 0 {
+                if documentSchemaVersion == 0 {
+                    entry.SchemaVersion = 1
+                } else {
+                    entry.SchemaVersion = documentSchemaVersion
+                }
+            }
+
+            if string.IsNullOrWhiteSpace(entry.Source) {
+                entry.Source = HotSummarySource.Sidecar
+            }
+
+            if string.IsNullOrWhiteSpace(entry.TargetFramework) {
+                entry.TargetFramework = targetFramework
+            }
+
+            entries.Add(entry)
+        }
+    }
+
+    static func ParseHotSummaryEntry(element: JsonElement): HotSummaryEntry {
+        entry := new HotSummaryEntry()
+        entry.SchemaVersion = ReadIntProperty(element, "schemaVersion", entry.SchemaVersion)
+        entry.AssemblyIdentity = ReadStringProperty(element, "assemblyIdentity", entry.AssemblyIdentity)
+        entry.PublicKeyToken = ReadNullableStringProperty(element, "publicKeyToken", entry.PublicKeyToken)
+        entry.PackageId = ReadNullableStringProperty(element, "packageId", entry.PackageId)
+        entry.PackageVersion = ReadNullableStringProperty(element, "packageVersion", entry.PackageVersion)
+        entry.TargetFramework = ReadStringProperty(element, "targetFramework", entry.TargetFramework)
+        entry.RuntimeIdentifier = ReadNullableStringProperty(element, "runtimeIdentifier", entry.RuntimeIdentifier)
+        entry.Method = ReadStringProperty(element, "method", entry.Method)
+        entry.GenericArity = ReadIntProperty(element, "genericArity", entry.GenericArity)
+        entry.BodyIdentity = ReadNullableStringProperty(element, "bodyIdentity", entry.BodyIdentity)
+        entry.Source = ReadStringProperty(element, "source", entry.Source)
+        entry.GenericConditions = ReadStringListProperty(element, "genericConditions")
+        entry.Preconditions = ReadStringListProperty(element, "preconditions")
+        entry.HotReadinessRequirements = ReadStringListProperty(element, "hotReadinessRequirements")
+
+        effectsElement := new JsonElement()
+        if TryGetJsonProperty(element, "effects", out effectsElement) {
+            if effectsElement.ValueKind == JsonValueKind.Object {
+                entry.Effects = ParseHotSummaryEffects(effectsElement)
+            }
+        }
+
+        return entry
+    }
+
+    static func ParseHotSummaryEffects(element: JsonElement): HotSummaryEffects {
+        effects := new HotSummaryEffects()
+        effects.Allocates = ReadBoolProperty(element, "allocates", effects.Allocates)
+        effects.Boxes = ReadBoolProperty(element, "boxes", effects.Boxes)
+        effects.ConstructsDelegate = ReadBoolProperty(element, "constructsDelegate", effects.ConstructsDelegate)
+        effects.CapturesClosure = ReadBoolProperty(element, "capturesClosure", effects.CapturesClosure)
+        effects.UsesRuntimeDispatch = ReadBoolProperty(element, "usesRuntimeDispatch", effects.UsesRuntimeDispatch)
+        effects.UsesReflection = ReadBoolProperty(element, "usesReflection", effects.UsesReflection)
+        effects.UsesDynamicCode = ReadBoolProperty(element, "usesDynamicCode", effects.UsesDynamicCode)
+        effects.Throws = ReadBoolProperty(element, "throws", effects.Throws)
+        effects.HasImplicitTrapObligation = ReadBoolProperty(element, "hasImplicitTrapObligation", effects.HasImplicitTrapObligation)
+        effects.UsesUnknownExternalCall = ReadBoolProperty(element, "usesUnknownExternalCall", effects.UsesUnknownExternalCall)
+        effects.UsesResource = ReadBoolProperty(element, "usesResource", effects.UsesResource)
+        effects.UsesPool = ReadBoolProperty(element, "usesPool", effects.UsesPool)
+        effects.UsesConcurrencyPrimitive = ReadBoolProperty(element, "usesConcurrencyPrimitive", effects.UsesConcurrencyPrimitive)
+        effects.RequiresWarmup = ReadBoolProperty(element, "requiresWarmup", effects.RequiresWarmup)
+        effects.AotSafe = ReadBoolProperty(element, "aotSafe", effects.AotSafe)
+        effects.TrimSafe = ReadBoolProperty(element, "trimSafe", effects.TrimSafe)
+        effects.AotSafeTargets = ReadStringListProperty(element, "aotSafeTargets")
+        return effects
+    }
+
+    static func TryGetJsonProperty(element: JsonElement, name: string, out value: JsonElement): bool {
+        value = new JsonElement()
+        if element.ValueKind != JsonValueKind.Object {
+            return false
+        }
+
+        if element.TryGetProperty(name, out value) {
+            return true
+        }
+
+        objectEnumerator := element.EnumerateObject()
+        while objectEnumerator.MoveNext() {
+            property := objectEnumerator.Current
+            if string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase) {
+                value = property.Value
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func ReadIntProperty(element: JsonElement, name: string, fallback: int): int {
+        property := new JsonElement()
+        if !TryGetJsonProperty(element, name, out property) {
+            return fallback
+        }
+
+        if property.ValueKind != JsonValueKind.Number {
+            return fallback
+        }
+
+        return property.GetInt32()
+    }
+
+    static func ReadStringProperty(element: JsonElement, name: string, fallback: string): string {
+        value := ReadNullableStringProperty(element, name, fallback)
+        return value ?? fallback
+    }
+
+    static func ReadNullableStringProperty(element: JsonElement, name: string, fallback: string?): string? {
+        property := new JsonElement()
+        if !TryGetJsonProperty(element, name, out property) {
+            return fallback
+        }
+
+        if property.ValueKind == JsonValueKind.Null {
+            return null
+        }
+
+        if property.ValueKind != JsonValueKind.String {
+            return fallback
+        }
+
+        return property.GetString()
+    }
+
+    static func ReadBoolProperty(element: JsonElement, name: string, fallback: bool): bool {
+        property := new JsonElement()
+        if !TryGetJsonProperty(element, name, out property) {
+            return fallback
+        }
+
+        if property.ValueKind == JsonValueKind.True {
+            return true
+        }
+
+        if property.ValueKind == JsonValueKind.False {
+            return false
+        }
+
+        return fallback
+    }
+
+    static func ReadStringListProperty(element: JsonElement, name: string): List<string> {
+        result := new List<string>()
+        property := new JsonElement()
+        if !TryGetJsonProperty(element, name, out property) {
+            return result
+        }
+
+        if property.ValueKind != JsonValueKind.Array {
+            return result
+        }
+
+        arrayEnumerator := property.EnumerateArray()
+        while arrayEnumerator.MoveNext() {
+            item := arrayEnumerator.Current
+            if item.ValueKind == JsonValueKind.String {
+                value := item.GetString()
+                if value != null {
+                    result.Add(value)
+                }
+            }
+        }
+
+        return result
+    }
+
+    static func TargetFrameworkMatches(summaryTfm: string?, targetFramework: string): bool {
+        summary := summaryTfm ?? ""
+        if string.IsNullOrWhiteSpace(summary) {
+            return true
+        }
+
+        if string.Equals(summary, targetFramework, StringComparison.OrdinalIgnoreCase) {
+            return true
+        }
+
+        return string.Equals(summary, "*", StringComparison.Ordinal)
+    }
+
+    static func MethodMatches(pattern: string, target: string): bool {
+        if string.IsNullOrWhiteSpace(pattern) {
+            return false
+        }
+
+        if pattern.IndexOf('*') >= 0 && !pattern.EndsWith(".*", StringComparison.Ordinal) {
+            if GlobMatches(pattern, target) {
+                return true
+            }
+
+            return GlobMatches(pattern, "System." + target)
+        }
+
+        if pattern.EndsWith(".*", StringComparison.Ordinal) {
+            prefix := pattern.Substring(0, pattern.Length - 1)
+            if target.StartsWith(prefix, StringComparison.Ordinal) {
+                return true
+            }
+
+            return target.EndsWith("." + prefix, StringComparison.Ordinal)
+        }
+
+        if string.Equals(pattern, target, StringComparison.Ordinal) {
+            return true
+        }
+
+        return target.EndsWith("." + pattern, StringComparison.Ordinal)
+    }
+
+    static func GlobMatches(pattern: string, target: string): bool {
+        parts := pattern.Split('*')
+        position := 0
+        i := 0
+        while i < parts.Length {
+            part := parts[i]
+            if part.Length != 0 {
+                found := target.IndexOf(part, position, StringComparison.Ordinal)
+                if found < 0 {
+                    return false
+                }
+
+                if position == 0 && !pattern.StartsWith("*", StringComparison.Ordinal) && found != 0 {
+                    return false
+                }
+
+                position = found + part.Length
+            }
+
+            i = i + 1
+        }
+
+        if pattern.EndsWith("*", StringComparison.Ordinal) {
+            return true
+        }
+
+        return position == target.Length
     }
 }
