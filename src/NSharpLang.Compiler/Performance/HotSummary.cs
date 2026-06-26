@@ -190,15 +190,6 @@ public sealed class HotSummaryEffects
     public List<string> AotSafeTargets { get; set; } = new();
 }
 
-public static class HotSummarySource
-{
-    public const string Compiler = "compiler";
-    public const string BclPack = "bclPack";
-    public const string SourceInferred = "sourceInferred";
-    public const string Sidecar = "sidecar";
-    public const string TrustedMemoryOnly = "trustedMemoryOnly";
-}
-
 internal static class BclHotSummaryPack
 {
     public static IReadOnlyList<HotSummaryEntry> Create(string targetFramework)
