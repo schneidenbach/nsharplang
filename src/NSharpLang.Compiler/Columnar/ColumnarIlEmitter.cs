@@ -169,18 +169,6 @@ internal sealed class ColumnarConstructorInput
 /// constant-int map. Enums have no user-type dependencies, so they are baked before function signatures and can
 /// safely close generic runtime types such as <c>List&lt;Color&gt;</c>.
 /// </summary>
-internal sealed class ColumnarEnumDef
-{
-    internal ColumnarEnumDef(Type enumType, Dictionary<string, int> constants)
-    {
-        EnumType = enumType;
-        Constants = constants;
-    }
-
-    internal Type EnumType { get; }
-    internal Dictionary<string, int> Constants { get; }
-}
-
 /// <summary>
 /// One top-level fields-only <c>struct</c> declaration's parsed fields, as consumed by
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="FieldTypeCanonicals"/> are the canonical type
