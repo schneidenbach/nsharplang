@@ -74,3 +74,118 @@ public class SourceFileDeduplicator {
         return false
     }
 }
+
+public class AssemblyVersionKernels {
+    public static func TryParseComponent(component: string, out value: int): bool {
+        value = 0
+        if component.Length == 0 {
+            return false
+        }
+
+        parsed := 0
+        index := 0
+        while index < component.Length {
+            ch := component[index]
+            if ch < '0' || ch > '9' {
+                return false
+            }
+
+            digit := ch - '0'
+            if parsed > 214748364 {
+                return false
+            }
+
+            if parsed == 214748364 {
+                if digit > 7 {
+                    return false
+                }
+            }
+
+            parsed = parsed * 10 + digit
+            index = index + 1
+        }
+
+        value = parsed
+        return true
+    }
+}
+
+public class FormatterConfigKernels {
+    public static func ParseInt(value: string): int? {
+        start := 0
+        end := value.Length
+        while start < end {
+            if !IsWhiteSpace(value[start]) {
+                break
+            }
+
+            start = start + 1
+        }
+
+        while end > start {
+            if !IsWhiteSpace(value[end - 1]) {
+                break
+            }
+
+            end = end - 1
+        }
+
+        if start >= end {
+            return null
+        }
+
+        negative := false
+        if value[start] == '+' || value[start] == '-' {
+            negative = value[start] == '-'
+            start = start + 1
+            if start >= end {
+                return null
+            }
+        }
+
+        parsed := 0
+        index := start
+        while index < end {
+            ch := value[index]
+            if ch < '0' || ch > '9' {
+                return null
+            }
+
+            digit := ch - '0'
+            if parsed > 214748364 {
+                return null
+            }
+
+            if parsed == 214748364 {
+                if negative {
+                    if digit == 8 && index == end - 1 {
+                        return 0 - 2147483647 - 1
+                    }
+
+                    return null
+                }
+
+                if digit > 7 {
+                    return null
+                }
+            }
+
+            parsed = parsed * 10 + digit
+            index = index + 1
+        }
+
+        if negative {
+            return 0 - parsed
+        }
+
+        return parsed
+    }
+
+    static func IsWhiteSpace(ch: char): bool {
+        if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' {
+            return true
+        }
+
+        return char.IsWhiteSpace(ch)
+    }
+}
