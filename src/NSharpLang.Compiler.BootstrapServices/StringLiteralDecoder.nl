@@ -1,0 +1,106 @@
+namespace NSharpLang.Compiler
+
+public class StringLiteralDecoder {
+    public static func Decode(tokenText: string): string {
+        start := 0
+        if tokenText.Length > 0 && tokenText[0] == '"' {
+            start = 1
+        }
+
+        end := tokenText.Length
+        if tokenText.Length > start && tokenText[tokenText.Length - 1] == '"' {
+            end = tokenText.Length - 1
+        }
+
+        return DecodeBody(tokenText.Substring(start, end - start))
+    }
+
+    public static func DecodeBody(body: string): string {
+        if body.IndexOf('\\') < 0 {
+            return body
+        }
+
+        result := ""
+        i := 0
+        while i < body.Length {
+            ch := body[i]
+            if ch != '\\' || i + 1 >= body.Length {
+                result = result + body.Substring(i, 1)
+                i = i + 1
+                continue
+            }
+
+            next := body[i + 1]
+            if next == '\'' {
+                result = result + '\''
+                i = i + 2
+                continue
+            }
+
+            if next == '"' {
+                result = result + '"'
+                i = i + 2
+                continue
+            }
+
+            if next == '\\' {
+                result = result + '\\'
+                i = i + 2
+                continue
+            }
+
+            if next == '0' {
+                result = result + '\0'
+                i = i + 2
+                continue
+            }
+
+            if next == 'a' {
+                result = result + '\a'
+                i = i + 2
+                continue
+            }
+
+            if next == 'b' {
+                result = result + '\b'
+                i = i + 2
+                continue
+            }
+
+            if next == 'f' {
+                result = result + '\f'
+                i = i + 2
+                continue
+            }
+
+            if next == 'n' {
+                result = result + '\n'
+                i = i + 2
+                continue
+            }
+
+            if next == 'r' {
+                result = result + '\r'
+                i = i + 2
+                continue
+            }
+
+            if next == 't' {
+                result = result + '\t'
+                i = i + 2
+                continue
+            }
+
+            if next == 'v' {
+                result = result + '\v'
+                i = i + 2
+                continue
+            }
+
+            result = result + body.Substring(i, 1)
+            i = i + 1
+        }
+
+        return result
+    }
+}
