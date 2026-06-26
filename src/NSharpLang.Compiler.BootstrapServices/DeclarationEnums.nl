@@ -11,3 +11,10 @@ public enum EnumType {
     Int,
     String
 }
+
+public enum SpecialConstraintKind {
+    None = 0,
+    Class = 1,
+    Struct = 2,
+    New = 4
+}
