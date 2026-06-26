@@ -10530,24 +10530,6 @@ internal sealed class ColumnarIlEmitter
     // (ldloca/ldarga/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld). stfld and
     // ldflda accept either owner form, so the chain composes uniformly — mirroring the oracle's
     // fixed EmitAddressableExpression (defect #22).
-    private readonly struct ColumnarMemberWriteChain
-    {
-        internal ColumnarMemberWriteChain(LocalBuilder? rootLocal, int rootParamOrdinal, Type rootType, List<FieldBuilder> hops, Type receiverType)
-        {
-            RootLocal = rootLocal;
-            RootParamOrdinal = rootParamOrdinal;
-            RootType = rootType;
-            Hops = hops;
-            ReceiverType = receiverType;
-        }
-
-        internal LocalBuilder? RootLocal { get; }
-        internal int RootParamOrdinal { get; }
-        internal Type RootType { get; }
-        internal List<FieldBuilder> Hops { get; }
-        internal Type ReceiverType { get; }
-    }
-
     private bool TryResolveMemberWriteChain(int node, out ColumnarMemberWriteChain chain)
     {
         chain = default;
