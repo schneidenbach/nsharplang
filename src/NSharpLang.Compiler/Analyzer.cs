@@ -23229,17 +23229,6 @@ public class Scope
     }
 }
 
-public enum ScopeKind
-{
-    Global,
-    Class,
-    Struct,
-    Record,
-    Interface,
-    Function,
-    Block
-}
-
 internal sealed record ErrorTupleResultGuard(string ResultName, string ErrorName, int Line, int Column);
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
@@ -23255,16 +23244,6 @@ internal sealed record ImportedSymbolReference(
 public abstract record TypeInfo
 {
     public override string ToString() => GetType().Name;
-}
-
-public enum UnknownKind
-{
-    /// <summary>Type is unknown because an earlier error already reported the issue. Suppresses follow-on errors.</summary>
-    ErrorRecovery,
-    /// <summary>Type needs to be inferred but inference hasn't resolved it yet.</summary>
-    InferenceHole,
-    /// <summary>Type comes from an external assembly that hasn't been loaded.</summary>
-    DeferredExternal
 }
 
 public record UnknownTypeInfo(UnknownKind Kind) : TypeInfo
