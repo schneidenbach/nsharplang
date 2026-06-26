@@ -55,33 +55,12 @@ public record BinaryExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
-public enum BinaryOperator
-{
-    // Arithmetic
-    Add, Subtract, Multiply, Divide, Modulo,
-    // Comparison
-    Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual,
-    // Logical
-    And, Or,
-    // Bitwise
-    BitwiseAnd, BitwiseOr, BitwiseXor, LeftShift, RightShift,
-    // Null coalescing
-    NullCoalesce,
-    // Range
-    Range,
-}
-
 // Unary operations
 public record UnaryExpression(
     UnaryOperator Operator,
     Expression Operand,
     int Line,
     int Column) : Expression(Line, Column);
-
-public enum UnaryOperator
-{
-    Negate, Not, BitwiseNot, PreIncrement, PreDecrement, PostIncrement, PostDecrement, IndexFromEnd
-}
 
 // Explicit nullable unwrap: must value
 public record MustExpression(
@@ -116,13 +95,6 @@ public record CallExpression(
     public bool? IsResultFactory { get; set; }
 }
 
-public enum ArgumentModifier
-{
-    None,
-    Ref,
-    Out
-}
-
 public record Argument(string? Name, Expression Value, ArgumentModifier Modifier = ArgumentModifier.None);
 
 // Assignment
@@ -132,11 +104,6 @@ public record AssignmentExpression(
     Expression Value,
     int Line,
     int Column) : Expression(Line, Column);
-
-public enum AssignmentOperator
-{
-    Assign, AddAssign, SubtractAssign, MultiplyAssign, DivideAssign, NullCoalesceAssign
-}
 
 // Lambda expression
 public record LambdaExpression(
@@ -225,12 +192,6 @@ public record CastExpression(
     CastKind Kind,
     int Line,
     int Column) : Expression(Line, Column);
-
-public enum CastKind
-{
-    Hard,    // (Type)expr
-    Safe,    // expr as Type
-}
 
 // Type checking
 public record IsExpression(
