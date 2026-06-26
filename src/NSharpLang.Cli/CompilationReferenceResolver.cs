@@ -682,28 +682,6 @@ internal static class CompilationReferenceResolver
         public Stack<string> ActiveProjectRoots { get; } = new();
     }
 
-    private sealed class NuGetPackageAssets
-    {
-        public HashSet<string> CompileAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public HashSet<string> RuntimeAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public void Add(NuGetPackageAssets other)
-        {
-            foreach (var assembly in other.CompileAssemblies)
-            {
-                CompileAssemblies.Add(assembly);
-            }
-
-            foreach (var assembly in other.RuntimeAssemblies)
-            {
-                RuntimeAssemblies.Add(assembly);
-            }
-        }
-    }
-
-    private sealed record PackageIdentity(string? Id, string? Version);
-    private sealed record PackageDependency(string Id, string? Version);
     private sealed record ResolvedProjectReference(string OutputAssemblyPath, ReferenceResolutionResult References);
-    private sealed record FrameworkCandidate(string Directory, Version Version);
 
 }
