@@ -23197,13 +23197,6 @@ public class Scope
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
 
-internal sealed record ImportedSymbolReference(
-    string SourcePath,
-    string ImportPath,
-    int Line,
-    int Column,
-    int Length);
-
 // Type system
 public abstract record TypeInfo
 {
