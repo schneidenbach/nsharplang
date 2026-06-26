@@ -173,20 +173,6 @@ internal static class OutputFormatterDiagnosticKernels
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# diagnostic text kernels are unavailable.");
 
-    private sealed class DiagnosticSummaryScratch
-    {
-        public readonly int[] Counts = new int[3];
-        public string[] Severities = Array.Empty<string>();
-
-        public void EnsureCapacity(int count)
-        {
-            if (Severities.Length < count)
-            {
-                Severities = new string[count];
-            }
-        }
-    }
-
     private sealed class DiagnosticSeverityFilterScratch
     {
         private readonly Dictionary<string, int> _severityRanks = new(StringComparer.OrdinalIgnoreCase);
