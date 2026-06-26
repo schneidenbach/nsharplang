@@ -721,12 +721,3 @@ public class MultiFileCompiler
     }
 
 }
-
-/// <summary>
-/// Result of multi-file IL compilation.
-/// </summary>
-public record MultiFileCompilationResult(
-    bool Success,
-    IEnumerable<CompilerError> Errors,
-    string? OutputAssemblyPath = null
-);
