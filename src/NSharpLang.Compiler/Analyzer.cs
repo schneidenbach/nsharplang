@@ -15687,8 +15687,6 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    private readonly record struct ReadonlyFieldTarget(string Name, bool IsStatic, bool IsCurrentInstance);
-
     private bool TryGetReadonlyFieldTarget(
         Expression target,
         Dictionary<Expression, TypeInfo>? expressionTypes,
