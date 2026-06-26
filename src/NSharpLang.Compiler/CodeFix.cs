@@ -6,19 +6,6 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Indicates how safe a code action is to apply without human review
-/// </summary>
-public enum FixSafety
-{
-    /// <summary>Applying the fix is always safe and correct.</summary>
-    Safe,
-    /// <summary>The fix is likely correct but worth a quick look before applying.</summary>
-    ReviewNeeded,
-    /// <summary>The fix is a suggestion only; human judgment is required.</summary>
-    SuggestionOnly
-}
-
-/// <summary>
 /// Represents a code action that can fix a diagnostic or perform a refactoring
 /// </summary>
 public record CodeAction(
@@ -27,20 +14,6 @@ public record CodeAction(
     List<TextEdit> Edits,
     CodeActionKind Kind = CodeActionKind.QuickFix,
     FixSafety Safety = FixSafety.Safe);
-
-/// <summary>
-/// Kind of code action (quick fix, refactoring, etc.)
-/// </summary>
-public enum CodeActionKind
-{
-    QuickFix,
-    Refactor,
-    RefactorExtract,
-    RefactorInline,
-    RefactorRewrite,
-    Source,
-    SourceOrganizeImports
-}
 
 /// <summary>
 /// Base class for code fix providers
