@@ -84,15 +84,14 @@ public class DiagnosticClusteringTests
         var diagnostics = new List<DiagnosticResult>
         {
             MissingSemicolon("src/B.nl", 10, "first duplicate wins"),
-            UndefinedBuilder("src/A.nl", 2) with { Column = 3 },
+            DiagnosticResultKernels.WithColumn(UndefinedBuilder("src/A.nl", 2), 3),
             MissingSemicolon("src/B.nl", 10, "duplicate should be ignored"),
-            MissingSemicolon("src/A.nl", 2, "same file earlier column") with
-            {
-                Code = "NL201",
-                Column = 1,
-                Message = "Type is inferred"
-            },
-            UndefinedBuilder("src/A.nl", 2) with { Column = 3 }
+            DiagnosticResultKernels.WithCodeColumnMessage(
+                MissingSemicolon("src/A.nl", 2, "same file earlier column"),
+                "NL201",
+                1,
+                "Type is inferred"),
+            DiagnosticResultKernels.WithColumn(UndefinedBuilder("src/A.nl", 2), 3)
         };
 
         var deduplicated = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);

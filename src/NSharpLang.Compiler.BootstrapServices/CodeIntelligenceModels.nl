@@ -19,7 +19,7 @@ public enum SymbolKind {
     Test
 }
 
-public record SymbolResult {
+public class SymbolResult {
     nameValue: string
     kindValue: SymbolKind
     fileValue: string
@@ -88,7 +88,7 @@ public record SymbolResult {
     }
 }
 
-public record OutlineResult {
+public class OutlineResult {
     fileValue: string
     importsValue: string[]
     outlineValue: OutlineEntry[]
@@ -115,7 +115,7 @@ public record OutlineResult {
     }
 }
 
-public record OutlineEntry {
+public class OutlineEntry {
     nameValue: string
     kindValue: SymbolKind
     lineValue: int
@@ -170,125 +170,24 @@ public record OutlineEntry {
     }
 }
 
-public record DiagnosticResult {
-    codeValue: string
-    severityValue: string
-    messageValue: string
-    fileValue: string
-    lineValue: int
-    columnValue: int
-    lengthValue: int
-    sourceSnippetValue: string?
-    explanationValue: string?
-    suggestionValue: string?
-    hintValue: string?
-    expectedTypeValue: string?
-    actualTypeValue: string?
-    docsUrlValue: string?
-
-    Code: string {
-        get { return codeValue }
-        set { codeValue = value }
-    }
-
-    Severity: string {
-        get { return severityValue }
-        set { severityValue = value }
-    }
-
-    Message: string {
-        get { return messageValue }
-        set { messageValue = value }
-    }
-
-    File: string {
-        get { return fileValue }
-        set { fileValue = value }
-    }
-
-    Line: int {
-        get { return lineValue }
-        set { lineValue = value }
-    }
-
-    Column: int {
-        get { return columnValue }
-        set { columnValue = value }
-    }
-
-    Length: int {
-        get { return lengthValue }
-        set { lengthValue = value }
-    }
-
-    SourceSnippet: string? {
-        get { return sourceSnippetValue }
-        set { sourceSnippetValue = value }
-    }
-
-    Explanation: string? {
-        get { return explanationValue }
-        set { explanationValue = value }
-    }
-
-    Suggestion: string? {
-        get { return suggestionValue }
-        set { suggestionValue = value }
-    }
-
-    Hint: string? {
-        get { return hintValue }
-        set { hintValue = value }
-    }
-
-    ExpectedType: string? {
-        get { return expectedTypeValue }
-        set { expectedTypeValue = value }
-    }
-
-    ActualType: string? {
-        get { return actualTypeValue }
-        set { actualTypeValue = value }
-    }
-
-    DocsUrl: string? {
-        get { return docsUrlValue }
-        set { docsUrlValue = value }
-    }
-
-    constructor(
-        Code: string,
-        Severity: string,
-        Message: string,
-        File: string,
-        Line: int,
-        Column: int,
-        Length: int,
-        SourceSnippet: string?,
-        Explanation: string?,
-        Suggestion: string?,
-        Hint: string?,
-        ExpectedType: string?,
-        ActualType: string?,
-        DocsUrl: string?) {
-        codeValue = Code
-        severityValue = Severity
-        messageValue = Message
-        fileValue = File
-        lineValue = Line
-        columnValue = Column
-        lengthValue = Length
-        sourceSnippetValue = SourceSnippet
-        explanationValue = Explanation
-        suggestionValue = Suggestion
-        hintValue = Hint
-        expectedTypeValue = ExpectedType
-        actualTypeValue = ActualType
-        docsUrlValue = DocsUrl
-    }
+public record DiagnosticResult(
+    Code: string,
+    Severity: string,
+    Message: string,
+    File: string,
+    Line: int,
+    Column: int,
+    Length: int,
+    SourceSnippet: string?,
+    Explanation: string?,
+    Suggestion: string?,
+    Hint: string?,
+    ExpectedType: string?,
+    ActualType: string?,
+    DocsUrl: string?) {
 }
 
-public record TypeResult {
+public class TypeResult {
     nameValue: string
     resolvedTypeValue: string
     kindValue: string
@@ -329,7 +228,7 @@ public record TypeResult {
     }
 }
 
-public record DefinitionResult {
+public class DefinitionResult {
     nameValue: string
     kindValue: string
     fileValue: string
@@ -377,7 +276,7 @@ public record DefinitionResult {
     }
 }
 
-public record ReferenceResult {
+public class ReferenceResult {
     fileValue: string
     lineValue: int
     columnValue: int
@@ -425,7 +324,7 @@ public record ReferenceResult {
     }
 }
 
-public record LocationResult {
+public class LocationResult {
     fileValue: string
     lineValue: int
     columnValue: int
@@ -452,7 +351,7 @@ public record LocationResult {
     }
 }
 
-public record InspectSymbolResult {
+public class InspectSymbolResult {
     nameValue: string
     kindValue: string
     definitionValue: LocationResult?
@@ -479,7 +378,7 @@ public record InspectSymbolResult {
     }
 }
 
-public record InspectReferencesResult {
+public class InspectReferencesResult {
     countValue: int
     definitionCountValue: int
     resultsValue: ReferenceResult[]
@@ -506,7 +405,7 @@ public record InspectReferencesResult {
     }
 }
 
-public record InspectResult {
+public class InspectResult {
     symbolValue: InspectSymbolResult?
     typeValue: TypeResult?
     definitionValue: DefinitionResult?
@@ -547,7 +446,7 @@ public record InspectResult {
     }
 }
 
-public record InspectSummaryResult {
+public class InspectSummaryResult {
     symbolValue: InspectSummarySymbolResult?
     typeValue: InspectSummaryTypeResult?
     definitionValue: LocationResult?
@@ -588,7 +487,7 @@ public record InspectSummaryResult {
     }
 }
 
-public record InspectReferenceSummaryResult {
+public class InspectReferenceSummaryResult {
     fileValue: string
     lineValue: int
     columnValue: int
@@ -622,7 +521,7 @@ public record InspectReferenceSummaryResult {
     }
 }
 
-public record InspectSummaryReferencesResult {
+public class InspectSummaryReferencesResult {
     countValue: int
     definitionCountValue: int
     filesValue: string[]

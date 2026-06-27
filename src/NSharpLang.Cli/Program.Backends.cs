@@ -373,7 +373,7 @@ partial class Program
     private static BuildPerfReportFacts ToPerfReportFacts(MultiFileCompiler compiler)
     {
         var sites = compiler.SystemsReport.Findings
-            .Select(finding => new OutputFormatter.PerfReportSite(
+            .Select(finding => new PerfReportSite(
                 finding.Code,
                 finding.Effect,
                 finding.File,
@@ -396,7 +396,7 @@ partial class Program
             sites.Where(site => site.Effect is "hotReadiness").ToArray(),
             sites.Where(site => site.Effect is "implicitTrap").ToArray(),
             compiler.SystemsReport.TrustedSites
-                .Select(site => new OutputFormatter.PerfReportTrustedSite(
+                .Select(site => new PerfReportTrustedSite(
                     site.Function,
                     site.File,
                     site.Line,

@@ -152,9 +152,14 @@ public class CodeIntelligenceResultKernels {
         while i < count {
             current := indices[i]
             j := i - 1
-            while j >= 0 && DiagnosticIndexComesAfter(diagnostics, indices[j], current) {
-                indices[j + 1] = indices[j]
-                j = j - 1
+            keepMoving := true
+            while j >= 0 && keepMoving {
+                if DiagnosticIndexComesAfter(diagnostics, indices[j], current) {
+                    indices[j + 1] = indices[j]
+                    j = j - 1
+                } else {
+                    keepMoving = false
+                }
             }
 
             indices[j + 1] = current
@@ -167,9 +172,14 @@ public class CodeIntelligenceResultKernels {
         while i < count {
             current := indices[i]
             j := i - 1
-            while j >= 0 && ReferenceIndexComesAfter(references, indices[j], current) {
-                indices[j + 1] = indices[j]
-                j = j - 1
+            keepMoving := true
+            while j >= 0 && keepMoving {
+                if ReferenceIndexComesAfter(references, indices[j], current) {
+                    indices[j + 1] = indices[j]
+                    j = j - 1
+                } else {
+                    keepMoving = false
+                }
             }
 
             indices[j + 1] = current

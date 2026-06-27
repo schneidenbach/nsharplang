@@ -92,15 +92,22 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
             builder.Append((ContextualHint ?? "").Trim())
         }
 
-        if Suggestions != null && Suggestions.Count > 0 {
-            builder.AppendLine()
-            builder.AppendLine()
-            builder.AppendLine("did you mean:")
-            foreach suggestion in Suggestions {
-                builder.Append("- ")
-                builder.AppendLine(suggestion)
+        renderedSuggestions := false
+        suggestions := Suggestions
+        if suggestions != null {
+            if suggestions.Count > 0 {
+                renderedSuggestions = true
+                builder.AppendLine()
+                builder.AppendLine()
+                builder.AppendLine("did you mean:")
+                foreach suggestion in suggestions {
+                    builder.Append("- ")
+                    builder.AppendLine(suggestion)
+                }
             }
-        } else if HasText(Suggestion) {
+        }
+
+        if !renderedSuggestions && HasText(Suggestion) {
             builder.AppendLine()
             builder.AppendLine()
             builder.Append("help: ")
@@ -137,9 +144,16 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
             parts.Add(NormalizeInlineText(ContextualHint ?? ""))
         }
 
-        if Suggestions != null && Suggestions.Count > 0 {
-            parts.Add("did you mean: " + string.Join(", ", Suggestions))
-        } else if HasText(Suggestion) {
+        renderedSuggestions := false
+        suggestions := Suggestions
+        if suggestions != null {
+            if suggestions.Count > 0 {
+                renderedSuggestions = true
+                parts.Add("did you mean: " + string.Join(", ", suggestions))
+            }
+        }
+
+        if !renderedSuggestions && HasText(Suggestion) {
             parts.Add("help: " + NormalizeInlineText(Suggestion ?? ""))
         }
 
@@ -243,14 +257,19 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
             builder.AppendLine()
         }
 
-        if Suggestions != null && Suggestions.Count > 0 {
-            builder.AppendLine("Did you mean one of these?")
-            builder.AppendLine()
-            foreach suggestion in Suggestions {
-                builder.AppendLine($"    {suggestion}")
-            }
+        renderedSuggestions := false
+        suggestions := Suggestions
+        if suggestions != null {
+            if suggestions.Count > 0 {
+                renderedSuggestions = true
+                builder.AppendLine("Did you mean one of these?")
+                builder.AppendLine()
+                foreach suggestion in suggestions {
+                    builder.AppendLine($"    {suggestion}")
+                }
 
-            builder.AppendLine()
+                builder.AppendLine()
+            }
         }
 
         if DocsUrl != null {
@@ -382,6 +401,28 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         return new CompilerError(code, message, line, column, severity)
     }
 
+    public static func CreateDetailed(
+        code: ErrorCode,
+        message: string,
+        line: int,
+        column: int,
+        fileName: string?,
+        length: int,
+        suggestion: string?,
+        humanExplanation: string?,
+        contextualHint: string?,
+        docsUrl: string?,
+        severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
+        return new CompilerError(code, message, line, column, severity) {
+            FileName: fileName,
+            Length: Math.Max(1, length),
+            Suggestion: suggestion,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            DocsUrl: docsUrl
+        }
+    }
+
     public static func WithSnippet(
         code: ErrorCode,
         message: string,
@@ -398,6 +439,31 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
             SourceSnippet: sourceSnippet,
             Length: span.Length,
             Suggestion: suggestion
+        }
+    }
+
+    public static func WithSnippetDetailed(
+        code: ErrorCode,
+        message: string,
+        fileName: string,
+        line: int,
+        column: int,
+        sourceSnippet: string,
+        length: int = 0,
+        suggestion: string? = null,
+        severity: ErrorSeverity = ErrorSeverity.Error,
+        humanExplanation: string? = null,
+        contextualHint: string? = null,
+        docsUrl: string? = null): CompilerError {
+        span := DiagnosticSpanResolver.Resolve(sourceSnippet, column, length)
+        return new CompilerError(code, message, line, span.Column, severity) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: span.Length,
+            Suggestion: suggestion,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            DocsUrl: docsUrl
         }
     }
 }

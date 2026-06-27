@@ -199,30 +199,30 @@ partial class Program
     }
 
     private sealed record BuildPerfReportFacts(
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> AllocationSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DelegateSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoxingSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DispatchSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ClosureCaptures,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> PoolSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ResourceSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoundaryLeakSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> HotReadinessSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ImplicitTrapSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite> TrustedSites)
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> AllocationSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> DelegateSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> BoxingSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> DispatchSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ClosureCaptures,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> PoolSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ResourceSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> BoundaryLeakSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> HotReadinessSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ImplicitTrapSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportTrustedSite> TrustedSites)
     {
         public static BuildPerfReportFacts Empty { get; } = new(
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite>());
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportTrustedSite>());
     }
 
     static string CreateTempBuildDirectory()

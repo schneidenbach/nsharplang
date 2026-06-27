@@ -498,7 +498,7 @@ public static class QueryCommand
         var result = Service.GetOutlineSingleFile(filePath);
 
         // Make the file path relative to project root for output
-        result = result with { File = GetRelativePath(projectRoot, filePath) };
+        result = QueryCommandDogfoodKernels.WithOutlineFile(result, GetRelativePath(projectRoot, filePath));
 
         if (outputMode == 2)
         {

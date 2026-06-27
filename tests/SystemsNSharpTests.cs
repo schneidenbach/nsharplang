@@ -2093,7 +2093,7 @@ class Box {}
     private static string BuildSystemsProofPerfReportJson(string projectRoot, bool ok, MultiFileCompiler compiler)
     {
         var sites = compiler.SystemsReport.Findings
-            .Select(finding => new OutputFormatter.PerfReportSite(
+            .Select(finding => new PerfReportSite(
                 finding.Code,
                 finding.Effect,
                 finding.File,
@@ -2118,7 +2118,7 @@ class Box {}
             hotReadinessSites: sites.Where(site => site.Effect is "hotReadiness").ToArray(),
             implicitTrapSites: sites.Where(site => site.Effect is "implicitTrap").ToArray(),
             trustedSites: compiler.SystemsReport.TrustedSites
-                .Select(site => new OutputFormatter.PerfReportTrustedSite(
+                .Select(site => new PerfReportTrustedSite(
                     site.Function,
                     site.File,
                     site.Line,

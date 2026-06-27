@@ -35,98 +35,91 @@ public static class OutputFormatter
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
-    private static string? NormalizePath(string? path) => path?.Replace('\\', '/');
+    private static string? NormalizePath(string? path) => OutputFormatterNormalizationKernels.NormalizePath(path);
 
-    private static SymbolResult Normalize(SymbolResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File,
-            Members = result.Members?.Select(Normalize).ToArray()
-        };
+    private static SymbolResult Normalize(SymbolResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeSymbol(result);
+        return result;
+    }
 
-    private static OutlineResult Normalize(OutlineResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File,
-            Outline = result.Outline.Select(Normalize).ToArray()
-        };
+    private static OutlineResult Normalize(OutlineResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeOutline(result);
+        return result;
+    }
 
-    private static OutlineEntry Normalize(OutlineEntry entry) =>
-        entry with
-        {
-            Children = entry.Children?.Select(Normalize).ToArray()
-        };
+    private static OutlineEntry Normalize(OutlineEntry entry)
+    {
+        OutputFormatterNormalizationKernels.NormalizeOutlineEntry(entry);
+        return entry;
+    }
 
-    private static DiagnosticResult Normalize(DiagnosticResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File
-        };
+    private static DiagnosticResult Normalize(DiagnosticResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeDiagnostic(result);
+        return result;
+    }
 
-    private static TypeResult Normalize(TypeResult result) =>
-        result with
-        {
-            Definition = result.Definition != null ? Normalize(result.Definition) : null
-        };
+    private static TypeResult Normalize(TypeResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeType(result);
+        return result;
+    }
 
-    private static DefinitionResult Normalize(DefinitionResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File
-        };
+    private static DefinitionResult Normalize(DefinitionResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeDefinition(result);
+        return result;
+    }
 
-    private static ReferenceResult Normalize(ReferenceResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File
-        };
+    private static ReferenceResult Normalize(ReferenceResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeReference(result);
+        return result;
+    }
 
-    private static LocationResult Normalize(LocationResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File
-        };
+    private static LocationResult Normalize(LocationResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeLocation(result);
+        return result;
+    }
 
-    private static InspectSymbolResult Normalize(InspectSymbolResult result) =>
-        result with
-        {
-            Definition = result.Definition != null ? Normalize(result.Definition) : null
-        };
+    private static InspectSymbolResult Normalize(InspectSymbolResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspectSymbol(result);
+        return result;
+    }
 
-    private static InspectReferencesResult Normalize(InspectReferencesResult result) =>
-        result with
-        {
-            Results = result.Results.Select(Normalize).ToArray()
-        };
+    private static InspectReferencesResult Normalize(InspectReferencesResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspectReferences(result);
+        return result;
+    }
 
-    private static InspectResult Normalize(InspectResult result) =>
-        result with
-        {
-            Symbol = result.Symbol != null ? Normalize(result.Symbol) : null,
-            Type = result.Type != null ? Normalize(result.Type) : null,
-            Definition = result.Definition != null ? Normalize(result.Definition) : null,
-            References = Normalize(result.References)
-        };
+    private static InspectResult Normalize(InspectResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspect(result);
+        return result;
+    }
 
-    private static InspectReferenceSummaryResult Normalize(InspectReferenceSummaryResult result) =>
-        result with
-        {
-            File = NormalizePath(result.File) ?? result.File
-        };
+    private static InspectReferenceSummaryResult Normalize(InspectReferenceSummaryResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspectReferenceSummary(result);
+        return result;
+    }
 
-    private static InspectSummaryReferencesResult Normalize(InspectSummaryReferencesResult result) =>
-        result with
-        {
-            Files = result.Files.Select(file => NormalizePath(file) ?? file).ToArray(),
-            Sample = result.Sample.Select(Normalize).ToArray()
-        };
+    private static InspectSummaryReferencesResult Normalize(InspectSummaryReferencesResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspectSummaryReferences(result);
+        return result;
+    }
 
-    private static InspectSummaryResult Normalize(InspectSummaryResult result) =>
-        result with
-        {
-            Definition = result.Definition != null ? Normalize(result.Definition) : null,
-            References = Normalize(result.References)
-        };
+    private static InspectSummaryResult Normalize(InspectSummaryResult result)
+    {
+        OutputFormatterNormalizationKernels.NormalizeInspectSummary(result);
+        return result;
+    }
 
     public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
         => OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results);
@@ -357,28 +350,6 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-
-    public sealed record PerfReportSite(
-        string Code,
-        string Effect,
-        string File,
-        int Line,
-        int Column,
-        string Message,
-        string? Function,
-        string? Suggestion);
-
-    public sealed record PerfReportTrustedSite(
-        string Function,
-        string File,
-        int Line,
-        int Column,
-        string? Owner,
-        string? Review,
-        string? Expires,
-        bool HasUnsafe,
-        int BodyStatementCount);
-
     /// <summary>
     /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
     /// The report groups performance facts by category. Categories without a wired fact source
@@ -425,12 +396,12 @@ public static class OutputFormatter
 
     private static IReadOnlyList<PerfReportSite> NormalizePerfSites(IReadOnlyList<PerfReportSite>? sites)
         => (sites ?? Array.Empty<PerfReportSite>())
-            .Select(site => site with { File = NormalizePath(site.File) ?? site.File })
+            .Select(OutputFormatterNormalizationKernels.NormalizePerfReportSite)
             .ToArray();
 
     private static IReadOnlyList<PerfReportTrustedSite> NormalizeTrustedPerfSites(IReadOnlyList<PerfReportTrustedSite>? sites)
         => (sites ?? Array.Empty<PerfReportTrustedSite>())
-            .Select(site => site with { File = NormalizePath(site.File) ?? site.File })
+            .Select(OutputFormatterNormalizationKernels.NormalizePerfReportTrustedSite)
             .ToArray();
 
     public static string CheckSystemsReportToJson(

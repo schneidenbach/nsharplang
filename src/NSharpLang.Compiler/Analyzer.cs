@@ -21723,12 +21723,18 @@ public class Analyzer : IDisposable
         }
         else
         {
-            error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
-            {
-                FileName = _currentFilePath,
-                Length = Math.Max(1, length),
-                Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
-            };
+            error = CompilerError.CreateDetailed(
+                code,
+                message,
+                line,
+                column,
+                _currentFilePath,
+                length,
+                suggestion ?? ErrorSuggestions.GetSuggestion(code),
+                null,
+                null,
+                null,
+                ErrorSeverity.Error);
         }
 
         _errors.Add(error);
@@ -21760,12 +21766,18 @@ public class Analyzer : IDisposable
         }
         else
         {
-            warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
-            {
-                FileName = _currentFilePath,
-                Length = Math.Max(1, length),
-                Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
-            };
+            warning = CompilerError.CreateDetailed(
+                code,
+                message,
+                line,
+                column,
+                _currentFilePath,
+                length,
+                suggestion ?? ErrorSuggestions.GetSuggestion(code),
+                null,
+                null,
+                null,
+                ErrorSeverity.Warning);
         }
 
         _errors.Add(warning);
@@ -22431,7 +22443,7 @@ public class Analyzer : IDisposable
             var sourceSnippet = GetSourceSnippet(duplicate.Line);
             if (sourceSnippet != null && _currentFilePath != null)
             {
-                var error = CompilerError.WithSnippet(
+                var error = CompilerError.WithSnippetDetailed(
                     ErrorCode.ImportCollision,
                     message,
                     _currentFilePath,
@@ -22440,31 +22452,27 @@ public class Analyzer : IDisposable
                     sourceSnippet,
                     duplicate.Length,
                     suggestion,
-                    ErrorSeverity.Error) with
-                {
-                    HumanExplanation = humanExplanation,
-                    ContextualHint = contextualHint,
-                    DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
-                };
+                    ErrorSeverity.Error,
+                    humanExplanation,
+                    contextualHint,
+                    "https://docs.n-sharp.dev/errors/NL702");
 
                 _errors.Add(error);
                 continue;
             }
 
-            _errors.Add(CompilerError.Create(
+            _errors.Add(CompilerError.CreateDetailed(
                 ErrorCode.ImportCollision,
                 message,
                 duplicate.Line,
                 duplicate.Column,
-                ErrorSeverity.Error) with
-            {
-                FileName = _currentFilePath ?? duplicate.SourcePath,
-                Length = Math.Max(1, duplicate.Length),
-                Suggestion = suggestion,
-                HumanExplanation = humanExplanation,
-                ContextualHint = contextualHint,
-                DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
-            });
+                _currentFilePath ?? duplicate.SourcePath,
+                duplicate.Length,
+                suggestion,
+                humanExplanation,
+                contextualHint,
+                "https://docs.n-sharp.dev/errors/NL702",
+                ErrorSeverity.Error));
         }
     }
 

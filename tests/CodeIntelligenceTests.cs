@@ -41,16 +41,14 @@ public class CodeIntelligenceOutputTests
                 tempDir,
                 filePath,
                 source,
-                CompilerError.Create(
+                CompilerError.WithSnippet(
                     ErrorCode.UndefinedVariable,
                     "Undefined variable 'undefined'",
+                    filePath,
                     2,
-                    23) with
-                {
-                    FileName = filePath,
-                    SourceSnippet = "    Console.WriteLine(undefined)",
-                    Length = "undefined".Length
-                });
+                    23,
+                    "    Console.WriteLine(undefined)",
+                    "undefined".Length));
 
             var diagnostics = new CodeIntelligenceService().GetDiagnostics(snapshot);
 
@@ -84,16 +82,14 @@ public class CodeIntelligenceOutputTests
                 tempDir,
                 filePath,
                 source,
-                CompilerError.Create(
+                CompilerError.WithSnippet(
                     ErrorCode.ShadowedDeclaration,
                     "Local variable 'value' shadows an existing declaration",
+                    filePath,
                     3,
-                    9) with
-                {
-                    FileName = filePath,
-                    SourceSnippet = "        value := 1",
-                    Length = "value".Length
-                });
+                    9,
+                    "        value := 1",
+                    "value".Length));
 
             var diagnostics = new CodeIntelligenceService().GetDiagnostics(snapshot);
 

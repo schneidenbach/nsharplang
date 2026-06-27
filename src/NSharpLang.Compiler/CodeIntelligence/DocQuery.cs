@@ -620,25 +620,12 @@ public class DocQuery
     {
         var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
         var distinctCandidates = DeduplicateTypeCandidates(candidateList);
-        return DocQueryKernels.SelectBestDocType(query, distinctCandidates, ScoreTypeMatch);
+        return DocQueryKernels.SelectBestDocType(query, distinctCandidates);
     }
 
     private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
     {
         return DocQueryKernels.DeduplicateStableTypes(candidates);
-    }
-
-    private static int ScoreTypeMatch(string query, Type type)
-    {
-        var strippedQuery = StripGenericArity(query);
-        var qualifiedName = GetLookupTypeName(type);
-        var simpleName = StripGenericArity(type.Name);
-        return DocQueryKernels.ScoreTypeMatch(
-            strippedQuery,
-            qualifiedName,
-            simpleName,
-            type.Namespace ?? string.Empty,
-            type.IsNested ? 1 : 0);
     }
 
     private static string GetLookupTypeName(Type type)
