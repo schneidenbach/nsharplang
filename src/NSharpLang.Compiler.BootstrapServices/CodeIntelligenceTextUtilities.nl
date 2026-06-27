@@ -113,10 +113,13 @@ public class CodeIntelligenceTextUtilities {
                 }
 
                 currentLine = currentLine + 1
-                if position + 1 < sourceLength && source[position + 1] == '\n' {
-                    position = position + 2
-                    lineStart = position
-                    continue
+                hasNext := position + 1 < sourceLength
+                if hasNext {
+                    if source[position + 1] == '\n' {
+                        position = position + 2
+                        lineStart = position
+                        continue
+                    }
                 }
 
                 position = position + 1

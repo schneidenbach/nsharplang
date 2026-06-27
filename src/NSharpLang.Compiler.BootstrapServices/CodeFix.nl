@@ -451,23 +451,47 @@ class CodeFixActionHelpers {
         currentLine := 1
         lineStart := 0
         index := 0
-        while index <= source.Length {
-            if index == source.Length || source[index] == '\n' {
+        sourceLength := source.Length
+        while index < sourceLength {
+            if source[index] == '\r' {
                 if currentLine == line {
-                    lineEnd := index
-                    if lineEnd > lineStart && source[lineEnd - 1] == '\r' {
-                        lineEnd = lineEnd - 1
-                    }
+                    sourceLine = source.Substring(lineStart, index - lineStart)
+                    return true
+                }
 
-                    sourceLine = source.Substring(lineStart, lineEnd - lineStart)
+                currentLine = currentLine + 1
+                hasNext := index + 1 < sourceLength
+                if hasNext {
+                    if source[index + 1] == '\n' {
+                        index = index + 2
+                        lineStart = index
+                        continue
+                    }
+                }
+
+                index = index + 1
+                lineStart = index
+                continue
+            }
+
+            if source[index] == '\n' {
+                if currentLine == line {
+                    sourceLine = source.Substring(lineStart, index - lineStart)
                     return true
                 }
 
                 currentLine = currentLine + 1
                 lineStart = index + 1
+                index = index + 1
+                continue
             }
 
             index = index + 1
+        }
+
+        if currentLine == line {
+            sourceLine = source.Substring(lineStart, sourceLength - lineStart)
+            return true
         }
 
         return false

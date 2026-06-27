@@ -306,13 +306,3 @@ public static class FixCommand
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }
-
-/// <summary>
-/// Serialization-friendly representation of a fix for JSON/text output.
-/// </summary>
-internal record FixEntry(
-    string File,
-    string DiagnosticCode,
-    string Title,
-    List<TextEdit> Edits,
-    string Safety);
