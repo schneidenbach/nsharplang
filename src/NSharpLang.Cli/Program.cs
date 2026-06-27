@@ -9,17 +9,6 @@ using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
-internal readonly record struct PublishArgumentSummary(
-    string? ValidationError,
-    string? ProjectOption,
-    string? BackendOption,
-    string Configuration,
-    string? Output,
-    string? Runtime,
-    bool SelfContained,
-    bool Aot,
-    bool ShowHelp);
-
 internal readonly record struct BuildOptionSummary(
     string? OutputDir,
     string? BackendOption,
