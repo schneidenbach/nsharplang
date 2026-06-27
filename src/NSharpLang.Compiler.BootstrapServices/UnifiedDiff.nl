@@ -262,10 +262,15 @@ public class UnifiedDiff {
         result := ""
         i := 0
         while i < text.Length {
-            if text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n' {
-                result = result + '\n'
-                i = i + 2
-                continue
+            if text[i] == '\r' {
+                hasNext := i + 1 < text.Length
+                if hasNext {
+                    if text[i + 1] == '\n' {
+                        result = result + ((char)10).ToString()
+                        i = i + 2
+                        continue
+                    }
+                }
             }
 
             result = result + text.Substring(i, 1)
