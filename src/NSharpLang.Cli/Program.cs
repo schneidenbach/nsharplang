@@ -31,18 +31,6 @@ internal readonly record struct BuildOptionSummary(
     bool Aot,
     bool ShowHelp);
 
-internal readonly record struct TestOptionSummary(
-    string? ProjectOption,
-    string? BackendOption,
-    string? Filter,
-    string? Timeout,
-    bool Verbose,
-    bool JsonOutput,
-    bool CoverageReport,
-    bool CollectCoverage,
-    bool NoCache,
-    bool ShowHelp);
-
 partial class Program
 {
     static int Main(string[] args)
