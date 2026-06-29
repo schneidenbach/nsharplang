@@ -5,18 +5,12 @@ import System.Collections.Generic
 import System.IO
 
 public class ParserTokenCompactor {
-    public static func TryCompact<T>(tokens: IReadOnlyList<T>, out compactedTokens: List<T>): bool {
-        compactedTokens = new List<T>()
+    public static func TryCompact(tokens: List<Token>, out compactedTokens: List<Token>): bool {
+        compactedTokens = new List<Token>()
         i := 0
         while i < tokens.Count {
             token := tokens[i]
-            kind := TokenKind(token)
-            if kind < 0 {
-                compactedTokens = new List<T>()
-                return false
-            }
-
-            if kind != 136 {
+            if token.Type != TokenType.Newline {
                 compactedTokens.Add(token)
             }
 
@@ -24,20 +18,6 @@ public class ParserTokenCompactor {
         }
 
         return true
-    }
-
-    public static func TokenKind(token: object): int {
-        property := token.GetType().GetProperty("Type")
-        if property == null {
-            return -1
-        }
-
-        value := property.GetValue(token)
-        if value == null {
-            return -1
-        }
-
-        return Convert.ToInt32(value)
     }
 }
 
