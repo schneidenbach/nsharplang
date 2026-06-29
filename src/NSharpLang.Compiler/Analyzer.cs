@@ -21700,40 +21700,17 @@ public class Analyzer : IDisposable
 
     private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
-        CompilerError error;
-
         var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            error = CompilerError.WithSnippet(
-                code,
-                message,
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                suggestion ?? ErrorSuggestions.GetSuggestion(code),
-                ErrorSeverity.Error
-            );
-        }
-        else
-        {
-            error = CompilerError.CreateDetailed(
-                code,
-                message,
-                line,
-                column,
-                _currentFilePath,
-                length,
-                suggestion ?? ErrorSuggestions.GetSuggestion(code),
-                null,
-                null,
-                null,
-                ErrorSeverity.Error);
-        }
-
-        _errors.Add(error);
+        _errors.Add(AnalyzerDiagnostics.Create(
+            code,
+            message,
+            _currentFilePath,
+            line,
+            column,
+            sourceSnippet,
+            suggestion,
+            length,
+            ErrorSeverity.Error));
     }
 
     private void Warning(string message, int line, int column)
@@ -21743,40 +21720,17 @@ public class Analyzer : IDisposable
 
     private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
-        CompilerError warning;
-
         var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            warning = CompilerError.WithSnippet(
-                code,
-                message,
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                suggestion ?? ErrorSuggestions.GetSuggestion(code),
-                ErrorSeverity.Warning
-            );
-        }
-        else
-        {
-            warning = CompilerError.CreateDetailed(
-                code,
-                message,
-                line,
-                column,
-                _currentFilePath,
-                length,
-                suggestion ?? ErrorSuggestions.GetSuggestion(code),
-                null,
-                null,
-                null,
-                ErrorSeverity.Warning);
-        }
-
-        _errors.Add(warning);
+        _errors.Add(AnalyzerDiagnostics.Create(
+            code,
+            message,
+            _currentFilePath,
+            line,
+            column,
+            sourceSnippet,
+            suggestion,
+            length,
+            ErrorSeverity.Warning));
     }
 
     private string? GetSourceSnippet(int line)
@@ -22437,38 +22391,17 @@ public class Analyzer : IDisposable
                 "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit.";
 
             var sourceSnippet = GetSourceSnippet(duplicate.Line);
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var error = CompilerError.WithSnippetDetailed(
-                    ErrorCode.ImportCollision,
-                    message,
-                    _currentFilePath,
-                    duplicate.Line,
-                    duplicate.Column,
-                    sourceSnippet,
-                    duplicate.Length,
-                    suggestion,
-                    ErrorSeverity.Error,
-                    humanExplanation,
-                    contextualHint,
-                    "https://docs.n-sharp.dev/errors/NL702");
-
-                _errors.Add(error);
-                continue;
-            }
-
-            _errors.Add(CompilerError.CreateDetailed(
-                ErrorCode.ImportCollision,
+            _errors.Add(AnalyzerDiagnostics.CreateImportCollision(
                 message,
+                _currentFilePath,
+                duplicate.SourcePath,
                 duplicate.Line,
                 duplicate.Column,
-                _currentFilePath ?? duplicate.SourcePath,
+                sourceSnippet,
                 duplicate.Length,
                 suggestion,
                 humanExplanation,
-                contextualHint,
-                "https://docs.n-sharp.dev/errors/NL702",
-                ErrorSeverity.Error));
+                contextualHint));
         }
     }
 
