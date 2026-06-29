@@ -4,11 +4,6 @@ using System.Linq;
 
 namespace NSharpLang.Cli;
 
-public sealed record CliCommandSpec(string Name, string Description, string? AliasOf = null)
-{
-    public bool IsAlias => AliasOf is not null;
-}
-
 public static class CommandRegistry
 {
     public static readonly IReadOnlyList<CliCommandSpec> TopLevelCommands = new[]
