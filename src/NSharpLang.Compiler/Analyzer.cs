@@ -23285,21 +23285,6 @@ public class EnumTypeInfo : TypeInfo
 }
 
 /// <summary>
-/// Represents a type resolved via .NET reflection (external types like System.Console)
-/// </summary>
-public class ReflectionTypeInfo : TypeInfo
-{
-    public ReflectionTypeInfo(Type type)
-    {
-        Type = type;
-    }
-
-    public Type Type { get; }
-
-    public override string ToString() => Type.Name;
-}
-
-/// <summary>
 /// Represents a method resolved via .NET reflection
 /// </summary>
 public class ReflectionMethodInfo : TypeInfo

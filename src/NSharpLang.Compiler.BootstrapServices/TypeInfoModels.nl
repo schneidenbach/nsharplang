@@ -105,6 +105,20 @@ public class ExternalTypeInfo: TypeInfo {
     }
 }
 
+public class ReflectionTypeInfo: TypeInfo {
+    clrTypeValue: Type
+
+    Type: Type => clrTypeValue
+
+    constructor(clrType: Type) {
+        clrTypeValue = clrType
+    }
+
+    override func ToString(): string {
+        return clrTypeValue.Name
+    }
+}
+
 public class BuiltInTypes {
     public static Int: SimpleTypeInfo => new SimpleTypeInfo("int")
     public static Long: SimpleTypeInfo => new SimpleTypeInfo("long")
