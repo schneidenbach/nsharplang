@@ -241,11 +241,14 @@ public class MultiFileCompiler
     private void DetectCircularFileImports()
     {
         var edgesByFile = BuildFileImportGraph();
-        var visitState = new Dictionary<string, ImportVisitState>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var sourceFile in _compilationUnits.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        var cycles = ImportGraphCycleDetector.Detect(
+            _compilationUnits.Keys.ToList(),
+            edgesByFile,
+            _projectRoot,
+            MaxDisplayedImportCycleNodes);
+        foreach (var cycle in cycles)
         {
-            VisitImportGraph(sourceFile, edgesByFile, visitState);
+            ReportCircularImportCycle(cycle);
         }
     }
 
@@ -302,70 +305,12 @@ public class MultiFileCompiler
         return $"{Path.GetFullPath(filePath)}:{line}:{column}";
     }
 
-    private void VisitImportGraph(
-        string sourceFile,
-        IReadOnlyDictionary<string, List<ImportEdge>> edgesByFile,
-        Dictionary<string, ImportVisitState> visitState)
+    private void ReportCircularImportCycle(ImportCycle cycle)
     {
-        if (visitState.TryGetValue(sourceFile, out var existingState) && existingState == ImportVisitState.Visited)
+        if (!_reportedImportCycles.Add(cycle.CanonicalKey))
             return;
 
-        var pathStack = new List<string>();
-        var pathIndexByFile = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var traversalStack = new List<ImportTraversalFrame>();
-
-        visitState[sourceFile] = ImportVisitState.Visiting;
-        pathIndexByFile[sourceFile] = 0;
-        pathStack.Add(sourceFile);
-        traversalStack.Add(new ImportTraversalFrame(sourceFile, GetSortedImportEdges(sourceFile, edgesByFile)));
-
-        while (traversalStack.Count > 0)
-        {
-            var frame = traversalStack[^1];
-            if (frame.NextEdgeIndex >= frame.Edges.Count)
-            {
-                traversalStack.RemoveAt(traversalStack.Count - 1);
-                pathIndexByFile.Remove(frame.SourceFile);
-                pathStack.RemoveAt(pathStack.Count - 1);
-                visitState[frame.SourceFile] = ImportVisitState.Visited;
-                continue;
-            }
-
-            var edge = frame.Edges[frame.NextEdgeIndex++];
-            if (pathIndexByFile.TryGetValue(edge.TargetFile, out var cycleStartIndex))
-            {
-                var cyclePath = pathStack.Skip(cycleStartIndex).Concat(new[] { edge.TargetFile }).ToList();
-                ReportCircularImportCycle(edge, cyclePath);
-                continue;
-            }
-
-            if (visitState.TryGetValue(edge.TargetFile, out var targetState) && targetState == ImportVisitState.Visited)
-                continue;
-
-            visitState[edge.TargetFile] = ImportVisitState.Visiting;
-            pathIndexByFile[edge.TargetFile] = pathStack.Count;
-            pathStack.Add(edge.TargetFile);
-            traversalStack.Add(new ImportTraversalFrame(edge.TargetFile, GetSortedImportEdges(edge.TargetFile, edgesByFile)));
-        }
-    }
-
-    private static IReadOnlyList<ImportEdge> GetSortedImportEdges(
-        string sourceFile,
-        IReadOnlyDictionary<string, List<ImportEdge>> edgesByFile)
-    {
-        return edgesByFile.TryGetValue(sourceFile, out var edges)
-            ? edges.OrderBy(edge => edge.TargetFile, StringComparer.OrdinalIgnoreCase).ToList()
-            : Array.Empty<ImportEdge>();
-    }
-
-    private void ReportCircularImportCycle(ImportEdge edge, IReadOnlyList<string> cyclePath)
-    {
-        var displayPath = FormatCyclePath(cyclePath);
-        var canonicalCycle = CanonicalizeCycle(cyclePath);
-        if (!_reportedImportCycles.Add(canonicalCycle))
-            return;
-
-        foreach (var filePath in cyclePath.Take(Math.Max(0, cyclePath.Count - 1)))
+        foreach (var filePath in cycle.Path.Take(Math.Max(0, cycle.Path.Count - 1)))
         {
             _filesInReportedImportCycles.Add(Path.GetFullPath(filePath));
         }
@@ -373,10 +318,11 @@ public class MultiFileCompiler
         if (_allErrors.Count(error => error.Code == ErrorCode.CircularImport) >= MaxReportedImportCycles)
             return;
 
+        var edge = cycle.Edge;
         var sourceSnippet = TryReadSourceLine(edge.SourceFile, edge.Line);
         _allErrors.Add(new CompilerError(
             ErrorCode.CircularImport,
-            $"Circular import detected: {displayPath}",
+            $"Circular import detected: {cycle.DisplayPath}",
             edge.Line,
             edge.Column,
             ErrorSeverity.Error)
@@ -384,54 +330,13 @@ public class MultiFileCompiler
             FileName = edge.SourceFile,
             SourceSnippet = sourceSnippet,
             Length = Math.Max(1, edge.Length),
-            HumanExplanation = $"File imports form a cycle: {displayPath}",
+            HumanExplanation = $"File imports form a cycle: {cycle.DisplayPath}",
             ContextualHint =
                 "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
-                $"Import path: {displayPath}",
+                $"Import path: {cycle.DisplayPath}",
             Suggestion = "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
             DocsUrl = "https://docs.n-sharp.dev/errors/NL703"
         });
-    }
-
-    private string FormatCyclePath(IReadOnlyList<string> cyclePath)
-    {
-        var displayNodes = cyclePath.Select(GetProjectRelativeDisplayPath).ToList();
-        if (displayNodes.Count <= MaxDisplayedImportCycleNodes)
-            return string.Join(" -> ", displayNodes);
-
-        const int headCount = 6;
-        const int tailCount = 3;
-        var omittedCount = displayNodes.Count - headCount - tailCount;
-        var boundedNodes = displayNodes
-            .Take(headCount)
-            .Concat(new[] { $"... ({omittedCount} more imports)" })
-            .Concat(displayNodes.Skip(displayNodes.Count - tailCount));
-        return string.Join(" -> ", boundedNodes);
-    }
-
-    private string GetProjectRelativeDisplayPath(string filePath)
-    {
-        try
-        {
-            return Path.GetRelativePath(_projectRoot, filePath).Replace('\\', '/');
-        }
-        catch
-        {
-            return Path.GetFileName(filePath);
-        }
-    }
-
-    private static string CanonicalizeCycle(IReadOnlyList<string> cyclePath)
-    {
-        var nodes = cyclePath.Take(Math.Max(0, cyclePath.Count - 1))
-            .Select(Path.GetFullPath)
-            .ToList();
-        if (nodes.Count == 0)
-            return string.Empty;
-
-        var rotations = Enumerable.Range(0, nodes.Count)
-            .Select(index => string.Join("->", nodes.Skip(index).Concat(nodes.Take(index))));
-        return rotations.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).First();
     }
 
     private string? TryReadSourceLine(string filePath, int line)
