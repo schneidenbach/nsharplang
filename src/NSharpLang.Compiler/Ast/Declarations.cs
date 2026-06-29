@@ -56,11 +56,6 @@ public record Parameter(
     bool IsScoped = false,
     string? Lifetime = null);
 
-public record GenericConstraint(
-    string TypeParameter,
-    List<TypeReference> Constraints,
-    SpecialConstraintKind SpecialConstraints = SpecialConstraintKind.None);
-
 // Class declaration
 public record ClassDeclaration(
     string Name,
