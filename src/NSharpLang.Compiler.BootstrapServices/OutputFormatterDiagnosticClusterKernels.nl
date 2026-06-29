@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections.Generic
+import System.Text
 
 public class DiagnosticClusterTraitClassification {
     categoriesValue: int[]
@@ -97,6 +98,67 @@ public class OutputFormatterDiagnosticClusterKernels {
             scratch.Counts,
             scratch.MemberStarts,
             scratch.MemberIndices)
+    }
+
+    public static func NormalizeMessagePattern(message: string): string {
+        if string.IsNullOrWhiteSpace(message) {
+            return "unknown-message"
+        }
+
+        builder := new StringBuilder(message.Length)
+        inQuoted := false
+        index := 0
+        while index < message.Length {
+            ch := message[index]
+            if ch == '\'' || ch == '"' {
+                inQuoted = !inQuoted
+                if inQuoted {
+                    builder.Append("{value}")
+                }
+
+                index = index + 1
+                continue
+            }
+
+            if !inQuoted {
+                if char.IsDigit(ch) {
+                    builder.Append('#')
+                } else {
+                    builder.Append(ch)
+                }
+            }
+
+            index = index + 1
+        }
+
+        return builder.ToString().Trim()
+    }
+
+    public static func CreateDiagnosticClusterId(
+        code: string,
+        severity: string,
+        category: string,
+        sourceConstruct: string,
+        recipe: string,
+        messagePattern: string): string {
+        key := code + "|" + severity + "|" + category + "|" + sourceConstruct + "|" + recipe + "|" + messagePattern
+        hash := 17
+        index := 0
+        while index < key.Length {
+            hash = hash * 31 + Convert.ToInt32(key[index])
+            index = index + 1
+        }
+
+        if hash < 0 {
+            hash = 0 - hash
+        }
+
+        return "diag-" + PositiveIntToLowerHex(hash)
+    }
+
+    public static func BuildDiagnosticClusterNextCommand(root: DiagnosticResult): string {
+        fileText := EscapeCommandArgument(root.File)
+        return "nlc query inspect --file " + fileText + " --pos " + root.Line.ToString() + ":" + root.Column.ToString()
     }
 
     static func DiagnosticList(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
@@ -448,6 +510,68 @@ public class OutputFormatterDiagnosticClusterKernels {
         hash = hash * 31 + riskId
         hash = hash * 31 + messagePatternId
         return hash
+    }
+
+    static func PositiveIntToLowerHex(value: int): string {
+        if value == 0 {
+            return "0"
+        }
+
+        digits := "0123456789abcdef"
+        result := ""
+        current := value
+        while current > 0 {
+            digit := current % 16
+            result = digits.Substring(digit, 1) + result
+            current = current / 16
+        }
+
+        return result
+    }
+
+    static func EscapeCommandArgument(value: string): string {
+        if string.IsNullOrWhiteSpace(value) {
+            return "\"\""
+        }
+
+        index := 0
+        while index < value.Length {
+            if !IsUnquotedCommandArgumentChar(value[index]) {
+                return QuoteCommandArgument(value)
+            }
+
+            index = index + 1
+        }
+
+        return value
+    }
+
+    static func QuoteCommandArgument(value: string): string {
+        builder := new StringBuilder(value.Length + 2)
+        builder.Append('"')
+
+        index := 0
+        while index < value.Length {
+            ch := value[index]
+            if ch == '\\' {
+                builder.Append('\\')
+                builder.Append('\\')
+            } else if ch == '"' {
+                builder.Append('\\')
+                builder.Append('"')
+            } else {
+                builder.Append(ch)
+            }
+
+            index = index + 1
+        }
+
+        builder.Append('"')
+        return builder.ToString()
+    }
+
+    static func IsUnquotedCommandArgumentChar(ch: char): bool {
+        return char.IsLetterOrDigit(ch) || ch == '/' || ch == '.' || ch == '_' || ch == '-'
     }
 
     static func PositiveModulo(value: int, divisor: int): int {

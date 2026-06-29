@@ -1010,7 +1010,13 @@ public static class OutputFormatter
         var files = OutputFormatterReferenceFileKernels.BuildDiagnosticClusterFiles(ordered);
 
         return new DiagnosticCluster(
-            Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
+            Id: OutputFormatterDiagnosticClusterKernels.CreateDiagnosticClusterId(
+                root.Code,
+                root.Severity,
+                traits.Category,
+                traits.SourceConstruct,
+                traits.Recipe,
+                traits.MessagePattern),
             Category: traits.Category,
             Recipe: traits.Recipe,
             Risk: traits.Risk,
@@ -1024,7 +1030,7 @@ public static class OutputFormatter
                 d.Line,
                 d.Column,
                 d.Message)).ToArray(),
-            NextCommand: BuildDiagnosticClusterNextCommand(root),
+            NextCommand: OutputFormatterDiagnosticClusterKernels.BuildDiagnosticClusterNextCommand(root),
             RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
             MessagePattern: traits.MessagePattern,
             SourceConstruct: traits.SourceConstruct,
@@ -1049,7 +1055,7 @@ public static class OutputFormatter
         for (var i = 0; i < results.Count; i++)
         {
             var diagnostic = results[i];
-            var messagePattern = NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
+            var messagePattern = OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
             var normalized = Normalize(diagnostic);
             messagePatterns[i] = messagePattern;
             diagnostics[i] = normalized;
@@ -1200,60 +1206,6 @@ public static class OutputFormatter
             sb.AppendLine($"  ... {clusters.Count - 10} more cluster{(clusters.Count - 10 == 1 ? "" : "s")} omitted; use --json for the full AI-consumable cluster list.");
         }
         sb.AppendLine();
-    }
-
-    private static string NormalizeMessagePattern(string message)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-            return "unknown-message";
-
-        var builder = new StringBuilder(message.Length);
-        var inQuoted = false;
-        foreach (var c in message)
-        {
-            if (c == '\'' || c == '"')
-            {
-                inQuoted = !inQuoted;
-                if (inQuoted)
-                    builder.Append("{value}");
-                continue;
-            }
-
-            if (!inQuoted)
-            {
-                builder.Append(char.IsDigit(c) ? '#' : c);
-            }
-        }
-
-        return builder.ToString().Trim();
-    }
-
-    private static string CreateClusterId(string code, string severity, string category, string sourceConstruct, string recipe, string messagePattern)
-    {
-        var key = $"{code}|{severity}|{category}|{sourceConstruct}|{recipe}|{messagePattern}";
-        var hash = 17;
-        foreach (var c in key)
-        {
-            hash = (hash * 31) + c;
-        }
-        return $"diag-{Math.Abs(hash):x}";
-    }
-
-    private static string BuildDiagnosticClusterNextCommand(DiagnosticResult root)
-    {
-        var file = EscapeCommandArgument(root.File);
-        return $"nlc query inspect --file {file} --pos {root.Line}:{root.Column}";
-    }
-
-    private static string EscapeCommandArgument(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "\"\"";
-
-        if (value.All(c => char.IsLetterOrDigit(c) || c is '/' or '.' or '_' or '-'))
-            return value;
-
-        return $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     }
 
     // ── Elm-Style Text Output ──────────────────────────────────────────

@@ -173,6 +173,11 @@ public class TupleTypeElementInfo {
         Name = name
         Type = elementType
     }
+
+    public func Deconstruct(out name: string?, out elementType: TypeInfo) {
+        name = Name
+        elementType = Type
+    }
 }
 
 public class TupleTypeInfo: TypeInfo {
