@@ -222,3 +222,30 @@ public class ColumnarStructInput {
         TypeParamNames = typeParamNames ?? new string[](0)
     }
 }
+
+public class ColumnarInterfaceInput {
+    Name: string
+    BaseInterfaceNames: string[]
+    MethodNames: string[]
+    MethodReturnCanonicals: string[]
+    MethodParamNames: string[][]
+    MethodParamCanonicals: string[][]
+    MethodBodies: ColumnarFunctionInput?[]
+
+    constructor(
+        name: string,
+        baseInterfaceNames: string[],
+        methodNames: string[],
+        methodReturnCanonicals: string[],
+        methodParamNames: string[][],
+        methodParamCanonicals: string[][],
+        methodBodies: ColumnarFunctionInput?[]? = null) {
+        Name = name
+        BaseInterfaceNames = baseInterfaceNames
+        MethodNames = methodNames
+        MethodReturnCanonicals = methodReturnCanonicals
+        MethodParamNames = methodParamNames
+        MethodParamCanonicals = methodParamCanonicals
+        MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+    }
+}

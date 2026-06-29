@@ -46,35 +46,6 @@ internal sealed class ColumnarProgramInput
 }
 
 /// <summary>
-/// One top-level `interface` declaration: the name plus its abstract METHOD SIGNATURES (names,
-/// return canonicals, parameter names/canonicals — no bodies). Members beyond plain method
-/// signatures (default bodies, bare fields, properties, generics, where-clauses) decline at the
-/// kernel/adapter, matching IF-1's modeled surface.
-/// </summary>
-internal sealed class ColumnarInterfaceInput
-{
-    internal ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
-        string[][] methodParamNames, string[][] methodParamCanonicals, ColumnarFunctionInput?[]? methodBodies = null)
-    {
-        Name = name;
-        BaseInterfaceNames = baseInterfaceNames;
-        MethodNames = methodNames;
-        MethodReturnCanonicals = methodReturnCanonicals;
-        MethodParamNames = methodParamNames;
-        MethodParamCanonicals = methodParamCanonicals;
-        MethodBodies = methodBodies ?? new ColumnarFunctionInput?[methodNames.Length];
-    }
-
-    internal string Name { get; }
-    internal string[] BaseInterfaceNames { get; }
-    internal string[] MethodNames { get; }
-    internal string[] MethodReturnCanonicals { get; }
-    internal string[][] MethodParamNames { get; }
-    internal string[][] MethodParamCanonicals { get; }
-    internal ColumnarFunctionInput?[] MethodBodies { get; }
-}
-
-/// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
 /// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
 /// against the builder handles directly — never <c>GetField</c>, which throws on an un-finalized TypeBuilder). Built
