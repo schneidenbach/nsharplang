@@ -415,7 +415,7 @@ public class MultiFileCompiler
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
-                AddRequiredColumnarEmitOnlyEmissionError(assemblyName);
+                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmitOnlyEmissionError(assemblyName));
             }
 
             var emitOnlySuccess = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
@@ -459,15 +459,15 @@ public class MultiFileCompiler
             {
                 if (AotMode)
                 {
-                    AddRequiredColumnarAotEmissionError(assemblyName);
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredAotEmissionError(assemblyName));
                 }
                 else if (RequiresColumnarSoaEmission())
                 {
-                    AddRequiredColumnarSoaEmissionError(assemblyName);
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredSoaEmissionError(assemblyName));
                 }
                 else
                 {
-                    AddRequiredColumnarEmissionError(assemblyName);
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionError(assemblyName));
                 }
             }
         }
@@ -510,62 +510,6 @@ public class MultiFileCompiler
 
     private bool RequiresColumnarSoaEmission()
         => SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations));
-
-    private void AddRequiredColumnarAotEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar AOT emission is required for '{assemblyName}', but the columnar backend declined.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "AOT builds require successful N# columnar emission after analysis passes.",
-            Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
-        });
-    }
-
-    private void AddRequiredColumnarEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar emission is required for '{assemblyName}', but the columnar backend declined.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "This product path requires successful N# columnar emission after analysis passes.",
-            Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
-        });
-    }
-
-    private void AddRequiredColumnarEmitOnlyEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar emission is required for '{assemblyName}', but the columnar backend declined.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "This emit-only path bypasses the legacy C# AST/Analyzer and requires successful N# columnar emission.",
-            Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
-        });
-    }
-
-    private void AddRequiredColumnarSoaEmissionError(string assemblyName)
-    {
-        _allErrors.Add(new CompilerError(
-            ErrorCode.InvalidSyntax,
-            $"Columnar SoA emission is required for '{assemblyName}', but the columnar backend declined.",
-            0,
-            0,
-            ErrorSeverity.Error)
-        {
-            HumanExplanation = "Experimental SoA records are the compiler table migration path and require successful N# columnar emission.",
-            Suggestion = "Port the rejected table shape to the columnar backend, or disable NSHARP_EXPERIMENTAL_SOA until that shape is supported."
-        });
-    }
 
     private static bool ContainsSoaRecordDeclaration(IEnumerable<Declaration> declarations)
     {
