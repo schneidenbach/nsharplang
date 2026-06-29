@@ -1391,6 +1391,47 @@ func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int)
     return builder.ToString()
 }
 
+func ParserDeclarationMemberModifierKind(kind: int): int {
+    if kind == 63 {
+        return 2
+    }
+    if kind == 64 || kind == 65 || kind == 66 || kind == 67 {
+        return 1
+    }
+    return 0
+}
+
+func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: int, pos: int, result: &ParserDeclarationResultTable): int {
+    if pos < 0 || pos > count || result.Values.Length < 2 {
+        return -1
+    }
+
+    result.Values[0] = 0
+    result.Values[1] = 0
+    while pos < count {
+        modifierKind := ParserDeclarationMemberModifierKind(tokens.Kinds[pos])
+        if modifierKind == 0 {
+            break
+        }
+
+        if modifierKind == 2 {
+            if result.Values[0] == 1 {
+                return -1
+            }
+            result.Values[0] = 1
+        } else {
+            result.Values[1] = result.Values[1] + 1
+            if result.Values[1] > 1 {
+                return -1
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    return pos
+}
+
 // Parse one struct/class/record declaration into wrapper-owned declaration tables. The flattened
 // ParseStructDeclaration* ABIs live in the parity corpus; product callers compose this core directly.
 func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
@@ -1491,82 +1532,23 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     fieldCount := 0
     propCount := 0
     fieldsDone := 0
+    memberModifierValues := new int[](2)
+    memberModifiers := new ParserDeclarationResultTable { Values: memberModifierValues }
     while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 {
-        if tokens.Kinds[pos] == 63 && pos + 1 < count && tokens.Kinds[pos + 1] == 7 {
+        memberStart := ParseMemberModifierPrefixCore(ref tokens, count, pos, ref memberModifiers)
+        if memberStart < 0 || memberStart >= count {
+            return -1
+        }
+
+        if tokens.Kinds[memberStart] == 7 {
             fieldsDone = 1
-        } else if tokens.Kinds[pos] == 63 {
-            // STATIC FIELD `static name: Type [= <literal>]` or STATIC PROPERTY `static name: Type { ... }` —
-            // requires id `:` id; a `{` after the type is the property form (recorded into outPropIndices with
-            // outPropStaticFlags = 1, accessor block skipped like an instance property); a non-literal
-            // initializer is a general expression (unmodelled, -1).
-            if pos + 3 >= count || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 122 || tokens.Kinds[pos + 3] != 0 {
-                return -1
-            }
-            if pos + 4 < count && tokens.Kinds[pos + 4] == 129 {
-                decl.PropIndices[propCount] = pos + 1
-                decl.PropStaticFlags[propCount] = 1
-                propCount = propCount + 1
-                pos = pos + 4
-
-                sdepth := 0
-                sdone := 0
-                while pos < count && sdone == 0 {
-                    if tokens.Kinds[pos] == 129 {
-                        sdepth = sdepth + 1
-                    } else if tokens.Kinds[pos] == 130 {
-                        sdepth = sdepth - 1
-                        if sdepth == 0 {
-                            sdone = 1
-                        }
-                    }
-                    pos = pos + 1
-                }
-                if sdone == 0 {
-                    return -1
-                }
-                continue
-            }
-            decl.FieldNameStarts[fieldCount] = tokens.Starts[pos + 1]
-            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[pos + 1]
-            decl.FieldTypeStarts[fieldCount] = tokens.Starts[pos + 3]
-            decl.FieldTypeLengths[fieldCount] = tokens.ValueLengths[pos + 3]
-            decl.FieldStaticFlags[fieldCount] = 1
-            decl.FieldInitKinds[fieldCount] = -1
-            decl.FieldInitStarts[fieldCount] = -1
-            decl.FieldInitLengths[fieldCount] = 0
-            pos = pos + 4
-
-            if pos < count && tokens.Kinds[pos] == 93 {
-                pos = pos + 1
-                initStart := pos
-                if pos < count && tokens.Kinds[pos] == 89 {
-                    pos = pos + 1
-                    if pos >= count || (tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 2) {
-                        return -1
-                    }
-                } else {
-                    if pos >= count {
-                        return -1
-                    }
-                    k := tokens.Kinds[pos]
-                    if k != 1 && k != 2 && k != 3 && k != 4 && k != 44 && k != 45 {
-                        return -1
-                    }
-                }
-                decl.FieldInitKinds[fieldCount] = tokens.Kinds[pos]
-                decl.FieldInitStarts[fieldCount] = tokens.Starts[initStart]
-                decl.FieldInitLengths[fieldCount] = tokens.Starts[pos] + tokens.ValueLengths[pos] - tokens.Starts[initStart]
-                pos = pos + 1
-            }
-
-            fieldCount = fieldCount + 1
-        } else if tokens.Kinds[pos] == 0 && pos + 1 < count && tokens.Kinds[pos + 1] == 127 {
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             fieldsDone = 1
-        } else if tokens.Kinds[pos] == 0 && pos + 3 < count && tokens.Kinds[pos + 1] == 122 && tokens.Kinds[pos + 2] == 0 && tokens.Kinds[pos + 3] == 129 {
-            decl.PropIndices[propCount] = pos
-            decl.PropStaticFlags[propCount] = 0
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 3 < count && tokens.Kinds[memberStart + 1] == 122 && tokens.Kinds[memberStart + 2] == 0 && tokens.Kinds[memberStart + 3] == 129 {
+            decl.PropIndices[propCount] = memberStart
+            decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
             propCount = propCount + 1
-            pos = pos + 3
+            pos = memberStart + 3
 
             pdepth := 0
             pdone := 0
@@ -1585,12 +1567,12 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
                 return -1
             }
         } else {
-            if tokens.Kinds[pos] != 0 {
+            if tokens.Kinds[memberStart] != 0 {
                 return -1
             }
-            decl.FieldNameStarts[fieldCount] = tokens.Starts[pos]
-            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[pos]
-            pos = pos + 1
+            decl.FieldNameStarts[fieldCount] = tokens.Starts[memberStart]
+            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[memberStart]
+            pos = memberStart + 1
 
             if pos >= count || tokens.Kinds[pos] != 122 {
                 return -1
@@ -1675,7 +1657,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             }
             decl.FieldTypeStarts[fieldCount] = fieldTypeStart
             decl.FieldTypeLengths[fieldCount] = fieldTypeEnd - fieldTypeStart
-            decl.FieldStaticFlags[fieldCount] = 0
+            decl.FieldStaticFlags[fieldCount] = memberModifiers.Values[0]
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
@@ -1696,20 +1678,23 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     methodCount := 0
     ctorCount := 0
     while pos < count && tokens.Kinds[pos] != 130 {
-        if tokens.Kinds[pos] == 7 {
-            decl.MethodFuncIndices[methodCount] = pos
-            decl.MethodStaticFlags[methodCount] = 0
+        memberStart := ParseMemberModifierPrefixCore(ref tokens, count, pos, ref memberModifiers)
+        if memberStart < 0 || memberStart >= count {
+            return -1
+        }
+
+        if tokens.Kinds[memberStart] == 7 {
+            decl.MethodFuncIndices[methodCount] = memberStart
+            decl.MethodStaticFlags[methodCount] = memberModifiers.Values[0]
             methodCount = methodCount + 1
-            pos = pos + 1
-        } else if tokens.Kinds[pos] == 63 && pos + 1 < count && tokens.Kinds[pos + 1] == 7 {
-            decl.MethodFuncIndices[methodCount] = pos + 1
-            decl.MethodStaticFlags[methodCount] = 1
-            methodCount = methodCount + 1
-            pos = pos + 2
-        } else if tokens.Kinds[pos] == 0 && pos + 1 < count && tokens.Kinds[pos + 1] == 127 {
-            decl.CtorIndices[ctorCount] = pos
+            pos = memberStart + 1
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
+            if memberModifiers.Values[0] == 1 {
+                return -1
+            }
+            decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
-            pos = pos + 1
+            pos = memberStart + 1
         } else {
             return -1
         }
