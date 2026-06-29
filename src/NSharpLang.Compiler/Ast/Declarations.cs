@@ -232,18 +232,6 @@ public class UnionTypeReference : TypeReference
     public override string ToString() => string.Join(" | ", Arms);
 }
 
-public class FunctionTypeReference : TypeReference
-{
-    public List<TypeReference> ParameterTypes { get; }
-    public TypeReference ReturnType { get; }
-
-    public FunctionTypeReference(List<TypeReference> parameterTypes, TypeReference returnType)
-    {
-        ParameterTypes = parameterTypes;
-        ReturnType = returnType;
-    }
-}
-
 // Test declaration (for .tests.nl files)
 public record TestDeclaration(
     string Description,

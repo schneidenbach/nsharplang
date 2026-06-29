@@ -70,6 +70,16 @@ public class GenericTypeReference: TypeReference {
     }
 }
 
+public class FunctionTypeReference: TypeReference {
+    ParameterTypes: List<TypeReference>
+    ReturnType: TypeReference
+
+    constructor(parameterTypes: List<TypeReference>, returnType: TypeReference) {
+        ParameterTypes = parameterTypes
+        ReturnType = returnType
+    }
+}
+
 public class ByRefTypeReference: TypeReference {
     InnerType: TypeReference
 
