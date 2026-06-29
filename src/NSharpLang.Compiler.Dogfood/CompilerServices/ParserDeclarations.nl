@@ -872,7 +872,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
                 headerWalk = headerWalk - 1
             }
 
-            if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18) {
+            if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18) {
                 return 0
             }
         }

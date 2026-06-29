@@ -48,9 +48,17 @@
       Sources="@(_NSharpDogfoodSources)"
       ProjectRoot="$(NSharpDogfoodProjectRoot)"
       ProjectFile="$(NSharpDogfoodProjectFile)"
-      TargetAssemblyPath="$(NSharpDogfoodOutputPath)" />
+      TargetAssemblyPath="$(NSharpDogfoodOutputPath)"
+      ValidateWithLegacyAnalysis="false" />
+    <Copy
+      SourceFiles="$(NSharpDogfoodOutputPath)"
+      DestinationFiles="$(_NSharpDogfoodBuildTasksCompilerServices)"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(NSharpDogfoodOutputPath)') And '$(NSharpDogfoodOutputPath)' != '$(_NSharpDogfoodBuildTasksCompilerServices)'" />
     <ItemGroup>
       <FileWrites Include="$(NSharpDogfoodOutputPath)" />
+      <FileWrites Include="$(_NSharpDogfoodBuildTasksCompilerServices)"
+                  Condition="Exists('$(_NSharpDogfoodBuildTasksCompilerServices)')" />
     </ItemGroup>
   </Target>
 
