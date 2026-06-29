@@ -486,6 +486,13 @@ echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 copy_source_tree
 mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
 
+BOOTSTRAP_NUGET_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+BOOTSTRAP_SDK_PACKAGE="$BOOTSTRAP_NUGET_PACKAGES/nsharplang.sdk"
+if [ -d "$BOOTSTRAP_SDK_PACKAGE" ] && [ ! -d "$RUN_DEPS/nuget/packages/nsharplang.sdk" ]; then
+    mkdir -p "$RUN_DEPS/nuget/packages"
+    cp -R "$BOOTSTRAP_SDK_PACKAGE" "$RUN_DEPS/nuget/packages/"
+fi
+
 START_TIME="$(date +%s)"
 
 set +e
