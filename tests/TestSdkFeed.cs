@@ -251,6 +251,7 @@ targetFramework: net10.0
     {
         var roots = new[]
         {
+            Path.Combine(repoRoot, "src", "NSharpLang.Compiler.BootstrapServices"),
             Path.Combine(repoRoot, "src", "NSharpLang.Compiler"),
             Path.Combine(repoRoot, "src", "NSharpLang.Build.Tasks"),
             Path.Combine(repoRoot, "src", "NSharpLang.Runtime"),
