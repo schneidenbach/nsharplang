@@ -438,10 +438,7 @@ public static class OutputFormatter
             command = "trusted",
             ok = true,
             projectRoot = NormalizePath(projectRoot),
-            results = report.TrustedSites.Select(site => site with
-            {
-                File = NormalizePath(site.File) ?? site.File
-            }).ToArray(),
+            results = report.TrustedSites.Select(Normalize).ToArray(),
             summary = new { trustedSites = report.TrustedSites.Count }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -457,20 +454,59 @@ public static class OutputFormatter
             report.AotTarget,
             aot = report.Aot,
             warmup = report.Warmup,
-            functions = report.Functions.Select(function => function with
-            {
-                File = NormalizePath(function.File) ?? function.File
-            }).ToArray(),
-            findings = report.Findings.Select(finding => finding with
-            {
-                File = NormalizePath(finding.File) ?? finding.File
-            }).ToArray(),
-            trustedSites = report.TrustedSites.Select(site => site with
-            {
-                File = NormalizePath(site.File) ?? site.File
-            }).ToArray(),
+            functions = report.Functions.Select(Normalize).ToArray(),
+            findings = report.Findings.Select(Normalize).ToArray(),
+            trustedSites = report.TrustedSites.Select(Normalize).ToArray(),
             report.Summary
         };
+    }
+
+    private static SystemsFunctionSummary Normalize(SystemsFunctionSummary function)
+    {
+        return new SystemsFunctionSummary(
+            function.Name,
+            NormalizePath(function.File) ?? function.File,
+            function.Line,
+            function.Column,
+            function.IsHot,
+            function.IsBoundary,
+            function.AllocNone,
+            function.SummarySource,
+            function.Effects,
+            function.Calls);
+    }
+
+    private static SystemsFinding Normalize(SystemsFinding finding)
+    {
+        return new SystemsFinding(
+            finding.Code,
+            finding.Severity,
+            finding.Effect,
+            finding.Message,
+            NormalizePath(finding.File) ?? finding.File,
+            finding.Line,
+            finding.Column,
+            finding.Length,
+            finding.Function,
+            finding.Policy,
+            finding.SummarySource,
+            finding.Suggestion,
+            finding.CallPath);
+    }
+
+    private static SystemsTrustedSite Normalize(SystemsTrustedSite site)
+    {
+        return new SystemsTrustedSite(
+            site.Function,
+            NormalizePath(site.File) ?? site.File,
+            site.Line,
+            site.Column,
+            site.Reason,
+            site.Owner,
+            site.Review,
+            site.Expires,
+            site.HasUnsafe,
+            site.BodyStatementCount);
     }
 
     public static string PerfToJson(string file, int line, int col, string? projectRoot,
