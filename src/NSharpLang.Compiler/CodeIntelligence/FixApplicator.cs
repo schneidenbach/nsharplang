@@ -90,43 +90,19 @@ public static class FixApplicator
         if (code == 0)
             return;
 
-        throw CreateValidationException(code, errorInfo, sortedEdits);
+        throw CreateValidationException(code, errorInfo, inputs);
     }
 
-    private static InvalidOperationException CreateValidationException(int code, int[] errorInfo, List<TextEdit> sortedEdits)
+    private static InvalidOperationException CreateValidationException(int code, int[] errorInfo, EditInputs inputs)
     {
-        if (code == 1)
-        {
-            var edit = sortedEdits[errorInfo[0]];
-            return new InvalidOperationException(
-                $"Invalid edit position: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}). " +
-                "Lines are 1-based and columns must be non-negative.");
-        }
-
-        if (code == 2)
-        {
-            var edit = sortedEdits[errorInfo[0]];
-            return new InvalidOperationException(
-                $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) ends before it starts.");
-        }
-
-        if (code == 3)
-        {
-            var low = sortedEdits[errorInfo[0]];
-            var high = sortedEdits[errorInfo[1]];
-            return new InvalidOperationException(
-                $"Overlapping edits detected: edit at ({low.StartLine},{low.StartColumn})..({low.EndLine},{low.EndColumn}) " +
-                $"overlaps with edit at ({high.StartLine},{high.StartColumn})..({high.EndLine},{high.EndColumn})");
-        }
-
-        if (code == 4)
-        {
-            var edit = sortedEdits[errorInfo[0]];
-            return new InvalidOperationException(
-                $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) is outside the document.");
-        }
-
-        return new InvalidOperationException("N# fix applicator kernel rejected the edit validation.");
+        return new InvalidOperationException(FixApplicatorValidationMessages.BuildValidationMessage(
+            code,
+            errorInfo,
+            inputs.StartLines,
+            inputs.StartColumns,
+            inputs.EndLines,
+            inputs.EndColumns,
+            inputs.Count));
     }
 
     private static EditInputs MaterializeEditInputs(IReadOnlyList<TextEdit> edits)
