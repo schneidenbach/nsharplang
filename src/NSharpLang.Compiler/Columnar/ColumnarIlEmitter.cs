@@ -74,69 +74,6 @@ internal sealed class ColumnarInterfaceInput
     internal ColumnarFunctionInput?[] MethodBodies { get; }
 }
 
-internal sealed class ColumnarStructInput
-{
-    internal ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string[]? baseNames = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
-    {
-        Name = name;
-        FieldNames = fieldNames;
-        FieldTypeCanonicals = fieldTypeCanonicals;
-        Methods = methods;
-        Constructors = constructors;
-        Properties = properties;
-        IsReference = isReference;
-        BaseNames = baseNames ?? Array.Empty<string>();
-        FieldStaticFlags = fieldStaticFlags;
-        FieldInitKinds = fieldInitKinds;
-        FieldInitTexts = fieldInitTexts;
-        IsRecord = isRecord;
-        TypeParamNames = typeParamNames;
-    }
-
-    internal string Name { get; }
-    internal string[] FieldNames { get; }
-    internal string[] FieldTypeCanonicals { get; }
-    // Instance methods declared in the struct body (parsed exactly like a top-level function — signature + body
-    // node tables). Models scalar/struct-returning methods (with or without parameters) reading fields by bare name.
-    internal IReadOnlyList<ColumnarFunctionInput> Methods { get; }
-    // User CONSTRUCTORS declared in the body (reference types only this slice). Each is parsed like a function whose
-    // name is "constructor" and whose return is void — its params + body node tables drive a DefineConstructor + a
-    // ctor body (base call + field assignments). Empty when the type has no user constructor (object-init only).
-    internal IReadOnlyList<ColumnarConstructorInput> Constructors { get; }
-    // Get-only computed PROPERTIES declared in the body (reference types this slice). Each drives a get_Name instance
-    // method; a `receiver.Name` read resolves to a call of it.
-    internal IReadOnlyList<ColumnarPropertyInput> Properties { get; }
-    // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
-    // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
-    internal bool IsReference { get; }
-    // The optional colon-list names (`class D: Base, IFace`, `struct S: IFace`). The emitter resolves the names:
-    // at most one class base on a class, all interface names become implemented interfaces, and unsupported names
-    // decline instead of silently changing type identity.
-    internal string[] BaseNames { get; }
-    // Per-field STATIC flags, positionally aligned with FieldNames (null = all instance, for older callers). A
-    // static field is CLR-static on the type (FieldAttributes.Static), excluded from the instance FieldOrder
-    // (object-init / positional construction never bind it), and accessed via `TypeName.field` (or bare inside an
-    // INSTANCE member body — the N# pipeline's pinned asymmetry: bare static-field access resolves in instance
-    // contexts but NOT in static ones).
-    internal bool[]? FieldStaticFlags { get; }
-    // Per-field INITIALIZER literal token kinds (-1 = none): IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
-    // StringLiteral 4 / true 44 / false 45. Static fields only (the kernel declines instance-field initializers).
-    internal int[]? FieldInitKinds { get; }
-    // The initializer's literal source text (incl. an optional leading `-` on numerics), aligned with
-    // FieldInitKinds; null where no initializer. Emitted into the type's .cctor in declaration order.
-    internal string?[]? FieldInitTexts { get; }
-    // True for a RECORD declaration (keyword 13). Records are reference types like classes, but the previous parity baseline
-    // emits them SEALED — a record can never appear as a BASE type, and record inheritance itself is unmodelled;
-    // PASS 0a' declines both shapes by this flag.
-    internal bool IsRecord { get; }
-    // Generic type parameters declared on the type (`class Box<T>` → ["T"]), or null for a non-generic type.
-    // The adapter already declines generic RECORDS (columnar does not yet model the legacy emitter's backing-field
-    // lowering for init-only members on closed generics — the .NET 10 PersistedAssemblyBuilder modreq-drop
-    // workaround) and generic types WITH a base. PASS 0 declares them
-    // via DefineGenericParameters; member signatures resolve these names before any other type lookup.
-    internal string[]? TypeParamNames { get; }
-}
-
 /// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
 /// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
@@ -3151,20 +3088,20 @@ internal sealed class ColumnarIlEmitter
                 // STATIC fields typed by a generic parameter decline: `static count: T` has no single CLR
                 // storage across instantiations the modelled surface can express (the legacy emitter's behavior for
                 // these shapes is unprobed — decline-safe).
-                if (st.FieldStaticFlags != null && st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
+                if (st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
-                var isStaticField = st.FieldStaticFlags != null && st.FieldStaticFlags[fi];
+                var isStaticField = st.FieldStaticFlags[fi];
                 if (isStaticField)
                 {
                     var sfb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public | FieldAttributes.Static);
                     def.StaticFields[st.FieldNames[fi]] = sfb;
-                    var initKind = st.FieldInitKinds != null ? st.FieldInitKinds[fi] : -1;
+                    var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
-                        staticFieldInits.Add((sfb, fieldType, initKind, st.FieldInitTexts![fi]!));
+                        staticFieldInits.Add((sfb, fieldType, initKind, st.FieldInitTexts[fi]));
                     continue;
                 }
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
-                if (st.FieldInitKinds != null && st.FieldInitKinds[fi] >= 0)
+                if (st.FieldInitKinds[fi] >= 0)
                     return false;
                 var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
                 fields[st.FieldNames[fi]] = fb;

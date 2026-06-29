@@ -169,3 +169,56 @@ public class ColumnarPropertyInput {
         Setter = setter
     }
 }
+
+public class ColumnarStructInput {
+    Name: string
+    FieldNames: string[]
+    FieldTypeCanonicals: string[]
+    Methods: IReadOnlyList<ColumnarFunctionInput>
+    Constructors: IReadOnlyList<ColumnarConstructorInput>
+    Properties: IReadOnlyList<ColumnarPropertyInput>
+    IsReference: bool
+    BaseNames: string[]
+    FieldStaticFlags: bool[]
+    FieldInitKinds: int[]
+    FieldInitTexts: string[]
+    IsRecord: bool
+    TypeParamNames: string[]
+
+    constructor(
+        name: string,
+        fieldNames: string[],
+        fieldTypeCanonicals: string[],
+        methods: IReadOnlyList<ColumnarFunctionInput>,
+        constructors: IReadOnlyList<ColumnarConstructorInput>,
+        properties: IReadOnlyList<ColumnarPropertyInput>,
+        isReference: bool,
+        baseNames: string[]? = null,
+        fieldStaticFlags: bool[]? = null,
+        fieldInitKinds: int[]? = null,
+        fieldInitTexts: string[]? = null,
+        isRecord: bool = false,
+        typeParamNames: string[]? = null) {
+        Name = name
+        FieldNames = fieldNames
+        FieldTypeCanonicals = fieldTypeCanonicals
+        Methods = methods
+        Constructors = constructors
+        Properties = properties
+        IsReference = isReference
+        BaseNames = baseNames ?? new string[](0)
+        FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
+        if fieldInitKinds == null {
+            fieldInitKinds = new int[](fieldNames.Length)
+            i := 0
+            while i < fieldInitKinds.Length {
+                fieldInitKinds[i] = -1
+                i = i + 1
+            }
+        }
+        FieldInitKinds = fieldInitKinds
+        FieldInitTexts = fieldInitTexts ?? new string[](fieldNames.Length)
+        IsRecord = isRecord
+        TypeParamNames = typeParamNames ?? new string[](0)
+    }
+}

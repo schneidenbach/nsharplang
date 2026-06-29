@@ -223,22 +223,18 @@ internal static class ColumnarProgramInputBuilder
                 }
 
                 var typeParamCount = outResult[7];
-                string[]? typeParamNames = null;
-                if (typeParamCount > 0)
+                var typeParamNames = new string[typeParamCount];
+                for (var tp = 0; tp < typeParamCount; tp++)
                 {
-                    typeParamNames = new string[typeParamCount];
-                    for (var tp = 0; tp < typeParamCount; tp++)
-                    {
-                        var typeParamName = outTypeParamTexts[tp];
-                        typeParamNames[tp] = typeParamName;
-                    }
+                    var typeParamName = outTypeParamTexts[tp];
+                    typeParamNames[tp] = typeParamName;
                 }
 
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
                 var fieldStatics = new bool[fieldCount];
                 var fieldInitKinds = new int[fieldCount];
-                var fieldInitTexts = new string?[fieldCount];
+                var fieldInitTexts = new string[fieldCount];
                 for (var f = 0; f < fieldCount; f++)
                 {
                     var fieldName = outFieldNameTexts[f];
@@ -251,6 +247,10 @@ internal static class ColumnarProgramInputBuilder
                     {
                         var fieldInitText = outFieldInitTexts[f];
                         fieldInitTexts[f] = fieldInitText;
+                    }
+                    else
+                    {
+                        fieldInitTexts[f] = "";
                     }
                 }
 
