@@ -45,7 +45,7 @@ internal static class ColumnarProgramInputBuilder
         if (declarationRowCount < 0)
             return false;
 
-        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs) || inputs.Count == 0)
+        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))
             return false;
         if (!TryGetColumnarEnumInputs(bindings, source, tokens, enumIndices, declarationResult[2], out var enums))
             return false;
@@ -103,8 +103,6 @@ internal static class ColumnarProgramInputBuilder
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            if (funcIndexCount <= 0)
-                return false;
             for (var fi = 0; fi < funcIndexCount; fi++)
             {
                 if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1))

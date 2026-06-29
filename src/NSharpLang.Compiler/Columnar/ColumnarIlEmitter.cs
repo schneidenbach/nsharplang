@@ -2701,7 +2701,7 @@ internal sealed class ColumnarIlEmitter
         var structs = program.Structs;
         var unions = program.Unions;
         var interfaces = program.Interfaces;
-        if (funcs.Count == 0)
+        if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0)
             return false;
 
         var builder = new PersistedAssemblyBuilder(new AssemblyName(assemblyName), typeof(object).Assembly);

@@ -544,7 +544,7 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &P
     functionOutputs := new TopLevelColumnarFunctionDeclarationTable { Indices: outputs.FuncIndices, AsyncFlags: outputs.FuncAsyncFlags }
     functionResult := new ParserDeclarationResultTable { Values: new int[](2) }
     functionCount := TopLevelColumnarFunctionDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref functionOutputs, ref functionResult)
-    if functionCount <= 0 {
+    if functionCount < 0 {
         return -1
     }
 
@@ -716,7 +716,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &
 
     indices := new TopLevelDeclarationIndexTable { Indices: outputs.Indices }
     funcCount := TopLevelDeclarationIndicesCore(ref compactTokens, compactCount, 7, 0, ref indices)
-    if funcCount <= 0 || funcCount > outputs.AsyncFlags.Length {
+    if funcCount < 0 || funcCount > outputs.AsyncFlags.Length {
         return -1
     }
 
