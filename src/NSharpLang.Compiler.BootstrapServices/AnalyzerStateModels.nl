@@ -20,6 +20,22 @@ public enum DiscardedExpressionContext {
     ForIterator
 }
 
+public class FlowNarrowing {
+    pathValue: string
+    narrowedTypeValue: TypeInfo?
+    nullStateValue: NullState
+
+    Path: string => pathValue
+    NarrowedType: TypeInfo? => narrowedTypeValue
+    NullState: NullState => nullStateValue
+
+    constructor(path: string, narrowedType: TypeInfo?, nullState: NullState) {
+        pathValue = path
+        narrowedTypeValue = narrowedType
+        nullStateValue = nullState
+    }
+}
+
 public class Scope {
     kindValue: ScopeKind
     symbolsValue: Dictionary<string, TypeInfo>

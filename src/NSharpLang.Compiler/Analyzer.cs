@@ -25,8 +25,6 @@ public class Analyzer : IDisposable
     /// </summary>
     private const int MatchKeywordLength = 5;
 
-    private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
-
     private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
     {
         "ToString",
@@ -4899,13 +4897,11 @@ public class Analyzer : IDisposable
         var currentScope = _scopes.Peek();
         foreach (var narrowing in narrowings)
         {
-            if (narrowing.NullState is { } nullState)
+            var nullState = narrowing.NullState;
+            currentScope.NullStates[narrowing.Path] = nullState;
+            if (nullState == NullState.Null)
             {
-                currentScope.NullStates[narrowing.Path] = nullState;
-                if (nullState == NullState.Null)
-                {
-                    MarkErrorTupleResultsAvailableForError(narrowing.Path);
-                }
+                MarkErrorTupleResultsAvailableForError(narrowing.Path);
             }
 
             if (narrowing.NarrowedType is not { } narrowedType)
