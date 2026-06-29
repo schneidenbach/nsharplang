@@ -79,6 +79,37 @@ func main() {
     }
 
     [Fact]
+    public void InlineSuppression_DisablesSpecificDiagnosticOnSameLine()
+    {
+        var source = """
+func main() {
+    unused := 5 // nlc:ignore NL001
+}
+""";
+
+        var diagnostics = LintWithSource(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'unused'"));
+    }
+
+    [Fact]
+    public void CommentSuppression_DisablesSpecificDiagnosticOnNextCodeLineOnly()
+    {
+        var source = """
+func main() {
+    // nlc:ignore NL001
+    suppressed := 5
+    reported := 6
+}
+""";
+
+        var diagnostics = LintWithSource(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'suppressed'"));
+        Assert.Contains(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'reported'"));
+    }
+
+    [Fact]
     public void NL012_UsesParameterSpan()
     {
         var source = "func greet(unusedName: string) { print \"hi\" }";
