@@ -80,6 +80,14 @@ public class FunctionTypeReference: TypeReference {
     }
 }
 
+public class UnionTypeReference: TypeReference {
+    Arms: List<TypeReference>
+
+    constructor(arms: List<TypeReference>) {
+        Arms = arms
+    }
+}
+
 public class ByRefTypeReference: TypeReference {
     InnerType: TypeReference
 

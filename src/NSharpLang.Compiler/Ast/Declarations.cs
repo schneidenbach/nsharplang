@@ -215,18 +215,6 @@ public record AttributeNode(
     int Line = 1,
     int Column = 1);
 
-public class UnionTypeReference : TypeReference
-{
-    public List<TypeReference> Arms { get; }
-
-    public UnionTypeReference(List<TypeReference> arms)
-    {
-        Arms = arms;
-    }
-
-    public override string ToString() => string.Join(" | ", Arms);
-}
-
 // Test declaration (for .tests.nl files)
 public record TestDeclaration(
     string Description,
