@@ -121,3 +121,51 @@ public class ColumnarLocalFunctionInput {
         Function = function
     }
 }
+
+public class ColumnarConstructorInput {
+    Body: ColumnarFunctionInput
+    ChainInitKind: int
+    ChainArgKinds: int[]
+    ChainArgTexts: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+    IsSynthesizedInitializer: bool
+
+    constructor(
+        body: ColumnarFunctionInput,
+        chainInitKind: int,
+        chainArgKinds: int[],
+        chainArgTexts: string[],
+        paramDefaultKinds: int[]? = null,
+        paramDefaultTexts: string[]? = null,
+        isSynthesizedInitializer: bool = false) {
+        Body = body
+        ChainInitKind = chainInitKind
+        ChainArgKinds = chainArgKinds
+        ChainArgTexts = chainArgTexts
+        ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
+        ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
+        IsSynthesizedInitializer = isSynthesizedInitializer
+    }
+}
+
+public class ColumnarPropertyInput {
+    IsStatic: bool
+    Name: string
+    TypeCanonical: string
+    Getter: ColumnarFunctionInput
+    Setter: ColumnarFunctionInput?
+
+    constructor(
+        name: string,
+        typeCanonical: string,
+        getter: ColumnarFunctionInput,
+        setter: ColumnarFunctionInput?,
+        isStatic: bool = false) {
+        IsStatic = isStatic
+        Name = name
+        TypeCanonical = typeCanonical
+        Getter = getter
+        Setter = setter
+    }
+}

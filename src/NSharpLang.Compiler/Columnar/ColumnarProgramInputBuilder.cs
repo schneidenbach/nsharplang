@@ -425,7 +425,7 @@ internal static class ColumnarProgramInputBuilder
         var paramCanonicals = new string[paramCount];
         var parsedParamModifierKinds = new int[paramCount];
         var parsedParamDefaultKinds = new int[paramCount];
-        var parsedParamDefaultTexts = new string?[paramCount];
+        var parsedParamDefaultTexts = new string[paramCount];
         string[]?[]? paramTupleNames = null;
         var flatParamTupleNameIndex = 0;
         for (var p = 0; p < paramCount; p++)
@@ -436,7 +436,7 @@ internal static class ColumnarProgramInputBuilder
             paramCanonicals[p] = paramType;
             parsedParamModifierKinds[p] = paramModifierKinds[p];
             parsedParamDefaultKinds[p] = paramDefaultKinds[p];
-            parsedParamDefaultTexts[p] = paramDefaultKinds[p] >= 0 ? paramDefaultTexts[p] : null;
+            parsedParamDefaultTexts[p] = paramDefaultKinds[p] >= 0 ? paramDefaultTexts[p] : "";
             var tupleNameCount = paramTupleNameCounts[p];
             if (tupleNameCount < 0 || flatParamTupleNameIndex + tupleNameCount > paramTupleNameTexts.Length)
                 return false;
@@ -568,7 +568,7 @@ internal static class ColumnarProgramInputBuilder
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
         var parsedParamDefaultKinds = new int[paramCount];
-        var parsedParamDefaultTexts = new string?[paramCount];
+        var parsedParamDefaultTexts = new string[paramCount];
         for (var p = 0; p < paramCount; p++)
         {
             var paramName = paramNameTexts[p];
@@ -576,7 +576,7 @@ internal static class ColumnarProgramInputBuilder
             var paramCanonical = paramTypeTexts[p];
             paramCanonicals[p] = paramCanonical;
             parsedParamDefaultKinds[p] = caKinds[p];
-            parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : null;
+            parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : "";
         }
 
         var bodyBrace = ctorResult[1];
