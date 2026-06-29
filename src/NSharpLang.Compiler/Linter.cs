@@ -1683,7 +1683,7 @@ internal class LintVisitor
             var resolvedPath = ResolveFileImportPath(importPath);
             if (resolvedPath != null)
             {
-                var exportedSymbols = ExtractExportedSymbols(resolvedPath);
+                var exportedSymbols = LinterExportedSymbolExtractor.Extract(resolvedPath);
                 if (exportedSymbols.Count > 0)
                     return exportedSymbols.Any(s => _allCodeIdentifiers.Contains(s));
             }
@@ -1716,38 +1716,6 @@ internal class LintVisitor
         }
 
         return null;
-    }
-
-    private static List<string> ExtractExportedSymbols(string filePath)
-    {
-        var symbols = new List<string>();
-            var source = File.ReadAllText(filePath);
-            var lexer = new Lexer(source, filePath);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, filePath, source);
-            var result = parser.ParseCompilationUnit();
-            if (result.CompilationUnit == null)
-                return symbols;
-
-            foreach (var decl in result.CompilationUnit.Declarations)
-            {
-                var name = decl switch
-                {
-                    ClassDeclaration c => c.Name,
-                    StructDeclaration s => s.Name,
-                    RecordDeclaration r => r.Name,
-                    SoaRecordDeclaration soa => soa.Name,
-                    InterfaceDeclaration i => i.Name,
-                    EnumDeclaration e => e.Name,
-                    UnionDeclaration u => u.Name,
-                    FunctionDeclaration f => f.Name,
-                    TypeAliasDeclaration t => t.Name,
-                    _ => null
-                };
-                if (name != null)
-                    symbols.Add(name);
-            }
-        return symbols;
     }
 
     // -------------------------------------------------------------------------

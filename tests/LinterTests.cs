@@ -30,6 +30,17 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl", source);
     }
 
+    private List<Diagnostic> LintFile(string filePath)
+    {
+        var source = File.ReadAllText(filePath);
+        var lexer = new Lexer(source, filePath);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, filePath, source);
+        var result = parser.ParseCompilationUnit();
+        var linter = new Linter();
+        return linter.Lint(result.CompilationUnit!, filePath, source);
+    }
+
     private void AssertNoDiagnostics(List<Diagnostic> diagnostics)
     {
         Assert.Empty(diagnostics);
@@ -980,6 +991,71 @@ test ""does not use the import"" {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_FileImport_UsedTopLevelType_NotFlagged()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp-linter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), @"
+class User {
+    Name: string
+}
+");
+            var mainPath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(mainPath, @"
+import ""Models""
+
+func Main() {
+    user := new User { Name: ""Ada"" }
+    _ := user
+}
+");
+
+            var diagnostics = LintFile(mainPath);
+
+            Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NL010_FileImport_NestedTypeOnly_IsFlagged()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp-linter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), @"
+class Outer {
+    class Nested {
+    }
+}
+");
+            var mainPath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(mainPath, @"
+import ""Models""
+
+func Main() {
+    value := new Nested { }
+    _ := value
+}
+");
+
+            var diagnostics = LintFile(mainPath);
+
+            Assert.Contains(diagnostics, d => d.Code == "NL010");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     #endregion
