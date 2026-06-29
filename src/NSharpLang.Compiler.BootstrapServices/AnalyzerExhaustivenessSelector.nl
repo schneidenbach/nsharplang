@@ -3,26 +3,23 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 
 public class AnalyzerExhaustivenessSelector {
-    public static func SelectMissingEnumMembers<T>(
-        members: IReadOnlyList<T>,
+    public static func SelectMissingEnumMembers(
+        members: IEnumerable<object>,
         coveredMembers: IEnumerable<string>): List<string> {
         result := new List<string>()
 
-        i := 0
-        while i < members.Count {
-            name := AnalyzerExhaustivenessName(members[i])
+        foreach member in members {
+            name := AnalyzerExhaustivenessName(member)
             if !AnalyzerExhaustivenessContainsName(coveredMembers, name) {
                 result.Add(name)
             }
-
-            i = i + 1
         }
 
         return result
     }
 
     static func AnalyzerExhaustivenessContainsName(names: IEnumerable<string>, target: string): bool {
-        for name in names {
+        foreach name in names {
             if name == target {
                 return true
             }
@@ -31,8 +28,8 @@ public class AnalyzerExhaustivenessSelector {
         return false
     }
 
-    public static func SelectMissingUnionCasesFromFlags<T>(
-        cases: IReadOnlyList<T>,
+    public static func SelectMissingUnionCasesFromFlags(
+        cases: IReadOnlyList<object>,
         coveredFlags: int[],
         partialFlags: int[],
         count: int,

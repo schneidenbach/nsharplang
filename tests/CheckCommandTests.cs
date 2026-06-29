@@ -473,7 +473,7 @@ func A() {
     }
 
     [Fact]
-    public void CheckCommand_AotVerificationDoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void CheckCommand_AotVerificationRequiresColumnarWhenColumnarDeclines()
     {
         var tempDir = CreateTempDir();
         try
@@ -513,7 +513,7 @@ func countChars(s: string): int {
     }
 
     [Fact]
-    public void CheckCommand_AotProjectReferenceDoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void CheckCommand_AotProjectReferenceRequiresColumnarWhenColumnarDeclines()
     {
         var tempDir = CreateTempDir();
         try
@@ -555,6 +555,7 @@ func Root(): int {
                 CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
 
             Assert.Equal(1, exitCode);
+            Assert.Contains("AOT builds require successful N# columnar emission", stdout);
         }
         finally
         {

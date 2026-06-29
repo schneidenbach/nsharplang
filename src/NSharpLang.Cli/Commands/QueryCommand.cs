@@ -247,14 +247,17 @@ public static class QueryCommand
         {
             foreach (var (key, value) in snapshot.PerformanceFacts.All)
             {
-                if (MatchesFile(key.File, file) && key.Line == line && key.Column == col)
+                var keyFile = key.Item1;
+                var keyLine = key.Item2;
+                var keyColumn = key.Item3;
+                if (MatchesFile(keyFile, file) && keyLine == line && keyColumn == col)
                 {
                     facts.Add(new
                     {
                         source = "performanceFacts",
-                        file = NormalizePath(key.File ?? file),
-                        line = key.Line,
-                        column = key.Column,
+                        file = NormalizePath(keyFile ?? file),
+                        line = keyLine,
+                        column = keyColumn,
                         allocation = value.Allocation.ToString(),
                         capture = value.Capture.ToString(),
                         dispatch = value.Dispatch.ToString(),

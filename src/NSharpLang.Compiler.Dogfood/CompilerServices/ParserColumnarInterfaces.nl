@@ -6,7 +6,7 @@ import "CompilerServices/ParserTypeReferences"
 
 // Product columnar interface parser wrapper. It keeps base-name span scratch columns inside N#,
 // rejects unsupported default-method local functions, and exposes only the interface/base text
-// plus method signature rows needed by the C# transition materializer.
+// plus method signature rows needed by the columnar input builder.
 
 struct ColumnarInterfaceTokenTable {
     Kinds: int[]
@@ -192,6 +192,9 @@ func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: &Columnar
         ReturnTypeTexts: new string[](1),
         ParamNameTexts: new string[](cap),
         ParamTypeTexts: new string[](cap),
+        ParamModifierKinds: new int[](cap),
+        ParamDefaultKinds: new int[](cap),
+        ParamDefaultTexts: new string[](cap),
         ParamTupleNameCounts: new int[](cap),
         ParamTupleNameTexts: new string[](cap),
         ReturnTupleNameTexts: new string[](cap),

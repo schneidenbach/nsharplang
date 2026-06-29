@@ -7,7 +7,7 @@ public class FixApplicatorTextEditOrderer {
     public static func OrderTextEdits(edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
         count := edits.Count
         editList := new List<TextEdit>()
-        for edit in edits {
+        foreach edit in edits {
             editList.Add(edit as TextEdit)
         }
 

@@ -64,10 +64,8 @@ public class ErrorReportingTests
             20,
             5,
             ErrorSeverity.Error
-        ) with
-        {
-            Suggestion = "Add wildcard pattern '_'"
-        };
+        );
+        error.Suggestion = "Add wildcard pattern '_'";
 
         var formatted = error.Format(useColors: false);
 
@@ -237,10 +235,8 @@ public class ErrorReportingTests
             10,
             5,
             ErrorSeverity.Error
-        ) with
-        {
-            Suggestion = "Custom suggestion"
-        };
+        );
+        error.Suggestion = "Custom suggestion";
 
         var formatted = error.Format(useColors: false);
 
@@ -522,11 +518,9 @@ public class ErrorReportingTests
             10,
             5,
             ErrorSeverity.Error
-        ) with
-        {
-            SourceSnippet = "x: int = \"hello\"",
-            Length = 7
-        };
+        );
+        error.SourceSnippet = "x: int = \"hello\"";
+        error.Length = 7;
 
         var formatted = error.Format(useColors: false);
 

@@ -7,24 +7,29 @@ public class ColumnarNodeTable {
     childStarts: int[]
     childCounts: int[]
     childIndices: int[]
+    spanStarts: int[]?
+    spanLengths: int[]?
 
     Kinds: int[] => kinds
     ValueLengths: int[] => valueLengths
 
     constructor(
-        kinds: int[],
-        valueStarts: int[],
-        valueLengths: int[],
-        childStarts: int[],
-        childCounts: int[],
-        childIndices: int[],
-        spanStarts: int[]? = null) {
-        this.kinds = kinds
-        this.valueStarts = valueStarts
-        this.valueLengths = valueLengths
-        this.childStarts = childStarts
-        this.childCounts = childCounts
-        this.childIndices = childIndices
+        kindsValue: int[],
+        valueStartsValue: int[],
+        valueLengthsValue: int[],
+        childStartsValue: int[],
+        childCountsValue: int[],
+        childIndicesValue: int[],
+        spanStartsValue: int[]? = null,
+        spanLengthsValue: int[]? = null) {
+        this.kinds = kindsValue
+        this.valueStarts = valueStartsValue
+        this.valueLengths = valueLengthsValue
+        this.childStarts = childStartsValue
+        this.childCounts = childCountsValue
+        this.childIndices = childIndicesValue
+        this.spanStarts = spanStartsValue
+        this.spanLengths = spanLengthsValue
     }
 
     public func Kind(index: int): int => kinds[index]
@@ -36,4 +41,22 @@ public class ColumnarNodeTable {
     public func Child(index: int, childOrdinal: int): int => childIndices[childStarts[index] + childOrdinal]
 
     public func Text(source: string, index: int): string => source.Substring(valueStarts[index], valueLengths[index])
+
+    public func SpanStart(index: int): int {
+        spans := spanStarts
+        if spans == null {
+            return valueStarts[index]
+        }
+
+        return spans[index]
+    }
+
+    public func SpanLength(index: int): int {
+        spans := spanLengths
+        if spans == null {
+            return valueLengths[index]
+        }
+
+        return spans[index]
+    }
 }

@@ -462,6 +462,13 @@ public class BclHotSummaryPack {
     static func Add(
         entries: List<HotSummaryEntry>,
         targetFramework: string,
+        method: string) {
+        Add(entries, targetFramework, method, null)
+    }
+
+    static func Add(
+        entries: List<HotSummaryEntry>,
+        targetFramework: string,
         method: string,
         effects: HotSummaryEffects? = null) {
         entry := new HotSummaryEntry()

@@ -170,21 +170,122 @@ public class OutlineEntry {
     }
 }
 
-public record DiagnosticResult(
-    Code: string,
-    Severity: string,
-    Message: string,
-    File: string,
-    Line: int,
-    Column: int,
-    Length: int,
-    SourceSnippet: string?,
-    Explanation: string?,
-    Suggestion: string?,
-    Hint: string?,
-    ExpectedType: string?,
-    ActualType: string?,
-    DocsUrl: string?) {
+public class DiagnosticResult {
+    codeValue: string
+    severityValue: string
+    messageValue: string
+    fileValue: string
+    lineValue: int
+    columnValue: int
+    lengthValue: int
+    sourceSnippetValue: string?
+    explanationValue: string?
+    suggestionValue: string?
+    hintValue: string?
+    expectedTypeValue: string?
+    actualTypeValue: string?
+    docsUrlValue: string?
+
+    Code: string {
+        get { return codeValue }
+        set { codeValue = value }
+    }
+
+    Severity: string {
+        get { return severityValue }
+        set { severityValue = value }
+    }
+
+    Message: string {
+        get { return messageValue }
+        set { messageValue = value }
+    }
+
+    File: string {
+        get { return fileValue }
+        set { fileValue = value }
+    }
+
+    Line: int {
+        get { return lineValue }
+        set { lineValue = value }
+    }
+
+    Column: int {
+        get { return columnValue }
+        set { columnValue = value }
+    }
+
+    Length: int {
+        get { return lengthValue }
+        set { lengthValue = value }
+    }
+
+    SourceSnippet: string? {
+        get { return sourceSnippetValue }
+        set { sourceSnippetValue = value }
+    }
+
+    Explanation: string? {
+        get { return explanationValue }
+        set { explanationValue = value }
+    }
+
+    Suggestion: string? {
+        get { return suggestionValue }
+        set { suggestionValue = value }
+    }
+
+    Hint: string? {
+        get { return hintValue }
+        set { hintValue = value }
+    }
+
+    ExpectedType: string? {
+        get { return expectedTypeValue }
+        set { expectedTypeValue = value }
+    }
+
+    ActualType: string? {
+        get { return actualTypeValue }
+        set { actualTypeValue = value }
+    }
+
+    DocsUrl: string? {
+        get { return docsUrlValue }
+        set { docsUrlValue = value }
+    }
+
+    constructor(
+        Code: string,
+        Severity: string,
+        Message: string,
+        File: string,
+        Line: int,
+        Column: int,
+        Length: int,
+        SourceSnippet: string?,
+        Explanation: string?,
+        Suggestion: string?,
+        Hint: string?,
+        ExpectedType: string?,
+        ActualType: string?,
+        DocsUrl: string?) {
+        codeValue = Code
+        severityValue = Severity
+        messageValue = Message
+        fileValue = File
+        lineValue = Line
+        columnValue = Column
+        lengthValue = Length
+        sourceSnippetValue = SourceSnippet
+        explanationValue = Explanation
+        suggestionValue = Suggestion
+        hintValue = Hint
+        expectedTypeValue = ExpectedType
+        actualTypeValue = ActualType
+        docsUrlValue = DocsUrl
+    }
 }
 
 public class TypeResult {

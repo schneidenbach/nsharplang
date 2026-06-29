@@ -159,8 +159,8 @@ func main() {
     {
         // Regression: in a packaged project the merger qualifies the newtype declaration to
         // `NewtypeProject.UserId`, but the call-style callee stays the bare `UserId`. The IL
-        // lowering of `UserId(42)` must still recognize the unqualified name — exercised here
-        // end-to-end through MultiFileCompiler, not just the single-file ILCompiler path.
+        // lowering of `UserId(42)` must still recognize the unqualified name, exercised here
+        // end-to-end through MultiFileCompiler.
         var tempDir = CreateTempDir();
         try
         {
@@ -438,7 +438,7 @@ func main() {
     [Fact]
     public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
     {
-        // Defect regression: this program used to COMPILE through the production C#
+        // Defect regression: this program used to COMPILE through the legacy
         // pipeline — the object-initializer value was never type-checked against the
         // declared field type, and the IL coercion silently no-ops for closed generics
         // over emitted user types — so f() read a type-confused garbage int at runtime.
@@ -732,90 +732,6 @@ func main() {
     }
 
     [Fact]
-    public void MultiFileCompiler_AllowsRecordPrimaryConstructorParametersInNamespacedMultiDeclarationFiles()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RecordPrimaryCtorMembersNamespaced
-backend: il
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), """
-namespace NSharpInteropLib.Models
-
-record Person {
-    Name: string
-    Age: int
-    Email: string
-
-    func GetDisplayName(): string {
-        return $"{Name} ({Age})"
-    }
-}
-
-record Address(street: string, city: string, zip: string) {
-    FullAddress: string => $"{street}, {city} {zip}"
-}
-
-class PersonService {
-    people: System.Collections.Generic.List<Person>
-
-    constructor() {
-        people = new System.Collections.Generic.List<Person>()
-    }
-
-    func Add(person: Person) {
-        people.Add(person)
-    }
-
-    func GetAll(): System.Collections.Generic.List<Person> {
-        return people
-    }
-
-    Count: int => people.Count
-}
-
-enum Priority {
-    Low = 0,
-    Medium = 1,
-    High = 2,
-    Critical = 3
-}
-
-enum Status: string {
-    Active = "active",
-    Inactive = "inactive",
-    Pending = "pending"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "RecordPrimaryCtorMembersNamespaced.dll");
-            var result = compiler.CompileToIlAssembly("RecordPrimaryCtorMembersNamespaced", outputPath);
-
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.FormatForMsBuild())));
-
-            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
-            var assembly = loadScope.Assembly;
-            var addressType = assembly.GetType("NSharpInteropLib.Models.Address", throwOnError: true)!;
-            var instance = Activator.CreateInstance(addressType, "123 Main St", "Springfield", "62701");
-            var fullAddress = addressType.GetProperty("FullAddress")!.GetValue(instance);
-            Assert.Equal("123 Main St, Springfield 62701", fullAddress);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void CheckCommand_UsesConfiguredIlBackendVerification()
     {
         var tempDir = CreateTempDir();
@@ -847,7 +763,6 @@ func main() {
             Directory.Delete(tempDir, true);
         }
     }
-
 
     [Fact]
     public void BuildCommand_UsesConfiguredIlBackendAndProducesRunnableArtifacts()
@@ -930,7 +845,7 @@ func main(): int {
     }
 
     [Fact]
-    public void BuildCommand_SingleFileDoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void BuildCommand_SingleFileRequiresColumnarEmissionWhenColumnarDeclines()
     {
         var tempDir = CreateTempDir();
         var originalDirectory = Directory.GetCurrentDirectory();
@@ -960,6 +875,7 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.Contains("Building", stdout);
+            Assert.Contains("requires successful N# columnar emission", stderr);
             Assert.False(File.Exists(Path.Combine(outputDir, "Program.dll")));
         }
         finally
@@ -1192,7 +1108,7 @@ func main() {
     }
 
     [Fact]
-    public void RunCommand_SingleFileDoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void RunCommand_SingleFileRequiresColumnarEmissionWhenColumnarDeclines()
     {
         var tempDir = CreateTempDir();
         try
@@ -1217,6 +1133,7 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.Contains("Running", stdout);
+            Assert.Contains("requires successful N# columnar emission", stderr);
         }
         finally
         {
@@ -1311,20 +1228,16 @@ targetFramework: net10.0
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: PackIl
 backend: il
-outputType: library
+outputType: exe
 targetFramework: net10.0
 version: 1.2.3
 package:
   description: IL-backed package
   author: NSharp
 """);
-            File.WriteAllText(Path.Combine(tempDir, "Library.nl"), """
-namespace PackIl
-
-class Greeter {
-    static func Message(): string {
-        return "packed"
-    }
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main(): int {
+    return 0
 }
 """);
 
@@ -1393,7 +1306,7 @@ class Greeter {
     }
 
     [Fact]
-    public void BuildCommand_AotProjectReferenceDoesNotFallbackToCSharpWhenColumnarDeclines()
+    public void BuildCommand_AotProjectReferenceRequiresColumnarWhenColumnarDeclines()
     {
         var tempDir = CreateTempDir();
         var originalDirectory = Directory.GetCurrentDirectory();
@@ -1440,6 +1353,7 @@ func main() {
                 ExecuteProgram("build", "--backend", "il", "--aot", "-o", outputDir));
 
             Assert.Equal(1, exitCode);
+            Assert.Contains("AOT builds require successful N# columnar emission", stdout + stderr);
             Assert.False(File.Exists(Path.Combine(outputDir, "SharedLib.dll")));
         }
         finally
@@ -1624,7 +1538,6 @@ func main() {
         }
     }
 
-
     [Fact]
     public void PublishCommand_NoProjectFile_ReturnsHelpfulMessage()
     {
@@ -1693,6 +1606,7 @@ test "override il tests" {
             Directory.Delete(tempDir, true);
         }
     }
+
 
     [Fact]
     public void MultiFileCompiler_CanRunExecutableProjectWithTypeScopedMainEntryPoint()

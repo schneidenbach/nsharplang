@@ -1,8 +1,17 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Text.Json;
+using YamlDotNet.Core.Events;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
+using YamlEmitter = YamlDotNet.Core.IEmitter;
+using YamlExceptionType = YamlDotNet.Core.YamlException;
+using YamlParser = YamlDotNet.Core.IParser;
 
 namespace NSharpLang.Compiler.Columnar;
 
@@ -77,6 +86,7 @@ internal sealed class ColumnarFunctionInput
         ColumnarNodeTable bodyNodes, int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
         int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
         string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
+        int[]? paramModifierKinds = null, int[]? paramDefaultKinds = null, string?[]? paramDefaultTexts = null,
         bool isAsync = false)
     {
         Name = name;
@@ -84,6 +94,9 @@ internal sealed class ColumnarFunctionInput
         IsAsync = isAsync;
         ParamNames = paramNames;
         ParamCanonicals = paramCanonicals;
+        ParamModifierKinds = paramModifierKinds ?? Array.Empty<int>();
+        ParamDefaultKinds = paramDefaultKinds ?? Array.Empty<int>();
+        ParamDefaultTexts = paramDefaultTexts ?? Array.Empty<string?>();
         BodyNodes = bodyNodes;
         BodyRoot = bodyRoot;
         IsStatic = isStatic;
@@ -104,6 +117,9 @@ internal sealed class ColumnarFunctionInput
     internal string ReturnCanonical { get; }
     internal string[] ParamNames { get; }
     internal string[] ParamCanonicals { get; }
+    internal int[] ParamModifierKinds { get; }
+    internal int[] ParamDefaultKinds { get; }
+    internal string?[] ParamDefaultTexts { get; }
     internal ColumnarNodeTable BodyNodes { get; }
     internal int BodyRoot { get; }
     // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
@@ -111,11 +127,10 @@ internal sealed class ColumnarFunctionInput
     // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
     internal bool IsStatic { get; }
     // True for an `async func` (the adapter reads the kernel's per-declaration modifier flags). The
-    // emitter mirrors the oracle's SYNCHRONOUS async lowering: the declared return wraps into
+    // emitter uses the current synchronous async lowering: the declared return wraps into
     // ValueTask/ValueTask<T> (Task/Task<T> for `main` — the entry-point rule), returns wrap into
     // completed tasks, the body runs inside a fault guard whose catch converts to a faulted task,
-    // and `await` is a blocking GetAwaiter().GetResult(). Real state machines are deferred by
-    // design in BOTH pipelines (ILCompiler.Async.cs).
+    // and `await` is a blocking GetAwaiter().GetResult(). Real state machines are deferred.
     internal bool IsAsync { get; }
     // Tuple ELEMENT NAMES declared on the RETURN type / each PARAM type (`(x: int, y: int)`), null when
     // unnamed or non-tuple — canonicals ERASE names (tuple identity is positional, .NET semantics), so
@@ -124,8 +139,8 @@ internal sealed class ColumnarFunctionInput
     internal string[]?[]? ParamTupleElementNames { get; }
     // Generic TYPE-PARAMETER names (`func Identity<T>(x: T): T` → ["T"]); empty for a non-generic function. A
     // generic TOP-LEVEL function declares a real CLR generic method (DefineGenericParameters, mirroring the
-    // oracle's primary strategy); call sites infer the type arguments from the emitted argument types and bind
-    // via MakeGenericMethod. Generic METHODS on user types decline (the oracle itself fails on them — B12).
+    // legacy emitter's primary strategy); call sites infer the type arguments from the emitted argument types and bind
+    // via MakeGenericMethod. Generic METHODS on user types decline (the legacy emitter itself fails on them — B12).
     internal string[] TypeParamNames { get; }
     // Generic CONSTRAINTS (`where T: Base, new()` — D-17b), positionally aligned with TypeParamNames. Special
     // flags mirror SpecialConstraintKind (Class=1, Struct=2, New=4); type constraints are canonical type names
@@ -140,8 +155,9 @@ internal sealed class ColumnarFunctionInput
 }
 
 /// <summary>
-/// One user CONSTRUCTOR: its signature + body (<see cref="Body"/>, a nameless void function) plus its optional
-/// chaining initializer. <see cref="ChainInitKind"/> is 0 (none), 1 (<c>: this(args)</c>), or 2 (<c>: base(args)</c>).
+/// One CONSTRUCTOR: either an explicit constructor or the initializer constructor synthesized from a type declaration.
+/// Its signature + body (<see cref="Body"/>, a nameless void function) plus its optional chaining initializer.
+/// <see cref="ChainInitKind"/> is 0 (none), 1 (<c>: this(args)</c>), or 2 (<c>: base(args)</c>).
 /// The chained args are restricted to a param IDENTIFIER (kind 0) or an INT LITERAL (kind 1); <see cref="ChainArgKinds"/>
 /// and <see cref="ChainArgTexts"/> are positionally aligned (the identifier name or the int-literal text). A
 /// <c>: this(...)</c> ctor delegates field assignment to the chained ctor; a <c>: base(...)</c> ctor declines at emit
@@ -149,26 +165,26 @@ internal sealed class ColumnarFunctionInput
 /// </summary>
 internal sealed class ColumnarConstructorInput
 {
-    internal ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts)
+    internal ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts, int[]? paramDefaultKinds = null, string?[]? paramDefaultTexts = null, bool isSynthesizedInitializer = false)
     {
         Body = body;
         ChainInitKind = chainInitKind;
         ChainArgKinds = chainArgKinds;
         ChainArgTexts = chainArgTexts;
+        ParamDefaultKinds = paramDefaultKinds ?? Array.Empty<int>();
+        ParamDefaultTexts = paramDefaultTexts ?? Array.Empty<string?>();
+        IsSynthesizedInitializer = isSynthesizedInitializer;
     }
 
     internal ColumnarFunctionInput Body { get; }
     internal int ChainInitKind { get; }
     internal int[] ChainArgKinds { get; }
     internal string[] ChainArgTexts { get; }
+    internal int[] ParamDefaultKinds { get; }
+    internal string?[] ParamDefaultTexts { get; }
+    internal bool IsSynthesizedInitializer { get; }
 }
 
-
-/// <summary>
-/// A user-defined enum emitted by the columnar route: its finalized CLR <see cref="Type"/> plus its member-name →
-/// constant-int map. Enums have no user-type dependencies, so they are baked before function signatures and can
-/// safely close generic runtime types such as <c>List&lt;Color&gt;</c>.
-/// </summary>
 /// <summary>
 /// One top-level fields-only <c>struct</c> declaration's parsed fields, as consumed by
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="FieldTypeCanonicals"/> are the canonical type
@@ -256,18 +272,17 @@ internal sealed class ColumnarStructInput
     // The initializer's literal source text (incl. an optional leading `-` on numerics), aligned with
     // FieldInitKinds; null where no initializer. Emitted into the type's .cctor in declaration order.
     internal string?[]? FieldInitTexts { get; }
-    // True for a RECORD declaration (keyword 13). Records are reference types like classes, but the C# oracle
+    // True for a RECORD declaration (keyword 13). Records are reference types like classes, but the previous parity baseline
     // emits them SEALED — a record can never appear as a BASE type, and record inheritance itself is unmodelled;
     // PASS 0a' declines both shapes by this flag.
     internal bool IsRecord { get; }
     // Generic type parameters declared on the type (`class Box<T>` → ["T"]), or null for a non-generic type.
-    // The adapter already declines generic RECORDS (columnar does not yet model the oracle's backing-field
+    // The adapter already declines generic RECORDS (columnar does not yet model the legacy emitter's backing-field
     // lowering for init-only members on closed generics — the .NET 10 PersistedAssemblyBuilder modreq-drop
     // workaround) and generic types WITH a base. PASS 0 declares them
     // via DefineGenericParameters; member signatures resolve these names before any other type lookup.
     internal string[]? TypeParamNames { get; }
 }
-
 
 /// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
@@ -287,17 +302,19 @@ internal sealed class ColumnarStructDef
     }
 
     internal TypeBuilder Builder { get; }
-    internal string[] FieldOrder { get; }
+    internal string[] FieldOrder { get; private set; }
     internal Dictionary<string, FieldBuilder> Fields { get; }
+    internal HashSet<string> NullableFields { get; } = new(StringComparer.Ordinal);
+    internal void SetFieldOrder(string[] fieldOrder) => FieldOrder = fieldOrder;
     // Generic type parameters declared on this type (`class Box<T>` → "T" → its builder), or null for a
     // non-generic type. Member signatures and bodies resolve these names FIRST (before registries/builtins);
     // closed instantiations (`Box<int>`) MakeGenericType the Builder and rebind member tokens via
     // TypeBuilder.GetField/GetConstructor/GetMethod (reflection member queries throw on
-    // TypeBuilderInstantiation — the same machinery the C# oracle uses).
+    // TypeBuilderInstantiation — the same machinery the previous parity baseline uses).
     internal Dictionary<string, Type>? GenericParameters { get; set; }
     // True for a RECORD or CLASS (a reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
     internal bool IsReference { get; }
-    // True for a RECORD specifically — records can never be BASE types (the oracle emits them sealed) and record
+    // True for a RECORD specifically — records can never be BASE types (the legacy emitter emits them sealed) and record
     // inheritance is unmodelled; PASS 0a' declines both shapes.
     internal bool IsRecord { get; }
     // True for an INTERFACE (defined Public|Interface|Abstract; Methods hold its ABSTRACT member
@@ -312,9 +329,10 @@ internal sealed class ColumnarStructDef
     // Direct interfaces this type IMPLEMENTS (`class C: IShape, IDisposable` — colon-list names reclassified in
     // PASS 0a' when they resolve to interface defs). Every direct and inherited interface member must be matched
     // by name+signature (completeness checked in PASS 0b — the pipeline emits an UNLOADABLE assembly for missing
-    // members, oracle defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
-    // + DefineMethodOverride, mirroring the oracle's DeclareMethod.
+    // members, known defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
+    // + DefineMethodOverride, mirroring the legacy emitter's DeclareMethod.
     internal List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
+    internal List<Type> ExternalInterfaces { get; } = new();
     // Interface method names declared with a default body. Implementers are not required to override these slots;
     // if they do, override binding still wires the implementing method to the interface method.
     internal HashSet<string> DefaultInterfaceMethodNames { get; } = new(StringComparer.Ordinal);
@@ -342,15 +360,16 @@ internal sealed class ColumnarStructDef
     // by `TypeName.Name` reads (`call get_Name`) / writes (`call set_Name`, chain-walked) and by bare READS inside
     // INSTANCE member bodies (after instance members and static fields).
     internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> StaticProperties { get; } = new(StringComparer.Ordinal);
-    // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder + its param types. Positional
-    // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
-    // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
-    internal List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
+    // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder, its param types, and any
+    // default-argument literals captured from the declaration. Positional construction `new T(args)` matches a ctor by
+    // provided args plus trailing defaults. Empty when the type has no user ctor (then DefaultCtor drives object-init).
+    // A type with >=1 user ctor has NO DefaultCtor (object-init on it declines).
+    internal List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)> Constructors { get; } = new();
     // Computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the set_Name setter MethodBuilder or null,
     // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
     // setter exists) to `callvirt set_Name`.
     internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
-    // The SYNTHESIZED value-semantics members on a RECORD (the oracle generates them only on records — a class
+    // The SYNTHESIZED value-semantics members on a RECORD (the legacy emitter generates them only on records — a class
     // `.Equals` is its NL103): Equals(object) (null-check + isinst + per-field EqualityComparer<T>.Default),
     // GetHashCode (the 17/23 accumulator), and the `<Clone>$` MemberwiseClone wrapper `with` lowers through.
     // Null when the record's fields prevent the synthesis (builder-typed/generic field types) or the type is
@@ -360,14 +379,13 @@ internal sealed class ColumnarStructDef
     internal MethodBuilder? RecordClone { get; set; }
 }
 
-
 /// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
-/// drive IL emission END-TO-END with no C# AST: for a single trivial function it emits a real .NET assembly
+/// drive IL emission END-TO-END with no object AST: for a single trivial function it emits a real .NET assembly
 /// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
 /// returns the assembly bytes so a caller can load + invoke it. This is the de-risking spike for Stage 4 — the
-/// emit primitives (<c>ldarg</c> / <c>ldc.i4</c> / arithmetic / <c>ret</c>) are exactly what the full columnar
-/// codegen will emit; later slices grow the supported surface and route through <c>ILCompiler</c> proper.
+    /// emit primitives (<c>ldarg</c> / <c>ldc.i4</c> / arithmetic / <c>ret</c>) are exactly what the full columnar
+    /// codegen emits as the supported surface grows.
 ///
 /// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
 /// conversions this spike does not emit). Statements: <c>:=</c> int locals, a simple <c>local = expr</c>
@@ -376,7 +394,7 @@ internal sealed class ColumnarStructDef
 /// <c>:=</c> local, an int literal, a parenthesized expr, an int unary <c>-</c>/<c>~</c>, or an int +/-/* binary.
 /// <c>if</c> conditions are an
 /// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
-/// → the C# path is unaffected).
+/// → the N# backend path is unaffected).
 /// </summary>
 internal sealed class ColumnarIlEmitter
 {
@@ -399,8 +417,8 @@ internal sealed class ColumnarIlEmitter
     private Label _protectedDone;
     private bool _protectedDoneCreated;
     private bool _inProtectedRegion;
-    // ASYNC (the oracle's SYNC lowering — ILCompiler.Async.cs; real state machines deferred in BOTH
-    // pipelines): non-null = this body's WRAPPED CLR return (ValueTask/ValueTask<T>; Task/Task<T>
+    // ASYNC (synchronous lowering; real state machines deferred): non-null = this body's
+    // WRAPPED CLR return (ValueTask/ValueTask<T>; Task/Task<T>
     // for `main`). _returnType holds the INNER declared type so every return-value check works
     // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
     // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
@@ -412,7 +430,7 @@ internal sealed class ColumnarIlEmitter
     private readonly bool _asyncBareReturnDeclines;
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
     // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
-    // NL319 (oracle defect #20 fixed front-door), so they cannot reach any emitter on the production
+    // NL319 (known defect #20 fixed front-door), so they cannot reach any emitter on the production
     // path — the declines below remain as this emitter's own contract guards. Loops OPENED inside the
     // finally still break/continue freely.
     private bool _inFinallyRegion;
@@ -454,7 +472,7 @@ internal sealed class ColumnarIlEmitter
     // Loop branch targets, plus WHERE the loop was entered relative to exception regions: a break/continue
     // from INSIDE a protected region whose loop began OUTSIDE it crosses the region boundary — `br` is
     // invalid IL there; it must `leave` (which also runs an intervening finally). A loop wholly inside the
-    // region branches with a plain `br` (probe-pinned both ways against the fixed oracle). A branch out of
+    // region branches with a plain `br` (probe-pinned both ways against the fixed legacy emitter). A branch out of
     // a FINALLY is illegal IL entirely — those decline.
     private readonly Stack<(Label Break, Label Continue, bool InProtectedRegion, bool InFinallyRegion)> _loopLabels = new();
 
@@ -492,6 +510,10 @@ internal sealed class ColumnarIlEmitter
     // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
     // temp copy (mutation would write the copy; those stay declined).
     private readonly bool _isConstructorBody;
+    // True only for the constructor body synthesized from a primary class/record/struct declaration. Its
+    // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
+    // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
+    private readonly bool _isSynthesizedInitializerBody;
 
     private ColumnarIlEmitter(
         ColumnarNodeTable nodes, string source,
@@ -505,6 +527,7 @@ internal sealed class ColumnarIlEmitter
         ColumnarStructDef? currentStruct,
         ColumnarStructDef? enclosingType = null,
         bool isConstructorBody = false,
+        bool isSynthesizedInitializerBody = false,
         TypeBuilder? programType = null,
         int[]? lambdaCounter = null,
         List<TypeBuilder>? displayClasses = null,
@@ -519,6 +542,7 @@ internal sealed class ColumnarIlEmitter
         bool asyncBareReturnDeclines = false)
     {
         _isConstructorBody = isConstructorBody;
+        _isSynthesizedInitializerBody = isSynthesizedInitializerBody;
         _asyncReturnType = asyncReturnType;
         _asyncBareReturnDeclines = asyncBareReturnDeclines;
         if (asyncReturnType != null)
@@ -565,7 +589,7 @@ internal sealed class ColumnarIlEmitter
     private readonly TypeBuilder? _programType;
     private readonly int[]? _lambdaCounter;
     // CAPTURING lambdas (L3a): display-class TypeBuilders collected here bake BEFORE the Program type at
-    // finalization (the oracle's closure-types-first order). Shared across the program's emitter instances
+    // finalization (the legacy emitter's closure-types-first order). Shared across the program's emitter instances
     // like the counter; null in contexts that do not model lambdas.
     private readonly List<TypeBuilder>? _displayClasses;
     // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
@@ -639,7 +663,7 @@ internal sealed class ColumnarIlEmitter
             CollectBindingNames(nodes, source, nodes.Child(node, c), names);
     }
     // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
-    // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the oracle's box-lift model) —
+    // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the legacy emitter's box-lift model) —
     // the box reference is what closures snapshot, so mutation is shared in both directions.
     // _liftedCandidates is the EmitBody pre-scan verdict (drives DECLARATION shape); _liftedLocals holds
     // the live boxes (drives every read/write — checked BEFORE locals/params). Structural writes
@@ -678,7 +702,28 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(decimal)                   // decimal (SC-6): a baked VALUE struct — arithmetic and
                                                   // comparisons call System.Decimal's op_* methods
         || IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
+        || t == typeof(object)
+        || t == typeof(StringComparer)
+        || t == typeof(TextWriter)
         || t == typeof(System.Text.StringBuilder)
+        || t == typeof(TimeSpan)
+        || IsSupportedProcessInteropType(t)
+        || IsSupportedTaskType(t)
+        || t == typeof(IList)
+        || t == typeof(Type)
+        || t == typeof(Version)
+        || t == typeof(Assembly)
+        || t == typeof(PropertyInfo)
+        || t == typeof(FieldInfo)
+        || t == typeof(LocalBuilder)
+        || t == typeof(FieldBuilder)
+        || t == typeof(TypeBuilder)
+        || t == typeof(MethodBuilder)
+        || t == typeof(MethodInfo)
+        || t == typeof(ConstructorBuilder)
+        || t == typeof(ILGenerator)
+        || IsSupportedJsonType(t)
+        || IsSupportedExternalType(t)
         || IsEnumType(t)                          // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
                                                   // only those reach here as a resolved type — the Program type never does
@@ -689,8 +734,8 @@ internal sealed class ColumnarIlEmitter
         || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
         || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V>/HashSet<T> over supported runtime types
 
-    // By-ref types are valid only in PARAMETER slots for this slice. The element must be a supported value type:
-    // refs to reference slots need ldind/ref-owner handling that is outside the ParserState migration proof.
+    // By-ref types are valid only in PARAMETER slots for this slice. The element type must already be part of the
+    // supported value/reference surface so ref/out locals can be loaded by the same addressability paths as writes.
     private static bool IsSupportedParameterType(Type t) =>
         IsSupportedType(t)
         || (t.IsByRef && IsSupportedByRefElementType(t.GetElementType()!));
@@ -699,11 +744,70 @@ internal sealed class ColumnarIlEmitter
     {
         if (t is EnumBuilder)
             return true;
+        if (t is TypeBuilder builder)
+        {
+            try
+            {
+                return builder.BaseType == typeof(Enum);
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+        try
+        {
             return t.IsEnum;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSupportedExternalType(Type t) =>
+        t.Assembly == typeof(IYamlTypeConverter).Assembly;
+
+    private static bool IsSupportedProcessInteropType(Type t) =>
+        t == typeof(Process)
+        || t == typeof(ProcessStartInfo)
+        || t == typeof(StreamReader);
+
+    private static bool IsSupportedTaskType(Type t) =>
+        t == typeof(System.Threading.Tasks.Task)
+        || t == typeof(System.Threading.Tasks.Task<string>);
+
+    private static bool IsSupportedJsonType(Type t) =>
+        t == typeof(JsonElement)
+        || t == typeof(JsonDocument)
+        || t == typeof(JsonValueKind)
+        || t == typeof(JsonSerializerOptions)
+        || t == typeof(JsonElement.ArrayEnumerator)
+        || t == typeof(JsonElement.ObjectEnumerator)
+        || t == typeof(JsonProperty);
+
+    private static string UnqualifiedTypeName(string name)
+    {
+        var lastDot = name.LastIndexOf('.');
+        return lastDot >= 0 && lastDot + 1 < name.Length ? name[(lastDot + 1)..] : name;
+    }
+
+    private static void TryRegisterEnumAlias(Dictionary<string, ColumnarEnumDef> registry, string name, ColumnarEnumDef def)
+    {
+        var shortName = UnqualifiedTypeName(name);
+        if (!registry.ContainsKey(shortName))
+            registry[shortName] = def;
+    }
+
+    private static void TryRegisterStructAlias(Dictionary<string, ColumnarStructDef> registry, string name, ColumnarStructDef def)
+    {
+        var shortName = UnqualifiedTypeName(name);
+        if (!registry.ContainsKey(shortName))
+            registry[shortName] = def;
     }
 
     private static bool IsSupportedByRefElementType(Type t) =>
-        !t.IsByRef && t.IsValueType && IsSupportedType(t);
+        !t.IsByRef && IsSupportedType(t);
 
     // A closed KeyValuePair<K,V> — the Dictionary foreach loop variable's type (only that path produces
     // it; .Key/.Value resolve via the case-8 KVP arms). Builder-bound instantiations (KeyValuePair over a
@@ -723,7 +827,14 @@ internal sealed class ColumnarIlEmitter
             return false;
         Type def;
             def = t.GetGenericTypeDefinition();
-        return def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>);
+        return def == typeof(List<>)
+            || def == typeof(Dictionary<,>)
+            || def == typeof(HashSet<>)
+            || def == typeof(Stack<>)
+            || def == typeof(IReadOnlyList<>)
+            || def == typeof(IReadOnlyCollection<>)
+            || def == typeof(IReadOnlySet<>)
+            || def == typeof(IEnumerable<>);
     }
 
     private static bool IsSupportedIndexableCollectionType(Type t)
@@ -732,6 +843,24 @@ internal sealed class ColumnarIlEmitter
             return false;
         var def = t.GetGenericTypeDefinition();
         return def == typeof(List<>) || def == typeof(Dictionary<,>);
+    }
+
+    private static bool TryResolveCollectionCountGetter(Type t, out MethodInfo getter)
+    {
+        getter = null!;
+        if (!IsSupportedCollectionType(t))
+            return false;
+        var def = t.GetGenericTypeDefinition();
+        if (def == typeof(IEnumerable<>))
+            return false;
+        var countOwner = t;
+        if (def == typeof(IReadOnlyList<>) || def == typeof(IReadOnlySet<>))
+            countOwner = typeof(IReadOnlyCollection<>).MakeGenericType(t.GetGenericArguments()[0]);
+        var openGetter = countOwner.GetGenericTypeDefinition().GetProperty("Count")?.GetGetMethod();
+        if (openGetter == null)
+            return false;
+        getter = ResolveClosedGenericMethod(countOwner, openGetter);
+        return true;
     }
 
     // True when a type carries a Reflection.Emit builder-shaped type anywhere in its shape: a TypeBuilder/EnumBuilder/
@@ -794,10 +923,10 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // ASYNC return shape (the oracle's GetDeclaredFunctionReturnType + WrapAsyncReturnType): the
+    // ASYNC return shape (the legacy emitter's GetDeclaredFunctionReturnType + WrapAsyncReturnType): the
     // declared canonical resolves to the INNER type (`void` for unit); the METHOD's CLR return is
     // the wrap — ValueTask/ValueTask<T> by default, Task/Task<T> for `main` (case-insensitive, the
-    // oracle's IsEntryPointFunction rule). An EXPLICIT task-like annotation keeps its declared
+    // legacy emitter's IsEntryPointFunction rule). An EXPLICIT task-like annotation keeps its declared
     // family with its declared inner. Unresolvable/unsupported inners decline.
     private static bool TryComputeAsyncReturnShape(string name, string canonical,
         IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
@@ -852,19 +981,19 @@ internal sealed class ColumnarIlEmitter
     // type with that name is also declared — NL207 for a non-generic user type, and for a user GENERIC
     // List<T>/HashSet<T> the analyzer binds the BCL collection and rejects its members (NL303, probe-pinned) — so neither
     // the BCL collection arms nor the user-generic resolution may claim these heads: decline the canonical
-    // entirely (parity by rejection via the C# fallback). Adversarial-review finding, probe-confirmed.
+    // entirely so this backend never accepts a source shape the analyzer rejected.
     private static bool IsCollectionHeadShadowedByUserType(string headName,
         IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry)
-        => (headName == "List" || headName == "Dictionary" || headName == "HashSet")
+        => (headName == "List" || headName == "Dictionary" || headName == "HashSet" || headName == "Stack")
            && ((enumRegistry?.ContainsKey(headName) ?? false)
                || (structRegistry?.ContainsKey(headName) ?? false)
                || (unionRegistry?.ContainsKey(headName) ?? false));
 
     // Resolve a member of a CLOSED BCL generic instantiation from its OPEN definition's member handle:
     // builder-bound instantiations rebind via TypeBuilder.GetMethod/GetConstructor (the only legal member
-    // resolution on a TypeBuilderInstantiation — the oracle's TryGetDeclaredGeneratedRuntimeMethod /
+    // resolution on a TypeBuilderInstantiation — the legacy emitter's TryGetDeclaredGeneratedRuntimeMethod /
     // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
     private static MethodInfo ResolveClosedGenericMethod(Type closedType, MethodInfo openMethod)
         => ContainsBuilderBoundType(closedType)
@@ -880,7 +1009,7 @@ internal sealed class ColumnarIlEmitter
     // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
     // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already vetted the inner args;
     // - the BAKED surface (scalars/string/enums/baked closed generics) exactly as before.
-    // PINNED DECLINES (oracle-accepted, flip in later rungs): user-headed closed generics (List<Box<int>>),
+    // PINNED DECLINES (legacy-emitter accepted, flip in later rungs): user-headed closed generics (List<Box<int>>),
     // builder-bound key/equality shapes, and tuples/delegates over builders.
     private static bool IsAdmissibleCollectionElement(Type t)
     {
@@ -894,7 +1023,7 @@ internal sealed class ColumnarIlEmitter
         {
             Type def;
                 def = t.GetGenericTypeDefinition();
-            if (def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>))
+            if (def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>) || def == typeof(Stack<>))
                 return true;
             if (ContainsBuilderBoundType(t))
                 return false;
@@ -935,13 +1064,24 @@ internal sealed class ColumnarIlEmitter
 
     // A closed instantiation of a USER generic type (Box<int> where Box is an uncreated TypeBuilder).
     // Reflection member queries throw on these — member access goes through the open definition's
-    // bookkeeping with rebound tokens, mirroring the C# oracle's closed-generic machinery.
+    // bookkeeping with rebound tokens, mirroring the previous parity baseline's closed-generic machinery.
     private static bool IsClosedUserGenericInstantiation(Type t)
     {
         if (t is TypeBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
             return false;
             return t.GetGenericTypeDefinition() is TypeBuilder;
     }
+
+    private static Type? OpenValueTupleType(int arity) => arity switch
+    {
+        2 => typeof(ValueTuple<,>),
+        3 => typeof(ValueTuple<,,>),
+        4 => typeof(ValueTuple<,,,>),
+        5 => typeof(ValueTuple<,,,,>),
+        6 => typeof(ValueTuple<,,,,,>),
+        7 => typeof(ValueTuple<,,,,,,>),
+        _ => null,
+    };
 
     // A positional System.ValueTuple of arity 2-7 whose every element is itself a supported type. (1-tuples and
     // the >7 nested-TRest form are not modelled.) Admits a tuple as a `:=` local / value, NOT as an array element.
@@ -981,7 +1121,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (def.DefaultCtor != null)
             return def.DefaultCtor;
-        foreach (var (builder, paramTypes) in def.Constructors)
+        foreach (var (builder, paramTypes, _, _) in def.Constructors)
         {
             if (paramTypes.Length == 0)
                 return builder;
@@ -1043,10 +1183,10 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Emit the LOAD of a static-field initializer's single-token literal into a .cctor IL stream, validating that
-    // the literal agrees with the declared field type (mismatch declines — the oracle's implicit numeric
+    // the literal agrees with the declared field type (mismatch declines — the legacy emitter's implicit numeric
     // conversions are not modelled). Mirrors the expression emitter's literal cases EXACTLY: int suffix
     // classification (L/UL), float suffixes (f/d; m declines), RAW string literals (Trim('"'), no escape decode —
-    // matching the C# path's GetStringLiteralRuntimeValue), char escape decode, true/false. The text may carry a
+    // matching the N# backend path's GetStringLiteralRuntimeValue), char escape decode, true/false. The text may carry a
     // leading `-` for numeric literals (the kernel admits it only there).
     private static bool TryEmitStaticFieldInitializerLoad(ILGenerator il, Type fieldType, int initKind, string text)
     {
@@ -1126,7 +1266,7 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
             case 4: // StringLiteral — decodes the shared escape set (the strings slice changed PLAIN string
-                    // semantics; the oracle's static-init path routes through the rewired literal sites, so
+                    // semantics; the legacy emitter's static-init path routes through the rewired literal sites, so
                     // keeping Trim here would diverge). An INTERPOLATED initializer ($-prefixed) declines.
                 if (fieldType != typeof(string))
                     return false;
@@ -1152,11 +1292,11 @@ internal sealed class ColumnarIlEmitter
     // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b) against its expected delegate
     // type: synthesize a Private|Static `<Lambda>_{n}` method on the Program type whose signature comes from
     // the delegate's Invoke (lambda params are UNTYPED by grammar — typing is purely contextual, exactly the
-    // oracle's GetLambdaSignature), emit the body through a SUB-emitter whose scope holds ONLY the lambda
+    // legacy emitter's GetLambdaSignature), emit the body through a SUB-emitter whose scope holds ONLY the lambda
     // parameters — an identifier reaching for an enclosing local/param fails to resolve and DECLINES, which
     // is precisely the no-captures rule (sibling function calls are not captures and keep working) — then
     // construct the delegate at the use site: `ldnull; ldftn <Lambda>_{n}; newobj <delegate>(object, IntPtr)`
-    // (the oracle's EmitStaticDelegate minus the per-callsite cache, which is unobservable). Interleaved
+    // (the legacy emitter's EmitStaticDelegate minus the per-callsite cache, which is unobservable). Interleaved
     // DefineMethod + forward-ldftn baking on PersistedAssemblyBuilder are spike-proven. A VOID-returning
     // delegate requires a void body expression (a discarded non-void body is a later rung — decline).
     private bool TryEmitLambdaLiteral(int lambdaIdx, Type expectedDelegateType)
@@ -1200,11 +1340,11 @@ internal sealed class ColumnarIlEmitter
         {
             // THIS-capture detection (bare-field/instance-member references in an INSTANCE method's lambda):
             // a kind-6 name that is neither bound nor a sibling but resolves on the enclosing type's chain
-            // means the lambda needs `this`. The oracle's this-only path binds the delegate DIRECTLY to the
+            // means the lambda needs `this`. The legacy emitter's this-only path binds the delegate DIRECTLY to the
             // current instance — the lambda becomes an instance method ON THE ENCLOSING TYPE, no display
             // class, true reference capture (field mutation inside the lambda hits the real object, exactly
-            // the oracle's semantics). REFERENCE types only: a value-type `this` would bind a copy with
-            // different semantics (the oracle routes those through display-class copies) — decline.
+            // the legacy emitter's semantics). REFERENCE types only: a value-type `this` would bind a copy with
+            // different semantics (the legacy emitter routes those through display-class copies) — decline.
             if (_currentStruct != null
                 && BodyReferencesEnclosingChain(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)))
             {
@@ -1248,8 +1388,8 @@ internal sealed class ColumnarIlEmitter
 
         // CAPTURING lambda (L3a snapshot + L3b boxed): each capture is either LIFTED (its name lives in a
         // shared StrongBox — the display class snapshots the BOX reference, so mutation is shared in both
-        // directions, the oracle's box-lift model) or NEVER-WRITTEN (a by-value snapshot is then
-        // semantics-identical to the oracle, which only box-lifts mutated captures). A written-but-unlifted
+        // directions, the legacy emitter's box-lift model) or NEVER-WRITTEN (a by-value snapshot is then
+        // semantics-identical to the legacy emitter, which only box-lifts mutated captures). A written-but-unlifted
         // capture declines (structural writes, unliftable types, use-before-declaration). The whole-body
         // write scan needs the body root — null inside an EXPRESSION-bodied lambda's sub-emitter, so those
         // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
@@ -1370,7 +1510,7 @@ internal sealed class ColumnarIlEmitter
     private void CollectLambdaCaptures(int node, HashSet<string> bound, SortedSet<string> captures)
     {
         var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42)
+        if (kind == 38 || kind == 42 || kind == 55)
             return; // children are TYPE subtrees only (38: callee name lives in the value span; 42: bare-new).
         if (kind == 39)
         {
@@ -1410,7 +1550,7 @@ internal sealed class ColumnarIlEmitter
     private bool BodyReferencesEnclosingChain(int node, HashSet<string> bound)
     {
         var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42)
+        if (kind == 38 || kind == 42 || kind == 55)
             return false;
         if (kind == 39)
         {
@@ -1476,7 +1616,7 @@ internal sealed class ColumnarIlEmitter
     private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
     {
         var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42)
+        if (kind == 38 || kind == 42 || kind == 55)
             return;
         if (kind == 39)
         {
@@ -1504,7 +1644,7 @@ internal sealed class ColumnarIlEmitter
     private void CollectUnboundNames(int node, HashSet<string> bound, SortedSet<string> names)
     {
         var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42)
+        if (kind == 38 || kind == 42 || kind == 55)
             return;
         if (kind == 39)
         {
@@ -1612,7 +1752,7 @@ internal sealed class ColumnarIlEmitter
     // True when any statement in the subtree WRITES one of `names`: an assignment (kind 14, incl. the
     // compound forms — the for-loop increment is one of these) targeting the bare identifier OR any
     // member/index path whose ROOT receiver is the name (`b.V = 99` on a captured value-struct local
-    // diverges from the oracle, which box-lifts member-mutated value-type captures — adversarial-review
+    // diverges from the legacy emitter, which box-lifts member-mutated value-type captures — adversarial-review
     // finding, probe-confirmed 101 vs 199; root-receiver matching also conservatively declines reference-
     // type member writes, which would be benign — under-accept), a foreach (kind 29) whose loop variable
     // re-stores per iteration, or a tuple deconstruction (kind 30) binding it. `:=`/typed declarations
@@ -1691,7 +1831,7 @@ internal sealed class ColumnarIlEmitter
     // value, emit each argument exactly typed against Invoke's parameters, `callvirt Invoke`. Fires ONLY when
     // no method tier carries the name (the pipeline's pinned method-beats-local order — the caller checks);
     // a non-delegate-typed value declines. Invoke resolves by plain GetMethod — sound because
-    // IsSupportedDelegateType admits closed Func/Action over BAKED runtime types only (the oracle's
+    // IsSupportedDelegateType admits closed Func/Action over BAKED runtime types only (the legacy emitter's
     // TryGetDelegateInvokeMethod does the same for runtime delegate types).
     private bool TryEmitDelegateInvoke(int callIdx, string name, out Type type)
     {
@@ -1889,7 +2029,7 @@ internal sealed class ColumnarIlEmitter
     // shapes, or a fully concrete List<Pt>) against the argument's actual type: the definitions must
     // match, then each declared argument either IS one of the callee's type parameters (TryUnifyTypeParam
     // binds or checks it), recurses as a nested container, or must be structurally the same type.
-    // Mirrors the oracle's TryCollectGenericBindings recursion (ILCompiler.cs ~6754).
+    // Mirrors the generic-container binding recursion used by declared-method calls.
     private static bool TryUnifyGenericContainer(Type[] typeParams, Type?[] binding, Type declared, Type actual)
     {
         if (!actual.IsGenericType || actual.IsGenericTypeDefinition)
@@ -1958,7 +2098,7 @@ internal sealed class ColumnarIlEmitter
         // parameters inside its instantiation arguments — substitute each by the call's binding and re-close.
         // Letting the raw Opt<!!T> escape into a (possibly non-generic) caller bakes out-of-context MVAR
         // references into its locals/isinst targets — BadImageFormatException at runtime (adversarial-review
-        // finding, probe-confirmed: the oracle runs the same program correctly). Any argument that cannot
+        // finding, probe-confirmed: the legacy emitter runs the same program correctly). Any argument that cannot
         // fully substitute declines.
         if (IsClosedUserGenericInstantiation(declaredReturn))
         {
@@ -2027,7 +2167,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Resolve a STATIC FIELD on `def`'s chain by name, nearest declaration first (the oracle's chain-walked
+    // Resolve a STATIC FIELD on `def`'s chain by name, nearest declaration first (the legacy emitter's chain-walked
     // static-member resolution — `Derived.count` binds a base-declared static field).
     private static bool TryFindStaticFieldOnChain(ColumnarStructDef def, string name, out FieldBuilder field)
     {
@@ -2041,7 +2181,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Resolve a STATIC PROPERTY on `def`'s chain by name, nearest declaration first (`Derived.X` binds a
-    // base-declared static property — the fixed oracle chain-walks its get_X/set_X exactly like static fields).
+    // base-declared static property — the fixed legacy emitter chain-walks its get_X/set_X exactly like static fields).
     private static bool TryFindStaticPropertyOnChain(ColumnarStructDef def, string name, out (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType) property)
     {
         for (var d = def; d != null; d = d.BaseDef)
@@ -2053,6 +2193,11 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. A type whose
+    // overload set carries the name but has
+    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
+    // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
+    // the emit site (a mismatch declines because implicit conversions are not modelled here).
     private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
     {
         for (var d = def; d != null; d = d.BaseDef)
@@ -2073,20 +2218,37 @@ internal sealed class ColumnarIlEmitter
     }
 
 
-    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/uint (i4),
-    // long/ulong (i8), char (u2), double (r8) / float (r4), and string (a reference element). bool is excluded
-    // until its element opcodes land. uint/ulong storage is just the unsigned bit pattern; unsignedness is in how
+    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: bool (u1), int/uint (i4),
+    // long/ulong (i8), char (u2), double (r8) / float (r4), string/reference handles, and jagged SZ arrays over
+    // those same supported elements. uint/ulong storage is just the unsigned bit pattern; unsignedness is in how
     // the VALUE is loaded and operated on.
     private static bool IsSupportedElementType(Type t) =>
-        t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong)
-        || t == typeof(char) || t == typeof(string) || t == typeof(double) || t == typeof(float);
+        t == typeof(bool)
+        || t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong)
+        || t == typeof(char) || t == typeof(string) || t == typeof(double) || t == typeof(float)
+        || IsEnumType(t)
+        || t is TypeBuilder
+        || t == typeof(object)
+        || t == typeof(Type)
+        || t == typeof(Version)
+        || t == typeof(Assembly)
+        || t == typeof(PropertyInfo)
+        || t == typeof(FieldInfo)
+        || t == typeof(LocalBuilder)
+        || t == typeof(FieldBuilder)
+        || t == typeof(TypeBuilder)
+        || t == typeof(MethodBuilder)
+        || t == typeof(MethodInfo)
+        || t == typeof(ConstructorBuilder)
+        || t == typeof(ILGenerator)
+        || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     /// <summary>
     /// Resolve a canonical type string for a GENERIC function's signature: a bare type-parameter name resolves to
     /// its <see cref="GenericTypeParameterBuilder"/>, "T[]" to its array, and everything else falls through to
-    /// <see cref="TryResolveType"/>. Type parameters are checked FIRST, mirroring the oracle's ResolveType (a
+    /// <see cref="TryResolveType"/>. Type parameters are checked FIRST, mirroring the legacy emitter's ResolveType (a
     /// generic parameter shadows same-named types within its function's signature). Composed shapes over T
-    /// (tuples, nested generics) are not modelled and fail — the function declines to the C# path.
+    /// (tuples, nested generics) are not modelled and fail — the function declines to the N# backend path.
     /// </summary>
     private static bool TryResolveTypeWithTypeParams(string canonical,
         IReadOnlyDictionary<string, Type> typeParams,
@@ -2128,6 +2290,27 @@ internal sealed class ColumnarIlEmitter
             }
             if (TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
+            if (genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
+            {
+                var tupleArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var openTuple = OpenValueTupleType(tupleArgCanons.Count);
+                if (openTuple == null)
+                {
+                    type = null!;
+                    return false;
+                }
+                var tupleArgs = new Type[tupleArgCanons.Count];
+                for (var i = 0; i < tupleArgs.Length; i++)
+                {
+                    if (!TryResolveTypeWithTypeParams(tupleArgCanons[i], typeParams, enumRegistry, structRegistry, unionRegistry, out tupleArgs[i]))
+                    {
+                        type = null!;
+                        return false;
+                    }
+                }
+                type = openTuple.MakeGenericType(tupleArgs);
+                return IsSupportedValueTuple(type);
+            }
             // BCL COLLECTIONS over in-scope type parameters (`items: List<T>`, `Dictionary<string, T>`,
             // `HashSet<T>`
             // in a generic function's SIGNATURE): close the runtime definition over the threaded
@@ -2154,6 +2337,19 @@ internal sealed class ColumnarIlEmitter
                     && (hashElement is GenericTypeParameterBuilder || IsAdmissibleHashSetElement(hashElement)))
                 {
                     type = typeof(HashSet<>).MakeGenericType(hashElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal))
+            {
+                var stackArgCanons = SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
+                if (stackArgCanons.Count == 1
+                    && TryResolveTypeWithTypeParams(stackArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var stackElement)
+                    && (stackElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(stackElement)))
+                {
+                    type = typeof(Stack<>).MakeGenericType(stackElement);
                     return true;
                 }
                 type = null!;
@@ -2221,6 +2417,33 @@ internal sealed class ColumnarIlEmitter
                 return definition.MakeGenericType(substituted);
         }
         return signatureType;
+    }
+
+    private static bool TryResolveKnownExternalType(string canonical, out Type type)
+    {
+        type = canonical switch
+        {
+            "IYamlTypeConverter" or "YamlDotNet.Serialization.IYamlTypeConverter" => typeof(IYamlTypeConverter),
+            "ObjectDeserializer" or "YamlDotNet.Serialization.ObjectDeserializer" => typeof(ObjectDeserializer),
+            "ObjectSerializer" or "YamlDotNet.Serialization.ObjectSerializer" => typeof(ObjectSerializer),
+            "DeserializerBuilder" or "YamlDotNet.Serialization.DeserializerBuilder" => typeof(DeserializerBuilder),
+            "IDeserializer" or "YamlDotNet.Serialization.IDeserializer" => typeof(IDeserializer),
+            "INamingConvention" or "YamlDotNet.Serialization.INamingConvention" => typeof(INamingConvention),
+            "CamelCaseNamingConvention" or "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention" => typeof(CamelCaseNamingConvention),
+            "IParser" or "YamlDotNet.Core.IParser" => typeof(YamlParser),
+            "IEmitter" or "YamlDotNet.Core.IEmitter" => typeof(YamlEmitter),
+            "YamlException" or "YamlDotNet.Core.YamlException" => typeof(YamlExceptionType),
+            "ParsingEvent" or "YamlDotNet.Core.Events.ParsingEvent" => typeof(ParsingEvent),
+            "Scalar" or "YamlDotNet.Core.Events.Scalar" => typeof(Scalar),
+            "MappingStart" or "YamlDotNet.Core.Events.MappingStart" => typeof(MappingStart),
+            "MappingEnd" or "YamlDotNet.Core.Events.MappingEnd" => typeof(MappingEnd),
+            "JsonElement" or "System.Text.Json.JsonElement" => typeof(JsonElement),
+            "JsonDocument" or "System.Text.Json.JsonDocument" => typeof(JsonDocument),
+            "JsonValueKind" or "System.Text.Json.JsonValueKind" => typeof(JsonValueKind),
+            "JsonSerializerOptions" or "System.Text.Json.JsonSerializerOptions" => typeof(JsonSerializerOptions),
+            _ => null!,
+        };
+        return type != null;
     }
 
     /// <summary>
@@ -2300,7 +2523,8 @@ internal sealed class ColumnarIlEmitter
         }
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
-            if (TryResolveBuiltin(canonical.Substring(0, canonical.Length - 2), out var elementType))
+            if (TryResolveType(canonical.Substring(0, canonical.Length - 2), enumRegistry, structRegistry, unionRegistry, out var elementType)
+                && IsSupportedElementType(elementType))
             {
                 type = elementType.MakeArrayType();
                 return true;
@@ -2340,12 +2564,120 @@ internal sealed class ColumnarIlEmitter
             type = typeof(System.Text.StringBuilder);
             return true;
         }
+        if (canonical == "object")
+        {
+            type = typeof(object);
+            return true;
+        }
+        if (canonical == "StringComparer")
+        {
+            type = typeof(StringComparer);
+            return true;
+        }
+        if (canonical == "SearchOption")
+        {
+            type = typeof(SearchOption);
+            return true;
+        }
+        if (canonical == "IList")
+        {
+            type = typeof(IList);
+            return true;
+        }
+        if (canonical == "Type")
+        {
+            type = typeof(Type);
+            return true;
+        }
+        if (canonical == "Version")
+        {
+            type = typeof(Version);
+            return true;
+        }
+        if (canonical == "TimeSpan")
+        {
+            type = typeof(TimeSpan);
+            return true;
+        }
+        if (canonical == "Process")
+        {
+            type = typeof(Process);
+            return true;
+        }
+        if (canonical == "ProcessStartInfo")
+        {
+            type = typeof(ProcessStartInfo);
+            return true;
+        }
+        if (canonical == "StreamReader")
+        {
+            type = typeof(StreamReader);
+            return true;
+        }
+        if (canonical == "Task<string>")
+        {
+            type = typeof(System.Threading.Tasks.Task<string>);
+            return true;
+        }
+        if (canonical == "Assembly")
+        {
+            type = typeof(Assembly);
+            return true;
+        }
+        if (canonical == "PropertyInfo")
+        {
+            type = typeof(PropertyInfo);
+            return true;
+        }
+        if (canonical == "FieldInfo")
+        {
+            type = typeof(FieldInfo);
+            return true;
+        }
+        if (canonical == "LocalBuilder")
+        {
+            type = typeof(LocalBuilder);
+            return true;
+        }
+        if (canonical == "FieldBuilder")
+        {
+            type = typeof(FieldBuilder);
+            return true;
+        }
+        if (canonical == "TypeBuilder")
+        {
+            type = typeof(TypeBuilder);
+            return true;
+        }
+        if (canonical == "MethodBuilder")
+        {
+            type = typeof(MethodBuilder);
+            return true;
+        }
+        if (canonical == "MethodInfo")
+        {
+            type = typeof(MethodInfo);
+            return true;
+        }
+        if (canonical == "ConstructorBuilder")
+        {
+            type = typeof(ConstructorBuilder);
+            return true;
+        }
+        if (canonical == "ILGenerator")
+        {
+            type = typeof(ILGenerator);
+            return true;
+        }
+        if (TryResolveKnownExternalType(canonical, out type))
+            return true;
         // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical is parens + comma-joined element canons;
         // split at the TOP level (respecting nested ()/<>/[]), resolve each element recursively, then
         // MakeGenericType the matching open ValueTuple. (Only Tuple type nodes produce a `(...)` canonical.)
         if (canonical.Length >= 2 && canonical[0] == '(' && canonical[^1] == ')')
         {
-            var elements = SplitTopLevelCommas(canonical.Substring(1, canonical.Length - 2));
+            var tupleCanonical = StripTupleElementNames(canonical, out _);
+            var elements = SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2));
             Type? openTuple = elements.Count switch
             {
                 2 => typeof(ValueTuple<,>),
@@ -2383,7 +2715,7 @@ internal sealed class ColumnarIlEmitter
         // NAME `Func` at parse, so this spelling is ALWAYS a function type even if a user declares a type
         // named Func — the sugar wins; mirror it by checking before the user-generic path). The LAST type
         // argument is the RETURN type; `void` is legal there and lowers to the matching System.Action —
-        // `Func<int, void>` IS Action<int>, exactly as the oracle's CreateDelegateType maps it.
+        // `Func<int, void>` IS Action<int>, exactly as the legacy emitter's CreateDelegateType maps it.
         if (canonical.StartsWith("Func<", StringComparison.Ordinal) && canonical[^1] == '>')
         {
             return TryResolveDelegateCanonical(
@@ -2408,6 +2740,27 @@ internal sealed class ColumnarIlEmitter
             }
             if (TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
+            if (closedGenericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
+            {
+                var tupleArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var openTuple = OpenValueTupleType(tupleArgCanons.Count);
+                if (openTuple == null)
+                {
+                    type = null!;
+                    return false;
+                }
+                var tupleArgs = new Type[tupleArgCanons.Count];
+                for (var i = 0; i < tupleArgs.Length; i++)
+                {
+                    if (!TryResolveType(tupleArgCanons[i], enumRegistry, structRegistry, unionRegistry, out tupleArgs[i]))
+                    {
+                        type = null!;
+                        return false;
+                    }
+                }
+                type = openTuple.MakeGenericType(tupleArgs);
+                return IsSupportedValueTuple(type);
+            }
             if (closedGenericOpen == 6 && canonical.StartsWith("Action<", StringComparison.Ordinal))
             {
                 return TryResolveDelegateCanonical(
@@ -2421,7 +2774,7 @@ internal sealed class ColumnarIlEmitter
             // rebinds via ResolveClosedGenericMethod/Ctor); IsAdmissibleCollectionElement pins what stays
             // out. Dictionary KEYS and HashSet ELEMENTS must stay BAKED: hashing over a builder type rides the
             // key/element type's synthesized Equals/GetHashCode, and the columnar PASS 0e synthesis-skip rules
-            // (builder-typed-field records get none) would diverge from the oracle — pinned decline.
+            // (builder-typed-field records get none) would diverge from the legacy emitter — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
                 var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
@@ -2443,6 +2796,71 @@ internal sealed class ColumnarIlEmitter
                     && IsAdmissibleHashSetElement(hashElement))
                 {
                     type = typeof(HashSet<>).MakeGenericType(hashElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal))
+            {
+                var stackArgCanons = SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
+                if (stackArgCanons.Count == 1
+                    && TryResolveType(stackArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var stackElement)
+                    && IsAdmissibleCollectionElement(stackElement))
+                {
+                    type = typeof(Stack<>).MakeGenericType(stackElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 13 && canonical.StartsWith("IReadOnlyList<", StringComparison.Ordinal))
+            {
+                var listArgCanons = SplitTopLevelCommas(canonical.Substring(14, canonical.Length - 15));
+                if (listArgCanons.Count == 1
+                    && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
+                    && IsAdmissibleCollectionElement(listElement))
+                {
+                    type = typeof(IReadOnlyList<>).MakeGenericType(listElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 19 && canonical.StartsWith("IReadOnlyCollection<", StringComparison.Ordinal))
+            {
+                var collectionArgCanons = SplitTopLevelCommas(canonical.Substring(20, canonical.Length - 21));
+                if (collectionArgCanons.Count == 1
+                    && TryResolveType(collectionArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var collectionElement)
+                    && IsAdmissibleCollectionElement(collectionElement))
+                {
+                    type = typeof(IReadOnlyCollection<>).MakeGenericType(collectionElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 12 && canonical.StartsWith("IReadOnlySet<", StringComparison.Ordinal))
+            {
+                var setArgCanons = SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
+                if (setArgCanons.Count == 1
+                    && TryResolveType(setArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var setElement)
+                    && IsAdmissibleHashSetElement(setElement))
+                {
+                    type = typeof(IReadOnlySet<>).MakeGenericType(setElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal))
+            {
+                var enumerableArgCanons = SplitTopLevelCommas(canonical.Substring(12, canonical.Length - 13));
+                if (enumerableArgCanons.Count == 1
+                    && TryResolveType(enumerableArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var enumerableElement)
+                    && IsAdmissibleCollectionElement(enumerableElement))
+                {
+                    type = typeof(IEnumerable<>).MakeGenericType(enumerableElement);
                     return true;
                 }
                 type = null!;
@@ -2607,7 +3025,7 @@ internal sealed class ColumnarIlEmitter
     /// <summary>
     /// Decode the (quote-stripped) body of a char/string literal, resolving the common C-style escape sequences
     /// (<c>\n \r \t \\ \" \' \0 \a \b \f \v</c>) to their characters. Returns false for an unknown/unsupported
-    /// escape (e.g. <c>\u</c>/<c>\x</c> or a trailing backslash) so that literal declines — keeping the C# path
+    /// escape (e.g. <c>\u</c>/<c>\x</c> or a trailing backslash) so that literal declines — keeping the N# backend path
     /// authoritative rather than mis-decoding. A body with no backslash is returned verbatim.
     /// </summary>
     private static bool TryDecodeLiteralBody(string body, out string decoded)
@@ -2651,7 +3069,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Parse a floating-point literal's body (type suffix already stripped by the caller) to its double value,
-    // mirroring the C# path's ParseFloatLiteralValue: drop `_` digit separators, then parse invariant-culture.
+    // mirroring the N# backend path's ParseFloatLiteralValue: drop `_` digit separators, then parse invariant-culture.
     // An f-literal narrows the result to float at the call site; a double-literal uses it directly.
     private static bool TryParseFloatingLiteralBody(string body, out double value)
     {
@@ -2723,7 +3141,9 @@ internal sealed class ColumnarIlEmitter
                 constants[en.MemberNames[m]] = en.MemberValues[m];
             }
             var enumType = eb.CreateType();
-            enumRegistry[en.Name] = new ColumnarEnumDef(enumType, constants);
+            var enumDef = new ColumnarEnumDef(enumType, constants);
+            enumRegistry[en.Name] = enumDef;
+            TryRegisterEnumAlias(enumRegistry, en.Name, enumDef);
         }
 
         // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
@@ -2733,6 +3153,10 @@ internal sealed class ColumnarIlEmitter
         var unionBaseBuilders = new List<TypeBuilder>();
         var unionCaseBuilders = new List<TypeBuilder>();
 
+        // PASS 0 (structs): define every user struct as a module-level VALUE TYPE — System.ValueType base, attributes
+        // `Public | Sealed` with NO explicit layout (default auto) — plus a public instance field per declared field.
+        // The FieldBuilder handles are stored in the registry and
+        // used DIRECTLY for ldfld/stfld/construction (never GetField, which throws on an un-finalized TypeBuilder).
         // Field types resolve via TryResolveType (single builtins in this slice). Defined after enums so a struct may
         // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
         var structRegistry = new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal);
@@ -2751,6 +3175,7 @@ internal sealed class ColumnarIlEmitter
                 new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true)
             { IsInterface = true };
             structRegistry[iface.Name] = interfaceDef;
+            TryRegisterStructAlias(structRegistry, iface.Name, interfaceDef);
             interfaceDefsInOrder.Add(interfaceDef);
         }
         for (var i = 0; i < interfaces.Count; i++)
@@ -2790,6 +3215,8 @@ internal sealed class ColumnarIlEmitter
                     iface.MethodNames[m],
                     methodAttributes,
                     memberReturn, memberParams);
+                if (!DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                    return false;
                 interfaceDef.Methods[iface.MethodNames[m]] = (abstractMethod, memberParams, memberReturn);
                 if (hasDefaultBody)
                 {
@@ -2816,11 +3243,13 @@ internal sealed class ColumnarIlEmitter
         }
 
         var structBuilders = new TypeBuilder[structs.Count];
+        var structDefsInOrder = new ColumnarStructDef[structs.Count];
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
             // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
-            // `newobj`); a struct is a `System.ValueType`-based value type. Both carry public instance fields.
+            // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
+            // after every type name is in the registry, so field signatures can reference later-declared types.
             var tb = st.IsReference
                 ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
                 : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
@@ -2838,8 +3267,23 @@ internal sealed class ColumnarIlEmitter
             }
 
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+            var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord)
+            {
+                GenericParameters = typeGenericParams,
+            };
+            structBuilders[s] = tb;
+            structDefsInOrder[s] = newDef;
+            structRegistry[st.Name] = newDef;
+            TryRegisterStructAlias(structRegistry, st.Name, newDef);
+        }
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var st = structs[s];
+            var tb = structBuilders[s];
+            var def = structDefsInOrder[s];
+            var typeGenericParams = def.GenericParameters;
+            var fields = def.Fields;
             var instanceFieldNames = new List<string>(st.FieldNames.Length);
-            var staticFieldDefs = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             var staticFieldInits = new List<(FieldBuilder Field, Type Type, int InitKind, string InitText)>();
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
@@ -2848,9 +3292,11 @@ internal sealed class ColumnarIlEmitter
                     ? TryResolveTypeWithTypeParams(st.FieldTypeCanonicals[fi], typeGenericParams, enumRegistry, structRegistry, unionRegistry, out var fieldType)
                     : TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, unionRegistry, out fieldType);
                 if (!fieldTypeResolved || !IsSupportedType(fieldType))
+                {
                     return false;
+                }
                 // STATIC fields typed by a generic parameter decline: `static count: T` has no single CLR
-                // storage across instantiations the modelled surface can express (the oracle's behavior for
+                // storage across instantiations the modelled surface can express (the legacy emitter's behavior for
                 // these shapes is unprobed — decline-safe).
                 if (st.FieldStaticFlags != null && st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
@@ -2858,7 +3304,7 @@ internal sealed class ColumnarIlEmitter
                 if (isStaticField)
                 {
                     var sfb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public | FieldAttributes.Static);
-                    staticFieldDefs[st.FieldNames[fi]] = sfb;
+                    def.StaticFields[st.FieldNames[fi]] = sfb;
                     var initKind = st.FieldInitKinds != null ? st.FieldInitKinds[fi] : -1;
                     if (initKind >= 0)
                         staticFieldInits.Add((sfb, fieldType, initKind, st.FieldInitTexts![fi]!));
@@ -2869,11 +3315,14 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
                 fields[st.FieldNames[fi]] = fb;
+                if (st.FieldTypeCanonicals[fi].EndsWith("?", StringComparison.Ordinal))
+                    def.NullableFields.Add(st.FieldNames[fi]);
                 instanceFieldNames.Add(st.FieldNames[fi]);
             }
-            // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order (C# static-initializer
+            def.SetFieldOrder(instanceFieldNames.ToArray());
+            // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order (static-initializer
             // semantics). Only single-token literals are modelled (the kernel guarantees it); the literal must
-            // agree with the declared field type — a mismatch declines (the oracle's implicit conversions are not
+            // agree with the declared field type — a mismatch declines (the legacy emitter's implicit conversions are not
             // modelled). Fields with no initializer keep the CLR zero default (no .cctor entry needed).
             if (staticFieldInits.Count > 0)
             {
@@ -2886,14 +3335,6 @@ internal sealed class ColumnarIlEmitter
                 }
                 cctorIl.Emit(OpCodes.Ret);
             }
-            structBuilders[s] = tb;
-            var newDef = new ColumnarStructDef(tb, instanceFieldNames.ToArray(), fields, st.IsReference, st.IsRecord)
-            {
-                GenericParameters = typeGenericParams,
-            };
-            foreach (var (sfName, sfBuilder) in staticFieldDefs)
-                newDef.StaticFields[sfName] = sfBuilder;
-            structRegistry[st.Name] = newDef;
         }
 
         // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
@@ -2908,7 +3349,15 @@ internal sealed class ColumnarIlEmitter
             foreach (var baseName in structs[s].BaseNames)
             {
                 if (!structRegistry.TryGetValue(baseName, out var baseDef))
+                {
+                    if (TryResolveKnownExternalType(baseName, out var externalBase) && externalBase.IsInterface)
+                    {
+                        def.ExternalInterfaces.Add(externalBase);
+                        def.Builder.AddInterfaceImplementation(externalBase);
+                        continue;
+                    }
                     return false;
+                }
                 if (baseDef.IsInterface)
                 {
                     def.ImplementedInterfaces.Add(baseDef);
@@ -2920,15 +3369,25 @@ internal sealed class ColumnarIlEmitter
                     continue;
                 }
                 if (!def.IsReference)
+                {
                     return false; // a value-type struct cannot inherit.
+                }
                 if (def.IsRecord)
+                {
                     return false; // record inheritance is unmodelled — only a CLASS may inherit.
+                }
                 if (!baseDef.IsReference || ReferenceEquals(baseDef, def))
+                {
                     return false; // non-class / self base.
+                }
                 if (baseDef.IsRecord)
-                    return false; // a RECORD can never be a base type (the oracle emits records SEALED).
+                {
+                    return false; // a RECORD can never be a base type (the legacy emitter emits records SEALED).
+                }
                 if (def.BaseDef != null)
+                {
                     return false; // multiple class bases.
+                }
                 def.BaseDef = baseDef;
                 def.Builder.SetParent(baseDef.Builder);
             }
@@ -2974,7 +3433,9 @@ internal sealed class ColumnarIlEmitter
                     if (m.ReturnCanonical == "void")
                         sReturn = typeof(void);
                     else if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out sReturn) || !IsSupportedType(sReturn))
+                    {
                         return false;
+                    }
                     // No implicit `this`: param ordinals are NOT shifted (arg 0 is the first parameter).
                     var sParamTypes = new Type[m.ParamNames.Length];
                     var sOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -2982,7 +3443,9 @@ internal sealed class ColumnarIlEmitter
                     for (var i = 0; i < m.ParamNames.Length; i++)
                     {
                         if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
+                        {
                             return false;
+                        }
                         sParamTypes[i] = pt;
                         sOrdinals[m.ParamNames[i]] = i;
                         sParamTypeMap[m.ParamNames[i]] = pt;
@@ -2992,13 +3455,23 @@ internal sealed class ColumnarIlEmitter
                         overloads = new List<(MethodBuilder, Type[], Type)>();
                         def.StaticMethods[m.Name] = overloads;
                     }
-                    var smb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, sReturn, sParamTypes);
+                    var staticMethodAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig;
+                    if (m.Name.StartsWith("op_", StringComparison.Ordinal))
+                        staticMethodAttributes |= MethodAttributes.SpecialName;
+                    var smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sReturn, sParamTypes);
+                    if (!DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
+                        return false;
                     overloads.Add((smb, sParamTypes, sReturn));
                     structMethodJobs.Add((def, m, smb, sReturn, sOrdinals, sParamTypeMap, true));
                     continue;
                 }
-                if (!TryResolveMemberType(m.ReturnCanonical, def, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
+                Type mReturn;
+                if (m.ReturnCanonical == "void")
+                    mReturn = typeof(void);
+                else if (!TryResolveMemberType(m.ReturnCanonical, def, enumRegistry, structRegistry, unionRegistry, out mReturn) || !IsSupportedType(mReturn))
+                {
                     return false;
+                }
                 // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
                 var mParamTypes = new Type[m.ParamNames.Length];
                 var mOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -3006,18 +3479,22 @@ internal sealed class ColumnarIlEmitter
                 for (var i = 0; i < m.ParamNames.Length; i++)
                 {
                     if (!TryResolveMemberType(m.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
+                    {
                         return false;
+                    }
                     mParamTypes[i] = pt;
                     mOrdinals[m.ParamNames[i]] = i + 1;
                     mParamTypeMap[m.ParamNames[i]] = pt;
                 }
                 // An IMPLEMENTING method (name + exact signature matches a member of any directly implemented
                 // interface, or one of its inherited interfaces) gets Virtual|Final|NewSlot +
-                // DefineMethodOverride for every matching slot — the oracle's DeclareMethod rule
+                // DefineMethodOverride for every matching slot — the legacy emitter's DeclareMethod rule
                 // (implementing methods are FORCED virtual-final).
                 var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
                 List<MethodBuilder>? overriddenInterfaceMethods = null;
+                List<MethodInfo>? overriddenExternalInterfaceMethods = null;
                 var seenOverriddenInterfaceMethods = new HashSet<MethodBuilder>();
+                var seenOverriddenExternalInterfaceMethods = new HashSet<MethodInfo>();
                 foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
                     if (TryFindInterfaceMethod(implementedInterface, m.Name, mReturn, mParamTypes, out var interfaceMember)
@@ -3028,11 +3505,31 @@ internal sealed class ColumnarIlEmitter
                         overriddenInterfaceMethods.Add(interfaceMember);
                     }
                 }
+                foreach (var externalInterface in def.ExternalInterfaces)
+                {
+                    foreach (var externalMethod in externalInterface.GetMethods())
+                    {
+                        if (ExternalInterfaceMethodMatches(externalMethod, m.Name, mReturn, mParamTypes)
+                            && seenOverriddenExternalInterfaceMethods.Add(externalMethod))
+                        {
+                            methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
+                            overriddenExternalInterfaceMethods ??= new List<MethodInfo>();
+                            overriddenExternalInterfaceMethods.Add(externalMethod);
+                        }
+                    }
+                }
                 var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mReturn, mParamTypes);
+                if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
+                    return false;
                 if (overriddenInterfaceMethods != null)
                 {
                     foreach (var overriddenInterfaceMethod in overriddenInterfaceMethods)
                         def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
+                }
+                if (overriddenExternalInterfaceMethods != null)
+                {
+                    foreach (var overriddenExternalInterfaceMethod in overriddenExternalInterfaceMethods)
+                        def.Builder.DefineMethodOverride(mb, overriddenExternalInterfaceMethod);
                 }
                 def.Methods[m.Name] = (mb, mParamTypes, mReturn);
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap, false));
@@ -3041,40 +3538,52 @@ internal sealed class ColumnarIlEmitter
 
         // COMPLETENESS: every member of every implemented interface must be matched by an
         // implementing method — the pipeline compiles missing members with ZERO diagnostics and the
-        // assembly throws TypeLoadException at LOAD (oracle defect #26); columnar declines instead
+        // assembly throws TypeLoadException at LOAD (known defect #26); columnar declines instead
         // (never emit an unloadable assembly).
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
-            if (def.ImplementedInterfaces.Count == 0)
-                continue;
             var seenRequiredInterfaces = new HashSet<ColumnarStructDef>();
-            foreach (var implementedInterface in def.ImplementedInterfaces)
+            if (def.ImplementedInterfaces.Count > 0)
             {
-                foreach (var requiredInterface in EnumerateInterfaceAndBases(implementedInterface))
+                foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
-                    if (!seenRequiredInterfaces.Add(requiredInterface))
-                        continue;
-                    foreach (var (memberName, member) in requiredInterface.Methods)
+                    foreach (var requiredInterface in EnumerateInterfaceAndBases(implementedInterface))
                     {
-                        if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
+                        if (!seenRequiredInterfaces.Add(requiredInterface))
                             continue;
-                        if (!def.Methods.TryGetValue(memberName, out var impl)
-                            || impl.ReturnType != member.ReturnType
-                            || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
-                            return false;
+                        foreach (var (memberName, member) in requiredInterface.Methods)
+                        {
+                            if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
+                                continue;
+                            if (!def.Methods.TryGetValue(memberName, out var impl)
+                                || impl.ReturnType != member.ReturnType
+                                || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
+                                return false;
+                        }
+                    }
+                }
+            }
+            foreach (var externalInterface in def.ExternalInterfaces)
+            {
+                foreach (var externalMethod in externalInterface.GetMethods())
+                {
+                    if (!def.Methods.TryGetValue(externalMethod.Name, out var impl)
+                        || !ExternalInterfaceMethodMatches(externalMethod, externalMethod.Name, impl.ReturnType, impl.ParamTypes))
+                    {
+                        return false;
                     }
                 }
             }
         }
 
-        // PASS 0b' (property accessors): declare each reference-type's computed property as a `get_Name` instance
+        // PASS 0b' (property accessors): declare each computed property as a `get_Name` instance
         // method (no params, returning the property type) and — when the property has a setter — a `set_Name` method
         // (one param "value": property type, returning void). The accessor bodies read/write fields exactly like a
         // method, so they emit via the same structMethodJobs path in PASS 2. The property is registered for
         // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
-        // set_Name). Declines: a value-type property (deferred) plus same-declaration property source-name and
-        // synthesized get_Name/set_Name collisions are rejected by the N# struct parser before rows reach this pass.
+        // set_Name). Same-declaration property source-name and synthesized get_Name/set_Name collisions are rejected
+        // by the N# struct parser before rows reach this pass.
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Properties.Count == 0)
@@ -3092,28 +3601,38 @@ internal sealed class ColumnarIlEmitter
                     // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
                     var staticGetter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
                     structMethodJobs.Add((def, prop.Getter, staticGetter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), true));
+                    var staticProperty = def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes);
+                    staticProperty.SetGetMethod(staticGetter);
                     MethodBuilder? staticSetter = null;
                     if (prop.Setter != null)
                     {
                         staticSetter = def.Builder.DefineMethod("set_" + prop.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName, typeof(void), new[] { propType });
+                        if (!DefineMethodParameterMetadata(staticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                            return false;
                         var staticSetOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 0 };
                         var staticSetParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
                         structMethodJobs.Add((def, prop.Setter, staticSetter, typeof(void), staticSetOrdinals, staticSetParamTypes, true));
+                        staticProperty.SetSetMethod(staticSetter);
                     }
                     def.StaticProperties[prop.Name] = (staticGetter, staticSetter, propType);
                     continue;
                 }
                 var getter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
                 structMethodJobs.Add((def, prop.Getter, getter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), false));
+                var property = def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes);
+                property.SetGetMethod(getter);
                 MethodBuilder? setter = null;
                 if (prop.Setter != null)
                 {
                     setter = def.Builder.DefineMethod("set_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, typeof(void), new[] { propType });
+                    if (!DefineMethodParameterMetadata(setter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                        return false;
                     // The setter's `value` parameter is arg 1 (arg 0 = this); its body assigns fields via the
                     // reference-type field-write path. Emitted via structMethodJobs (a void method).
                     var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 1 };
                     var setParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
                     structMethodJobs.Add((def, prop.Setter, setter, typeof(void), setOrdinals, setParamTypes, false));
+                    property.SetSetMethod(setter);
                 }
                 def.Properties[prop.Name] = (getter, setter, propType);
             }
@@ -3122,10 +3641,9 @@ internal sealed class ColumnarIlEmitter
         // PASS 0b'' (inherited-member shadowing): with every field/method/property declared, decline any member of
         // a derived type whose name SHADOWS an inherited member — EXCEPT a method over an inherited METHOD of the
         // SAME kind (instance over instance, static over static), which the N# pipeline accepts as hiding (the
-        // nearest declaration wins; chain-walking resolution models exactly that — static hiding pinned by the
-        // oracle's ILCompiler_StaticMethodHidingBindsNearestDeclaration). Field-over-anything,
+        // nearest declaration wins; chain-walking resolution models exactly that. Field-over-anything,
         // method-over-field/property, property-over-anything, and MIXED static/instance method shadowing is NOT
-        // verified against the oracle — decline to the C# path rather than risk a resolution divergence.
+        // modelled, so this backend declines rather than risk a resolution divergence.
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
@@ -3139,7 +3657,7 @@ internal sealed class ColumnarIlEmitter
                         return false;
                 }
                 // A derived STATIC FIELD/PROPERTY shadowing ANY inherited member (incl. its own kind) is
-                // unverified against the oracle — decline every shape (unlike methods, no static-member hiding
+                // unverified against the legacy emitter — decline every shape (unlike methods, no static-member hiding
                 // is modelled for data members).
                 foreach (var staticFieldName in def.StaticFields.Keys)
                 {
@@ -3200,7 +3718,9 @@ internal sealed class ColumnarIlEmitter
                     cParamTypeMap[ctor.Body.ParamNames[i]] = pt;
                 }
                 var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
-                def.Constructors.Add((cb, cParamTypes));
+                if (!DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts, enumRegistry))
+                    return false;
+                def.Constructors.Add((cb, cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts));
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
         }
@@ -3272,10 +3792,15 @@ internal sealed class ColumnarIlEmitter
             SynthesizeRecordValueMembers(def);
         }
 
+        // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
+        // case. The base has a protected (Family) parameterless ctor
+        // chaining to object::.ctor; each case has a public parameterless ctor chaining to the base ctor, plus a
+        // public field per case field. These trivial ctor bodies are emitted INLINE here (no user code), exactly as
+        // the de-risking spike proved. Case fields resolve via TryResolveType (enums/structs/earlier-unions in scope).
         // Defined after structs so a case field may be an enum or struct; nested case types are finalized BEFORE their
         // base (deepest-first — see the finalization block below).
         //
-        // A GENERIC union (`union Opt<T>`) mirrors the oracle's d1c41b6e machinery exactly (spike-proven): the base
+        // A GENERIC union (`union Opt<T>`) mirrors the legacy emitter's d1c41b6e machinery exactly (spike-proven): the base
         // declares the parameters; every nested case REDECLARES them by the same names (CLR metadata does not
         // inherit generic parameters into nested types) and SetParent()s to the base CLOSED over its own copies
         // (Some<T> : Opt<T>); the case ctor's base-ctor call is REBOUND onto that instantiation via
@@ -3285,7 +3810,7 @@ internal sealed class ColumnarIlEmitter
         {
             var un = unions[u];
 
-            // VALUE-STRUCT union (mirrors the C# oracle's DeclareValueStructUnion): a small, closed, payload-free,
+            // VALUE-STRUCT union (mirrors the previous parity baseline's DeclareValueStructUnion): a small, closed, payload-free,
             // non-generic union emits as a SEALED readonly tag struct (over System.ValueType) instead of a class
             // hierarchy, preserving the public allocation-free value-struct ABI (IsValueType==true). Shape: a private
             // `int _tag` (InitOnly) discriminator, a private `U(int)` ctor, a public `Tag` getter, and per case a
@@ -3325,7 +3850,7 @@ internal sealed class ColumnarIlEmitter
                 var tagProp = structTb.DefineProperty("Tag", PropertyAttributes.None, typeof(int), Type.EmptyTypes);
                 tagProp.SetGetMethod(tagGetter);
 
-                var valueStructDef = new ColumnarUnionDef(structTb) { IsValueStruct = true, TagGetter = tagGetter };
+                var valueStructDef = new ColumnarUnionDef(structTb, 0) { IsValueStruct = true, TagGetter = tagGetter };
                 unionRegistry[un.Name] = valueStructDef;
                 unionBaseBuilders.Add(structTb);
 
@@ -3387,7 +3912,7 @@ internal sealed class ColumnarIlEmitter
                 if (isGenericUnion)
                 {
                     // Define with NO parent, redeclare the parameters, THEN parent to the closed base —
-                    // the oracle's DeclareUnion order (the parent type references the case's own parameters,
+                    // the legacy emitter's DeclareUnion order (the parent type references the case's own parameters,
                     // which must exist first).
                     caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed);
                     var caseParams = caseTb.DefineGenericParameters(un.TypeParamNames);
@@ -3406,7 +3931,7 @@ internal sealed class ColumnarIlEmitter
                 for (var fi = 0; fi < caseFieldNames.Length; fi++)
                 {
                     // The union's type parameters shadow same-named registered types within the case's
-                    // field signatures (the oracle scopes them the same way).
+                    // field signatures (the legacy emitter scopes them the same way).
                     var fieldResolved = caseParamMap != null
                         ? TryResolveTypeWithTypeParams(caseFieldTypes[fi], caseParamMap, enumRegistry, structRegistry, unionRegistry, out var caseFieldType)
                         : TryResolveType(caseFieldTypes[fi], enumRegistry, structRegistry, unionRegistry, out caseFieldType);
@@ -3456,7 +3981,7 @@ internal sealed class ColumnarIlEmitter
             var fn = funcs[f];
             // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
             // definition with open type parameters, instantiated per call site via MakeGenericMethod — exactly
-            // the oracle's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
+            // the legacy emitter's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
             // param/return types can reference the GenericTypeParameterBuilders (the de-risking spike's order).
             var emptyTypeParams = System.Array.Empty<Type>();
             Type[] fnTypeParams = emptyTypeParams;
@@ -3476,8 +4001,8 @@ internal sealed class ColumnarIlEmitter
                 }
                 // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): special flags map onto
                 // GenericParameterAttributes and the single type constraint onto SetBaseTypeConstraint,
-                // mirroring the oracle's ApplyGenericConstraints (the `struct` flag implies the default-ctor
-                // flag, exactly as the oracle sets them; constraints persist and load — spike-proven). Applied
+                // mirroring the legacy emitter's ApplyGenericConstraints (the `struct` flag implies the default-ctor
+                // flag, exactly as the legacy emitter sets them; constraints persist and load — spike-proven). Applied
                 // AFTER the full typeParamMap exists so a constraint can name another of the function's own
                 // parameters (`where T: U`). Modeled base targets: another type parameter, a user REFERENCE
                 // class/record TypeBuilder, or a baked BCL class. An INTERFACE constraint never resolves here
@@ -3569,7 +4094,7 @@ internal sealed class ColumnarIlEmitter
             {
                 // ASYNC (the sync-lowering mirror): generic async declines; the declared return
                 // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
-                // default, Task(/T) for `main` (the oracle's entry-point rule), explicit task-like
+                // default, Task(/T) for `main` (the legacy emitter's entry-point rule), explicit task-like
                 // annotations keep their declared family.
                 if (fn.TypeParamNames.Length > 0)
                     return false;
@@ -3614,6 +4139,8 @@ internal sealed class ColumnarIlEmitter
                 methods[f] = type.DefineMethod(
                     fn.Name, MethodAttributes.Public | MethodAttributes.Static, asyncWrappedReturn ?? returnType, paramTypes);
             }
+            if (!DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, enumRegistry))
+                return false;
             ordinalsByFunc[f] = ordinals;
             paramTypesByFunc[f] = paramTypeMap;
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType; // call sites see the WRAPPED type.
@@ -3660,6 +4187,8 @@ internal sealed class ColumnarIlEmitter
                     var localMethod = type.DefineMethod(
                         "<" + fn.Name + ">g__" + lambdaCounter[0]++,
                         MethodAttributes.Private | MethodAttributes.Static, localReturn, localParams);
+                    if (!DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, enumRegistry))
+                        return false;
                     localFuncs[localFn.Name] = (localMethod, localParams, localReturn);
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name;
                 }
@@ -3769,7 +4298,8 @@ internal sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.BodyNodes, source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
-                isConstructorBody: true, programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                isConstructorBody: true, isSynthesizedInitializerBody: job.Ctor.IsSynthesizedInitializer,
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (job.Ctor.ChainInitKind != 0)
             {
                 // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
@@ -3785,12 +4315,16 @@ internal sealed class ColumnarIlEmitter
             else if (job.Struct.IsReference)
             {
                 // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
-                // inherited fields are the base ctor's responsibility). Validate BEFORE emitting — declining here
-                // discards the whole assembly (→ C# path). Then chain implicitly: to the declared base's
-                // parameterless ctor when the type has one (decline when the base offers only parameterized ctors —
-                // ECMA-335 requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain),
-                // else to the `object` ctor.
-                if (!emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
+                // inherited fields are the base ctor's responsibility). Synthesized initializer constructors
+                // produced from class/record declarations may leave fields at their CLR defaults; explicit
+                // constructors keep the all-fields-assigned check. Validate BEFORE emitting — declining here discards
+                // the whole assembly (→ N# backend path). Then chain implicitly: to the declared base's parameterless
+                // ctor when the type has one (decline when the base offers only parameterized ctors — ECMA-335
+                // requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain), else to the
+                // `object` ctor.
+                if (job.Ctor.IsSynthesizedInitializer
+                    ? emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot)
+                    : !emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
                     return false;
                 if (job.Struct.BaseDef != null)
                 {
@@ -3809,7 +4343,7 @@ internal sealed class ColumnarIlEmitter
             else
             {
                 // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
-                // validation — the oracle ACCEPTS partial assignment in struct ctors (probed: unassigned
+                // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
                 // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
                 if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
                     return false;
@@ -3841,14 +4375,14 @@ internal sealed class ColumnarIlEmitter
                     structBuilders[s].CreateType();
             }
         }
-        // Union types: a NESTED case must be finalized BEFORE its enclosing base (deepest-first), matching the C#
-        // ILCompiler's OrderTypeBuildersByDescendingTypeKeyDepth — so create every case, then every base.
+        // Union types: a NESTED case must be finalized BEFORE its enclosing base (deepest-first),
+        // so create every case, then every base.
         foreach (var caseTb in unionCaseBuilders)
             caseTb.CreateType();
         foreach (var baseTb in unionBaseBuilders)
             baseTb.CreateType();
 
-        // Display classes (capturing lambdas) bake BEFORE the Program type — the oracle's
+        // Display classes (capturing lambdas) bake BEFORE the Program type — the legacy emitter's
         // closure-types-first order; their instance methods are referenced by ldftn from Program bodies.
         foreach (var displayTb in displayClasses)
             displayTb.CreateType();
@@ -3860,7 +4394,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Emit a function body. A VALUE function (non-void) must always-return on every path (NL305) — else the IL
-    // would fall off the end with no `ret`; decline it to the C# analyzer. A VOID function (procedure) need not
+    // would fall off the end with no `ret`; decline to the analyzer-validated product path. A VOID function (procedure) need not
     // always-return: emit the body, then a trailing `ret` IFF control can fall through to the method end (when
     // the body already always-returns via value-less `return`s, no trailing `ret` is emitted, so there is no
     // unreachable code).
@@ -3893,7 +4427,7 @@ internal sealed class ColumnarIlEmitter
         }
         if (_asyncReturnType != null)
         {
-            // ASYNC FAULT GUARD (the oracle's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
+            // ASYNC FAULT GUARD (the legacy emitter's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
             // body is ONE protected region — every return WRAPS its value and leaves to the shared
             // tail; a UNIT body falling off the end wraps the completed task; the catch converts
             // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
@@ -3929,7 +4463,11 @@ internal sealed class ColumnarIlEmitter
         }
         if (!isVoid)
         {
-            if (!AlwaysReturns(bodyRoot) || !EmitStatement(bodyRoot))
+            if (!AlwaysReturns(bodyRoot))
+            {
+                return false;
+            }
+            if (!EmitStatement(bodyRoot))
                 return false;
             EmitProtectedReturnTail(isVoid: false);
             return true;
@@ -3943,7 +4481,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // ASYNC mirror of the oracle's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
+    // ASYNC mirror of the legacy emitter's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
     // value — or, with no value, the completed unit task — into the wrapped CLR return type.
     // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
     // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
@@ -3987,7 +4525,7 @@ internal sealed class ColumnarIlEmitter
         throw new InvalidOperationException($"Could not resolve Task.{methodName}");
     }
 
-    // ASYNC mirror of the oracle's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
+    // ASYNC mirror of the legacy emitter's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
     // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
     // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
     private void EmitFaultedAsyncReturnMirror()
@@ -4007,10 +4545,10 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    // ASYNC mirror of the oracle's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
+    // ASYNC mirror of the legacy emitter's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
     // and converts via AsTask() first; Task(/T) goes callvirt GetAwaiter() then the STRUCT awaiter
     // spills for `call GetResult()`. Only the four BCL task shapes are modelled — any other
-    // awaitable declines (the oracle's general GetAwaiter pattern is a later rung).
+    // awaitable declines (the legacy emitter's general GetAwaiter pattern is a later rung).
     private bool TryEmitBlockingAwait(Type awaitableType, out Type resultType)
     {
         resultType = null!;
@@ -4095,11 +4633,13 @@ internal sealed class ColumnarIlEmitter
                     // A statement that unconditionally transfers control — always-returns, or a direct
                     // `break`/`continue` — must be the LAST in its block; anything after it is unreachable (an
                     // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
-                    // C# analyzer/codegen authoritative. (A break/continue nested inside an `if` is conditional,
-                    // so only a DIRECT break/continue child counts here.)
+                    // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
+                    // conditional, so only a DIRECT break/continue child counts here.)
                     var transfers = AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22;
                     if (transfers && n != _nodes.ChildCount(idx) - 1)
+                    {
                         return false;
+                    }
                 }
 
                 var blockLocals = new List<string>();
@@ -4129,7 +4669,7 @@ internal sealed class ColumnarIlEmitter
                      // leaves the prior region and PUSHES the exception typed as the catch type — stloc the
                      // bound variable (a fresh block-scoped local; shadowing declines = the pipeline's
                      // NL316) or Pop when unbound. Unknown/non-whitelist exception types decline (the
-                     // pipeline silently resolves unknown names to a CATCH-ALL — oracle defect #16 — and
+                     // pipeline silently resolves unknown names to a CATCH-ALL — known defect #16 — and
                      // accepts non-exception types as dead clauses — #17; declining inherits neither).
                      // Returns inside any region go through the body's leave tail. An optional trailing
                      // kind-25 child is the FINALLY block (E4); break/continue inside the regions emit
@@ -4207,8 +4747,8 @@ internal sealed class ColumnarIlEmitter
             }
 
             case 51: // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
-            {        // { Monitor.Exit(obj) }`, the oracle's EmitLock verbatim. The lockee must be a
-                     // REFERENCE value: the analyzer rejects value-type lockees with NL320 (oracle
+            {        // { Monitor.Exit(obj) }`, the legacy emitter's EmitLock verbatim. The lockee must be a
+                     // REFERENCE value: the analyzer rejects value-type lockees with NL320 (legacy emitter
                      // defect #21 fixed front-door; the CS0185 analog), so none can reach emit on the
                      // production path — the decline below stays as this emitter's contract guard.
                      // One protected region per body (nested forms decline), exactly as for try.
@@ -4246,7 +4786,7 @@ internal sealed class ColumnarIlEmitter
             case 48: // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
             {        // expression must produce a System.Exception-derived reference (the whitelisted BCL
                      // exception constructions; anything else declines — the analyzer's type rule stays
-                     // with the C# path).
+                     // with the N# backend path).
                 if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var thrownType))
                     return false;
                 if (!typeof(Exception).IsAssignableFrom(thrownType))
@@ -4311,18 +4851,22 @@ internal sealed class ColumnarIlEmitter
                     // `return 5` / `return null` / `return n` on an int? function — the lifted
                     // conversion OWNS the emission; failure declines the whole program.
                     if (!TryEmitValueAsNullable(retNode, _returnType, out retType))
+                    {
                         return false;
+                    }
                 }
                 else if (!EmitExpression(retNode, out retType))
                 {
                     return false;
                 }
-                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType))
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType))
+                {
                     return false; // exact or implicitly-widenable (`return n` on a long function) only.
+                }
                 if (_inProtectedRegion)
                 {
                     // ASYNC: the INNER value wraps into the completed task before the store (the
-                    // oracle's EmitWrapCurrentAsyncReturn before its structured return).
+                    // legacy emitter's EmitWrapCurrentAsyncReturn before its structured return).
                     if (_asyncReturnType != null)
                         EmitWrappedAsyncCompletedReturn(hasValueOnStack: true);
                     // E2: `ret` is invalid inside try/catch — store + leave to the body tail (spike rule 1).
@@ -4340,7 +4884,7 @@ internal sealed class ColumnarIlEmitter
                 // Decline a local that shadows a parameter or redeclares a local — incl. a binding in an
                 // ENCLOSING function when this is a nested (lambda/local-func) body: N# treats shadowing as
                 // a diagnostic (NL316; a same-`:=` redeclaration as an error), which the spike does not
-                // model — declining keeps the C# analyzer authoritative rather than silently compiling it.
+                // model — declining keeps the analyzer-validated product path authoritative.
                 if (IsVisibleBindingName(name))
                     return false;
                 if (_nodes.ChildCount(idx) == 0)
@@ -4361,9 +4905,14 @@ internal sealed class ColumnarIlEmitter
                 // A local of an open generic-parameter type (`y := x` inside a generic function, x: T) is legal —
                 // DeclareLocal over a GenericTypeParameterBuilder works (spike-proven) and loads/stores/returns
                 // of T flow by reference equality. T[] locals likewise.
-                if (!EmitExpression(Child(idx, 0), out var initType)
-                    || !(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
+                if (!EmitExpression(Child(idx, 0), out var initType))
+                {
                     return false;
+                }
+                if (!(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
+                {
+                    return false;
+                }
                 // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
                 // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
                 // (a later capture of it declines — written, unlifted).
@@ -4438,7 +4987,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
                         return false;
-                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType))
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType))
                         return false; // exact or implicitly-widenable (`w: long = n`) only.
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
@@ -4548,11 +5097,13 @@ internal sealed class ColumnarIlEmitter
                 {
                     // Emit the call. A void call (e.g. Array.Fill/Array.Clear/Array.Copy) leaves nothing on the stack; a
                     // NON-void call leaves its result, which is unused in statement position — discard it with `pop` (exactly
-                    // what the C# path emits for a discarded call result, so the side effects + result are
+                    // what the N# backend path emits for a discarded call result, so the side effects + result are
                     // identical). This is the `helper(args)`-as-statement idiom (e.g. LinterImports.nl clearing
                     // flags for its side effect and ignoring the returned count).
                     if (!EmitExpression(expr, out var callType))
+                    {
                         return false;
+                    }
                     if (callType != typeof(void))
                         _il.Emit(OpCodes.Pop);
                     return true;
@@ -4580,7 +5131,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     var compoundTarget = UnwrapParenthesizedNode(Child(expr, 0));
                     // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
-                    // working oracle-side): receiver and index evaluate ONCE into temps (C#'s
+                    // working legacy-emitter side): receiver and index evaluate ONCE into temps (N#'s
                     // single-evaluation semantics), then get_Item, the op, set_Item.
                     if (_nodes.Kind(compoundTarget) == 10)
                     {
@@ -4639,7 +5190,7 @@ internal sealed class ColumnarIlEmitter
                         return true;
                     }
                     // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
-                    // oracle shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
+                    // legacy emitter shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
                     // address for value links, an object ref for reference links) makes the
                     // read-modify-write hit the SAME storage. The scalar/string op set matches the
                     // bare-local arm; decimal member compounds decline (unprobed — fallback).
@@ -4707,7 +5258,7 @@ internal sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Ldloc, compoundLocal);
                     else
                         EmitLoadArgument(compoundParamOrdinal);
-                    // `u /= 3` — an in-range int literal adopts the target's type (C# constant conversion).
+                    // `u /= 3` — an in-range int literal adopts the target's type (N# constant conversion).
                     if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out var compoundValueType)
                         && (!EmitExpression(Child(expr, 1), out compoundValueType) || !TypesEquivalent(compoundValueType, compoundType)))
                         return false;
@@ -4767,7 +5318,8 @@ internal sealed class ColumnarIlEmitter
                             : arrayType.GetGenericArguments()[1];
                         if (!EmitArg(target, 1, setIdxType))
                             return false;
-                        if (!EmitExpression(Child(expr, 1), out var setValueType) || !TypesEquivalent(setValueType, setValType))
+                        if (!EmitExpression(Child(expr, 1), out var setValueType)
+                            || (!TypesEquivalent(setValueType, setValType) && !TryEmitReferenceConversion(setValueType, setValType) && !TryEmitObjectConversion(setValueType, setValType)))
                             return false;
                         _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")!));
                         return true;
@@ -4780,12 +5332,15 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
                         return false;
-                    if (elementType == typeof(int) || elementType == typeof(uint)) _il.Emit(OpCodes.Stelem_I4);
+                    if (elementType == typeof(bool)) _il.Emit(OpCodes.Stelem_I1);
+                    else if (elementType == typeof(int) || elementType == typeof(uint)) _il.Emit(OpCodes.Stelem_I4);
                     else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
                     else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
                     else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
                     else if (elementType == typeof(float)) _il.Emit(OpCodes.Stelem_R4);
                     else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
+                    else if (!elementType.IsValueType) _il.Emit(OpCodes.Stelem_Ref);
+                    else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
                     else return false; // other element types arrive with their type slices.
                     return true;
                 }
@@ -4806,14 +5361,14 @@ internal sealed class ColumnarIlEmitter
                         {
                             if (TryFindStaticFieldOnChain(staticWriteOwner, memberName, out var staticFieldWrite))
                             {
-                                if (!EmitExpression(Child(expr, 1), out var staticValueType) || staticValueType != staticFieldWrite.FieldType)
+                                if (!TryEmitAssignableValue(Child(expr, 1), staticFieldWrite.FieldType, out _))
                                     return false;
                                 _il.Emit(OpCodes.Stsfld, staticFieldWrite);
                                 return true;
                             }
                             if (TryFindStaticPropertyOnChain(staticWriteOwner, memberName, out var staticPropWrite) && staticPropWrite.Setter != null)
                             {
-                                if (!EmitExpression(Child(expr, 1), out var staticPropValueType) || staticPropValueType != staticPropWrite.PropertyType)
+                                if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out _))
                                     return false;
                                 _il.Emit(OpCodes.Call, staticPropWrite.Setter);
                                 return true;
@@ -4821,8 +5376,11 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         }
                     }
+                    if (TryEmitSupportedBclPropertyAssignment(fieldReceiver, memberName, Child(expr, 1)))
+                        return true;
+
                     // MEMBER WRITES through a resolved receiver CHAIN (D-18b, mirroring the post-#22
-                    // oracle): roots are bare LOCALS and PARAMS; hops are instance FIELDS (`p.X = v`
+                    // legacy emitter): roots are bare LOCALS and PARAMS; hops are instance FIELDS (`p.X = v`
                     // on struct params, `c.X = v` on class/record locals and params, `o.i.X = v`,
                     // `h.s.X = v`, `a.b.s.X = v`). The chain resolves BEFORE any emission (the
                     // emit-ownership rule). A FIELD write emits locator; value; stfld — stfld accepts
@@ -4855,7 +5413,7 @@ internal sealed class ColumnarIlEmitter
                                 return false;
                             }
                             if (!TypesEquivalent(writeValueType, writeField.FieldType)
-                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType))
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType))
                                 return false;
                             _il.Emit(OpCodes.Stfld, writeField);
                             return true;
@@ -4878,6 +5436,30 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(target) != 6)
                     return false;
                 var targetName = Text(target);
+                if (IsExplicitThisIdentifier(target))
+                {
+                    if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody))
+                        return false;
+                    if (TryFindFieldOnChain(_currentStruct, targetName, out var explicitThisFieldTarget))
+                    {
+                        _il.Emit(OpCodes.Ldarg_0);
+                        if (!TryEmitAssignableValue(Child(expr, 1), explicitThisFieldTarget.FieldType, out _))
+                            return false;
+                        _il.Emit(OpCodes.Stfld, explicitThisFieldTarget);
+                        return true;
+                    }
+                    if (_currentStruct.IsReference
+                        && TryFindPropertyOnChain(_currentStruct, targetName, out var explicitThisPropertyTarget)
+                        && explicitThisPropertyTarget.Setter != null)
+                    {
+                        _il.Emit(OpCodes.Ldarg_0);
+                        if (!TryEmitAssignableValue(Child(expr, 1), explicitThisPropertyTarget.PropertyType, out _))
+                            return false;
+                        _il.Emit(OpCodes.Callvirt, explicitThisPropertyTarget.Setter);
+                        return true;
+                    }
+                    return false;
+                }
                 // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
                 // shared StrongBox's Value — checked before every other tier.
                 if (_boxedCaptures != null && _boxedCaptures.TryGetValue(targetName, out var boxedWrite))
@@ -4927,15 +5509,62 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
                 }
+                if (_isSynthesizedInitializerBody
+                    && _currentStruct != null
+                    && TryFindFieldOnChain(_currentStruct, targetName, out var synthesizedFieldTarget))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    if (!TryEmitAssignableValue(Child(expr, 1), synthesizedFieldTarget.FieldType, out _))
+                        return false;
+                    _il.Emit(OpCodes.Stfld, synthesizedFieldTarget);
+                    return true;
+                }
                 if (_paramOrdinals.TryGetValue(targetName, out var paramOrdinal))
                 {
+                    var declaredParamType = _paramTypes[targetName];
+                    if (declaredParamType.IsByRef)
+                    {
+                        var paramElementType = declaredParamType.GetElementType()!;
+                        EmitLoadArgument(paramOrdinal);
+                        Type byRefParamValueType;
+                        if (IsAdoptableUnionConstruction(Child(expr, 1), paramElementType))
+                        {
+                            if (!EmitAdoptedUnionConstruction(Child(expr, 1), paramElementType, out byRefParamValueType))
+                                return false;
+                        }
+                        else if (TryEmitIntLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType))
+                        {
+                            // constant conversion onto the byref parameter's element type.
+                        }
+                        else if (TryEmitNullLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType))
+                        {
+                            // `out value = null` on a reference-typed byref parameter.
+                        }
+                        else if (IsSupportedNullable(paramElementType))
+                        {
+                            if (!TryEmitValueAsNullable(Child(expr, 1), paramElementType, out byRefParamValueType))
+                                return false;
+                        }
+                        else if (!EmitExpression(Child(expr, 1), out byRefParamValueType))
+                        {
+                            return false;
+                        }
+                        if (!TypesEquivalent(byRefParamValueType, paramElementType)
+                            && !TryEmitImplicitWidening(byRefParamValueType, paramElementType)
+                            && !TryEmitInterfaceUpcast(byRefParamValueType, paramElementType)
+                            && !TryEmitReferenceConversion(byRefParamValueType, paramElementType)
+                            && !TryEmitObjectConversion(byRefParamValueType, paramElementType))
+                            return false;
+                        EmitStoreByRefElement(paramElementType);
+                        return true;
+                    }
                     // `param = expr` — store into the argument slot (`starg`). N# permits mutating a parameter
-                    // (value params have value semantics, so the mutation is method-local, matching the C# path).
+                    // (value params have value semantics, so the mutation is method-local, matching the N# backend path).
                     // The value's type must match the parameter's declared type; adoption applies as for locals.
                     Type paramValueType;
                     if (IsAdoptableUnionConstruction(Child(expr, 1), _paramTypes[targetName]))
@@ -4961,7 +5590,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -4972,14 +5601,14 @@ internal sealed class ColumnarIlEmitter
                 // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier case.)
                 // GATED to reference types: a VALUE-type (struct) instance call spills the receiver to a TEMP COPY
                 // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
-                // variable — diverging from C#'s in-place value semantics. Struct field-mutation-in-method therefore
+                // variable — diverging from N#'s in-place value semantics. Struct field-mutation-in-method therefore
                 // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
                 // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
                 // chain (nearest first) so a derived member may assign an INHERITED field.
                 if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
-                    if (!EmitExpression(Child(expr, 1), out var thisValueType) || thisValueType != thisFieldTarget.FieldType)
+                    if (!TryEmitAssignableValue(Child(expr, 1), thisFieldTarget.FieldType, out _))
                         return false;
                     _il.Emit(OpCodes.Stfld, thisFieldTarget);
                     return true;
@@ -4991,7 +5620,7 @@ internal sealed class ColumnarIlEmitter
                 // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
                 if (_currentStruct != null && TryFindStaticFieldOnChain(_currentStruct, targetName, out var bareStaticTarget))
                 {
-                    if (!EmitExpression(Child(expr, 1), out var bareStaticValueType) || bareStaticValueType != bareStaticTarget.FieldType)
+                    if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.FieldType, out _))
                         return false;
                     _il.Emit(OpCodes.Stsfld, bareStaticTarget);
                     return true;
@@ -5056,7 +5685,7 @@ internal sealed class ColumnarIlEmitter
 
             case 28: // For [init, cond, incr, body] — C-style: emit `init; check: cond; brfalse end; body;
             {        // cont: incr; br check; end:`. `break` -> end, `continue` -> cont (the increment, THEN the
-                     // re-test), matching C# for-loop semantics. The loop's own locals (the `init` declaration's
+                     // re-test), matching N# for-loop semantics. The loop's own locals (the `init` declaration's
                      // variable + any body `:=` locals) are scoped to the loop and removed at its end.
                 var init = Child(idx, 0);
                 var cond = Child(idx, 1);
@@ -5064,7 +5693,7 @@ internal sealed class ColumnarIlEmitter
                 var body = Child(idx, 3);
 
                 // A for-body that always transfers on every path (never falls through) would make the increment +
-                // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the C# path. A
+                // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the N# backend path. A
                 // normal counting loop falls through, and a `continue` body still falls through on its other path.
                 if (AlwaysReturns(body))
                     return false;
@@ -5168,8 +5797,8 @@ internal sealed class ColumnarIlEmitter
             }
 
             case 29: // Foreach [collection, body] — arrays lower to an index loop; supported BCL
-            {        // collections lower through the same interface-enumerator shape as the C# oracle.
-                     // Everything else declines -> C# fallback. The var name is in the value span.
+            {        // collections lower through the interface-enumerator shape. Everything else
+                     // declines. The var name is in the value span.
                 var collectionNode = Child(idx, 0);
                 var body = Child(idx, 1);
                 var varName = Text(idx);
@@ -5184,35 +5813,18 @@ internal sealed class ColumnarIlEmitter
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
 
-                // Evaluate the collection; a List<T>/Dictionary<K,V>/HashSet<T> takes the enumerator branch, a single-dim array the
-                // index loop; everything else declines -> C# fallback.
+                // Evaluate the collection; a List<T>/Dictionary<K,V>/HashSet<T> takes the enumerator branch,
+                // a single-dim array the index loop; everything else declines.
                 if (!EmitExpression(collectionNode, out var collectionType))
                     return false;
                 if (IsSupportedCollectionType(collectionType))
                 {
-                    // `foreach v in list` / `foreach kvp in dict` / `foreach v in set` — the ORACLE's exact lowering
-                    // (probe-pinned, incl. the mutation-during-iteration InvalidOperationException,
-                    // which an index loop would silently miss): the enumerator is fetched via the
-                    // IEnumerable<T> INTERFACE (the struct enumerator is BOXED — the oracle resolves
-                    // the interface first), MoveNext/get_Current/Dispose all callvirt through the
-                    // interfaces, and Dispose is emitted at a dispose label AFTER the loop (NOT
-                    // try/finally — `break` branches to it; early returns/exceptions skip it, exactly
-                    // as the oracle does; the boxed enumerator's Dispose is a no-op so value parity
-                    // holds). A Dictionary enumerates KeyValuePair<K,V> — the loop var binds the pair
-                    // (kvp.Key/.Value resolve via the case-8 KVP arms).
                     var collectionDef = collectionType.GetGenericTypeDefinition();
                     var listElementType = collectionDef == typeof(Dictionary<,>)
                         ? typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments())
                         : collectionType.GetGenericArguments()[0];
                     if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
                         return false;
-                    // Builder-bound elements rebind the two generic-interface handles from the open
-                    // definitions (the closed interface is a TypeBuilderInstantiation — spike-proven
-                    // working end-to-end). NOTE: the ORACLE takes the STRUCT List<T>.Enumerator route
-                    // for builder elements (TBI.GetInterfaces() throws so its interface lookup comes
-                    // back empty) — the boxed-interface shape kept here is VALUE-identical: MoveNext
-                    // runs the same version check (mutation-during-iteration IOE parity is pinned in
-                    // the tests) and the supported collection enumerators' Dispose is a no-op either way.
                     var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
                     var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
                     _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumerableInterface, typeof(IEnumerable<>).GetMethod("GetEnumerator")!));
@@ -5277,13 +5889,16 @@ internal sealed class ColumnarIlEmitter
                 // <var> := arr[index]  (declare the loop variable of the element type, store the current element).
                 _il.Emit(OpCodes.Ldloc, arrayLocal);
                 _il.Emit(OpCodes.Ldloc, indexLocal);
-                if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                if (elementType == typeof(bool)) _il.Emit(OpCodes.Ldelem_U1);
+                else if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
                 else if (elementType == typeof(uint)) _il.Emit(OpCodes.Ldelem_U4);
                 else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
                 else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
                 else if (elementType == typeof(float)) _il.Emit(OpCodes.Ldelem_R4);
                 else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
+                else if (!elementType.IsValueType) _il.Emit(OpCodes.Ldelem_Ref);
+                else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Ldelem, elementType);
                 else return false;
                 var loopVar = _il.DeclareLocal(elementType);
                 _il.Emit(OpCodes.Stloc, loopVar);
@@ -5318,13 +5933,15 @@ internal sealed class ColumnarIlEmitter
 
             case 30: // TupleDeconstruction [name0, ..., nameN-1, value] — `n0, n1, ... := <tuple>`. Emit the value
             {        // (a ValueTuple), store to a temp, then for each non-`_` name declare a local of the element
-                     // type and store the matching ItemN. Mirrors the C# EmitTupleDeconstruction (plain path).
+                     // type and store the matching ItemN. Mirrors the tuple deconstruction emitter (plain path).
                 var childCount = _nodes.ChildCount(idx);
                 if (childCount < 3) // at least 2 names + the value.
                     return false;
                 var nameCount = childCount - 1;
                 var valueNode = Child(idx, nameCount);
 
+                // The Go-style `name, err := ...` error path is not modelled by this backend yet;
+                // decline it so columnar emission never accepts an unsupported shape.
                 if (nameCount == 2 && Text(Child(idx, 1)) == "err")
                     return false;
 
@@ -5346,7 +5963,9 @@ internal sealed class ColumnarIlEmitter
                         return false; // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
                     var field = tupleType.GetField("Item" + (i + 1), BindingFlags.Public | BindingFlags.Instance);
                     if (field == null)
+                    {
                         return false;
+                    }
                     var nameLocal = _il.DeclareLocal(field.FieldType);
                     _il.Emit(OpCodes.Ldloca, tupleLocal); // value-type field load: address of the tuple, then ldfld.
                     _il.Emit(OpCodes.Ldfld, field);
@@ -5359,7 +5978,7 @@ internal sealed class ColumnarIlEmitter
 
             case 21: // Break — branch to the innermost loop's end label. From inside a protected region
             {        // whose loop began OUTSIDE it, the branch crosses the boundary: `leave` (which also
-                     // runs an intervening finally — probe-pinned against the fixed oracle). Out of a
+                     // runs an intervening finally — probe-pinned against the fixed legacy emitter). Out of a
                      // FINALLY itself is illegal IL — analyzer-rejected with NL319 (defect #20 fixed);
                      // the decline stays as this emitter's contract guard.
                 if (_loopLabels.Count == 0)
@@ -5387,9 +6006,8 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-
-    // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
-    // the columnar node tables, without materializing the C# AST. The matched loop is:
+    // Phase P-1 (columnar): canonical counted integer reduction lowering for
+    // the columnar node tables, without materializing the object AST. The matched loop is:
     //   while i < bound { acc = acc + a[i]; i = i + 1 }
     // or, after the for initializer has already executed:
     //   for i := start; i < bound; i++ { acc = acc + a[i] }
@@ -5426,7 +6044,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (!TryMatchReductionUpdate(update, indexName, out var accumulatorNode, out var accumulatorName, out var arrayNode, out var arrayName))
             return false;
-        // The ILCompiler's while-form detector accepts assignment-style increments here; postfix ++ is a
+        // The while-form detector accepts assignment-style increments here; postfix ++ is a
         // for-iterator surface in the current corpus and is kept out of this mirror.
         if (!TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: false))
             return false;
@@ -5521,7 +6139,7 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
-    // Phase P-2 (columnar): mirror the ILCompiler's masked-SIMD range-predicate count lowering for the
+    // Phase P-2 (columnar): masked-SIMD range-predicate count lowering for the
     // columnar node tables. The matched loop is:
     //   [value := a[i]]
     //   if subject >= lo && subject <= hi { count++ }
@@ -5742,7 +6360,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Phase P-3 (columnar): mirror the ILCompiler's lane-wise min/max reduction lowering, including the fused
+    // Phase P-3 (columnar): lane-wise min/max reduction lowering, including the fused
     // single-pass MinMaxInt32 helper for exactly one min and one max reduction over the same int[] scan.
     private bool TryEmitVectorizedMinMaxWhile(int whileNode)
     {
@@ -6028,7 +6646,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Phase P-4 (columnar): mirror the ILCompiler's shifted-compare adjacent-transition count lowering.
+    // Phase P-4 (columnar): shifted-compare adjacent-transition count lowering.
     // The matched body is exactly:
     //   current := a[i]
     //   if current != previous { count++ }
@@ -6495,7 +7113,15 @@ internal sealed class ColumnarIlEmitter
     /// </summary>
     private bool EmitCondition(int idx)
     {
-        return EmitExpression(idx, out var type) && type == typeof(bool);
+        if (!EmitExpression(idx, out var type))
+        {
+            return false;
+        }
+        if (type != typeof(bool))
+        {
+            return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -6559,7 +7185,7 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
-    // PASS 0e bodies — the oracle's synthesized record members VERBATIM (EmitRecordEquals /
+    // PASS 0e bodies — the legacy emitter's synthesized record members VERBATIM (EmitRecordEquals /
     // EmitRecordGetHashCode / EmitRecordCloneMethod): Equals(object) = null-check + isinst + per-field
     // EqualityComparer<T>.Default.Equals chain; GetHashCode = `hash = 17; hash = hash * 23 +
     // EqualityComparer<T>.Default.GetHashCode(field)`; `<Clone>$` = object.MemberwiseClone + castclass
@@ -6649,8 +7275,8 @@ internal sealed class ColumnarIlEmitter
 
     // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the
     // SAME runtime type the pipeline's ResolveType binds — all are System-namespace exceptions reachable
-    // by simple name on the oracle path. Anything else declines: the pipeline silently resolves UNKNOWN
-    // names to a catch-all (oracle defect #16) and accepts non-exception types as dead clauses (#17);
+    // by simple name on the previous baseline path. Anything else declines: the pipeline silently resolves UNKNOWN
+    // names to a catch-all (known defect #16) and accepts non-exception types as dead clauses (#17);
     // declining inherits neither wrongness. User-defined exception classes are not modelled (a columnar
     // class cannot derive a BCL base yet).
     private static bool TryResolveBclExceptionType(string name, out Type type)
@@ -6665,23 +7291,78 @@ internal sealed class ColumnarIlEmitter
             "FormatException" => typeof(FormatException),
             "NotSupportedException" => typeof(NotSupportedException),
             "NotImplementedException" => typeof(NotImplementedException),
+            "TimeoutException" => typeof(TimeoutException),
             "DivideByZeroException" => typeof(DivideByZeroException),
             "ArithmeticException" => typeof(ArithmeticException),
             "OverflowException" => typeof(OverflowException),
             "NullReferenceException" => typeof(NullReferenceException),
             "IndexOutOfRangeException" => typeof(IndexOutOfRangeException),
             "InvalidCastException" => typeof(InvalidCastException),
+            "FileNotFoundException" => typeof(FileNotFoundException),
+            "YamlException" or "YamlDotNet.Core.YamlException" => typeof(YamlExceptionType),
             _ => null!,
         };
         return type != null;
     }
 
+    private static bool TryGetSupportedBclReadableProperty(Type receiverType, string member, out PropertyInfo property)
+    {
+        property = null!;
+        if (receiverType == typeof(Process) && member is nameof(Process.ExitCode) or nameof(Process.StandardOutput) or nameof(Process.StandardError))
+        {
+            property = typeof(Process).GetProperty(member)!;
+            return property.GetMethod != null;
+        }
+        if (receiverType == typeof(System.Threading.Tasks.Task<string>) && member == "Result")
+        {
+            property = receiverType.GetProperty("Result")!;
+            return property.GetMethod != null;
+        }
+        if (receiverType == typeof(IList) && member == "Count")
+        {
+            property = typeof(ICollection).GetProperty("Count")!;
+            return property.GetMethod != null;
+        }
+        if (receiverType == typeof(Assembly) && member is nameof(Assembly.IsDynamic) or nameof(Assembly.IsCollectible))
+        {
+            property = typeof(Assembly).GetProperty(member)!;
+            return property.GetMethod != null;
+        }
+        if (receiverType == typeof(JsonDocument) && member == nameof(JsonDocument.RootElement))
+        {
+            property = typeof(JsonDocument).GetProperty(nameof(JsonDocument.RootElement))!;
+            return property.GetMethod != null;
+        }
+        if (receiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind))
+        {
+            property = typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))!;
+            return property.GetMethod != null;
+        }
+        return false;
+    }
+
+    private static bool TryGetSupportedBclWritableProperty(Type receiverType, string member, out PropertyInfo property)
+    {
+        property = null!;
+        if (receiverType == typeof(ProcessStartInfo)
+            && member is nameof(ProcessStartInfo.FileName)
+                or nameof(ProcessStartInfo.Arguments)
+                or nameof(ProcessStartInfo.WorkingDirectory)
+                or nameof(ProcessStartInfo.RedirectStandardOutput)
+                or nameof(ProcessStartInfo.RedirectStandardError)
+                or nameof(ProcessStartInfo.UseShellExecute))
+        {
+            property = typeof(ProcessStartInfo).GetProperty(member)!;
+            return property.SetMethod != null;
+        }
+        return false;
+    }
+
     // A reference-type CONSTRUCTOR body is valid for columnar emit iff it (1) contains NO `return` statement — the
     // N# pipeline rejects `return` in a constructor (NL103, "there's no function to return from") — and (2) ASSIGNS
-    // EVERY field of the type — the N# pipeline requires definite assignment of non-nullable fields (NL304), and all
-    // MODELLED fields are non-nullable (a nullable/composed field type declines at the parser kernel). The assignment
+    // EVERY non-nullable own field of the type. Nullable own fields may retain the CLR null/default. The assignment
     // check is conservative: only a TOP-LEVEL `field = expr` statement counts, so a field assigned only inside an
-    // `if`/loop declines to the C# path (safe under-acceptance) rather than risking a partial-coverage mis-accept.
+    // `if`/loop declines to the N# backend path (safe under-acceptance) rather than risking a partial-coverage mis-accept.
     private bool IsValidReferenceCtorBody(int bodyRoot)
     {
         if (_currentStruct == null || _nodes.Kind(bodyRoot) != 25 || ContainsReturnStatement(bodyRoot))
@@ -6699,7 +7380,12 @@ internal sealed class ColumnarIlEmitter
             if (_nodes.Kind(target) == 6 && _currentStruct.Fields.ContainsKey(Text(target)))
                 assigned.Add(Text(target));
         }
-        return assigned.Count == _currentStruct.Fields.Count;
+        foreach (var fieldName in _currentStruct.Fields.Keys)
+        {
+            if (!assigned.Contains(fieldName) && !_currentStruct.NullableFields.Contains(fieldName))
+                return false;
+        }
+        return true;
     }
 
     // Emit a constructor's `: this(args)` / `: base(args)` CHAINING call: `ldarg.0; <args>; call <chained ctor>`.
@@ -6723,7 +7409,7 @@ internal sealed class ColumnarIlEmitter
             var baseDef = _currentStruct.BaseDef;
             if (baseDef == null)
                 return false; // guarded in PASS 0c — defensive.
-            foreach (var (cb, cpt) in baseDef.Constructors)
+            foreach (var (cb, cpt, _, _) in baseDef.Constructors)
             {
                 if (cpt.Length != argKinds.Length)
                     continue;
@@ -6740,7 +7426,7 @@ internal sealed class ColumnarIlEmitter
         }
         else
         {
-            foreach (var (cb, cpt) in _currentStruct.Constructors)
+            foreach (var (cb, cpt, _, _) in _currentStruct.Constructors)
             {
                 if (cb == self || cpt.Length != argKinds.Length)
                     continue;
@@ -6794,6 +7480,9 @@ internal sealed class ColumnarIlEmitter
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
     private bool EmitExpression(int idx, out Type type)
+        => EmitExpressionCore(idx, out type);
+
+    private bool EmitExpressionCore(int idx, out Type type)
     {
         type = null!;
         switch (_nodes.Kind(idx))
@@ -6802,6 +7491,26 @@ internal sealed class ColumnarIlEmitter
                     // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
             {
                 var name = Text(idx);
+                if (IsExplicitThisIdentifier(idx))
+                {
+                    if (_currentStruct == null)
+                        return false;
+                    if (TryFindFieldOnChain(_currentStruct, name, out var explicitThisField))
+                    {
+                        _il.Emit(OpCodes.Ldarg_0);
+                        _il.Emit(OpCodes.Ldfld, explicitThisField);
+                        type = explicitThisField.FieldType;
+                        return true;
+                    }
+                    if (TryFindPropertyOnChain(_currentStruct, name, out var explicitThisProperty))
+                    {
+                        _il.Emit(OpCodes.Ldarg_0);
+                        _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, explicitThisProperty.Getter);
+                        type = explicitThisProperty.PropertyType;
+                        return true;
+                    }
+                    return false;
+                }
                 // L3b: a BOXED capture (in a closure body) or a LIFTED local/param reads through the shared
                 // StrongBox's Value — checked before every other tier (a lifted name's plain slot is dead).
                 if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out var boxedRead))
@@ -6828,10 +7537,17 @@ internal sealed class ColumnarIlEmitter
 
                 if (_paramOrdinals.TryGetValue(name, out var ordinal))
                 {
-                    if (_paramTypes[name].IsByRef)
-                        return false;
+                    var paramType = _paramTypes[name];
                     EmitLoadArgument(ordinal);
-                    type = _paramTypes[name];
+                    if (paramType.IsByRef)
+                    {
+                        type = paramType.GetElementType()!;
+                        EmitLoadByRefElement(type);
+                    }
+                    else
+                    {
+                        type = paramType;
+                    }
                     return true;
                 }
 
@@ -6844,6 +7560,13 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ldarg_0);
                     _il.Emit(OpCodes.Ldfld, thisField);
                     type = thisField.FieldType;
+                    return true;
+                }
+                if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, name, out var thisProperty))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, thisProperty.Getter);
+                    type = thisProperty.PropertyType;
                     return true;
                 }
 
@@ -6915,7 +7638,7 @@ internal sealed class ColumnarIlEmitter
             }
 
             case 1: // FloatLiteral — `3.5` / `3.5d` (double, r8 Ldc_R8) or `3.5f` (float, r4 Ldc_R4). An `m`/`M`
-            {       // (decimal) suffix is a different type -> decline. The value is parsed identically to the C#
+            {       // (decimal) suffix is a different type -> decline. The value is parsed identically to the
                     // path's ParseFloatLiteralValue (strip the type suffix, drop `_` separators, invariant parse),
                     // then narrowed to float for an f-literal (matching `Ldc_R4, (float)ParseFloatLiteralValue`).
                 var raw = Text(idx);
@@ -6959,11 +7682,8 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 3: // StringLiteral — FULL ESCAPES (strings slice): the value decodes the C#-style escape
-            {       // set via the SHARED StringLiteralDecoder (the exact rule the C# path's
-                    // GetStringLiteralRuntimeValue applies — both pipelines materialize byte-identically;
-                    // An INTERPOLATED literal ($"...{x}...") lexes as the SAME token kind with the `$` in
-                    // the span (production parity) — it routes to the handler lowering (strings slice 4).
+            case 3: // StringLiteral
+            {
                 var stringText = Text(idx);
                 if (stringText.Length > 0 && stringText[0] == '$')
                     return TryEmitInterpolatedString(stringText, out type);
@@ -6975,7 +7695,7 @@ internal sealed class ColumnarIlEmitter
             case 7: // Parenthesized — emit the inner expression, propagating its type.
                 return EmitExpression(Child(idx, 0), out type);
 
-            case 53: // AwaitExpression [operand] — the oracle's SYNC lowering (no state machine in
+            case 53: // AwaitExpression [operand] — the legacy emitter's SYNC lowering (no state machine in
             {        // EITHER pipeline): a blocking GetAwaiter().GetResult() on the four BCL task
                      // shapes (ValueTask(/T) converts via AsTask() first). Awaits are legal in
                      // NON-async functions too (probe-pinned: no await-outside-async diagnostic
@@ -6985,6 +7705,18 @@ internal sealed class ColumnarIlEmitter
                 return TryEmitBlockingAwait(awaitableType, out type);
             }
 
+            case 55: // TypeOfExpression [typeRoot] — `typeof(Type)`: resolve the embedded TYPE subtree and load
+            {        // the runtime System.Type via RuntimeTypeHandle, matching the CLR lowering used by C#.
+                if (_nodes.ChildCount(idx) != 1
+                    || !TryBuildTypeNodeCanonical(Child(idx, 0), out var typeOfCanonical)
+                    || !TryResolveType(typeOfCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var typeOfTarget))
+                    return false;
+                _il.Emit(OpCodes.Ldtoken, typeOfTarget);
+                _il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), new[] { typeof(RuntimeTypeHandle) })!);
+                type = typeof(Type);
+                return true;
+            }
+
             case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {
                 if (!EmitExpression(Child(idx, 0), out var operandType))
@@ -6992,8 +7724,8 @@ internal sealed class ColumnarIlEmitter
                 switch (Text(idx))
                 {
                     case "-": // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. NOT valid on
-                              // ulong (C# forbids unary minus on an unsigned type) — decline it. On double/float, Neg
-                              // is the IEEE negate (-NaN stays NaN, -0.0 is distinct from 0.0), matching the C# path.
+                              // ulong (N# forbids unary minus on an unsigned type) — decline it. On double/float, Neg
+                              // is the IEEE negate (-NaN stays NaN, -0.0 is distinct from 0.0), matching the N# backend path.
                               // decimal negates via op_UnaryNegation (not an IL primitive).
                         if (operandType == typeof(decimal))
                         {
@@ -7016,7 +7748,7 @@ internal sealed class ColumnarIlEmitter
             {        // comparison producing bool. Most operators need both operands the SAME type.
                 var op = Text(idx);
 
-                // Short-circuit `&&`/`||` MUST conditionally evaluate the right operand — both for C# semantics
+                // Short-circuit `&&`/`||` MUST conditionally evaluate the right operand — both for production semantics
                 // and for safety (e.g. `i < n && a[i] == x` must not index a[i] when i >= n). So handle these
                 // BEFORE evaluating either operand: emit left, branch on it, evaluate right only on the
                 // non-short-circuiting path. Both operands and the result are bool.
@@ -7038,6 +7770,9 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
 
+                if (op == "+" && TryEmitStringConcatChain(idx, out type))
+                    return true;
+
                 // NULL comparisons (`s == null` / `s != null`) and `??` COALESCING on REFERENCE types:
                 // handled BEFORE the operand pair (a bare null has no self-type to unify). The null
                 // literal as a LEFT operand (`null == s`) also works — both orders emit ldnull + ceq.
@@ -7055,7 +7790,7 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     if (IsSupportedNullable(nullCmpType))
                     {
-                        // `n == null` on a Nullable<T> is !HasValue (and != null is HasValue) — the C# lowering.
+                        // `n == null` on a Nullable<T> is !HasValue (and != null is HasValue) — the nullable lowering.
                         var nullableTemp = _il.DeclareLocal(nullCmpType);
                         _il.Emit(OpCodes.Stloc, nullableTemp);
                         _il.Emit(OpCodes.Ldloca, nullableTemp);
@@ -7084,7 +7819,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     // `a ?? b` — REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:`. NULLABLE<T>
                     // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
-                    // exact C# lowerings. The Nullable form's RESULT is the ELEMENT type.
+                    // exact nullable lowerings. The Nullable form's RESULT is the ELEMENT type.
                     if (!EmitExpression(Child(idx, 0), out var coalesceLeft))
                         return false;
                     if (IsSupportedNullable(coalesceLeft))
@@ -7128,9 +7863,11 @@ internal sealed class ColumnarIlEmitter
                 }
 
                 if (!EmitExpression(Child(idx, 0), out var leftType))
+                {
                     return false;
+                }
                 // The RIGHT operand: an unsuffixed int literal against a uint/long/ulong LEFT adopts the
-                // left's type (C#'s constant conversion — `u / 2`, `l + 5`); the left emits first, so this
+                // left's type (N#'s constant conversion — `u / 2`, `l + 5`); the left emits first, so this
                 // is well-ordered. A literal LEFT against a typed right cannot adopt (the left is already
                 // on the stack) — those mixes decline below, pinned for the widening slice.
                 Type rightType;
@@ -7139,21 +7876,23 @@ internal sealed class ColumnarIlEmitter
                 {
                     // adopted — rightType == leftType.
                 }
-                else if (!EmitExpression(Child(idx, 1), out rightType))
-                {
-                    return false;
-                }
+	                else if (!EmitExpression(Child(idx, 1), out rightType))
+	                {
+	                    return false;
+	                }
+	                if (op == "+" && TryEmitStringCharConcat(leftType, rightType, out type))
+	                    return true;
 
-                // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
-                // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
-                // matching C# for int/long; the columnar `>>` is a single binary operator here (the `>>` token
+	                // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
+	                // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
+                // matching  for int/long; the columnar `>>` is a single binary operator here (the `>>` token
                 // split only applies inside generic type arguments, not expression context).
                 if (op == "<<" || op == ">>")
                 {
                     if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) || rightType != typeof(int))
                         return false;
                     // Shl is the same for signed/unsigned. `>>` is the SIGNED (arithmetic) Shr for int/long, but
-                    // the UNSIGNED (logical, zero-fill) Shr_Un for ulong — matching C#'s ulong `>>`. A wrong Shr
+                    // the UNSIGNED (logical, zero-fill) Shr_Un for ulong — matching N#'s ulong `>>`. A wrong Shr
                     // here would sign-extend a high-bit-set ulong.
                     _il.Emit(op == "<<" ? OpCodes.Shl : (leftType == typeof(ulong) ? OpCodes.Shr_Un : OpCodes.Shr));
                     type = leftType;
@@ -7163,7 +7902,7 @@ internal sealed class ColumnarIlEmitter
                 // NUMERIC PROMOTION (ECMA §12.4.7) for the modelled int-like types: int, char, and the SMALL
                 // INTS (byte/sbyte/short/ushort) are ALL i4 on the stack (the load sign/zero-extends by the
                 // storage type), so ANY mix of them promotes to int with NO conversion IL (`b + s` is int,
-                // exactly C#). long/ulong/uint/bool/string do NOT auto-promote (int/long needs a conv; uint
+                // exactly ). long/ulong/uint/bool/string do NOT auto-promote (int/long needs a conv; uint
                 // runs native u4 against itself only) — they must match exactly. `opType` is the type the
                 // operation runs as; a same-type small-int pair promotes its RESULT to int below.
                 Type opType;
@@ -7172,9 +7911,11 @@ internal sealed class ColumnarIlEmitter
                 else if (IsIntPromotable(leftType) && IsIntPromotable(rightType))
                     opType = typeof(int);
                 else
+                {
                     return false;
+                }
 
-                // String CONCATENATION: `s1 + s2` -> String.Concat(string, string) (VALUE concat, matching the C#
+                // String CONCATENATION: `s1 + s2` -> String.Concat(string, string) (VALUE concat, matching the
                 // path's result). Both operands are already on the stack. Only string+string is modelled (the
                 // corpus' shape, e.g. `"diag-" + Math.Abs(hash).ToString("x")`); string+int etc. decline.
                 if (op == "+" && opType == typeof(string))
@@ -7184,7 +7925,7 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
                 // DECIMAL (SC-6): not an IL primitive — arithmetic/comparisons call System.Decimal's op_*
-                // statics on the two already-emitted operands (the exact C# emit; 0.1m stays exact).
+                // statics on the two already-emitted operands (the exact IL emit; 0.1m stays exact).
                 if (opType == typeof(decimal))
                 {
                     var decimalOpMethod = op switch
@@ -7208,8 +7949,8 @@ internal sealed class ColumnarIlEmitter
                         // Add/Sub/Mul/Div/Rem work on i4, i8, and r8 (double); the result is `opType`'s numeric type.
                         // Div/Rem are SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong); on DOUBLE the same
                         // `div`/`rem` opcodes do IEEE FP division/remainder (x/0.0 -> ±Inf, 0.0/0.0 -> NaN — no
-                        // throw, matching the C# path), so double is NOT unsignedDivRem. Integer divide-by-zero /
-                        // INT_MIN÷-1 still throw exactly as the C# path does. A CHAR result promotes to INT (a char
+                        // throw, matching the N# backend path), so double is NOT unsignedDivRem. Integer divide-by-zero /
+                        // INT_MIN÷-1 still throw exactly as the N# backend path does. A CHAR result promotes to INT (a char
                         // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
                         if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
                         var unsignedDivRem = opType == typeof(ulong) || opType == typeof(uint);
@@ -7219,12 +7960,12 @@ internal sealed class ColumnarIlEmitter
                             op == "*" ? OpCodes.Mul :
                             op == "/" ? (unsignedDivRem ? OpCodes.Div_Un : OpCodes.Div) :
                             (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
-                        // char and the small ints never survive an arithmetic op — the result is INT (C#'s
+                        // char and the small ints never survive an arithmetic op — the result is INT (N#'s
                         // promoted result, matching Analyzer.cs GetWiderType); uint stays uint (u4 native).
                         type = IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "&": case "|": case "^":
-                        // Bitwise on the int-promotable set (result INT — C# promotes), long, ulong, or uint
+                        // Bitwise on the int-promotable set (result INT — N# promotes), long, ulong, or uint
                         // (And/Or/Xor work on i4 and i8 alike).
                         if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
@@ -7252,6 +7993,16 @@ internal sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
+                        if (opType == typeof(Type))
+                        {
+                            var typeEquality = typeof(Type).GetMethod(op == "==" ? "op_Equality" : "op_Inequality", new[] { typeof(Type), typeof(Type) });
+                            if (typeEquality != null)
+                                _il.Emit(OpCodes.Call, typeEquality);
+                            else
+                                EmitComparison(op);
+                            type = typeof(bool);
+                            return true;
+                        }
                         // REFERENCE identity on registered user reference types (records AND classes): the
                         // pipeline's `==`/`!=` on user reference values is reference equality (probe-pinned —
                         // record VALUE equality lives in `.Equals`, never in `==`) — exactly `ceq`.
@@ -7264,7 +8015,10 @@ internal sealed class ColumnarIlEmitter
                         // Equality on int, long, ulong, bool, char, double, float, or a baked i4 enum (Ceq is bit-identical
                         // signed/unsigned; on double/float it is the IEEE ordered equal — NaN == NaN is false and
                         // NaN != NaN is true, which the `!=` negation of Ceq produces correctly).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsEnumType(opType)) return false;
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsKnownEnumType(opType))
+                        {
+                            return false;
+                        }
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -7315,11 +8069,6 @@ internal sealed class ColumnarIlEmitter
                         for (var a = 1; a <= localArgCount; a++)
                         {
                             var localArgNode = Child(idx, a);
-                            // A LAMBDA argument to a LOCAL function is an ORACLE DEFECT (its emitter fails
-                            // with NL103 "No matching overload for local function use" — found by parity;
-                            // lambda-to-SIBLING works). Columnar could emit it, but accepting a program the
-                            // pipeline errors on is an acceptance divergence — decline until the oracle's
-                            // local-function lambda binding is fixed (recorded for an oracle bundle).
                             if (_nodes.Kind(localArgNode) == 39)
                                 return false;
                             if (!EmitExpression(localArgNode, out var localArgType) || !TypesEquivalent(localArgType, localTarget.ParamTypes[a - 1]))
@@ -7338,7 +8087,7 @@ internal sealed class ColumnarIlEmitter
                         {
                             // A GENERIC sibling with INFERRED type arguments: start from an empty binding —
                             // the shared emission helper unifies each declared parameter shape against the
-                            // emitted argument types (the oracle's TryInferDeclaredMethodTypeArguments).
+                            // emitted argument types (the legacy emitter's TryInferDeclaredMethodTypeArguments).
                             return TryEmitGenericSiblingCall(idx, target, new Type?[target.TypeParams.Length], out type);
                         }
                         // Each argument's type must match the callee's declared parameter type. int and bool are both
@@ -7365,7 +8114,9 @@ internal sealed class ColumnarIlEmitter
                         for (var a = 1; a <= staticArgCount; a++)
                         {
                             if (!EmitDeclaredCallArgument(Child(idx, a), ownStatic.ParamTypes[a - 1], allowLambdaLiteral: true))
+                            {
                                 return false;
+                            }
                         }
                         _il.Emit(OpCodes.Call, ownStatic.Builder);
                         type = ownStatic.ReturnType;
@@ -7414,6 +8165,16 @@ internal sealed class ColumnarIlEmitter
                 // is one of its named constants -> load the constant's underlying int (an enum is its underlying
                 // value on the stack). Only StringComparison is modelled (the corpus' only enum).
                 var memberAccessReceiver = Child(idx, 0);
+                if (_nodes.Kind(memberAccessReceiver) == 8
+                    && Text(memberAccessReceiver) == nameof(Environment.SpecialFolder)
+                    && _nodes.Kind(Child(memberAccessReceiver, 0)) == 6
+                    && Text(Child(memberAccessReceiver, 0)) == nameof(Environment)
+                    && Text(idx) == nameof(Environment.SpecialFolder.UserProfile))
+                {
+                    _il.Emit(OpCodes.Ldc_I4, (int)Environment.SpecialFolder.UserProfile);
+                    type = typeof(Environment.SpecialFolder);
+                    return true;
+                }
                 if (_nodes.Kind(memberAccessReceiver) == 6)
                 {
                     var receiverIdent = Text(memberAccessReceiver);
@@ -7424,6 +8185,91 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, enumValue);
                         type = typeof(StringComparison);
+                        return true;
+                    }
+                    if (receiverIdent == "StringComparer"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) is "Ordinal" or "OrdinalIgnoreCase")
+                    {
+                        _il.Emit(OpCodes.Call, typeof(StringComparer).GetProperty(Text(idx))!.GetGetMethod()!);
+                        type = typeof(StringComparer);
+                        return true;
+                    }
+                    if (receiverIdent == "CamelCaseNamingConvention"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(CamelCaseNamingConvention.Instance))
+                    {
+                        _il.Emit(OpCodes.Ldsfld, typeof(CamelCaseNamingConvention).GetField(nameof(CamelCaseNamingConvention.Instance))!);
+                        type = typeof(INamingConvention);
+                        return true;
+                    }
+                    if (receiverIdent == "SearchOption"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(SearchOption.TopDirectoryOnly))
+                    {
+                        _il.Emit(OpCodes.Ldc_I4, (int)SearchOption.TopDirectoryOnly);
+                        type = typeof(SearchOption);
+                        return true;
+                    }
+                    if (receiverIdent == "NumberStyles"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(System.Globalization.NumberStyles.HexNumber))
+                    {
+                        _il.Emit(OpCodes.Ldc_I4, (int)System.Globalization.NumberStyles.HexNumber);
+                        type = typeof(System.Globalization.NumberStyles);
+                        return true;
+                    }
+                    if (receiverIdent == "JsonValueKind"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Enum.TryParse<JsonValueKind>(Text(idx), out var jsonValueKind))
+                    {
+                        _il.Emit(OpCodes.Ldc_I4, (int)jsonValueKind);
+                        type = typeof(JsonValueKind);
+                        return true;
+                    }
+                    if (!_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && TryEmitPrimitiveStaticConstant(receiverIdent, Text(idx), out type))
+                    {
+                        return true;
+                    }
+                    if (receiverIdent == "Environment"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) is nameof(Environment.NewLine) or nameof(Environment.CurrentDirectory))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(Environment).GetProperty(Text(idx))!.GetGetMethod()!);
+                        type = typeof(string);
+                        return true;
+                    }
+                    if (receiverIdent == "AppContext"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(AppContext.BaseDirectory))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(AppContext).GetProperty(nameof(AppContext.BaseDirectory))!.GetGetMethod()!);
+                        type = typeof(string);
+                        return true;
+                    }
+                    if (receiverIdent == "CultureInfo"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(System.Globalization.CultureInfo.InvariantCulture))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(System.Globalization.CultureInfo).GetProperty(nameof(System.Globalization.CultureInfo.InvariantCulture))!.GetGetMethod()!);
+                        type = typeof(System.Globalization.CultureInfo);
+                        return true;
+                    }
+                    if (receiverIdent == "AppDomain"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(AppDomain.CurrentDomain))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(AppDomain).GetProperty(nameof(AppDomain.CurrentDomain))!.GetGetMethod()!);
+                        type = typeof(AppDomain);
+                        return true;
+                    }
+                    if (receiverIdent == "Console"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(Console.Error))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(Console).GetProperty(nameof(Console.Error))!.GetGetMethod()!);
+                        type = typeof(TextWriter);
                         return true;
                     }
                     // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
@@ -7441,7 +8287,7 @@ internal sealed class ColumnarIlEmitter
                     // A USER-TYPE STATIC member read `TypeName.member`: the receiver names a registered struct/
                     // record/class TYPE (not shadowed by a local/param/sibling) — chain-walk its static FIELDS
                     // then static PROPERTIES (nearest declaration first; `Derived.count` binds a base-declared
-                    // static, matching the fixed oracle): `ldsfld` for a field, `call get_Name` for a property.
+                    // static, matching the fixed legacy emitter): `ldsfld` for a field, `call get_Name` for a property.
                     // A member that is NEITHER declines (a type name is not a value — nothing to fall through to).
                     if (_structRegistry.TryGetValue(receiverIdent, out var staticOwner)
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
@@ -7471,24 +8317,33 @@ internal sealed class ColumnarIlEmitter
                 // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
                 // decline early without emitting the receiver); the actual element is still gated by GetField below.
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
-                if (member != "Length" && !isTupleItem)
+                if (TryResolveMemberWriteChain(Child(idx, 0), out var directReadChain)
+                    && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
+                    && FindDefByBuilder(directReadOwnerTb) is { } directReadOwnerDef)
                 {
-                    // A USER-TYPE FIELD read `p.Field` or get-only PROPERTY read `p.Prop`: addressable local/param
-                    // chains read fields through the same locator member writes use (including by-ref roots).
-                    // Other supported receivers fall back to the older emitted-receiver path for BCL members,
-                    // closed generics, and reference-type properties.
-                    if (TryResolveMemberWriteChain(Child(idx, 0), out var directReadChain)
-                        && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
-                        && FindDefByBuilder(directReadOwnerTb) is { } directReadOwnerDef
-                        && TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
+                    if (TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
                     {
                         EmitMemberWriteLocator(directReadChain);
                         _il.Emit(OpCodes.Ldfld, directReadField);
                         type = directReadField.FieldType;
                         return true;
                     }
+                    if (TryFindPropertyOnChain(directReadOwnerDef, member, out var directReadProperty))
+                    {
+                        EmitMemberWriteLocator(directReadChain);
+                        _il.Emit(directReadOwnerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, directReadProperty.Getter);
+                        type = directReadProperty.PropertyType;
+                        return true;
+                    }
+                }
+                if (member != "Length" && !isTupleItem)
+                {
+                    // Other supported receivers fall back to the emitted-receiver path for BCL members,
+                    // closed generics, and reference-type properties.
                     if (!EmitExpression(Child(idx, 0), out var structReceiverType))
+                    {
                         return false;
+                    }
                     // `e.Message` on an Exception-derived receiver (the typed-catch bound variable's main
                     // use) — callvirt get_Message, exactly the property get the pipeline binds.
                     if (member == "Message" && typeof(Exception).IsAssignableFrom(structReceiverType))
@@ -7497,12 +8352,107 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(string);
                         return true;
                     }
+                    if (structReceiverType == typeof(Version) && member is "Major" or "Minor" or "Build" or "Revision")
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(Version).GetProperty(member)!.GetGetMethod()!);
+                        type = typeof(int);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(TimeSpan) && member == nameof(TimeSpan.TotalMilliseconds))
+                    {
+                        var timeSpanTemp = _il.DeclareLocal(typeof(TimeSpan));
+                        _il.Emit(OpCodes.Stloc, timeSpanTemp);
+                        _il.Emit(OpCodes.Ldloca, timeSpanTemp);
+                        _il.Emit(OpCodes.Call, typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds))!.GetGetMethod()!);
+                        type = typeof(double);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind))
+                    {
+                        var jsonElementTemp = _il.DeclareLocal(typeof(JsonElement));
+                        _il.Emit(OpCodes.Stloc, jsonElementTemp);
+                        _il.Emit(OpCodes.Ldloca, jsonElementTemp);
+                        _il.Emit(OpCodes.Call, typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))!.GetGetMethod()!);
+                        type = typeof(JsonValueKind);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == nameof(JsonElement.ArrayEnumerator.Current))
+                    {
+                        var enumeratorTemp = _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator));
+                        _il.Emit(OpCodes.Stloc, enumeratorTemp);
+                        _il.Emit(OpCodes.Ldloca, enumeratorTemp);
+                        _il.Emit(OpCodes.Call, typeof(JsonElement.ArrayEnumerator).GetProperty(nameof(JsonElement.ArrayEnumerator.Current))!.GetGetMethod()!);
+                        type = typeof(JsonElement);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == nameof(JsonElement.ObjectEnumerator.Current))
+                    {
+                        var enumeratorTemp = _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator));
+                        _il.Emit(OpCodes.Stloc, enumeratorTemp);
+                        _il.Emit(OpCodes.Ldloca, enumeratorTemp);
+                        _il.Emit(OpCodes.Call, typeof(JsonElement.ObjectEnumerator).GetProperty(nameof(JsonElement.ObjectEnumerator.Current))!.GetGetMethod()!);
+                        type = typeof(JsonProperty);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(JsonProperty) && member is nameof(JsonProperty.Name) or nameof(JsonProperty.Value))
+                    {
+                        var propertyTemp = _il.DeclareLocal(typeof(JsonProperty));
+                        _il.Emit(OpCodes.Stloc, propertyTemp);
+                        _il.Emit(OpCodes.Ldloca, propertyTemp);
+                        var property = typeof(JsonProperty).GetProperty(member);
+                        if (property?.GetMethod == null)
+                            return false;
+                        _il.Emit(OpCodes.Call, property.GetMethod);
+                        type = property.PropertyType;
+                        return true;
+                    }
+                    if (structReceiverType == typeof(Type) && member is nameof(Type.Name) or nameof(Type.FullName) or nameof(Type.Namespace) or nameof(Type.IsNested))
+                    {
+                        var property = typeof(Type).GetProperty(member);
+                        if (property?.GetMethod == null)
+                            return false;
+                        _il.Emit(OpCodes.Callvirt, property.GetMethod);
+                        type = property.PropertyType;
+                        return true;
+                    }
+                    if (structReceiverType == typeof(YamlParser) && member == nameof(YamlParser.Current))
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(YamlParser).GetProperty(nameof(YamlParser.Current))!.GetGetMethod()!);
+                        type = typeof(ParsingEvent);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(Scalar) && member == nameof(Scalar.Value))
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(Scalar).GetProperty(nameof(Scalar.Value))!.GetGetMethod()!);
+                        type = typeof(string);
+                        return true;
+                    }
+                    if (TryGetSupportedBclReadableProperty(structReceiverType, member, out var bclPropertyRead))
+                    {
+                        _il.Emit(OpCodes.Callvirt, bclPropertyRead.GetMethod!);
+                        type = bclPropertyRead.PropertyType;
+                        return true;
+                    }
+                    if (IsSupportedNullable(structReceiverType) && member is "HasValue" or "Value")
+                    {
+                        var nullableTemp = _il.DeclareLocal(structReceiverType);
+                        _il.Emit(OpCodes.Stloc, nullableTemp);
+                        _il.Emit(OpCodes.Ldloca, nullableTemp);
+                        if (member == "HasValue")
+                        {
+                            _il.Emit(OpCodes.Call, structReceiverType.GetProperty(nameof(Nullable<int>.HasValue))!.GetGetMethod()!);
+                            type = typeof(bool);
+                            return true;
+                        }
+                        _il.Emit(OpCodes.Call, structReceiverType.GetProperty(nameof(Nullable<int>.Value))!.GetGetMethod()!);
+                        type = structReceiverType.GetGenericArguments()[0];
+                        return true;
+                    }
                     // `.Count` on a closed List<T>/Dictionary<K,V>/HashSet<T> — callvirt get_Count -> int
                     // (resolved from the open definition so builder-bound receivers rebind).
-                    if (member == "Count" && IsSupportedCollectionType(structReceiverType))
+                    if (member == "Count" && TryResolveCollectionCountGetter(structReceiverType, out var countGetter))
                     {
-                        var openCountGetter = structReceiverType.GetGenericTypeDefinition().GetProperty("Count")!.GetGetMethod()!;
-                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(structReceiverType, openCountGetter));
+                        _il.Emit(OpCodes.Callvirt, countGetter);
                         type = typeof(int);
                         return true;
                     }
@@ -7551,9 +8501,20 @@ internal sealed class ColumnarIlEmitter
                                 type = SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs);
                                 return true;
                             }
-                            if (closedFieldDef.IsReference && closedFieldDef.Properties.TryGetValue(member, out var openProp))
+                            if (closedFieldDef.Properties.TryGetValue(member, out var openProp))
                             {
-                                _il.Emit(OpCodes.Callvirt, TypeBuilder.GetMethod(structReceiverType, openProp.Getter));
+                                var closedGetter = TypeBuilder.GetMethod(structReceiverType, openProp.Getter);
+                                if (closedFieldDef.IsReference)
+                                {
+                                    _il.Emit(OpCodes.Callvirt, closedGetter);
+                                }
+                                else
+                                {
+                                    var closedPropertyTemp = _il.DeclareLocal(structReceiverType);
+                                    _il.Emit(OpCodes.Stloc, closedPropertyTemp);
+                                    _il.Emit(OpCodes.Ldloca, closedPropertyTemp);
+                                    _il.Emit(OpCodes.Call, closedGetter);
+                                }
                                 type = SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs);
                                 return true;
                             }
@@ -7580,10 +8541,21 @@ internal sealed class ColumnarIlEmitter
                         type = structField.FieldType;
                         return true;
                     }
-                    if (fieldStruct.IsReference && TryFindPropertyOnChain(fieldStruct, member, out var propAccessor))
+                    if (TryFindPropertyOnChain(fieldStruct, member, out var propAccessor))
                     {
-                        // get-only PROPERTY read: the receiver ref is the getter's `this` — `callvirt get_Name`.
-                        _il.Emit(OpCodes.Callvirt, propAccessor.Getter);
+                        if (fieldStruct.IsReference)
+                        {
+                            // Reference receiver: the object ref is already on the stack.
+                            _il.Emit(OpCodes.Callvirt, propAccessor.Getter);
+                        }
+                        else
+                        {
+                            // Value receiver: instance accessors need the receiver address.
+                            var propertyTemp = _il.DeclareLocal(structReceiverType);
+                            _il.Emit(OpCodes.Stloc, propertyTemp);
+                            _il.Emit(OpCodes.Ldloca, propertyTemp);
+                            _il.Emit(OpCodes.Call, propAccessor.Getter);
+                        }
                         type = propAccessor.PropertyType;
                         return true;
                     }
@@ -7620,7 +8592,9 @@ internal sealed class ColumnarIlEmitter
                 {
                     var itemField = receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance);
                     if (itemField == null)
+                    {
                         return false;
+                    }
                     _il.Emit(OpCodes.Ldfld, itemField);
                     type = itemField.FieldType;
                     return true;
@@ -7659,12 +8633,31 @@ internal sealed class ColumnarIlEmitter
                         : indexedType.GetGenericArguments()[1];
                     return true;
                 }
+                if (indexedType.IsGenericType && !indexedType.IsGenericTypeDefinition
+                    && indexedType.GetGenericTypeDefinition() == typeof(IReadOnlyList<>))
+                {
+                    if (!EmitArg(idx, 1, typeof(int)))
+                        return false;
+                    var itemGetter = typeof(IReadOnlyList<>).GetProperty("Item")!.GetGetMethod()!;
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, itemGetter));
+                    type = indexedType.GetGenericArguments()[0];
+                    return true;
+                }
+                if (indexedType == typeof(IList))
+                {
+                    if (!EmitArg(idx, 1, typeof(int)))
+                        return false;
+                    _il.Emit(OpCodes.Callvirt, typeof(IList).GetProperty("Item")!.GetGetMethod()!);
+                    type = typeof(object);
+                    return true;
+                }
                 if (!indexedType.IsSZArray)
                     return false;
                 var elementType = indexedType.GetElementType()!;
                 if (!EmitExpression(Child(idx, 1), out var indexType) || indexType != typeof(int))
                     return false;
-                if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                if (elementType == typeof(bool)) _il.Emit(OpCodes.Ldelem_U1);
+                else if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
                 else if (elementType == typeof(uint)) _il.Emit(OpCodes.Ldelem_U4);
                 else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
@@ -7674,6 +8667,8 @@ internal sealed class ColumnarIlEmitter
                 // An OPEN generic-parameter element (xs: T[] inside a generic function): the type-operand
                 // `ldelem !!T` form loads any element type (spike-proven).
                 else if (elementType.IsGenericParameter) _il.Emit(OpCodes.Ldelem, elementType);
+                else if (!elementType.IsValueType) _il.Emit(OpCodes.Ldelem_Ref);
+                else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Ldelem, elementType);
                 else return false; // other element types arrive with their type slices.
                 type = elementType;
                 return true;
@@ -7687,6 +8682,17 @@ internal sealed class ColumnarIlEmitter
                     var newTypeName = Text(typeNode);
                     if (newTypeName == "string")
                     {
+                        if (_nodes.ChildCount(idx) == 3)
+                        {
+                            if (!EmitArg(idx, 1, typeof(char)) || !EmitArg(idx, 2, typeof(int)))
+                                return false;
+                            var repeatCtor = typeof(string).GetConstructor(new[] { typeof(char), typeof(int) });
+                            if (repeatCtor == null)
+                                return false;
+                            _il.Emit(OpCodes.Newobj, repeatCtor);
+                            type = typeof(string);
+                            return true;
+                        }
                         // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a
                         // string. Emit the char[] then the two int args, then `newobj` the String ctor.
                         if (_nodes.ChildCount(idx) != 4)
@@ -7723,57 +8729,162 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(System.Text.StringBuilder);
                         return true;
                     }
-                    // WHITELISTED BCL EXCEPTION constructions (E1): `new <Exception>(message)` — the
-                    // 1-arg string ctor of the common exception types (the same set the pipeline resolves;
-                    // identical ctors bind on both sides).
-                    if (newTypeName is "Exception" or "InvalidOperationException" or "ArgumentException" or "FormatException" or "NotSupportedException")
+                    if (newTypeName == "Version")
                     {
-                        var exceptionType = newTypeName switch
-                        {
-                            "Exception" => typeof(Exception),
-                            "InvalidOperationException" => typeof(InvalidOperationException),
-                            "ArgumentException" => typeof(ArgumentException),
-                            "FormatException" => typeof(FormatException),
-                            _ => typeof(NotSupportedException),
-                        };
+                        if (_nodes.ChildCount(idx) != 5
+                            || !EmitArg(idx, 1, typeof(int))
+                            || !EmitArg(idx, 2, typeof(int))
+                            || !EmitArg(idx, 3, typeof(int))
+                            || !EmitArg(idx, 4, typeof(int)))
+                            return false;
+                        _il.Emit(OpCodes.Newobj, typeof(Version).GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(int) })!);
+                        type = typeof(Version);
+                        return true;
+                    }
+                    if (newTypeName == "object")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, typeof(object).GetConstructor(Type.EmptyTypes)!);
+                        type = typeof(object);
+                        return true;
+                    }
+                    if (newTypeName == "ProcessStartInfo" || newTypeName == "Process")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        var bclCtorType = newTypeName == "ProcessStartInfo" ? typeof(ProcessStartInfo) : typeof(Process);
+                        _il.Emit(OpCodes.Newobj, bclCtorType.GetConstructor(Type.EmptyTypes)!);
+                        type = bclCtorType;
+                        return true;
+                    }
+                    if (newTypeName == "JsonSerializerOptions")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, typeof(JsonSerializerOptions).GetConstructor(Type.EmptyTypes)!);
+                        type = typeof(JsonSerializerOptions);
+                        return true;
+                    }
+                    if (newTypeName == "JsonElement")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        var jsonElement = _il.DeclareLocal(typeof(JsonElement));
+                        _il.Emit(OpCodes.Ldloca, jsonElement);
+                        _il.Emit(OpCodes.Initobj, typeof(JsonElement));
+                        _il.Emit(OpCodes.Ldloc, jsonElement);
+                        type = typeof(JsonElement);
+                        return true;
+                    }
+                    if (newTypeName == "DeserializerBuilder")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, typeof(DeserializerBuilder).GetConstructor(Type.EmptyTypes)!);
+                        type = typeof(DeserializerBuilder);
+                        return true;
+                    }
+                    if (newTypeName == "Scalar")
+                    {
                         if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(string)))
                             return false;
-                        _il.Emit(OpCodes.Newobj, exceptionType.GetConstructor(new[] { typeof(string) })!);
+                        _il.Emit(OpCodes.Newobj, typeof(Scalar).GetConstructor(new[] { typeof(string) })!);
+                        type = typeof(Scalar);
+                        return true;
+                    }
+                    if (newTypeName == "MappingStart" || newTypeName == "MappingEnd")
+                    {
+                        if (_nodes.ChildCount(idx) != 1)
+                            return false;
+                        var eventType = newTypeName == "MappingStart" ? typeof(MappingStart) : typeof(MappingEnd);
+                        _il.Emit(OpCodes.Newobj, eventType.GetConstructor(Type.EmptyTypes)!);
+                        type = eventType;
+                        return true;
+                    }
+                    // WHITELISTED exception constructions (E1/E3): parameterless, one-string, and two-string
+                    // ctors of the same exception types accepted by typed catches and BootstrapServices throws.
+                    if (TryResolveBclExceptionType(newTypeName, out var exceptionType))
+                    {
+                        var exceptionArgCount = _nodes.ChildCount(idx) - 1;
+                        ConstructorInfo? exceptionCtor;
+                        if (exceptionArgCount == 0)
+                        {
+                            exceptionCtor = exceptionType.GetConstructor(Type.EmptyTypes);
+                        }
+                        else if (exceptionArgCount == 1)
+                        {
+                            exceptionCtor = exceptionType.GetConstructor(new[] { typeof(string) });
+                            if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string)))
+                                return false;
+                        }
+                        else if (exceptionArgCount == 2)
+                        {
+                            exceptionCtor = exceptionType.GetConstructor(new[] { typeof(string), typeof(string) });
+                            if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string)) || !EmitArg(idx, 2, typeof(string)))
+                                return false;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                        if (exceptionCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, exceptionCtor);
                         type = exceptionType;
                         return true;
                     }
+                    if (_structRegistry.TryGetValue(newTypeName, out var defaultCtorDef)
+                        && defaultCtorDef.IsReference
+                        && defaultCtorDef.DefaultCtor != null
+                        && _nodes.ChildCount(idx) == 1)
+                    {
+                        _il.Emit(OpCodes.Newobj, defaultCtorDef.DefaultCtor);
+                        type = defaultCtorDef.Builder;
+                        return true;
+                    }
                     // A user type with a positional constructor: `new T(args)`. The type names a registered
-                    // type with ≥1 user ctor; resolve the OVERLOAD by arg COUNT — exactly one ctor must have
-                    // that param count (two with the same count are ambiguous-by-count → decline to C#). Emit each arg
+                    // type with ≥1 user ctor; resolve by arg COUNT first, and when overloads share an arity use a
+                    // conservative type preflight to select exactly one compatible signature. Emit each arg
                     // (type-checked against the chosen ctor's param type), then `newobj <ctor>`; the result's type is
                     // the type. (`newobj` on a VALUE type zero-initializes then runs the ctor and pushes the value —
-                    // the oracle's probed semantics for partially-assigning struct ctors. A 0-ctor type declines here;
-                    // fields-only value structs construct via object-init.)
+                    // the legacy emitter's probed semantics for partially-assigning struct ctors. Fields-only value
+                    // structs construct via object-init.)
                     if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.Constructors.Count > 0)
                     {
-                        var ctorArgCount = _nodes.ChildCount(idx) - 1;
-                        ConstructorBuilder? chosenCtor = null;
-                        Type[]? chosenParamTypes = null;
-                        var ambiguous = false;
-                        foreach (var (cb, cpt) in ctorDef.Constructors)
+                        if (!TrySelectUserConstructor(idx, ctorDef, out var chosenCtor, out var chosenParamTypes, out var chosenDefaultKinds, out var chosenDefaultTexts))
                         {
-                            if (cpt.Length != ctorArgCount)
-                                continue;
-                            if (chosenCtor != null) { ambiguous = true; break; }
-                            chosenCtor = cb;
-                            chosenParamTypes = cpt;
+                            return false;
                         }
-                        if (chosenCtor == null || ambiguous)
-                            return false; // no ctor of that arity, or ambiguous-by-count overloads -> decline.
-                        for (var a = 0; a < ctorArgCount; a++)
+                        var providedCtorArgCount = _nodes.ChildCount(idx) - 1;
+                        for (var a = 0; a < chosenParamTypes.Length; a++)
                         {
-                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType))
+                            if (a >= providedCtorArgCount)
+                            {
+                                if (!TryEmitConstructorDefaultArgument(chosenParamTypes[a], chosenDefaultKinds[a], chosenDefaultTexts[a], out _))
+                                    return false;
+                                continue;
+                            }
+
+                            var ctorArgNode = Child(idx, 1 + a);
+                            Type ctorArgType;
+                            if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType))
+                            {
+                                // Null adopted to the declared reference/nullable constructor parameter type.
+                            }
+                            else if (!EmitExpression(ctorArgNode, out ctorArgType))
+                            {
                                 return false;
+                            }
                             // exact match, or the INTERFACE upcast (an implementer into an
                             // interface-typed ctor param — boxes value implementers, IF-1).
-                            if (ctorArgType != chosenParamTypes![a]
-                                && !TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a]))
+                            if (!TypesEquivalent(ctorArgType, chosenParamTypes![a])
+                                && !TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a])
+                                && !TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a])
+                                && !TryEmitObjectConversion(ctorArgType, chosenParamTypes[a]))
+                            {
                                 return false;
+                            }
                         }
                         _il.Emit(OpCodes.Newobj, chosenCtor);
                         type = ctorDef.Builder;
@@ -7786,15 +8897,20 @@ internal sealed class ColumnarIlEmitter
                 // bind the user ctor by ARG COUNT on the OPEN definition, check each arg against the
                 // POSITIONALLY SUBSTITUTED param type (v: T on Box<int> expects int), then `newobj` the
                 // ctor REBOUND onto the closed type (TypeBuilder.GetConstructor — the same machinery the
-                // C# oracle uses; reflection member queries throw on TypeBuilderInstantiation).
+                // previous parity baseline uses; reflection member queries throw on TypeBuilderInstantiation).
                 if (_nodes.Kind(typeNode) == 1)
                 {
-                    if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
-                        || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
+                    if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical))
+                    {
                         return false;
+                    }
+                    if (!TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
+                    {
+                        return false;
+                    }
                     // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)` / `new HashSet<int>()` /
                     // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless ctor, or the
-                    // int-capacity ctor (both probe-pinned oracle-working) — resolved from the OPEN
+                    // int-capacity ctor (both probe-pinned legacy-emitter working) — resolved from the OPEN
                     // definition so builder-bound instantiations rebind. Other overloads decline.
                     // (`new List<T>()` inside a generic BODY never reaches here: the canonical resolves
                     // via the typeParams-less TryResolveType, so body-side construction declines — the
@@ -7809,7 +8925,9 @@ internal sealed class ColumnarIlEmitter
                             type = closedType;
                             return true;
                         }
-                        if (collectionCtorArgs == 1 && EmitArg(idx, 1, typeof(int)))
+                        if (collectionCtorArgs == 1
+                            && CanEmitConstructorArgumentAs(Child(idx, 1), typeof(int))
+                            && EmitArg(idx, 1, typeof(int)))
                         {
                             var openCapacityCtor = collectionOpenDef.GetConstructor(new[] { typeof(int) });
                             if (openCapacityCtor == null)
@@ -7818,7 +8936,44 @@ internal sealed class ColumnarIlEmitter
                             type = closedType;
                             return true;
                         }
+                        if (collectionCtorArgs == 1
+                            && (collectionOpenDef == typeof(Dictionary<,>) || collectionOpenDef == typeof(HashSet<>)))
+                        {
+                            var keyOrElementType = closedType.GetGenericArguments()[0];
+                            var comparerType = typeof(IEqualityComparer<>).MakeGenericType(keyOrElementType);
+                            var openComparerCtor = Array.Find(
+                                collectionOpenDef.GetConstructors(),
+                                ctor =>
+                                {
+                                    var parameters = ctor.GetParameters();
+                                    return parameters.Length == 1
+                                        && parameters[0].ParameterType.IsGenericType
+                                        && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(IEqualityComparer<>);
+                                });
+                            if (openComparerCtor == null || !EmitArg(idx, 1, comparerType))
+                                return false;
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, openComparerCtor));
+                            type = closedType;
+                            return true;
+                        }
                         return false;
+                    }
+                    if (IsSupportedValueTuple(closedType))
+                    {
+                        var tupleArgTypes = closedType.GetGenericArguments();
+                        if (_nodes.ChildCount(idx) - 1 != tupleArgTypes.Length)
+                            return false;
+                        for (var i = 0; i < tupleArgTypes.Length; i++)
+                        {
+                            if (!EmitArg(idx, i + 1, tupleArgTypes[i]))
+                                return false;
+                        }
+                        var tupleCtor = closedType.GetConstructor(tupleArgTypes);
+                        if (tupleCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, tupleCtor);
+                        type = closedType;
+                        return true;
                     }
                     if (!IsClosedUserGenericInstantiation(closedType))
                         return false;
@@ -7830,7 +8985,7 @@ internal sealed class ColumnarIlEmitter
                     ConstructorBuilder? chosenOpenCtor = null;
                     Type[]? chosenOpenParamTypes = null;
                     var closedAmbiguous = false;
-                    foreach (var (cb, cpt) in openGenericDef.Constructors)
+                    foreach (var (cb, cpt, _, _) in openGenericDef.Constructors)
                     {
                         if (cpt.Length != closedCtorArgCount)
                             continue;
@@ -7855,9 +9010,9 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(typeNode) != 2) // array alloc: exactly one ctor arg; type must be Array.
                     return false;
                 var elementNode = Child(typeNode, 0); // the array's element type subtree.
-                if (_nodes.Kind(elementNode) != 0) // element must be a Simple builtin (not jagged/generic).
-                    return false;
-                if (!TryResolveBuiltin(Text(elementNode), out var newElementType) || !IsSupportedElementType(newElementType))
+                if (!TryBuildTypeNodeCanonical(elementNode, out var elementCanonical)
+                    || !TryResolveType(elementCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var newElementType)
+                    || !IsSupportedElementType(newElementType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var sizeType) || sizeType != typeof(int)) // length: int.
                     return false;
@@ -7868,30 +9023,67 @@ internal sealed class ColumnarIlEmitter
 
             case 16: // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
             {        // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
-                     // decline (the C# path stays authoritative).
+                     // decline (the N# backend path stays authoritative).
                 var castTypeNode = Child(idx, 0);
-                if (_nodes.Kind(castTypeNode) != 0 || !TryResolveBuiltin(Text(castTypeNode), out var targetType))
+                if (_nodes.Kind(castTypeNode) != 0)
                     return false;
-                if (!IsCastableScalar(targetType))
+                var castTargetName = Text(castTypeNode);
+                if (!TryResolveBuiltin(castTargetName, out var targetType)
+                    && !TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out targetType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var sourceType))
                     return false;
+                if (TypesEquivalent(sourceType, targetType))
+                {
+                    type = targetType;
+                    return true;
+                }
+                if (IsKnownEnumType(targetType))
+                {
+                    if (IsKnownEnumType(sourceType))
+                        sourceType = typeof(int);
+                    if (!IsIntPromotable(sourceType))
+                        return false;
+                    type = targetType;
+                    return true;
+                }
+                if (TryEmitExternalInterfaceUpcast(sourceType, targetType))
+                {
+                    type = targetType;
+                    return true;
+                }
+                if (!IsCastableScalar(targetType))
+                {
+                    if (sourceType == typeof(object) && targetType is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+                    {
+                        _il.Emit(targetDef.IsReference ? OpCodes.Castclass : OpCodes.Unbox_Any, targetBuilder);
+                        type = targetType;
+                        return true;
+                    }
+                    if (sourceType == typeof(object) && !targetType.IsValueType)
+                    {
+                        _il.Emit(OpCodes.Castclass, targetType);
+                        type = targetType;
+                        return true;
+                    }
+                    return false;
+                }
                 // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
                 // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
-                // C# path emits the same (the underlying-int value, then the same numeric conversion).
+                // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
                 if (IsEnumType(sourceType))
                     sourceType = typeof(int);
                 if (!IsCastableScalar(sourceType))
                     return false;
                 // Emit the conversion only when the stack representation differs (char->int and same-type casts
-                // are no-ops). The opcode is TARGET-driven, matching the C# path (TryGetNumericConversionOpcode):
+                // are no-ops). The opcode is TARGET-driven, matching the N# backend path (TryGetNumericConversionOpcode):
                 // -> double = conv.r8, -> float = conv.r4, -> long = conv.i8, -> char = conv.u2, -> int = conv.i4.
-                // float/double->int truncates toward zero exactly as the C# path's conv.i4 does (same opcode).
+                // float/double->int truncates toward zero exactly as the N# backend path's conv.i4 does (same opcode).
                 if (sourceType != targetType)
                 {
                     // DECIMAL casts route through System.Decimal's conversion operators (not conv opcodes):
                     // TO decimal = op_Implicit(int/long/...)/op_Explicit(double/float); FROM decimal =
-                    // op_Explicit(decimal)->target — the exact C# emit.
+                    // op_Explicit(decimal)->target — the exact IL emit.
                     if (targetType == typeof(decimal) || sourceType == typeof(decimal))
                     {
                         var conversionName = targetType == typeof(decimal)
@@ -7923,7 +9115,7 @@ internal sealed class ColumnarIlEmitter
                     if (targetType == typeof(double)) _il.Emit(OpCodes.Conv_R8);      // any numeric -> double (widen)
                     else if (targetType == typeof(float)) _il.Emit(OpCodes.Conv_R4);  // any numeric -> float
                     else if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);   // i4-slot/double/float -> long (sign-extend)
-                    else if (targetType == typeof(ulong)) _il.Emit(sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8); // C# unchecked: int sign-extends, uint zero-extends
+                    else if (targetType == typeof(ulong)) _il.Emit(sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8); // N# unchecked: int sign-extends, uint zero-extends
                     else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // -> char (truncate)
                     else if (targetType == typeof(byte)) _il.Emit(OpCodes.Conv_U1);   // -> byte (truncate)
                     else if (targetType == typeof(sbyte)) _il.Emit(OpCodes.Conv_I1);  // -> sbyte (truncate)
@@ -7932,7 +9124,7 @@ internal sealed class ColumnarIlEmitter
                     else if (targetType == typeof(uint) || targetType == typeof(int))
                     {
                         // -> int/uint: i8/r8/r4 sources truncate to the i4 slot; i4-slot sources are identity
-                        // (C# unchecked emits nothing for int<->uint<->small-int slot-mates).
+                        // (N# unchecked emits nothing for int<->uint<->small-int slot-mates).
                         if (sourceType == typeof(long) || sourceType == typeof(ulong) || sourceType == typeof(double) || sourceType == typeof(float))
                             _il.Emit(targetType == typeof(uint) ? OpCodes.Conv_U4 : OpCodes.Conv_I4);
                     }
@@ -8006,7 +9198,7 @@ internal sealed class ColumnarIlEmitter
 
             case 36: // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
             {        // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
-                     // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the C# struct
+                     // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the struct
                      // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
                      // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
                 var typeRootNode = Child(idx, 0);
@@ -8014,6 +9206,205 @@ internal sealed class ColumnarIlEmitter
                 if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
                     return false;
                 var pairCount = (initChildCount - 1) / 2;
+
+                if (_nodes.Kind(typeRootNode) == 0)
+                {
+                    Type? bclInitType = Text(typeRootNode) switch
+                    {
+                        "JsonSerializerOptions" => typeof(JsonSerializerOptions),
+                        "ProcessStartInfo" => typeof(ProcessStartInfo),
+                        "Process" => typeof(Process),
+                        _ => null,
+                    };
+                    if (bclInitType != null)
+                    {
+                        var defaultCtor = bclInitType.GetConstructor(Type.EmptyTypes);
+                        if (defaultCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, defaultCtor);
+                        var assignedBclMembers = new HashSet<string>(StringComparer.Ordinal);
+                        for (var p = 0; p < pairCount; p++)
+                        {
+                            var nameNode = Child(idx, 1 + (2 * p));
+                            var valueNode = Child(idx, 2 + (2 * p));
+                            if (_nodes.Kind(nameNode) != 6)
+                                return false;
+                            var memberName = Text(nameNode);
+                            if (!assignedBclMembers.Add(memberName))
+                                return false;
+                            var property = bclInitType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance);
+                            if (property?.SetMethod == null)
+                                return false;
+                            _il.Emit(OpCodes.Dup);
+                            var propertyType = property.PropertyType;
+                            Type propertyValueType;
+                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType))
+                            {
+                                // Null adopted to the declared reference property type.
+                            }
+                            else if (!EmitExpression(valueNode, out propertyValueType))
+                            {
+                                return false;
+                            }
+                            if (!TypesEquivalent(propertyValueType, propertyType)
+                                && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                && !TryEmitReferenceConversion(propertyValueType, propertyType)
+                                && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                return false;
+                            _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
+                        }
+                        type = bclInitType;
+                        return true;
+                    }
+                }
+
+                if (_nodes.Kind(typeRootNode) == 15)
+                {
+                    if (!EmitExpression(typeRootNode, out var constructedType))
+                        return false;
+                    var assignedMembers = new HashSet<string>(StringComparer.Ordinal);
+                    for (var p = 0; p < pairCount; p++)
+                    {
+                        var nameNode = Child(idx, 1 + (2 * p));
+                        var valueNode = Child(idx, 2 + (2 * p));
+                        if (_nodes.Kind(nameNode) != 6)
+                            return false;
+                        var memberName = Text(nameNode);
+                        if (!assignedMembers.Add(memberName))
+                            return false;
+
+                        ColumnarStructDef? constructedUserDef = null;
+                        var constructedClosedArgs = Array.Empty<Type>();
+                        if (constructedType is TypeBuilder constructedBuilder)
+                        {
+                            constructedUserDef = FindDefByBuilder(constructedBuilder);
+                        }
+                        else if (TryGetClosedReceiverDef(constructedType, out var closedConstructedDef, out var closedConstructedArgs))
+                        {
+                            constructedUserDef = closedConstructedDef;
+                            constructedClosedArgs = closedConstructedArgs;
+                        }
+
+                        if (constructedUserDef != null)
+                        {
+                            if (!constructedUserDef.IsReference)
+                            {
+                                return false;
+                            }
+                            if (TryFindPropertyOnChain(constructedUserDef, memberName, out var userInitProperty))
+                            {
+                                if (userInitProperty.Setter == null)
+                                {
+                                    return false;
+                                }
+                                var propertyType = constructedClosedArgs.Length == 0
+                                    ? userInitProperty.PropertyType
+                                    : SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs);
+                                _il.Emit(OpCodes.Dup);
+                                Type propertyValueType;
+                                if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType))
+                                {
+                                    // Null adopted to the declared reference/nullable property type.
+                                }
+                                else if (!EmitExpression(valueNode, out propertyValueType))
+                                {
+                                    return false;
+                                }
+                                if (!TypesEquivalent(propertyValueType, propertyType)
+                                    && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                    && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                    && !TryEmitReferenceConversion(propertyValueType, propertyType)
+                                    && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                {
+                                    return false;
+                                }
+                                var userSetter = constructedClosedArgs.Length == 0
+                                    ? userInitProperty.Setter
+                                    : TypeBuilder.GetMethod(constructedType, userInitProperty.Setter);
+                                _il.Emit(OpCodes.Callvirt, userSetter);
+                                continue;
+                            }
+
+                            if (TryFindFieldOnChain(constructedUserDef, memberName, out var userInitField))
+                            {
+                                var userFieldType = constructedClosedArgs.Length == 0
+                                    ? userInitField.FieldType
+                                    : SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs);
+                                _il.Emit(OpCodes.Dup);
+                                Type userFieldValueType;
+                                if (TryEmitNullLiteralAsType(valueNode, userFieldType, out userFieldValueType))
+                                {
+                                    // Null adopted to the declared reference/nullable field type.
+                                }
+                                else if (!EmitExpression(valueNode, out userFieldValueType))
+                                {
+                                    return false;
+                                }
+                                if (!TypesEquivalent(userFieldValueType, userFieldType)
+                                    && !TryEmitImplicitWidening(userFieldValueType, userFieldType)
+                                    && !TryEmitInterfaceUpcast(userFieldValueType, userFieldType)
+                                    && !TryEmitReferenceConversion(userFieldValueType, userFieldType)
+                                    && !TryEmitObjectConversion(userFieldValueType, userFieldType))
+                                {
+                                    return false;
+                                }
+                                _il.Emit(OpCodes.Stfld, constructedClosedArgs.Length == 0
+                                    ? userInitField
+                                    : TypeBuilder.GetField(constructedType, userInitField));
+                                continue;
+                            }
+                            return false;
+                        }
+
+                        _il.Emit(OpCodes.Dup);
+                        var property = constructedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance);
+                        if (property?.SetMethod != null)
+                        {
+                            var propertyType = property.PropertyType;
+                            Type propertyValueType;
+                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType))
+                            {
+                                // Null adopted to the declared reference/nullable property type.
+                            }
+                            else if (!EmitExpression(valueNode, out propertyValueType))
+                            {
+                                return false;
+                            }
+                            if (!TypesEquivalent(propertyValueType, propertyType)
+                                && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                && !TryEmitReferenceConversion(propertyValueType, propertyType)
+                                && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                return false;
+                            _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
+                            continue;
+                        }
+
+                        var field = constructedType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
+                        if (field == null)
+                            return false;
+                        var fieldType = field.FieldType;
+                        Type fieldValueType;
+                        if (TryEmitNullLiteralAsType(valueNode, fieldType, out fieldValueType))
+                        {
+                            // Null adopted to the declared reference/nullable field type.
+                        }
+                        else if (!EmitExpression(valueNode, out fieldValueType))
+                        {
+                            return false;
+                        }
+                        if (!TypesEquivalent(fieldValueType, fieldType)
+                            && !TryEmitImplicitWidening(fieldValueType, fieldType)
+                            && !TryEmitInterfaceUpcast(fieldValueType, fieldType)
+                            && !TryEmitReferenceConversion(fieldValueType, fieldType)
+                            && !TryEmitObjectConversion(fieldValueType, fieldType))
+                            return false;
+                        _il.Emit(OpCodes.Stfld, field);
+                    }
+                    type = constructedType;
+                    return true;
+                }
 
                 // CLOSED GENERIC UNION CASE: `new Union.Case<args> { field: value, ... }` — a Generic type root
                 // (kind 1) whose dotted head names a registered union case of a GENERIC union. The explicit
@@ -8074,7 +9465,7 @@ internal sealed class ColumnarIlEmitter
                             var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                             _il.Emit(OpCodes.Dup);
                             if (!EmitExpression(valueNode, out var closedInitValueType)
-                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType)))
+                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType)))
                                 return false;
                             _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                         }
@@ -8097,7 +9488,7 @@ internal sealed class ColumnarIlEmitter
                         var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                         _il.Emit(OpCodes.Ldloca, closedStructValue);
                         if (!EmitExpression(valueNode, out var closedInitValueType)
-                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType)))
+                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                     }
@@ -8134,7 +9525,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     // RECORD/CLASS (reference type): `newobj <default ctor>` then per named field `dup; <value>;
                     // stfld`. The object ref stays on the stack between assignments (and as the result) via dup —
-                    // mirrors C#'s reference-type object initializer. A class with a USER constructor has NO default
+                    // mirrors N#'s reference-type object initializer. A class with a USER constructor has NO default
                     // (parameterless) ctor, so object-init on it declines (it must be constructed positionally).
                     if (initStructDef.DefaultCtor == null)
                         return false;
@@ -8146,13 +9537,38 @@ internal sealed class ColumnarIlEmitter
                         if (_nodes.Kind(nameNode) != 6)
                             return false;
                         var fieldName = Text(nameNode);
-                        if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
+                        if (!assigned.Add(fieldName))
+                            return false;
+                        if (TryFindPropertyOnChain(initStructDef, fieldName, out var initProperty))
+                        {
+                            if (initProperty.Setter == null)
+                                return false;
+                            _il.Emit(OpCodes.Dup);
+                            Type initPropertyValueType;
+                            if (TryEmitNullLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType))
+                            {
+                                // Null adopted to the declared reference/nullable property type.
+                            }
+                            else if (!EmitExpression(valueNode, out initPropertyValueType))
+                            {
+                                return false;
+                            }
+                            if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType))
+                                return false;
+                            _il.Emit(OpCodes.Callvirt, initProperty.Setter);
+                            continue;
+                        }
+                        if (!initStructDef.Fields.TryGetValue(fieldName, out var initField))
                             return false;
                         _il.Emit(OpCodes.Dup);
                         // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                         // init value's type come from independent resolutions (referentially distinct TBIs).
                         if (!EmitExpression(valueNode, out var initValueType)
-                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType)))
+                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -8175,7 +9591,7 @@ internal sealed class ColumnarIlEmitter
                         return false; // unknown or duplicately-assigned field -> decline.
                     _il.Emit(OpCodes.Ldloca, structValue);
                     if (!EmitExpression(valueNode, out var initValueType)
-                        || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType)))
+                        || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
                         return false;
                     _il.Emit(OpCodes.Stfld, initField);
                 }
@@ -8186,9 +9602,9 @@ internal sealed class ColumnarIlEmitter
 
             case 52: // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`: callvirt
             {        // the synthesized `<Clone>$` (PASS 0e), then stfld each named field on the clone — the
-                     // oracle's EmitWithExpression verbatim. Receivers: NON-GENERIC records carrying the
+                     // legacy emitter's EmitWithExpression verbatim. Receivers: NON-GENERIC records carrying the
                      // synthesis; classes decline (their `with` falls to a raw cross-type MemberwiseClone
-                     // call oracle-side — unverifiable IL), generic records decline (the oracle's
+                     // call legacy-emitter side — unverifiable IL), generic records decline (the legacy emitter's
                      // with-on-generic emit is the known-broken B4 residual), builder-typed-field records
                      // decline (no synthesis). Zero pairs = a pure clone.
                 if ((_nodes.ChildCount(idx) & 1) == 0)
@@ -8217,7 +9633,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType))
+                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !TryEmitReferenceConversion(withValueType, withField.FieldType) && !TryEmitObjectConversion(withValueType, withField.FieldType))
                         return false;
                     _il.Emit(OpCodes.Stfld, withField);
                 }
@@ -8226,9 +9642,9 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 44: // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: C# post-semantics, the
+            case 44: // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: N# post-semantics, the
             {        // value is the PRE-step value. Bare LOCAL/PARAM targets of int/long/ulong only (the
-                     // pipeline's double/float `++` silently NO-OPS — an oracle defect; columnar declines those
+                     // pipeline's double/float `++` silently NO-OPS — an known defect; columnar declines those
                      // so it never diverges). Lifted/boxed targets decline (capture rung).
                 if (!TryEmitPostfixUnary(idx, keepValue: true, out type))
                     return false;
@@ -8243,8 +9659,8 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.ChildCount(idx) != 2 || !EmitExpression(Child(idx, 0), out var testedType))
                     return false;
                 // A value-struct union has no reference identity: `is U.Case` is an integer tag test and an `is`/`as`
-                // against ANY reference target boxes the value before isinst (C# value-type `as`/`is` semantics). An
-                // isinst against the unboxed struct would be invalid IL. Decline so the C# oracle, which owns that
+                // against ANY reference target boxes the value before isinst (N# value-type `as`/`is` semantics). An
+                // isinst against the unboxed struct would be invalid IL. Decline so the previous parity baseline, which owns that
                 // boxing/tag lowering, handles every value-struct-union is/as form uniformly.
                 if (IsValueStructUnionType(testedType))
                     return false;
@@ -8280,7 +9696,7 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 45: // MustExpression [operand] — `must x`, the prefix null-assert (the oracle's
+            case 45: // MustExpression [operand] — `must x`, the prefix null-assert (the legacy emitter's
             {        // EmitMustExpression mirror): a NULLABLE<T> unwraps via HasValue/get_Value (throwing
                      // InvalidOperationException("must unwrap failed: value was null") when empty — the EXACT
                      // pipeline message); a REFERENCE null-checks dup/brtrue/pop/throw keeping its type; a
@@ -8319,13 +9735,13 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
                 // a plain VALUE type: the pipeline REJECTS redundant `must` (NL907 — the analyzer
-                // gates it before the emitter's no-op would run) — decline so the C# path reports it.
+                // gates it before the emitter's no-op would run) — decline so the N# backend path reports it.
                 return false;
             }
 
             case 13: // Ternary [cond, then, else] — `cond ? then : else`, a branch/merge with ONE result on the
             {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
-                     // rule); MIXED-type arms decline to the C# path (its implicit-conversion unification is a
+                     // rule); MIXED-type arms decline to the N# backend path (its implicit-conversion unification is a
                      // widening-slice concern). The condition emits through the shared bool gate.
                 if (_nodes.ChildCount(idx) != 3)
                     return false;
@@ -8346,7 +9762,7 @@ internal sealed class ColumnarIlEmitter
             }
 
             case 18: // Match [value, pat0, res0, pat1, res1, ...] — `match value { p => r, ... }`, lowered to a
-            {        // linear chain mirroring the C# EmitMatchExpression: eval value -> temp; per case test the
+            {        // linear chain mirroring the match-expression emitter: eval value -> temp; per case test the
                      // pattern, on match eval the result + br end; no match -> throw. An EXPRESSION: leaves one
                      // result on the stack. Patterns: a LITERAL (equality test) or an identifier (`_` discard or a
                      // binding that always matches and binds the matched value); a pattern may carry a `when` guard
@@ -8361,15 +9777,15 @@ internal sealed class ColumnarIlEmitter
                 var matchLocal = _il.DeclareLocal(matchValueType);
                 _il.Emit(OpCodes.Stloc, matchLocal);
 
-                // ENUM EXHAUSTIVENESS: C# requires an enum match to cover EVERY member or carry a catch-all (the
+                // ENUM EXHAUSTIVENESS: N# requires an enum match to cover EVERY member or carry a catch-all (the
                 // analyzer's NL501 NonExhaustiveMatch). The columnar emit would otherwise compile a PARTIAL enum
-                // match (with a runtime throw for the missing members), ACCEPTING a program C# REJECTS. Decline such
-                // a match so the columnar path never accepts what C# refuses (→ C# fallback, which reports NL501).
-                // This is a DECLINE (route to the analyzer-backed C# path), not a diagnostic — consistent with how
+                // match (with a runtime throw for the missing members). Decline such a match so the columnar path
+                // never accepts a source shape the analyzer rejected.
+                // This is a DECLINE, not a diagnostic — consistent with how
                 // the emitter declines everything outside its faithfully-modelled subset. Coverage counts only
                 // TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding is a catch-all; an unguarded `Enum.Member`
                 // (kind 8) covers that member. Guarded and combinator/relational arms do not count (conservative — a
-                // richer-but-exhaustive form simply declines to C#, still correct).
+                // richer-but-exhaustive form simply declines to , still correct).
                 ColumnarEnumDef? matchEnumDef = null;
                 foreach (var def in _enumRegistry.Values)
                 {
@@ -8398,9 +9814,9 @@ internal sealed class ColumnarIlEmitter
                         return false;
                 }
 
-                // UNION EXHAUSTIVENESS: like enums, C# requires a union match to cover EVERY case or carry a
-                // catch-all (NL501). A partial union match would otherwise emit a runtime throw for the missing
-                // cases — accepting a program C# rejects — so decline it to the analyzer-backed C# path. Coverage
+                // UNION EXHAUSTIVENESS: union matches must cover EVERY case or carry a catch-all (NL501).
+                // A partial union match would otherwise emit a runtime throw for the missing cases, so decline it
+                // to the analyzer-backed N# backend path. Coverage
                 // counts only TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding (kind 6) is a catch-all; an
                 // unguarded union-case pattern (kind 37 over `Union.Case`) covers that case.
                 // A non-generic union's scrutinee is its open base TypeBuilder; a GENERIC union's is a CLOSED
@@ -8506,7 +9922,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         // On MATCH fall through to the guard/result (armBody); on NO-MATCH branch to nextCase. The
                         // recursive helper models literals, relational patterns, and `and`/`or`/`not` combinators,
-                        // declining (whole match -> C# fallback) anything it cannot emit with exact C# parity.
+                        // declining the whole match for anything it cannot emit exactly.
                         var armBody = _il.DefineLabel();
                         if (!EmitPatternMatch(patternNode, matchValueType, matchLocal, armBody, nextCase))
                             return false;
@@ -8538,7 +9954,7 @@ internal sealed class ColumnarIlEmitter
                     }
                 }
 
-                // No case matched -> throw (mirrors the C# path). Unreachable if a catch-all arm is present.
+                // No case matched -> throw (mirrors the N# backend path). Unreachable if a catch-all arm is present.
                 _il.Emit(OpCodes.Ldstr, "No matching case in match expression");
                 _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
                 _il.Emit(OpCodes.Throw);
@@ -8552,12 +9968,12 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    // Recursive match-pattern test mirroring the C# EmitPatternTest structure (success/fail labels), but reading the
+    // Recursive match-pattern test mirroring the pattern-test emitter structure (success/fail labels), but reading the
     // matched value from `matchLocal` instead of a stack dup. On MATCH it branches to successLabel; on NO-MATCH to
     // failLabel. Models literal patterns (kinds 0-4), relational patterns (32), and `and`/`or`/`not` combinators
     // (33/34/35) over those. It does NOT model bindings: an identifier (kind 6) is only handled at the TOP LEVEL of
-    // an arm, so an identifier inside a combinator declines (returns false) and the whole match falls back to the C#
-    // pipeline. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
+    // an arm, so an identifier inside a combinator declines (returns false) and required columnar emission rejects
+    // the program. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
     private bool EmitPatternMatch(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         switch (_nodes.Kind(patternNode))
@@ -8588,7 +10004,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 return EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, failLabel, successLabel);
             }
-            case 32: // RelationalPattern `<op> <constant>` -> ordered comparison (the C# EmitPatternTest mirror).
+            case 32: // RelationalPattern `<op> <constant>` -> ordered comparison (the pattern-test emitter mirror).
             {
                 if (_nodes.ChildCount(patternNode) != 1 || !IsOrderedMatchType(matchValueType))
                     return false;
@@ -8598,7 +10014,7 @@ internal sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Ldloc, matchLocal);
                 if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
                     return false;
-                // Plain ordered Clt/Cgt for ALL types (matches C# exactly, incl. NaN/large ulong). `<`/`>` take the
+                // Plain ordered Clt/Cgt for ALL types (matches  exactly, incl. NaN/large ulong). `<`/`>` take the
                 // arm when the compare is TRUE; `<=`/`>=` are the negations — take when FALSE. Branch to successLabel
                 // when taken, else fall to the `Br failLabel`.
                 switch (Text(patternNode))
@@ -8629,7 +10045,7 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     _il.Emit(OpCodes.Ldloc, matchLocal);
                     _il.Emit(OpCodes.Ldc_I4, memberValue);
-                    _il.Emit(OpCodes.Ceq);             // underlying-int equality (matches C#'s Beq-on-underlying-int).
+                    _il.Emit(OpCodes.Ceq);             // underlying-int equality (matches N#'s Beq-on-underlying-int).
                     _il.Emit(OpCodes.Brtrue, successLabel);
                     _il.Emit(OpCodes.Br, failLabel);
                     return true;
@@ -8711,7 +10127,7 @@ internal sealed class ColumnarIlEmitter
     // stfld`. `typeArgs` empty = a non-generic case (the original D-10 path: open builders directly);
     // non-empty = a GENERIC case closed over the arguments — the ctor and every field handle are REBOUND
     // onto the closed instantiation via TypeBuilder.GetConstructor/GetField (reflection member queries throw
-    // on TypeBuilderInstantiation — the oracle's machinery, spike-proven), and each field's expected value
+    // on TypeBuilderInstantiation — the legacy emitter's machinery, spike-proven), and each field's expected value
     // type substitutes the arguments positionally (`value: T` on Opt<int> expects int). `pairCount` 0 emits
     // the bare/payload-default form (`new Color.Red {}`, brace-less `new Opt.None<int>` — fields stay
     // CLR-default, the pipeline's probed semantics). The result's static type is the union BASE (closed over
@@ -8721,7 +10137,7 @@ internal sealed class ColumnarIlEmitter
         type = null!;
 
         // VALUE-STRUCT union case: allocation-free construction through the union's static `Create_<Case>` factory
-        // (`new U(tag)`), mirroring the C# oracle. Value-struct unions are non-generic and payload-free, so a `{ }`
+        // (`new U(tag)`), mirroring the previous parity baseline. Value-struct unions are non-generic and payload-free, so a `{ }`
         // with fields (pairCount > 0) or explicit type args never reach here for a valid program — guard and decline.
         if (caseDef.IsValueStruct)
         {
@@ -8791,7 +10207,7 @@ internal sealed class ColumnarIlEmitter
     // adopts the expected type's arguments at FIVE probe-pinned positions, each with an exact expected type:
     // return statements, typed-local inits, union-case object-init FIELD VALUES, and local/param
     // REASSIGNMENT — exactly the emitters that consult this before their normal EmitExpression call. It
-    // REJECTS call-argument adoption (NL103 — queued oracle defect) and `:=` (NL207, no expected type), so
+    // REJECTS call-argument adoption (NL103 — queued known defect) and `:=` (NL207, no expected type), so
     // kind-36/42 nodes reaching plain EmitExpression with a generic case decline there.
     private bool IsAdoptableUnionConstruction(int exprNode, Type expectedType)
     {
@@ -8821,9 +10237,9 @@ internal sealed class ColumnarIlEmitter
     // A union-case pattern `Union.Case { f0, f1 }` (kind 37, children [memberAccess, bind0, ...]): an `isinst` type
     // test against the case's concrete type, and on match a field-binding of each named field to a fresh local. This
     // is handled ONLY at the TOP LEVEL of a match arm (not inside `and`/`or`/`not` — bindings in a negated/disjoined
-    // pattern are restricted in C#, so a union-case pattern under a combinator declines via EmitPatternMatch's
+    // pattern are restricted, so a union-case pattern under a combinator declines via EmitPatternMatch's
     // default). On MATCH it branches to successLabel (with the bindings live in `_locals`, cleaned up per-arm by the
-    // caller); on NO-MATCH to failLabel. Returns false (whole match -> C# fallback) on any unsupported shape.
+    // caller); on NO-MATCH to failLabel. Returns false (whole match declines) on any unsupported shape.
     private bool EmitUnionCasePattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         var memberNode = Child(patternNode, 0);
@@ -8834,12 +10250,12 @@ internal sealed class ColumnarIlEmitter
             return false; // the head must be a bare `Union` identifier (a qualified `Union.Case`).
         var qualifiedCase = Text(caseRecv) + "." + Text(memberNode);
         // The scrutinee must be THIS union (the open base, or a CLOSED instantiation of it when generic —
-        // the case is then isinst-tested CLOSED over the scrutinee's arguments, the oracle's machinery).
+        // the case is then isinst-tested CLOSED over the scrutinee's arguments, the legacy emitter's machinery).
         if (!TryGetCaseTestType(qualifiedCase, matchValueType, out var caseDef, out var caseTestType, out var caseArgs))
             return false; // not a registered case of THIS union -> decline.
-        // A `{ }` PROPERTY pattern on a PAYLOAD-FREE case is rejected by C# (NL503 — "doesn't carry any data — you
+        // A `{ }` PROPERTY pattern on a PAYLOAD-FREE case is rejected by  (NL503 — "doesn't carry any data — you
         // can't destructure it with property patterns"); a zero-field case is matched as a BARE type pattern instead
-        // (not modelled here). Decline so columnar never accepts a destructuring C# refuses.
+        // (not modelled here). Decline so columnar never accepts a destructuring  refuses.
         if (caseDef.Fields.Count == 0)
             return false;
 
@@ -8891,12 +10307,12 @@ internal sealed class ColumnarIlEmitter
 
     // Node kinds that are LITERAL match patterns (constant-equality): int(0)/float(1)/char(2)/string(3)/bool(4).
     // A non-literal primary in pattern position (null/parenthesized/member/call/index/…) is not a constant pattern,
-    // so the match declines to the C# path rather than emitting a misleading equality test. Identifier patterns
+    // so the match declines to the N# backend path rather than emitting a misleading equality test. Identifier patterns
     // (kind 6 — `_` discard / binding) are handled separately, before this is consulted.
     private static bool IsLiteralPatternKind(int kind) => kind >= 0 && kind <= 4;
 
     // Ordered scalar types a RELATIONAL match pattern (`< c`, `>= c`, …) may test — numeric + char. bool and string
-    // have no `<`/`>` ordering in the modelled set, so a relational pattern over them declines to the C# path.
+    // have no `<`/`>` ordering in the modelled set, so a relational pattern over them declines to the N# backend path.
     private static bool IsOrderedMatchType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(double) || t == typeof(float);
@@ -8904,7 +10320,7 @@ internal sealed class ColumnarIlEmitter
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
     // (op_Equality), a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case), and a
     // user-defined UNION base (isinst per union-case pattern). Records/etc. are not modelled, so a match over them
-    // declines to the C# path. (Instance — the union base is identified by the union registry.)
+    // declines to the N# backend path. (Instance — the union base is identified by the union registry.)
     private bool IsSupportedMatchValueType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
@@ -8912,7 +10328,7 @@ internal sealed class ColumnarIlEmitter
         || TryGetUnionDefForMatchValue(t, out _, out _);
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
-    // SOURCE is such a union — those need value-type boxing before isinst (owned by the C# oracle), which columnar
+    // SOURCE is such a union — those need value-type boxing before isinst (owned by the previous parity baseline), which columnar
     // does not emit.
     private bool IsValueStructUnionType(Type type)
     {
@@ -9011,7 +10427,7 @@ internal sealed class ColumnarIlEmitter
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
     // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
     // `isFloat` (double) uses the ORDERED Clt/Cgt for `<`/`>` (a NaN operand yields false), but `<=`/`>=` must
-    // negate the UNORDERED complement (Cgt_Un/Clt_Un) so a NaN operand yields false too — matching C#'s float
+    // negate the UNORDERED complement (Cgt_Un/Clt_Un) so a NaN operand yields false too — matching N#'s float
     // comparison lowering (`a <= b` is `!(a cgt.un b)`). For int/ulong (no NaN) the complement equals the ordering.
     private void EmitComparison(string op, bool unsigned = false, bool isFloat = false)
     {
@@ -9043,14 +10459,37 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(receiver) == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
         {
             var receiverName = Text(receiver);
-            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName))
+            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName)
+                && !IsCurrentInstanceMemberName(receiverName))
                 return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, out type);
         }
 
+        if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0
+            && TryGetAddressableTargetType(receiver, out var addressableReceiverType)
+            && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator)))
+        {
+            if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType))
+                return false;
+            _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes)!);
+            type = typeof(bool);
+            return true;
+        }
+
         if (!EmitExpression(receiver, out var receiverType)) // instance: receiver value goes on the stack first.
+        {
             return false;
-        return TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, out type);
+        }
+        if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, out type))
+        {
+            return false;
+        }
+        return true;
     }
+
+    private bool IsCurrentInstanceMemberName(string name)
+        => _currentStruct != null
+           && (TryFindFieldOnChain(_currentStruct, name, out _)
+               || TryFindPropertyOnChain(_currentStruct, name, out _));
 
     // Static calls (no receiver on the stack): a USER type's static methods first, then a small BCL whitelist.
     // Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
@@ -9058,8 +10497,8 @@ internal sealed class ColumnarIlEmitter
     {
         type = null!;
         // A USER-DECLARED type name binds its OWN static methods (chain-walked, nearest declaration first — the
-        // oracle resolves `Derived.F()` to a base-declared static). Resolution is by arg count; arg TYPES must
-        // match exactly (the oracle's implicit conversions are not modelled — mismatch declines). CRITICALLY, a
+        // legacy emitter resolves `Derived.F()` to a base-declared static). Resolution is by arg count; arg TYPES must
+        // match exactly (the legacy emitter's implicit conversions are not modelled — mismatch declines). CRITICALLY, a
         // user type name must NEVER fall through to the BCL whitelist below: a user `record Math { … }` SHADOWS
         // System.Math in the N# pipeline, so emitting the BCL method for `Math.Abs(x)` would be semantically wrong
         // IL (the over-acceptance failure mode). The same gate covers user enums and unions — no static methods
@@ -9080,7 +10519,7 @@ internal sealed class ColumnarIlEmitter
         if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
             return false;
         // The receiver may be the type NAME `Char` (via `using System`) or the builtin alias `char` (the
-        // lowercase keyword) — both bind to System.Char in N#/C#, so accept either.
+        // lowercase keyword) — both bind to System.Char, so accept either.
         if ((typeName == "Char" || typeName == "char") && argCount == 1)
         {
             // Static System.Char methods taking a single char: classifiers (-> bool) and invariant case
@@ -9091,6 +10530,7 @@ internal sealed class ColumnarIlEmitter
                 "IsLetter" => typeof(char).GetMethod(nameof(char.IsLetter), new[] { typeof(char) }),
                 "IsDigit" => typeof(char).GetMethod(nameof(char.IsDigit), new[] { typeof(char) }),
                 "IsWhiteSpace" => typeof(char).GetMethod(nameof(char.IsWhiteSpace), new[] { typeof(char) }),
+                "IsUpper" => typeof(char).GetMethod(nameof(char.IsUpper), new[] { typeof(char) }),
                 "ToLowerInvariant" => typeof(char).GetMethod(nameof(char.ToLowerInvariant), new[] { typeof(char) }),
                 "ToUpperInvariant" => typeof(char).GetMethod(nameof(char.ToUpperInvariant), new[] { typeof(char) }),
                 _ => null,
@@ -9115,13 +10555,347 @@ internal sealed class ColumnarIlEmitter
         if (typeName == "Math" && member == "Abs" && argCount == 1)
         {
             // System.Math.Abs(int) -> int (absolute value). The arg is an int; emit `call` (static). Negative
-            // inputs return the magnitude; int.MinValue throws OverflowException — identical to the C# path,
-            // which binds the same overload, so parity holds (the columnar and C# results match, throw included).
+            // inputs return the magnitude; int.MinValue throws OverflowException — identical to the N# backend path,
+            // which binds the same overload, so parity holds (the columnar and N# results match, throw included).
             var method = typeof(Math).GetMethod(nameof(Math.Abs), new[] { typeof(int) });
             if (method == null || !EmitArg(callIdx, 1, typeof(int)))
                 return false;
             _il.Emit(OpCodes.Call, method);
             type = typeof(int);
+            return true;
+        }
+        if (typeName == "Math" && member == "Max" && argCount == 2)
+        {
+            var method = typeof(Math).GetMethod(nameof(Math.Max), new[] { typeof(int), typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
+        }
+        if (typeName == "Math" && member == "Min" && argCount == 2)
+        {
+            var method = typeof(Math).GetMethod(nameof(Math.Min), new[] { typeof(int), typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.GetFullPath) && argCount == 1)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.GetFullPath), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.GetDirectoryName) && argCount == 1)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.GetDirectoryName), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.GetFileName) && argCount == 1)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.GetFileName), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.IsPathRooted) && argCount == 1)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.IsPathRooted), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.Combine) && argCount == 2)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.Combine), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.ChangeExtension) && argCount == 2)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.ChangeExtension), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.GetRelativePath) && argCount == 2)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.GetRelativePath), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Path" && member == nameof(Path.TrimEndingDirectorySeparator) && argCount == 1)
+        {
+            var method = typeof(Path).GetMethod(nameof(Path.TrimEndingDirectorySeparator), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Directory" && member == nameof(Directory.Exists) && argCount == 1)
+        {
+            var method = typeof(Directory).GetMethod(nameof(Directory.Exists), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if (typeName == "Directory" && member == nameof(Directory.CreateDirectory) && argCount == 1)
+        {
+            var method = typeof(Directory).GetMethod(nameof(Directory.CreateDirectory), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(DirectoryInfo);
+            return true;
+        }
+        if (typeName == "Directory" && member == nameof(Directory.GetFiles) && argCount == 3)
+        {
+            var method = typeof(Directory).GetMethod(nameof(Directory.GetFiles), new[] { typeof(string), typeof(string), typeof(SearchOption) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(SearchOption)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string[]);
+            return true;
+        }
+        if (typeName == "Directory" && member == nameof(Directory.GetDirectories) && argCount == 3)
+        {
+            var method = typeof(Directory).GetMethod(nameof(Directory.GetDirectories), new[] { typeof(string), typeof(string), typeof(SearchOption) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(SearchOption)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string[]);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.WriteAllText) && argCount == 2)
+        {
+            var method = typeof(File).GetMethod(nameof(File.WriteAllText), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.Exists) && argCount == 1)
+        {
+            var method = typeof(File).GetMethod(nameof(File.Exists), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.ReadAllText) && argCount == 1)
+        {
+            var method = typeof(File).GetMethod(nameof(File.ReadAllText), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.ReadAllLines) && argCount == 1)
+        {
+            var method = typeof(File).GetMethod(nameof(File.ReadAllLines), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string[]);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.Copy) && argCount == 3)
+        {
+            var method = typeof(File).GetMethod(nameof(File.Copy), new[] { typeof(string), typeof(string), typeof(bool) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(bool)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
+        if (typeName == "Environment" && member == nameof(Environment.GetEnvironmentVariable) && argCount == 1)
+        {
+            var method = typeof(Environment).GetMethod(nameof(Environment.GetEnvironmentVariable), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Environment" && member == nameof(Environment.GetFolderPath) && argCount == 1)
+        {
+            var method = typeof(Environment).GetMethod(nameof(Environment.GetFolderPath), new[] { typeof(Environment.SpecialFolder) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(Environment.SpecialFolder)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "JsonSerializer" && member == nameof(JsonSerializer.Serialize) && argCount == 2)
+        {
+            if (!EmitExpression(Child(callIdx, 1), out var valueType)
+                || !EmitArg(callIdx, 2, typeof(JsonSerializerOptions)))
+                return false;
+            var serialize = Array.Find(
+                typeof(JsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                method =>
+                {
+                    if (method.Name != nameof(JsonSerializer.Serialize)
+                        || !method.IsGenericMethodDefinition
+                        || method.ReturnType != typeof(string))
+                        return false;
+                    var parameters = method.GetParameters();
+                    return parameters.Length == 2
+                           && parameters[0].ParameterType.IsGenericParameter
+                           && parameters[1].ParameterType == typeof(JsonSerializerOptions);
+                });
+            if (serialize == null)
+                return false;
+            _il.Emit(OpCodes.Call, serialize.MakeGenericMethod(valueType));
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "TimeSpan" && member == nameof(TimeSpan.FromMinutes) && argCount == 1)
+        {
+            var method = typeof(TimeSpan).GetMethod(nameof(TimeSpan.FromMinutes), new[] { typeof(double) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(TimeSpan);
+            return true;
+        }
+        if (typeName == "Convert" && member == nameof(Convert.ToInt32) && argCount == 1)
+        {
+            var method = typeof(Convert).GetMethod(nameof(Convert.ToInt32), new[] { typeof(object) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
+        }
+        if (typeName == "Convert" && member == nameof(Convert.ToUInt64) && argCount == 2)
+        {
+            var method = typeof(Convert).GetMethod(nameof(Convert.ToUInt64), new[] { typeof(string), typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(ulong);
+            return true;
+        }
+        if ((typeName == "UInt64" || typeName == "ulong") && member == nameof(UInt64.Parse) && argCount == 2)
+        {
+            var method = typeof(ulong).GetMethod(nameof(ulong.Parse), new[] { typeof(string), typeof(IFormatProvider) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(IFormatProvider)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(ulong);
+            return true;
+        }
+        if ((typeName == "UInt64" || typeName == "ulong") && member == nameof(UInt64.Parse) && argCount == 3)
+        {
+            var method = typeof(ulong).GetMethod(nameof(ulong.Parse), new[] { typeof(string), typeof(System.Globalization.NumberStyles), typeof(IFormatProvider) });
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(System.Globalization.NumberStyles))
+                || !EmitArg(callIdx, 3, typeof(IFormatProvider)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(ulong);
+            return true;
+        }
+        if (typeName == "Enum" && member == nameof(Enum.GetName) && argCount == 2)
+        {
+            var method = typeof(Enum).GetMethod(nameof(Enum.GetName), new[] { typeof(Type), typeof(object) });
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(Type))
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(object), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
+        if (typeName == "Enum" && member == nameof(Enum.ToObject) && argCount == 2)
+        {
+            var method = typeof(Enum).GetMethod(nameof(Enum.ToObject), new[] { typeof(Type), typeof(object) });
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(Type))
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(object), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(object);
+            return true;
+        }
+        if (typeName == "JsonDocument" && member == nameof(JsonDocument.Parse) && argCount == 1)
+        {
+            var method = typeof(JsonDocument).GetMethod(nameof(JsonDocument.Parse), new[] { typeof(string), typeof(JsonDocumentOptions) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            var options = _il.DeclareLocal(typeof(JsonDocumentOptions));
+            _il.Emit(OpCodes.Ldloca, options);
+            _il.Emit(OpCodes.Initobj, typeof(JsonDocumentOptions));
+            _il.Emit(OpCodes.Ldloc, options);
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(JsonDocument);
+            return true;
+        }
+        if (typeName == "ArgumentNullException" && member == nameof(ArgumentNullException.ThrowIfNull) && argCount == 1)
+        {
+            var method = typeof(ArgumentNullException).GetMethod(nameof(ArgumentNullException.ThrowIfNull), new[] { typeof(object), typeof(string) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Ldnull);
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
+        if (typeName == "ArgumentException" && member == nameof(ArgumentException.ThrowIfNullOrWhiteSpace) && argCount == 1)
+        {
+            var method = typeof(ArgumentException).GetMethod(nameof(ArgumentException.ThrowIfNullOrWhiteSpace), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Ldnull);
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
+        if ((typeName == "String" || typeName == "string") && member == nameof(string.Equals) && argCount == 3)
+        {
+            var method = typeof(string).GetMethod(nameof(string.Equals), new[] { typeof(string), typeof(string), typeof(StringComparison) });
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(string))
+                || !EmitArg(callIdx, 3, typeof(StringComparison)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if (typeName == "OperatingSystem" && member == nameof(OperatingSystem.IsWindows) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Call, typeof(OperatingSystem).GetMethod(nameof(OperatingSystem.IsWindows), Type.EmptyTypes)!);
+            type = typeof(bool);
             return true;
         }
         if ((typeName == "String" || typeName == "string") && member == "Compare")
@@ -9130,7 +10904,7 @@ internal sealed class ColumnarIlEmitter
             //   3-arg: Compare(string, string, StringComparison)
             //   6-arg: Compare(string, int, string, int, int, StringComparison)
             // Both take a StringComparison enum constant as the LAST arg (emitted as its underlying int). The
-            // return is the comparison sign (<0 / 0 / >0), matching the C# binder's pick of the same overload.
+            // return is the comparison sign (<0 / 0 / >0), matching the numeric binder's pick of the same overload.
             if (argCount == 3)
             {
                 var method = typeof(string).GetMethod(nameof(string.Compare),
@@ -9157,6 +10931,34 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
             return false;
+        }
+        if ((typeName == "String" || typeName == "string") && member == "IsNullOrWhiteSpace" && argCount == 1)
+        {
+            var method = typeof(string).GetMethod(nameof(string.IsNullOrWhiteSpace), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if ((typeName == "String" || typeName == "string") && member == "IsNullOrEmpty" && argCount == 1)
+        {
+            var method = typeof(string).GetMethod(nameof(string.IsNullOrEmpty), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(bool);
+            return true;
+        }
+        if ((typeName == "String" || typeName == "string") && member == "Join" && argCount == 2)
+        {
+            var valuesType = typeof(IEnumerable<string>);
+            var method = typeof(string).GetMethod(nameof(string.Join), new[] { typeof(string), valuesType });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, valuesType))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
         }
         if (typeName == "Array" && member == "Fill" && (argCount == 2 || argCount == 4))
         {
@@ -9202,16 +11004,22 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
-        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 3))
+        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 3 || argCount == 4))
         {
-            // Array.Sort<T>(T[] array) and Array.Sort<T>(T[] array, int index, int length) -> void. Keep this
-            // to one supported SZ array; key/value parallel arrays and comparer/delegate overloads stay declined.
+            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, int index, int length), and the ranged
+            // IComparer<T> overload -> void. Keep this to one supported SZ array; key/value parallel arrays and
+            // comparison-delegate overloads stay declined.
             if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
                 return false;
             var elementType = arrayType.GetElementType()!;
             if (!IsSupportedElementType(elementType))
                 return false;
             if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))))
+                return false;
+            if (argCount == 4
+                && (!EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(int))
+                    || !EmitArg(callIdx, 4, typeof(IComparer<>).MakeGenericType(elementType))))
                 return false;
             var sort = ResolveArraySort(argCount);
             if (sort == null)
@@ -9335,7 +11143,8 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
-    // System.Array.Sort<T>(T[] array[, int index, int length]) as a generic method DEFINITION.
+    // System.Array.Sort<T>(T[] array[, int index, int length[, IComparer<T> comparer]]) as a generic method
+    // DEFINITION.
     private static MethodInfo? ResolveArraySort(int parameterCount)
     {
         foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
@@ -9349,7 +11158,15 @@ internal sealed class ColumnarIlEmitter
                 continue;
             if (parameterCount == 1
                 || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)))
+            {
+                if (parameterCount == 4)
+                {
+                    var comparerType = parameters[3].ParameterType;
+                    if (!comparerType.IsGenericType || comparerType.GetGenericTypeDefinition() != typeof(IComparer<>))
+                        continue;
+                }
                 return m;
+            }
         }
         return null;
     }
@@ -9373,7 +11190,7 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
-    // ---- Named-tuple element names (the columnar mirror of the oracle's _tupleElementNamesByVariable) ----
+    // ---- Named-tuple element names (the columnar mirror of the legacy emitter's _tupleElementNamesByVariable) ----
 
     // The tuple element names statically derivable for an expression node: an identifier with tracked
     // names, a parenthesized wrap, a NAMED tuple literal (kind-17 with kind-43 wrappers), or a direct
@@ -9423,7 +11240,156 @@ internal sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(char)
         || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort);
 
-    // C#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
+	    private bool TryEmitStringConcatChain(int idx, out Type type)
+	    {
+	        type = null!;
+	        var terms = new List<int>();
+        var pending = new Stack<int>();
+        var seen = new HashSet<int>();
+        pending.Push(idx);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!seen.Add(current))
+                return false;
+            if (_nodes.Kind(current) == 12 && Text(current) == "+" && _nodes.ChildCount(current) == 2)
+            {
+                pending.Push(Child(current, 1));
+                pending.Push(Child(current, 0));
+                continue;
+            }
+            terms.Add(current);
+        }
+        if (terms.Count <= 2)
+            return false;
+        for (var i = 0; i < terms.Count; i++)
+        {
+            if (!CanProveStringExpression(terms[i]))
+                return false;
+        }
+
+        _il.Emit(OpCodes.Ldc_I4, terms.Count);
+        _il.Emit(OpCodes.Newarr, typeof(string));
+        for (var i = 0; i < terms.Count; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldc_I4, i);
+            if (!EmitExpression(terms[i], out var termType) || termType != typeof(string))
+                return false;
+            _il.Emit(OpCodes.Stelem_Ref);
+        }
+        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string[]) })!);
+	        type = typeof(string);
+	        return true;
+	    }
+
+	    private bool TryEmitStringCharConcat(Type leftType, Type rightType, out Type type)
+	    {
+	        type = null!;
+	        if (leftType == typeof(string) && rightType == typeof(char))
+	        {
+	            EmitTopCharToString();
+	            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+	            type = typeof(string);
+	            return true;
+	        }
+
+	        if (leftType == typeof(char) && rightType == typeof(string))
+	        {
+	            var right = _il.DeclareLocal(typeof(string));
+	            _il.Emit(OpCodes.Stloc, right);
+	            EmitTopCharToString();
+	            _il.Emit(OpCodes.Ldloc, right);
+	            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+	            type = typeof(string);
+	            return true;
+	        }
+
+	        return false;
+	    }
+
+	    private void EmitTopCharToString()
+	    {
+	        var value = _il.DeclareLocal(typeof(char));
+	        _il.Emit(OpCodes.Stloc, value);
+	        _il.Emit(OpCodes.Ldloca, value);
+	        _il.Emit(OpCodes.Call, typeof(char).GetMethod(nameof(char.ToString), Type.EmptyTypes)!);
+	    }
+
+	    private bool CanProveStringExpression(int idx)
+	    {
+        switch (_nodes.Kind(idx))
+        {
+            case 3:
+                return true;
+            case 6:
+            {
+                var name = Text(idx);
+                if (_locals.TryGetValue(name, out var local))
+                    return local.LocalType == typeof(string);
+                return _paramTypes.TryGetValue(name, out var paramType) && paramType == typeof(string);
+            }
+            case 7:
+                return _nodes.ChildCount(idx) == 1 && CanProveStringExpression(Child(idx, 0));
+            default:
+                return false;
+        }
+    }
+
+    private bool TryEmitPrimitiveStaticConstant(string receiverIdent, string member, out Type type)
+    {
+        type = null!;
+        if (member != "MaxValue" && member != "MinValue")
+            return false;
+
+        switch (receiverIdent)
+        {
+            case "int":
+            case "Int32":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? int.MaxValue : int.MinValue);
+                type = typeof(int);
+                return true;
+            case "long":
+            case "Int64":
+                _il.Emit(OpCodes.Ldc_I8, member == "MaxValue" ? long.MaxValue : long.MinValue);
+                type = typeof(long);
+                return true;
+            case "uint":
+            case "UInt32":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? unchecked((int)uint.MaxValue) : 0);
+                type = typeof(uint);
+                return true;
+            case "ulong":
+            case "UInt64":
+                _il.Emit(OpCodes.Ldc_I8, member == "MaxValue" ? unchecked((long)ulong.MaxValue) : 0L);
+                type = typeof(ulong);
+                return true;
+            case "short":
+            case "Int16":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? short.MaxValue : short.MinValue);
+                type = typeof(short);
+                return true;
+            case "ushort":
+            case "UInt16":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? ushort.MaxValue : 0);
+                type = typeof(ushort);
+                return true;
+            case "byte":
+            case "Byte":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? byte.MaxValue : 0);
+                type = typeof(byte);
+                return true;
+            case "sbyte":
+            case "SByte":
+                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? sbyte.MaxValue : sbyte.MinValue);
+                type = typeof(sbyte);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // N#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
     // already on the stack: the int-promotable set (int/char/small ints) -> long (conv.i8), -> double
     // (conv.r8), -> float (conv.r4), or -> int (identity — the load already extended); long/float ->
     // double; long -> float. uint/ulong SOURCES are excluded (their extension/precision rules are
@@ -9449,7 +11415,125 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // A DECIMAL literal (`2.5m`, `5m` — suffix already stripped): the C# emit is the bits-decomposed
+    private bool TryEmitObjectConversion(Type source, Type target)
+    {
+        if (target != typeof(object) || source == typeof(void))
+            return false;
+        if (source == typeof(object))
+            return true;
+        if (source is TypeBuilder sourceBuilder)
+        {
+            if (IsEnumType(sourceBuilder))
+            {
+                _il.Emit(OpCodes.Box, sourceBuilder);
+                return true;
+            }
+
+            var sourceDef = FindDefByBuilder(sourceBuilder);
+            if (sourceDef != null && !sourceDef.IsReference)
+                _il.Emit(OpCodes.Box, sourceBuilder);
+            return true;
+        }
+        if (source.IsValueType || source.IsGenericParameter || IsEnumType(source))
+            _il.Emit(OpCodes.Box, source);
+        return true;
+    }
+
+    private static bool TryEmitReferenceConversion(Type source, Type target)
+    {
+        if (source == typeof(void) || source.IsValueType || target.IsValueType)
+            return false;
+        try
+        {
+            if (target.IsAssignableFrom(source))
+                return true;
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        if (source.IsSZArray && target.IsGenericType && !target.IsGenericTypeDefinition)
+        {
+            var targetDef = target.GetGenericTypeDefinition();
+            if ((targetDef == typeof(IReadOnlyList<>) || targetDef == typeof(IReadOnlyCollection<>) || targetDef == typeof(IEnumerable<>))
+                && TypesEquivalent(source.GetElementType()!, target.GetGenericArguments()[0]))
+                return true;
+        }
+
+        if (source.IsGenericType && !source.IsGenericTypeDefinition && target.IsGenericType && !target.IsGenericTypeDefinition)
+        {
+            var sourceDef = source.GetGenericTypeDefinition();
+            var targetDef = target.GetGenericTypeDefinition();
+            var sourceArgs = source.GetGenericArguments();
+            var targetArgs = target.GetGenericArguments();
+            if (targetArgs.Length == 1 && sourceArgs.Length >= 1
+                && TypesEquivalent(sourceArgs[0], targetArgs[0])
+                && ((sourceDef == typeof(List<>) && (targetDef == typeof(IReadOnlyList<>) || targetDef == typeof(IReadOnlyCollection<>) || targetDef == typeof(IEnumerable<>)))
+                    || (sourceDef == typeof(HashSet<>) && (targetDef == typeof(IReadOnlySet<>) || targetDef == typeof(IReadOnlyCollection<>) || targetDef == typeof(IEnumerable<>)))
+                    || (sourceDef == typeof(Stack<>) && targetDef == typeof(IEnumerable<>))))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool TryEmitSupportedBclPropertyAssignment(int receiverNode, string member, int valueNode)
+    {
+        receiverNode = UnwrapParenthesizedNode(receiverNode);
+        if (_nodes.Kind(receiverNode) != 6)
+            return false;
+        var receiverName = Text(receiverNode);
+        if (_liftedLocals.ContainsKey(receiverName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(receiverName)))
+            return false;
+
+        Type receiverType;
+        LocalBuilder? receiverLocal = null;
+        var receiverOrdinal = -1;
+        if (_locals.TryGetValue(receiverName, out var local))
+        {
+            receiverLocal = local;
+            receiverType = local.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(receiverName, out var ordinal))
+        {
+            receiverOrdinal = ordinal;
+            receiverType = _paramTypes[receiverName];
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!TryGetSupportedBclWritableProperty(receiverType, member, out var property))
+            return false;
+
+        if (receiverLocal != null)
+            _il.Emit(OpCodes.Ldloc, receiverLocal);
+        else
+            EmitLoadArgument(receiverOrdinal);
+
+        var propertyType = property.PropertyType;
+        Type valueType;
+        if (TryEmitNullLiteralAsType(valueNode, propertyType, out valueType))
+        {
+            // Null adopted to the declared reference property type.
+        }
+        else if (!EmitExpression(valueNode, out valueType))
+        {
+            return false;
+        }
+        if (!TypesEquivalent(valueType, propertyType)
+            && !TryEmitImplicitWidening(valueType, propertyType)
+            && !TryEmitInterfaceUpcast(valueType, propertyType)
+            && !TryEmitReferenceConversion(valueType, propertyType)
+            && !TryEmitObjectConversion(valueType, propertyType))
+            return false;
+
+        _il.Emit(OpCodes.Callvirt, property.SetMethod!);
+        return true;
+    }
+
+    // A DECIMAL literal (`2.5m`, `5m` — suffix already stripped): the IL emit is the bits-decomposed
     // 5-arg Decimal ctor (lo, mid, hi, isNegative, scale) — exact, never via double.
     private bool TryEmitDecimalLiteral(string body, out Type type)
     {
@@ -9473,7 +11557,8 @@ internal sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(uint)
         || t == typeof(short) || t == typeof(ushort) || t == typeof(byte) || t == typeof(sbyte)
         || t == typeof(bool) || t == typeof(char) || t == typeof(double) || t == typeof(float)
-        || t == typeof(decimal);
+        || t == typeof(decimal) || t == typeof(TimeSpan)
+        || IsSupportedValueTuple(t);
 
     private static bool IsSupportedNullable(Type t) =>
         t.IsGenericType && !t.IsGenericTypeDefinition
@@ -9482,7 +11567,7 @@ internal sealed class ColumnarIlEmitter
 
     // LIFTING onto a Nullable<T> target (null N2): a bare NULL emits default(T?) (initobj on a temp);
     // an already-T? value passes through; a T-typed value (or an int literal adopting T) wraps via
-    // `newobj Nullable<T>(T)` — the exact C# conversions for `n: int? = 5` / `= null` / `= v` / `= m`.
+    // `newobj Nullable<T>(T)` — the exact N# conversions for `n: int? = 5` / `= null` / `= v` / `= m`.
     // The caller must invoke this ONLY when the target IS a supported Nullable, and a FALSE return is a
     // WHOLE-PROGRAM decline (the value may already be on the stack — never fall through and re-emit).
     private bool TryEmitValueAsNullable(int node, Type target, out Type type)
@@ -9519,7 +11604,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     // A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
-    // function, `s = null`, a null argument) — C#'s null-assignability for the modelled set. Value-typed
+    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set. Value-typed
     // targets decline (Nullable<T> is the N2 rung).
     private bool TryEmitNullLiteralAsType(int node, Type target, out Type type)
     {
@@ -9531,7 +11616,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — C#'s
+    // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — N#'s
     // implicit constant conversion (`b: byte = 200`, `u: ulong = 10`, `return 50` on a byte function).
     // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
     // long/ulong load as i8. Suffixed literals, out-of-range values (the pipeline's NL202), and
@@ -9560,7 +11645,7 @@ internal sealed class ColumnarIlEmitter
                 return false; // no negative values on unsigned targets (the pipeline's NL202).
             // Negative magnitudes cap at the MAXVALUE magnitude, not MinValue: the PIPELINE rejects
             // `v: sbyte = -128` (and the other exact MinValues) with NL202 — its negation range check is
-            // off by one (oracle defect bundle #14) — and overflows on any unsuffixed literal beyond int
+            // off by one (known defect bundle #14) — and overflows on any unsuffixed literal beyond int
             // range regardless of target (`l: long = -5000000000` → NL103 overflow — defect #13).
             var min = target == typeof(sbyte) ? (ulong)sbyte.MaxValue
                 : target == typeof(short) ? (ulong)short.MaxValue
@@ -9580,7 +11665,7 @@ internal sealed class ColumnarIlEmitter
             // uint caps at int.MaxValue, NOT uint.MaxValue: the PIPELINE mis-evaluates uint locals
             // initialized with literals above int.MaxValue (`u: uint = 4000000000; u / 2` returned the
             // signed-division bit pattern 4147483648, and `print u / 2` dropped the line entirely —
-            // oracle defect bundle #12, probe-confirmed); columnar declines those so it never diverges.
+            // known defect bundle #12, probe-confirmed); columnar declines those so it never diverges.
             var max = target == typeof(byte) ? (ulong)byte.MaxValue
                 : target == typeof(sbyte) ? (ulong)sbyte.MaxValue
                 : target == typeof(short) ? (ulong)short.MaxValue
@@ -9595,7 +11680,7 @@ internal sealed class ColumnarIlEmitter
         if (target == typeof(long) || target == typeof(ulong))
         {
             // Positive magnitudes ALSO cap at int.MaxValue: the pipeline overflows on unsuffixed
-            // literals beyond int range whatever the target (oracle defect bundle #13) — suffixed
+            // literals beyond int range whatever the target (known defect bundle #13) — suffixed
             // literals (5000000000L) carry their own type and never reach this rule.
             if (value > int.MaxValue)
                 return false;
@@ -9607,8 +11692,8 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM or field of int/long/ulong: load, step by one, store —
-    // keeping the PRE-step value on the stack when `keepValue` (C# post-semantics; `m := n++` reads the
-    // old n). double/float decline (the pipeline's `++` on them silently no-ops — oracle defect bundle);
+    // keeping the PRE-step value on the stack when `keepValue` (N# post-semantics; `m := n++` reads the
+    // old n). double/float decline (the pipeline's `++` on them silently no-ops — known defect bundle);
     // lifted/boxed captures, property targets, and unsupported receivers decline.
     private bool TryEmitPostfixUnary(int idx, bool keepValue, out Type type)
     {
@@ -9763,9 +11848,10 @@ internal sealed class ColumnarIlEmitter
     }
 
     // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table
-    // (kind 0 Simple = the name text; kind 1 Generic = name<argCanons>; kind 2 Array = element[]).
-    // Other type-node kinds (nullable/union/byref/tuple) decline — the construction and closed-generic
-    // paths that consume this only model these three shapes.
+    // (kind 0 Simple = the name text; kind 1 Generic = name<argCanons>; kind 2 Array = element[],
+    // kind 3 Nullable = element?, kind 6 Tuple = ValueTuple<...>, kind 7 single-child wrapper = transparent
+    // named/parenthesized type element). Other type-node kinds decline until their consumers own the
+    // corresponding emit path.
     private bool TryBuildTypeNodeCanonical(int typeNode, out string canonical)
     {
         switch (_nodes.Kind(typeNode))
@@ -9802,6 +11888,49 @@ internal sealed class ColumnarIlEmitter
                 canonical = elementCanonical + "[]";
                 return true;
             }
+            case 3:
+            {
+                if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out var elementCanonical))
+                {
+                    canonical = string.Empty;
+                    return false;
+                }
+                canonical = elementCanonical + "?";
+                return true;
+            }
+            case 6:
+            {
+                var childCount = _nodes.ChildCount(typeNode);
+                if (childCount < 2 || childCount > 7)
+                {
+                    canonical = string.Empty;
+                    return false;
+                }
+                var builder = new System.Text.StringBuilder("ValueTuple<");
+                for (var c = 0; c < childCount; c++)
+                {
+                    if (c > 0)
+                        builder.Append(',');
+                    if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out var argCanonical))
+                    {
+                        canonical = string.Empty;
+                        return false;
+                    }
+                    builder.Append(argCanonical);
+                }
+                builder.Append('>');
+                canonical = builder.ToString();
+                return true;
+            }
+            case 7:
+            {
+                if (_nodes.ChildCount(typeNode) != 1)
+                {
+                    canonical = string.Empty;
+                    return false;
+                }
+                return TryBuildTypeNodeCanonical(Child(typeNode, 0), out canonical);
+            }
             default:
                 canonical = string.Empty;
                 return false;
@@ -9820,6 +11949,15 @@ internal sealed class ColumnarIlEmitter
             return IsSameEnumType(a, b);
         if (a.IsByRef || b.IsByRef)
             return a.IsByRef && b.IsByRef && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
+        if (a.IsSZArray || b.IsSZArray)
+            return a.IsSZArray && b.IsSZArray && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
+        if (a is TypeBuilder || b is TypeBuilder)
+        {
+            if (a is not TypeBuilder leftBuilder || b is not TypeBuilder rightBuilder)
+                return false;
+            return string.Equals(leftBuilder.FullName, rightBuilder.FullName, StringComparison.Ordinal)
+                && ReferenceEquals(leftBuilder.Module, rightBuilder.Module);
+        }
         // Structural equivalence for closed generic INSTANTIATIONS — user-headed (Box<int>) AND
         // builder-bound BCL-headed (List<Pt>, Dictionary<string,Pt>): every independent MakeGenericType
         // over a builder yields a referentially DISTINCT TypeBuilderInstantiation (probe-proven), so
@@ -9830,7 +11968,7 @@ internal sealed class ColumnarIlEmitter
         Type aDef, bDef;
             aDef = a.GetGenericTypeDefinition();
             bDef = b.GetGenericTypeDefinition();
-        if (!ReferenceEquals(aDef, bDef))
+        if (!TypesEquivalent(aDef, bDef))
             return false;
         var aArgs = a.GetGenericArguments();
         var bArgs = b.GetGenericArguments();
@@ -9848,11 +11986,420 @@ internal sealed class ColumnarIlEmitter
     {
         if (!IsEnumType(a) || !IsEnumType(b))
             return false;
+        try
+        {
             if (a.TypeHandle.Equals(b.TypeHandle))
                 return true;
+        }
+        catch (NotSupportedException)
+        {
+        }
         return string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)
             && ReferenceEquals(a.Module, b.Module);
     }
+
+    private bool IsKnownEnumType(Type type)
+    {
+        if (IsEnumType(type))
+            return true;
+        foreach (var enumDef in _enumRegistry.Values)
+        {
+            if (ReferenceEquals(enumDef.EnumType, type))
+                return true;
+        }
+        return false;
+    }
+
+    private bool TrySelectUserConstructor(
+        int newNode,
+        ColumnarStructDef def,
+        out ConstructorBuilder chosenCtor,
+        out Type[] chosenParamTypes,
+        out int[] chosenDefaultKinds,
+        out string?[] chosenDefaultTexts)
+    {
+        chosenCtor = null!;
+        chosenParamTypes = null!;
+        chosenDefaultKinds = null!;
+        chosenDefaultTexts = null!;
+        var argCount = _nodes.ChildCount(newNode) - 1;
+        var candidates = new List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)>();
+        foreach (var ctor in def.Constructors)
+        {
+            if (ctor.ParamTypes.Length < argCount)
+                continue;
+            var hasTrailingDefaults = true;
+            for (var p = argCount; p < ctor.ParamTypes.Length; p++)
+            {
+                if (!CanUseConstructorDefaultAs(ctor.ParamTypes[p], ctor.DefaultKinds, ctor.DefaultTexts, p))
+                {
+                    hasTrailingDefaults = false;
+                    break;
+                }
+            }
+            if (hasTrailingDefaults)
+                candidates.Add(ctor);
+        }
+        if (candidates.Count == 0)
+            return false;
+        var exactCandidates = new List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)>();
+        foreach (var candidate in candidates)
+        {
+            if (candidate.ParamTypes.Length == argCount)
+                exactCandidates.Add(candidate);
+        }
+        if (exactCandidates.Count > 0)
+            candidates = exactCandidates;
+        if (candidates.Count == 1)
+        {
+            chosenCtor = candidates[0].Builder;
+            chosenParamTypes = candidates[0].ParamTypes;
+            chosenDefaultKinds = candidates[0].DefaultKinds;
+            chosenDefaultTexts = candidates[0].DefaultTexts;
+            return true;
+        }
+
+        foreach (var ctor in candidates)
+        {
+            var matches = true;
+            for (var a = 0; a < argCount; a++)
+            {
+                if (!CanEmitConstructorArgumentAs(Child(newNode, 1 + a), ctor.ParamTypes[a]))
+                {
+                    matches = false;
+                    break;
+                }
+            }
+            if (!matches)
+                continue;
+            if (chosenCtor != null)
+                return false;
+            chosenCtor = ctor.Builder;
+            chosenParamTypes = ctor.ParamTypes;
+            chosenDefaultKinds = ctor.DefaultKinds;
+            chosenDefaultTexts = ctor.DefaultTexts;
+        }
+        return chosenCtor != null;
+    }
+
+    private bool CanUseConstructorDefaultAs(Type expectedType, int[] defaultKinds, string?[] defaultTexts, int index)
+    {
+        if (index < 0 || index >= defaultKinds.Length || index >= defaultTexts.Length)
+            return false;
+        return defaultKinds[index] switch
+        {
+            46 => !expectedType.IsValueType,
+            44 or 45 => expectedType == typeof(bool),
+            1 => expectedType == typeof(int)
+                 && int.TryParse(defaultTexts[index], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _),
+            4 => expectedType == typeof(string),
+            ParameterDefaultMemberAccessKind => TryResolveEnumParameterDefault(expectedType, defaultTexts[index], _enumRegistry, out _),
+            _ => false,
+        };
+    }
+
+    private bool TryEmitConstructorDefaultArgument(Type expectedType, int defaultKind, string? defaultText, out Type type)
+    {
+        type = null!;
+        switch (defaultKind)
+        {
+            case 46 when !expectedType.IsValueType:
+                _il.Emit(OpCodes.Ldnull);
+                type = expectedType;
+                return true;
+            case 44 when expectedType == typeof(bool):
+                _il.Emit(OpCodes.Ldc_I4_1);
+                type = typeof(bool);
+                return true;
+            case 45 when expectedType == typeof(bool):
+                _il.Emit(OpCodes.Ldc_I4_0);
+                type = typeof(bool);
+                return true;
+            case 1 when expectedType == typeof(int)
+                        && int.TryParse(defaultText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var intDefault):
+                _il.Emit(OpCodes.Ldc_I4, intDefault);
+                type = typeof(int);
+                return true;
+            case 4 when expectedType == typeof(string):
+                _il.Emit(OpCodes.Ldstr, defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : string.Empty);
+                type = typeof(string);
+                return true;
+            case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(expectedType, defaultText, _enumRegistry, out var enumDefault):
+                _il.Emit(OpCodes.Ldc_I4, enumDefault);
+                type = expectedType;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private bool CanEmitConstructorArgumentAs(int argNode, Type expectedType)
+    {
+        argNode = UnwrapParenthesizedNode(argNode);
+        if (_nodes.Kind(argNode) == 5)
+            return !expectedType.IsValueType;
+        if (CanAdoptIntLiteralAsType(argNode, expectedType))
+            return true;
+        return TryGetPreflightExpressionType(argNode, out var actualType)
+               && (TypesEquivalent(actualType, expectedType)
+                   || CanUseInterfaceUpcast(actualType, expectedType)
+                   || TryEmitReferenceConversion(actualType, expectedType)
+                   || CanUseObjectConversion(actualType, expectedType));
+    }
+
+    private bool TryGetPreflightExpressionType(int node, out Type type)
+    {
+        node = UnwrapParenthesizedNode(node);
+        type = null!;
+        switch (_nodes.Kind(node))
+        {
+            case 0:
+                return TryGetIntLiteralType(Text(node), out type);
+            case 1:
+            {
+                var raw = Text(node);
+                var last = raw.Length > 0 ? raw[raw.Length - 1] : '\0';
+                if (last == 'm' || last == 'M')
+                {
+                    type = typeof(decimal);
+                    return true;
+                }
+                type = last == 'f' || last == 'F' ? typeof(float) : typeof(double);
+                return true;
+            }
+            case 2:
+                type = typeof(char);
+                return true;
+            case 3:
+                type = typeof(string);
+                return true;
+            case 4:
+                type = typeof(bool);
+                return true;
+            case 6:
+            {
+                var name = Text(node);
+                if (_locals.TryGetValue(name, out var local))
+                {
+                    type = local.LocalType;
+                    return true;
+                }
+                if (_paramTypes.TryGetValue(name, out var paramType) && _paramOrdinals.ContainsKey(name))
+                {
+                    type = paramType;
+                    return true;
+                }
+                if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, name, out var thisField))
+                {
+                    type = thisField.FieldType;
+                    return true;
+                }
+                if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, name, out var thisProperty))
+                {
+                    type = thisProperty.PropertyType;
+                    return true;
+                }
+                return false;
+            }
+            case 8:
+                return TryGetPreflightMemberAccessType(node, out type);
+            case 15:
+                return TryGetNewExpressionResultType(node, out type);
+            default:
+                return false;
+        }
+    }
+
+    private bool TryGetPreflightMemberAccessType(int node, out Type type)
+    {
+        type = null!;
+        if (TryResolveMemberWriteChain(node, out var chain))
+        {
+            type = chain.ReceiverType;
+            return true;
+        }
+
+        var receiver = Child(node, 0);
+        var member = Text(node);
+        if (member == "Count"
+            && TryGetPreflightExpressionType(receiver, out var receiverType)
+            && TryResolveCollectionCountGetter(receiverType, out _))
+        {
+            type = typeof(int);
+            return true;
+        }
+
+        if (_nodes.Kind(receiver) == 6)
+        {
+            var receiverIdent = Text(receiver);
+            var isUnshadowedTypeName = !_locals.ContainsKey(receiverIdent)
+                && !_liftedLocals.ContainsKey(receiverIdent)
+                && !_paramOrdinals.ContainsKey(receiverIdent)
+                && !_siblings.ContainsKey(receiverIdent);
+            if (!isUnshadowedTypeName)
+                return false;
+            if (receiverIdent == "StringComparison")
+            {
+                type = typeof(StringComparison);
+                return true;
+            }
+            if (receiverIdent == "StringComparer" && Text(node) is "Ordinal" or "OrdinalIgnoreCase")
+            {
+                type = typeof(StringComparer);
+                return true;
+            }
+            if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
+                && userEnum.Constants.ContainsKey(Text(node)))
+            {
+                type = userEnum.EnumType;
+                return true;
+            }
+            if (_structRegistry.TryGetValue(receiverIdent, out var staticOwner))
+            {
+                if (TryFindStaticFieldOnChain(staticOwner, Text(node), out var staticField))
+                {
+                    type = staticField.FieldType;
+                    return true;
+                }
+                if (TryFindStaticPropertyOnChain(staticOwner, Text(node), out var staticProperty))
+                {
+                    type = staticProperty.PropertyType;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private bool TryGetNewExpressionResultType(int node, out Type type)
+    {
+        type = null!;
+        if (_nodes.Kind(node) != 15 || _nodes.ChildCount(node) == 0)
+            return false;
+        var typeNode = Child(node, 0);
+        if (_nodes.Kind(typeNode) == 0)
+        {
+            var typeName = Text(typeNode);
+            type = typeName switch
+            {
+                "string" => typeof(string),
+                "StringBuilder" => typeof(System.Text.StringBuilder),
+                "Version" => typeof(Version),
+                "object" => typeof(object),
+                "ProcessStartInfo" => typeof(ProcessStartInfo),
+                "Process" => typeof(Process),
+                "Exception" => typeof(Exception),
+                "InvalidOperationException" => typeof(InvalidOperationException),
+                "ArgumentException" => typeof(ArgumentException),
+                "FormatException" => typeof(FormatException),
+                "TimeoutException" => typeof(TimeoutException),
+                "NotSupportedException" => typeof(NotSupportedException),
+                _ => null!,
+            };
+            if (type != null)
+                return true;
+            if (_structRegistry.TryGetValue(typeName, out var def))
+            {
+                type = def.Builder;
+                return true;
+            }
+            return false;
+        }
+        if (_nodes.Kind(typeNode) == 1)
+        {
+            return TryBuildTypeNodeCanonical(typeNode, out var canonical)
+                   && TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out type);
+        }
+        if (_nodes.Kind(typeNode) == 2)
+        {
+            var elementNode = Child(typeNode, 0);
+            if (!TryBuildTypeNodeCanonical(elementNode, out var elementCanonical)
+                || !TryResolveType(elementCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var elementType)
+                || !IsSupportedElementType(elementType))
+                return false;
+            type = elementType.MakeArrayType();
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetIntLiteralType(string text, out Type type)
+    {
+        type = null!;
+        if (text.Length > 0 && text[^1] is 'm' or 'M')
+        {
+            type = typeof(decimal);
+            return true;
+        }
+        var end = text.Length;
+        var sawU = false;
+        var sawL = false;
+        while (end > 0 && (text[end - 1] is 'u' or 'U' or 'l' or 'L'))
+        {
+            if (text[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
+            end--;
+        }
+        if (sawU && sawL)
+        {
+            type = typeof(ulong);
+            return true;
+        }
+        if (sawU)
+            return false;
+        type = sawL ? typeof(long) : typeof(int);
+        return true;
+    }
+
+    private bool CanAdoptIntLiteralAsType(int node, Type target)
+    {
+        var negative = false;
+        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && Text(node) == "-")
+        {
+            negative = true;
+            node = Child(node, 0);
+        }
+        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0)
+            return false;
+        var text = Text(node);
+        if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M')
+            return false;
+        if (!ulong.TryParse(text, out var value))
+            return false;
+        if (negative)
+        {
+            if (target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong))
+                return false;
+            var min = target == typeof(sbyte) ? (ulong)sbyte.MaxValue
+                : target == typeof(short) ? (ulong)short.MaxValue
+                : (ulong)int.MaxValue;
+            return value <= min && (target == typeof(sbyte) || target == typeof(short) || target == typeof(int) || target == typeof(long));
+        }
+        if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short)
+            || target == typeof(ushort) || target == typeof(uint))
+        {
+            var max = target == typeof(byte) ? (ulong)byte.MaxValue
+                : target == typeof(sbyte) ? (ulong)sbyte.MaxValue
+                : target == typeof(short) ? (ulong)short.MaxValue
+                : target == typeof(ushort) ? (ulong)ushort.MaxValue
+                : (ulong)int.MaxValue;
+            return value <= max;
+        }
+        if (target == typeof(long) || target == typeof(ulong))
+            return value <= int.MaxValue;
+        return false;
+    }
+
+    private bool CanUseInterfaceUpcast(Type valueType, Type targetType)
+    {
+        return targetType is TypeBuilder targetBuilder
+               && FindDefByBuilder(targetBuilder) is { IsInterface: true }
+               && valueType is TypeBuilder valueBuilder
+               && FindDefByBuilder(valueBuilder) is { } valueDef
+               && AnyInterfaceEqualsOrExtends(valueDef.ImplementedInterfaces, targetBuilder);
+    }
+
+    private static bool CanUseObjectConversion(Type source, Type target)
+        => target == typeof(object) && source != typeof(void);
 
     // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.
     // Member tokens on the closed type are rebound via TypeBuilder.GetField/GetMethod; member TYPES
@@ -9882,6 +12429,129 @@ internal sealed class ColumnarIlEmitter
     {
         type = null!;
 
+        if (receiverType == typeof(AppDomain) && member == nameof(AppDomain.GetAssemblies) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(AppDomain).GetMethod(nameof(AppDomain.GetAssemblies), Type.EmptyTypes)!);
+            type = typeof(Assembly[]);
+            return true;
+        }
+        if (receiverType == typeof(JsonDocument) && member == nameof(JsonDocument.Dispose) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(JsonDocument).GetMethod(nameof(JsonDocument.Dispose), Type.EmptyTypes)!);
+            type = typeof(void);
+            return true;
+        }
+        if (receiverType == typeof(DeserializerBuilder))
+        {
+            if (member == nameof(BuilderSkeleton<DeserializerBuilder>.WithNamingConvention) && argCount == 1)
+            {
+                var method = typeof(DeserializerBuilder).GetMethod(nameof(BuilderSkeleton<DeserializerBuilder>.WithNamingConvention), new[] { typeof(INamingConvention) });
+                if (method == null || !EmitArg(callIdx, 1, typeof(INamingConvention)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(DeserializerBuilder);
+                return true;
+            }
+            if (member == nameof(BuilderSkeleton<DeserializerBuilder>.WithTypeConverter) && argCount == 1)
+            {
+                var method = typeof(DeserializerBuilder).GetMethod(nameof(BuilderSkeleton<DeserializerBuilder>.WithTypeConverter), new[] { typeof(IYamlTypeConverter) });
+                if (method == null || !EmitArg(callIdx, 1, typeof(IYamlTypeConverter)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(DeserializerBuilder);
+                return true;
+            }
+            if (member == nameof(DeserializerBuilder.IgnoreUnmatchedProperties) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.IgnoreUnmatchedProperties), Type.EmptyTypes)!);
+                type = typeof(DeserializerBuilder);
+                return true;
+            }
+            if (member == nameof(DeserializerBuilder.Build) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.Build), Type.EmptyTypes)!);
+                type = typeof(IDeserializer);
+                return true;
+            }
+        }
+        if (receiverType == typeof(IDeserializer) && member == nameof(IDeserializer.Deserialize) && argCount == 2)
+        {
+            var method = typeof(IDeserializer).GetMethod(nameof(IDeserializer.Deserialize), new[] { typeof(string), typeof(Type) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(Type)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(object);
+            return true;
+        }
+        if (receiverType == typeof(YamlParser) && member == nameof(YamlParser.MoveNext) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(YamlParser).GetMethod(nameof(YamlParser.MoveNext), Type.EmptyTypes)!);
+            type = typeof(bool);
+            return true;
+        }
+        if (receiverType == typeof(YamlEmitter) && member == nameof(YamlEmitter.Emit) && argCount == 1)
+        {
+            if (!EmitArg(callIdx, 1, typeof(ParsingEvent)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, typeof(YamlEmitter).GetMethod(nameof(YamlEmitter.Emit), new[] { typeof(ParsingEvent) })!);
+            type = typeof(void);
+            return true;
+        }
+        if (receiverType == typeof(JsonElement))
+        {
+            if (member == nameof(JsonElement.EnumerateArray) && argCount == 0)
+            {
+                var receiverTemp = _il.DeclareLocal(typeof(JsonElement));
+                _il.Emit(OpCodes.Stloc, receiverTemp);
+                _il.Emit(OpCodes.Ldloca, receiverTemp);
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateArray), Type.EmptyTypes)!);
+                type = typeof(JsonElement.ArrayEnumerator);
+                return true;
+            }
+            if (member == nameof(JsonElement.EnumerateObject) && argCount == 0)
+            {
+                var receiverTemp = _il.DeclareLocal(typeof(JsonElement));
+                _il.Emit(OpCodes.Stloc, receiverTemp);
+                _il.Emit(OpCodes.Ldloca, receiverTemp);
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateObject), Type.EmptyTypes)!);
+                type = typeof(JsonElement.ObjectEnumerator);
+                return true;
+            }
+            if (member == nameof(JsonElement.GetInt32) && argCount == 0)
+            {
+                var receiverTemp = _il.DeclareLocal(typeof(JsonElement));
+                _il.Emit(OpCodes.Stloc, receiverTemp);
+                _il.Emit(OpCodes.Ldloca, receiverTemp);
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetInt32), Type.EmptyTypes)!);
+                type = typeof(int);
+                return true;
+            }
+            if (member == nameof(JsonElement.GetString) && argCount == 0)
+            {
+                var receiverTemp = _il.DeclareLocal(typeof(JsonElement));
+                _il.Emit(OpCodes.Stloc, receiverTemp);
+                _il.Emit(OpCodes.Ldloca, receiverTemp);
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetString), Type.EmptyTypes)!);
+                type = typeof(string);
+                return true;
+            }
+            if (member == nameof(JsonElement.TryGetProperty) && argCount == 2)
+            {
+                var method = typeof(JsonElement).GetMethod(nameof(JsonElement.TryGetProperty), new[] { typeof(string), typeof(JsonElement).MakeByRefType() });
+                if (method == null)
+                    return false;
+                var receiverTemp = _il.DeclareLocal(typeof(JsonElement));
+                _il.Emit(OpCodes.Stloc, receiverTemp);
+                _il.Emit(OpCodes.Ldloca, receiverTemp);
+                if (!EmitArg(callIdx, 1, typeof(string))
+                    || !EmitByRefCallArgument(Child(callIdx, 2), typeof(JsonElement).MakeByRefType()))
+                    return false;
+                _il.Emit(OpCodes.Call, method);
+                type = typeof(bool);
+                return true;
+            }
+        }
+
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
         // probe-pinned examples surface: List.Add(T)/Insert(int,T)/RemoveAt(int)/Contains(T)/IndexOf(T)/Remove(T)/Reverse()/Clear(),
@@ -9892,11 +12562,36 @@ internal sealed class ColumnarIlEmitter
         {
             var collectionDef = receiverType.GetGenericTypeDefinition();
             var collectionArgs = receiverType.GetGenericArguments();
+            if (collectionDef == typeof(IReadOnlySet<>) && member == "Contains" && argCount == 1)
+            {
+                if (ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(IReadOnlySet<>).GetMethod("Contains")!));
+                type = typeof(bool);
+                return true;
+            }
             if (collectionDef == typeof(List<>) && member == "Add" && argCount == 1)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Add")!));
+                type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "AddRange" && argCount == 1)
+            {
+                var enumerableType = typeof(IEnumerable<>).MakeGenericType(collectionArgs[0]);
+                if (!EmitArg(callIdx, 1, enumerableType))
+                    return false;
+                var addRange = Array.Find(
+                    typeof(List<>).GetMethods(),
+                    method => method.Name == nameof(List<int>.AddRange)
+                              && method.GetParameters().Length == 1
+                              && method.GetParameters()[0].ParameterType.IsGenericType
+                              && method.GetParameters()[0].ParameterType.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+                if (addRange == null)
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, addRange));
                 type = typeof(void);
                 return true;
             }
@@ -9955,6 +12650,12 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(void);
                 return true;
             }
+            if (collectionDef == typeof(List<>) && member == "ToArray" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("ToArray", Type.EmptyTypes)!));
+                type = collectionArgs[0].MakeArrayType();
+                return true;
+            }
             if (collectionDef == typeof(Dictionary<,>) && member == "ContainsKey" && argCount == 1)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
@@ -10003,6 +12704,20 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
+            if (collectionDef == typeof(Dictionary<,>) && member == "Remove" && argCount == 2)
+            {
+                var valueType = collectionArgs[1];
+                if (!IsSupportedByRefElementType(valueType)
+                    || !EmitArg(callIdx, 1, collectionArgs[0])
+                    || !EmitByRefCallArgument(Child(callIdx, 2), valueType.MakeByRefType()))
+                    return false;
+                var openRemove = Array.Find(
+                    typeof(Dictionary<,>).GetMethods(),
+                    method => method.Name == "Remove" && method.GetParameters().Length == 2)!;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, openRemove));
+                type = typeof(bool);
+                return true;
+            }
             if (collectionDef == typeof(Dictionary<,>) && member == "Clear" && argCount == 0)
             {
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<,>).GetMethod("Clear")!));
@@ -10039,7 +12754,125 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(void);
                 return true;
             }
+            if (collectionDef == typeof(Stack<>) && member == "Push" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<>).GetMethod("Push")!));
+                type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(Stack<>) && member == "Pop" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<>).GetMethod("Pop")!));
+                type = collectionArgs[0];
+                return true;
+            }
+            if (collectionDef == typeof(Stack<>) && member == "Peek" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<>).GetMethod("Peek")!));
+                type = collectionArgs[0];
+                return true;
+            }
+            if (collectionDef == typeof(Stack<>) && member == "Clear" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<>).GetMethod("Clear")!));
+                type = typeof(void);
+                return true;
+            }
             return false;
+        }
+
+        if (receiverType == typeof(object) && member == "GetType" && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.GetType), Type.EmptyTypes)!);
+            type = typeof(Type);
+            return true;
+        }
+        if (receiverType == typeof(object) && member == "ToString" && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.ToString), Type.EmptyTypes)!);
+            type = typeof(string);
+            return true;
+        }
+        if (receiverType == typeof(TextWriter) && member == nameof(TextWriter.WriteLine) && argCount == 1)
+        {
+            if (!EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, typeof(TextWriter).GetMethod(nameof(TextWriter.WriteLine), new[] { typeof(string) })!);
+            type = typeof(void);
+            return true;
+        }
+        if (receiverType == typeof(Type) && member is "GetProperty" or "GetField" && argCount == 1)
+        {
+            if (!EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            var method = typeof(Type).GetMethod(member, new[] { typeof(string) });
+            if (method == null)
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = member == "GetProperty" ? typeof(PropertyInfo) : typeof(FieldInfo);
+            return true;
+        }
+        if (receiverType == typeof(PropertyInfo) && member == "GetValue" && argCount == 1)
+        {
+            if (!EmitArg(callIdx, 1, typeof(object)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, typeof(PropertyInfo).GetMethod(nameof(PropertyInfo.GetValue), new[] { typeof(object) })!);
+            type = typeof(object);
+            return true;
+        }
+        if (receiverType == typeof(FieldInfo) && member == "GetValue" && argCount == 1)
+        {
+            if (!EmitArg(callIdx, 1, typeof(object)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, typeof(FieldInfo).GetMethod(nameof(FieldInfo.GetValue), new[] { typeof(object) })!);
+            type = typeof(object);
+            return true;
+        }
+        if (receiverType == typeof(Process))
+        {
+            if (member == nameof(Process.Start) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.Start), Type.EmptyTypes)!);
+                type = typeof(bool);
+                return true;
+            }
+            if (member == nameof(Process.WaitForExit) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.WaitForExit), Type.EmptyTypes)!);
+                type = typeof(void);
+                return true;
+            }
+            if (member == nameof(Process.WaitForExit) && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.WaitForExit), new[] { typeof(int) })!);
+                type = typeof(bool);
+                return true;
+            }
+            if (member == nameof(Process.Kill) && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(bool)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.Kill), new[] { typeof(bool) })!);
+                type = typeof(void);
+                return true;
+            }
+            if (member == nameof(IDisposable.Dispose) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!);
+                type = typeof(void);
+                return true;
+            }
+            return false;
+        }
+        if (receiverType == typeof(StreamReader) && member == nameof(StreamReader.ReadToEndAsync) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(StreamReader).GetMethod(nameof(StreamReader.ReadToEndAsync), Type.EmptyTypes)!);
+            type = typeof(System.Threading.Tasks.Task<string>);
+            return true;
         }
 
         // A USER-TYPE INSTANCE method (`receiver.Method(args)`): the receiver VALUE/REF is already on the stack.
@@ -10158,25 +12991,73 @@ internal sealed class ColumnarIlEmitter
                 }
                 return false;
             }
+            if (argCount == 3)
+            {
+                var method3 = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(string), typeof(int), typeof(StringComparison) });
+                if (method3 == null
+                    || !EmitArg(callIdx, 1, typeof(string))
+                    || !EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(StringComparison)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method3);
+                type = typeof(int);
+                return true;
+            }
             return false;
         }
-        if (receiverType == typeof(string) && member == "Trim" && argCount == 0)
+        if (receiverType == typeof(string) && member is "Trim" or "TrimEnd" && argCount == 0)
         {
             // string.Trim() -> string (strip leading/trailing whitespace). The receiver string is on the stack;
             // `callvirt` the parameterless overload. DiagnosticClusters.nl: `builder.ToString().Trim()`.
-            var method = typeof(string).GetMethod(nameof(string.Trim), Type.EmptyTypes);
+            var method = typeof(string).GetMethod(member, Type.EmptyTypes);
             if (method == null)
                 return false;
             _il.Emit(OpCodes.Callvirt, method);
             type = typeof(string);
             return true;
         }
+        if (receiverType == typeof(string) && member == "Split" && argCount == 1)
+        {
+            if (!TryGetPreflightExpressionType(Child(callIdx, 1), out var separatorType))
+                return false;
+            if (separatorType == typeof(char))
+            {
+                var method = Array.Find(
+                    typeof(string).GetMethods(),
+                    m => m.Name == nameof(string.Split)
+                         && m.GetParameters().Length == 1
+                         && m.GetParameters()[0].ParameterType == typeof(char[]));
+                if (method == null)
+                    return false;
+                _il.Emit(OpCodes.Ldc_I4_1);
+                _il.Emit(OpCodes.Newarr, typeof(char));
+                _il.Emit(OpCodes.Dup);
+                _il.Emit(OpCodes.Ldc_I4_0);
+                if (!EmitArg(callIdx, 1, typeof(char)))
+                    return false;
+                _il.Emit(OpCodes.Stelem_I2);
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(string[]);
+                return true;
+            }
+            if (separatorType == typeof(string))
+            {
+                var method = typeof(string).GetMethod(nameof(string.Split), new[] { typeof(string), typeof(StringSplitOptions) });
+                if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                    return false;
+                _il.Emit(OpCodes.Ldc_I4_0);
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(string[]);
+                return true;
+            }
+            return false;
+        }
         if (receiverType == typeof(int) && member == "ToString" && argCount == 1)
         {
             // int.ToString(string format) -> string (e.g. .ToString("x") for lowercase hex). Int32.ToString is a
             // VALUE-TYPE instance method, so `this` must be a managed pointer: spill the receiver int (already on
             // the stack) to a temp local and `ldloca` its address, then push the format string and `call`. The
-            // C# path binds the same Int32.ToString(string) overload, so the formatted text matches exactly.
+            // N# backend path binds the same Int32.ToString(string) overload, so the formatted text matches exactly.
             var method = typeof(int).GetMethod(nameof(int.ToString), new[] { typeof(string) });
             if (method == null)
                 return false;
@@ -10209,20 +13090,19 @@ internal sealed class ColumnarIlEmitter
             type = typeof(string);
             return true;
         }
-        // Parameterless string members: ToUpper/ToLower (invariant-agnostic — the C# path binds the SAME
-        // overloads, so culture behavior is identical on both pipelines) and ToString (identity, but the
-        // pipeline accepts it — bind the real method for exactness).
-        if (receiverType == typeof(string) && argCount == 0 && member is "ToUpper" or "ToLower" or "ToString")
+        // Parameterless string members: casing transforms, ToString (identity, but the pipeline accepts it), and
+        // GetHashCode for emitted value-semantics helpers.
+        if (receiverType == typeof(string) && argCount == 0 && member is "ToUpper" or "ToLower" or "ToUpperInvariant" or "ToLowerInvariant" or "ToString" or "GetHashCode")
         {
             var method = typeof(string).GetMethod(member, Type.EmptyTypes);
             if (method == null)
                 return false;
             _il.Emit(OpCodes.Callvirt, method);
-            type = typeof(string);
+            type = member == "GetHashCode" ? typeof(int) : typeof(string);
             return true;
         }
         // 1-arg string predicates/transforms over string arguments — exact overloads, both pipelines bind
-        // identically: Contains/StartsWith/EndsWith(string) -> bool; Replace(string,string) -> string.
+        // identically: Contains/StartsWith/EndsWith(string) -> bool.
         if (receiverType == typeof(string) && argCount == 1 && member is "Contains" or "StartsWith" or "EndsWith")
         {
             var method = typeof(string).GetMethod(member, new[] { typeof(string) });
@@ -10232,10 +13112,43 @@ internal sealed class ColumnarIlEmitter
             type = typeof(bool);
             return true;
         }
+        if (receiverType == typeof(string) && argCount == 2 && member is "Contains" or "StartsWith" or "EndsWith")
+        {
+            var method = typeof(string).GetMethod(member, new[] { typeof(string), typeof(StringComparison) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(StringComparison)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(bool);
+            return true;
+        }
         if (receiverType == typeof(string) && argCount == 2 && member == "Replace")
         {
-            var method = typeof(string).GetMethod(nameof(string.Replace), new[] { typeof(string), typeof(string) });
-            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+            if (!EmitExpression(Child(callIdx, 1), out var firstArgType))
+                return false;
+            if (firstArgType == typeof(char))
+            {
+                var method = typeof(string).GetMethod(nameof(string.Replace), new[] { typeof(char), typeof(char) });
+                if (method == null || !EmitArg(callIdx, 2, typeof(char)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(string);
+                return true;
+            }
+            if (firstArgType == typeof(string))
+            {
+                var method = typeof(string).GetMethod(nameof(string.Replace), new[] { typeof(string), typeof(string) });
+                if (method == null || !EmitArg(callIdx, 2, typeof(string)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(string);
+                return true;
+            }
+            return false;
+        }
+        if (receiverType == typeof(string) && member == "PadLeft" && argCount == 1)
+        {
+            var method = typeof(string).GetMethod(nameof(string.PadLeft), new[] { typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)))
                 return false;
             _il.Emit(OpCodes.Callvirt, method);
             type = typeof(string);
@@ -10243,14 +13156,15 @@ internal sealed class ColumnarIlEmitter
         }
         // Parameterless ToString() on the VALUE scalars (the match-positions ROUTE-ONLY gap): a value-type
         // instance call — spill the receiver, `ldloca`, `call` the type's OWN ToString overload (never the
-        // object virtual — the C# path binds the same concrete method, so the text matches exactly,
+        // object virtual — the N# backend path binds the same concrete method, so the text matches exactly,
         // culture and all).
         if (member == "ToString" && argCount == 0
             && (receiverType == typeof(int) || receiverType == typeof(long) || receiverType == typeof(ulong)
                 || receiverType == typeof(uint) || receiverType == typeof(short) || receiverType == typeof(ushort)
                 || receiverType == typeof(byte) || receiverType == typeof(sbyte)
                 || receiverType == typeof(double) || receiverType == typeof(float)
-                || receiverType == typeof(bool) || receiverType == typeof(char) || receiverType == typeof(decimal)))
+                || receiverType == typeof(bool) || receiverType == typeof(char) || receiverType == typeof(decimal)
+                || receiverType == typeof(TimeSpan)))
         {
             var method = receiverType.GetMethod(nameof(object.ToString), Type.EmptyTypes);
             if (method == null)
@@ -10281,13 +13195,32 @@ internal sealed class ColumnarIlEmitter
                 type = sb;
                 return true;
             }
+            if (member == "AppendLine" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), Type.EmptyTypes)!);
+                type = sb;
+                return true;
+            }
+            if (member == "AppendLine" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(string)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), new[] { typeof(string) })!);
+                type = sb;
+                return true;
+            }
             if (member == "Append" && argCount == 1)
             {
                 // Resolve the overload by the ARGUMENT'S type (char/string/int): emit the arg, then bind
                 // Append(thatType). (The receiver is already on the stack, so the arg goes on top — correct order.)
-                if (!EmitExpression(Child(callIdx, 1), out var appendArgType)
-                    || (appendArgType != typeof(char) && appendArgType != typeof(string) && appendArgType != typeof(int)))
+                if (!EmitExpression(Child(callIdx, 1), out var appendArgType))
+                {
                     return false;
+                }
+                if (appendArgType != typeof(char) && appendArgType != typeof(string) && appendArgType != typeof(int))
+                {
+                    return false;
+                }
                 var append = sb.GetMethod(nameof(System.Text.StringBuilder.Append), new[] { appendArgType });
                 if (append == null)
                     return false;
@@ -10306,7 +13239,10 @@ internal sealed class ColumnarIlEmitter
     // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private bool EmitArg(int callIdx, int argPosition, Type expected)
         => EmitExpression(Child(callIdx, argPosition), out var argType)
-           && (TypesEquivalent(argType, expected) || TryEmitInterfaceUpcast(argType, expected));
+           && (TypesEquivalent(argType, expected)
+               || TryEmitInterfaceUpcast(argType, expected)
+               || TryEmitReferenceConversion(argType, expected)
+               || TryEmitObjectConversion(argType, expected));
 
     private bool EmitDeclaredCallArgument(int argNode, Type expectedParamType, bool allowLambdaLiteral)
     {
@@ -10323,7 +13259,9 @@ internal sealed class ColumnarIlEmitter
         return EmitExpression(argNode, out var argType)
                && (TypesEquivalent(argType, expectedParamType)
                    || TryEmitImplicitWidening(argType, expectedParamType)
-                   || TryEmitInterfaceUpcast(argType, expectedParamType));
+                   || TryEmitInterfaceUpcast(argType, expectedParamType)
+                   || TryEmitReferenceConversion(argType, expectedParamType)
+                   || TryEmitObjectConversion(argType, expectedParamType));
     }
 
     private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
@@ -10448,12 +13386,28 @@ internal sealed class ColumnarIlEmitter
             _il.Emit(OpCodes.Ldarga, index);
     }
 
+    private void EmitLoadByRefElement(Type elementType)
+    {
+        if (IsReferenceWriteLink(elementType))
+            _il.Emit(OpCodes.Ldind_Ref);
+        else
+            _il.Emit(OpCodes.Ldobj, elementType);
+    }
+
+    private void EmitStoreByRefElement(Type elementType)
+    {
+        if (IsReferenceWriteLink(elementType))
+            _il.Emit(OpCodes.Stind_Ref);
+        else
+            _il.Emit(OpCodes.Stobj, elementType);
+    }
+
     // The resolved WRITE-RECEIVER chain of a member assignment: a root local/param plus zero or more
     // instance-FIELD hops (the `p.q` of `p.q.X = v`). Resolution is EMISSION-FREE so a failed chain
     // declines cleanly (the emit-ownership rule); EmitMemberWriteLocator then emits the owner value
     // an stfld/ldfld/ldflda/callvirt-setter consumes — an ADDRESS for value-typed links
     // (ldloca/ldarga/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld). stfld and
-    // ldflda accept either owner form, so the chain composes uniformly — mirroring the oracle's
+    // ldflda accept either owner form, so the chain composes uniformly — mirroring the legacy emitter's
     // fixed EmitAddressableExpression (defect #22).
     private bool TryResolveMemberWriteChain(int node, out ColumnarMemberWriteChain chain)
     {
@@ -10532,6 +13486,175 @@ internal sealed class ColumnarIlEmitter
     private bool IsReferenceWriteLink(Type t)
         => t is TypeBuilder tb && FindDefByBuilder(tb) is { } def ? def.IsReference : !t.IsValueType;
 
+    private bool TryEmitAssignableValue(int valueNode, Type targetType, out Type valueType)
+    {
+        if (IsAdoptableUnionConstruction(valueNode, targetType))
+        {
+            if (!EmitAdoptedUnionConstruction(valueNode, targetType, out valueType))
+                return false;
+        }
+        else if (TryEmitIntLiteralAsType(valueNode, targetType, out valueType))
+        {
+            // constant conversion onto the storage type.
+        }
+        else if (TryEmitNullLiteralAsType(valueNode, targetType, out valueType))
+        {
+            // `null` adopted to a reference or nullable storage type.
+        }
+        else if (IsSupportedNullable(targetType))
+        {
+            if (!TryEmitValueAsNullable(valueNode, targetType, out valueType))
+                return false;
+        }
+        else if (!EmitExpression(valueNode, out valueType))
+        {
+            return false;
+        }
+
+        var assignable = TypesEquivalent(valueType, targetType)
+            || TryEmitImplicitWidening(valueType, targetType)
+            || TryEmitInterfaceUpcast(valueType, targetType)
+            || TryEmitReferenceConversion(valueType, targetType)
+            || TryEmitObjectConversion(valueType, targetType);
+        return assignable;
+    }
+
+    private const int ParameterDefaultMemberAccessKind = 1000;
+
+    private static bool DefineMethodParameterMetadata(
+        MethodBuilder method,
+        Type[] parameterTypes,
+        string[] names,
+        int[] modifierKinds,
+        int[] defaultKinds,
+        string?[] defaultTexts,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry)
+    {
+        for (var i = 0; i < names.Length; i++)
+        {
+            var attributes = ParameterAttributes.None;
+            if (i < modifierKinds.Length && modifierKinds[i] == 2)
+                attributes |= ParameterAttributes.Out;
+            var hasDefault = HasParameterDefault(defaultKinds, defaultTexts, i);
+            if (hasDefault)
+                attributes |= ParameterAttributes.Optional | ParameterAttributes.HasDefault;
+            var parameter = method.DefineParameter(i + 1, attributes, names[i]);
+            var parameterType = i < parameterTypes.Length ? parameterTypes[i] : typeof(object);
+            if (hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[i], defaultTexts[i], enumRegistry))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool DefineConstructorParameterMetadata(
+        ConstructorBuilder constructor,
+        Type[] parameterTypes,
+        string[] names,
+        int[] modifierKinds,
+        int[] defaultKinds,
+        string?[] defaultTexts,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry)
+    {
+        for (var i = 0; i < names.Length; i++)
+        {
+            var attributes = ParameterAttributes.None;
+            if (i < modifierKinds.Length && modifierKinds[i] == 2)
+                attributes |= ParameterAttributes.Out;
+            var hasDefault = HasParameterDefault(defaultKinds, defaultTexts, i);
+            if (hasDefault)
+                attributes |= ParameterAttributes.Optional | ParameterAttributes.HasDefault;
+            var parameter = constructor.DefineParameter(i + 1, attributes, names[i]);
+            var parameterType = i < parameterTypes.Length ? parameterTypes[i] : typeof(object);
+            if (hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[i], defaultTexts[i], enumRegistry))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool HasParameterDefault(int[] defaultKinds, string?[] defaultTexts, int index)
+        => index >= 0
+           && index < defaultKinds.Length
+           && index < defaultTexts.Length
+           && defaultKinds[index] >= 0;
+
+    private static bool TrySetParameterDefault(
+        ParameterBuilder parameter,
+        Type parameterType,
+        int defaultKind,
+        string? defaultText,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry)
+    {
+        switch (defaultKind)
+        {
+            case 46:
+                parameter.SetConstant(null);
+                return true;
+            case 44:
+                parameter.SetConstant(true);
+                return true;
+            case 45:
+                parameter.SetConstant(false);
+                return true;
+            case 1 when int.TryParse(defaultText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var intDefault):
+                parameter.SetConstant(intDefault);
+                return true;
+            case 4:
+                parameter.SetConstant(defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : null);
+                return true;
+            case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(parameterType, defaultText, enumRegistry, out var enumDefault):
+                parameter.SetConstant(enumDefault);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryResolveEnumParameterDefault(
+        Type parameterType,
+        string? defaultText,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
+        out int value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(defaultText))
+            return false;
+
+        var lastDot = defaultText.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot + 1 >= defaultText.Length)
+            return false;
+
+        var enumTypeName = defaultText[..lastDot];
+        var memberName = defaultText[(lastDot + 1)..];
+        if (enumRegistry.TryGetValue(enumTypeName, out var enumDef)
+            && TypesEquivalent(enumDef.EnumType, parameterType)
+            && enumDef.Constants.TryGetValue(memberName, out value))
+        {
+            return true;
+        }
+
+        if (parameterType is not TypeBuilder
+            && parameterType is not EnumBuilder
+            && parameterType.IsEnum
+            && string.Equals(parameterType.Name, enumTypeName, StringComparison.Ordinal)
+            && Enum.IsDefined(parameterType, memberName))
+        {
+            value = Convert.ToInt32(Enum.Parse(parameterType, memberName), System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        if (parameterType is not TypeBuilder
+            && parameterType is not EnumBuilder
+            && parameterType.IsEnum
+            && string.Equals(parameterType.FullName, enumTypeName, StringComparison.Ordinal)
+            && Enum.IsDefined(parameterType, memberName))
+        {
+            value = Convert.ToInt32(Enum.Parse(parameterType, memberName), System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool ParamTypesMatch(Type[] a, Type[] b)
     {
         if (a.Length != b.Length)
@@ -10539,6 +13662,21 @@ internal sealed class ColumnarIlEmitter
         for (var i = 0; i < a.Length; i++)
         {
             if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    private static bool ExternalInterfaceMethodMatches(MethodInfo method, string name, Type returnType, Type[] paramTypes)
+    {
+        if (method.Name != name || !TypesEquivalent(method.ReturnType, returnType))
+            return false;
+        var parameters = method.GetParameters();
+        if (parameters.Length != paramTypes.Length)
+            return false;
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            if (!TypesEquivalent(parameters[i].ParameterType, paramTypes[i]))
                 return false;
         }
         return true;
@@ -10619,7 +13757,7 @@ internal sealed class ColumnarIlEmitter
         return depth;
     }
 
-    // INTERFACE upcast at value-flow boundaries (the oracle's EmitValueCoercion interface arm,
+    // INTERFACE upcast at value-flow boundaries (the legacy emitter's EmitValueCoercion interface arm,
     // Operators.cs ~694): a value whose def IMPLEMENTS the target interface converts — VALUE-type
     // implementers BOX, reference implementers pass as-is (the object ref IS the interface value).
     // Wired beside TryEmitImplicitWidening at returns/typed-locals/reassignments/sibling args/
@@ -10638,21 +13776,39 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool TryEmitExternalInterfaceUpcast(Type valueType, Type targetType)
+    {
+        if (!targetType.IsInterface
+            || valueType is not TypeBuilder valueBuilder
+            || FindDefByBuilder(valueBuilder) is not { } valueDef)
+            return false;
+        foreach (var externalInterface in valueDef.ExternalInterfaces)
+        {
+            if (externalInterface == targetType || targetType.IsAssignableFrom(externalInterface))
+            {
+                if (!valueDef.IsReference)
+                    _il.Emit(OpCodes.Box, valueBuilder);
+                return true;
+            }
+        }
+        return false;
+    }
+
     // INTERPOLATED STRINGS (`$"a{n}b"` — strings slice 4): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
     // (identifier-chain holes only — anything richer declines to the fallback) and mirror the
-    // oracle's EmitInterpolatedString exactly: empty/NO-hole literals constant-fold to the
+    // legacy emitter's EmitInterpolatedString exactly: empty/NO-hole literals constant-fold to the
     // concatenated DECODED text (`ldstr`); otherwise the DefaultInterpolatedStringHandler lowering —
     // ctor(literalLength = sum of DECODED text lengths, formattedCount), AppendLiteral per text
     // segment, AppendFormatted per hole (string holes use the (string) overload, format clauses the
     // generic (T, string), the rest the generic (T)), then ToStringAndClear. Hole chains resolve
     // EMISSION-FREE first (the emit-ownership rule): roots are locals/params (lifted/boxed roots
     // decline), hops are instance FIELDS on registered defs; builder-typed hole VALUES decline (the
-    // oracle BOXES those through AppendFormatted(object, int, string) — a later rung).
+    // legacy emitter BOXES those through AppendFormatted(object, int, string) — a later rung).
     private bool TryEmitInterpolatedString(string literal, out Type type)
     {
         type = null!;
-        var parts = new List<ColumnarInterpolationSplitter.Part>();
+        var parts = new List<ColumnarInterpolationPart>();
         if (!ColumnarInterpolationSplitter.TrySplit(literal, parts))
             return false;
         var formattedCount = 0;
@@ -10671,7 +13827,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         // Resolve every hole BEFORE any emission.
-        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, Type RootType, List<FieldBuilder> Hops, Type ValueType, string? Format)>(formattedCount);
+        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, bool RootThis, MethodInfo? RootGetter, Type RootType, List<FieldBuilder> Hops, Type ValueType, string? Format)>(formattedCount);
         var literalLength = 0;
         foreach (var part in parts)
         {
@@ -10680,9 +13836,9 @@ internal sealed class ColumnarIlEmitter
                 literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text).Length;
                 continue;
             }
-            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootType, out var hops, out var valueType))
+            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var valueType))
                 return false;
-            holePlans.Add((rootLocal, rootOrdinal, rootType, hops, valueType, part.Format));
+            holePlans.Add((rootLocal, rootOrdinal, rootThis, rootGetter, rootType, hops, valueType, part.Format));
         }
         var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
         var handlerLocal = _il.DeclareLocal(handlerType);
@@ -10701,23 +13857,36 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
             var plan = holePlans[holeIndex++];
-            if (plan.RootLocal != null)
+            if (plan.RootThis)
+                _il.Emit(OpCodes.Ldarg_0);
+            else if (plan.RootLocal != null)
                 _il.Emit(OpCodes.Ldloc, plan.RootLocal);
             else
                 EmitLoadArgument(plan.RootOrdinal);
             var current = plan.RootType;
+            var stackHasCurrentAddress = plan.RootThis && !IsReferenceWriteLink(current);
+            if (plan.RootGetter != null)
+            {
+                _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter);
+                current = plan.RootGetter.ReturnType;
+                stackHasCurrentAddress = false;
+            }
             foreach (var hop in plan.Hops)
             {
                 if (!IsReferenceWriteLink(current))
                 {
                     // a VALUE owner on the stack: spill + ldloca so ldfld reads off an address
                     // (the case-8 member-read discipline).
-                    var spill = _il.DeclareLocal(current);
-                    _il.Emit(OpCodes.Stloc, spill);
-                    _il.Emit(OpCodes.Ldloca, spill);
+                    if (!stackHasCurrentAddress)
+                    {
+                        var spill = _il.DeclareLocal(current);
+                        _il.Emit(OpCodes.Stloc, spill);
+                        _il.Emit(OpCodes.Ldloca, spill);
+                    }
                 }
                 _il.Emit(OpCodes.Ldfld, hop);
                 current = hop.FieldType;
+                stackHasCurrentAddress = false;
             }
             if (plan.ValueType == typeof(string) && plan.Format == null)
             {
@@ -10740,10 +13909,12 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
-        out Type rootType, out List<FieldBuilder> hops, out Type valueType)
+        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<FieldBuilder> hops, out Type valueType)
     {
         rootLocal = null;
         rootOrdinal = -1;
+        rootThis = false;
+        rootGetter = null;
         rootType = null!;
         hops = new List<FieldBuilder>();
         valueType = null!;
@@ -10761,11 +13932,24 @@ internal sealed class ColumnarIlEmitter
             rootOrdinal = ordinal;
             rootType = _paramTypes[rootName];
         }
+        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, rootName, out var thisField))
+        {
+            rootThis = true;
+            rootType = _currentStruct.Builder;
+            hops.Add(thisField);
+        }
+        else if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out var thisProperty))
+        {
+            rootThis = true;
+            rootGetter = thisProperty.Getter;
+            rootType = _currentStruct.Builder;
+            valueType = thisProperty.PropertyType;
+        }
         else
         {
             return false; // siblings/statics/this-fields in holes — unmodelled, decline.
         }
-        var current = rootType;
+        var current = rootGetter != null ? valueType : (hops.Count == 0 ? rootType : hops[^1].FieldType);
         for (var n = 1; n < names.Length; n++)
         {
             if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def
@@ -10797,5 +13981,23 @@ internal sealed class ColumnarIlEmitter
 
     private int Child(int idx, int n) => _nodes.Child(idx, n);
 
-    private string Text(int idx) => _nodes.Text(_source, idx);
+    private string Text(int idx)
+        => _nodes.Kind(idx) == 14 && _nodes.ValueStart(idx) < 0 && _nodes.ValueLengths[idx] == 1
+            ? "="
+            : _nodes.Text(_source, idx);
+
+    private bool IsExplicitThisIdentifier(int idx)
+    {
+        if (_nodes.Kind(idx) != 6)
+            return false;
+        var valueStart = _nodes.ValueStart(idx);
+        if (valueStart < 0)
+            return false;
+        var spanStart = _nodes.SpanStart(idx);
+        const string prefix = "this.";
+        return spanStart >= 0
+               && valueStart - spanStart == prefix.Length
+               && spanStart + prefix.Length <= _source.Length
+               && string.Compare(_source, spanStart, prefix, 0, prefix.Length, StringComparison.Ordinal) == 0;
+    }
 }

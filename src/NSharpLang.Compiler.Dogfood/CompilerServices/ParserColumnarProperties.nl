@@ -4,7 +4,7 @@ import "CompilerServices/ParserLocalFunctions"
 import "CompilerServices/ParserTypeReferences"
 
 // Product columnar property parser wrapper. It composes property accessor/type parsing with getter/setter
-// statement-node rowsets so the C# adapter no longer binds statement parsing for property bodies.
+// statement-node rowsets so the host adapter no longer binds statement parsing for property bodies.
 
 struct ColumnarPropertyTokenTable {
     Kinds: int[]
@@ -72,12 +72,17 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
     texts.TypeTexts[0] = typeText
 
     getBodyBrace := propertyResult.Values[4]
-    if getBodyBrace < 0 || getBodyBrace >= tokens.Count || tokens.Kinds[getBodyBrace] != 129 {
+    if getBodyBrace < 0 || getBodyBrace >= tokens.Count || (tokens.Kinds[getBodyBrace] != 129 && tokens.Kinds[getBodyBrace] != 120) {
         return -1
     }
 
     getBodyResult := new ColumnarPropertyResultTable { Values: new int[](2) }
-    getBodyNodeCount := ParseColumnarPropertyBodyNodesCore(ref tokens, getBodyBrace, ref getBody, ref getBodyResult)
+    getBodyNodeCount := 0
+    if tokens.Kinds[getBodyBrace] == 129 {
+        getBodyNodeCount = ParseColumnarPropertyBodyNodesCore(ref tokens, getBodyBrace, ref getBody, ref getBodyResult)
+    } else {
+        getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(ref tokens, getBodyBrace, ref getBody, ref getBodyResult)
+    }
     if getBodyNodeCount <= 0 {
         return -1
     }
@@ -153,4 +158,28 @@ func ParseColumnarPropertyBodyNodesCore(tokens: &ColumnarPropertyTokenTable, bod
     children := new ParserChildIndexTable { Indices: body.ChildIndices }
     statementResult := new ParserResultTable { Values: result.Values }
     return ParseStatementNodesCore(ref statementTokens, tokens.Count, bodyBrace, ref argStack, ref nodes, ref children, ref statementResult)
+}
+
+func ParseColumnarPropertyExpressionBodyNodesCore(tokens: &ColumnarPropertyTokenTable, arrowIndex: int, body: &ColumnarPropertyBodyTable, result: &ColumnarPropertyResultTable): int {
+    if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
+        return -1
+    }
+
+    expressionTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
+    nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }
+    children := new ParserChildIndexTable { Indices: body.ChildIndices }
+    st := new ParserState { Pos: arrowIndex + 1, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
+    valueRoot := ParseLambdaOrAssignmentExpressionNode(ref expressionTokens, tokens.Count, ref st, ref argStack, ref nodes, ref children, 0)
+    if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
+        return -1
+    }
+
+    childRunStart := st.ChildCursor
+    AppendExpressionChild(ref st, ref children, valueRoot)
+    valueEnd := nodes.SpanStarts[valueRoot] + nodes.SpanLengths[valueRoot]
+    returnNode := EmitExpressionNode(ref st, ref nodes, 20, -1, 0, childRunStart, 1, tokens.Starts[arrowIndex], valueEnd - tokens.Starts[arrowIndex])
+    result.Values[0] = returnNode
+    result.Values[1] = st.Pos
+    return st.NodeCursor
 }

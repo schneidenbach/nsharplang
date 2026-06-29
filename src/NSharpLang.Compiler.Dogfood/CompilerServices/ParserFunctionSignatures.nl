@@ -2,8 +2,7 @@ import "CompilerServices/ParserTypeReferences"
 
 // Parser slice 9: the first declaration-level recursive-descent kernel -- it COMPOSES the slice 6-8 type
 // kernel (ParserTypeReferences.nl). Given a `func` keyword token index, ParseFunctionSignatureCore parses
-// the function's signature -- name, parameter names + parameter type trees, and the return type tree --
-// mirroring the C# parser's ParseFunctionDeclaration / ParseParameterList (Parser.cs:405-535, 770-840).
+// the function's signature -- name, parameter names + parameter type trees, and the return type tree.
 // All parameter type trees and the return type tree share ONE columnar node table (the same table the
 // type kernel fills), so each is an independent root within it; the shared `ParserState` (`st`) carries
 // the node/child cursors across the per-type parses while st.Pos (pos) is repositioned to each type's start.
@@ -15,13 +14,12 @@ import "CompilerServices/ParserTypeReferences"
 // CONSTRAINT clauses `where T: Item, Item ...` after the return type (D-17b). Each constraint ITEM is
 // recorded as a flat row: the owning type parameter's name span plus a code — a type-tree ROOT (>= 0)
 // parsed into the shared node table, or a special-constraint sentinel (-2 `class`, -3 `struct`,
-// -4 `new()`). Clause grouping is NOT preserved (the host groups rows by owner name, mirroring the C#
-// parser's per-clause GenericConstraint records which the analyzer also flattens per parameter).
-// Parameter modifiers (`ref` 78, `out` 79, `params` 82, `this` 42) and attribute lists `[...]` are
-// skipped; a `= default` value is skipped (balanced) without being parsed (expression parsing is a later
-// rung).
+// -4 `new()`). Clause grouping is NOT preserved (the host groups rows by owner name).
+// Parameter modifiers `ref` (78) and `out` (79) wrap the parsed parameter type in a ByRef type node; `params`
+// (82), `this` (42), and attribute lists `[...]` are skipped. Supported one-token default values are
+// materialized for CLR optional-parameter metadata; richer default expressions decline.
 // Deferred (the corpus avoids them): `->` return-type syntax, scoped/lifetime parameter annotations,
-// expression-bodied functions, and materializing default values.
+// expression-bodied functions with full control-flow analysis, and non-literal default values.
 //
 // Output:
 //   outNodeKinds/... (8 columns) + outChildIndices : the shared type node table (see ParserTypeReferences.nl)
@@ -53,6 +51,9 @@ struct FunctionSignatureInfoOutputTable {
     ReturnTypeTexts: string[]
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamModifierKinds: int[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
@@ -85,14 +86,19 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
         return -1
     }
 
-    bodyBrace := signatureResult.Values[6]
-    if bodyBrace < 0 || bodyBrace >= count || tokens.Kinds[bodyBrace] != 129 {
+    bodyStart := signatureResult.Values[6]
+    if bodyStart < 0 || bodyStart >= count || (tokens.Kinds[bodyStart] != 129 && tokens.Kinds[bodyStart] != 120) {
         return -1
     }
 
     typeParamCount := signatureResult.Values[5]
     whereItemCount := signatureResult.Values[7]
-    if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length || paramCount > outputs.ParamTupleNameCounts.Length {
+    if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length || paramCount > outputs.ParamModifierKinds.Length || paramCount > outputs.ParamDefaultKinds.Length || paramCount > outputs.ParamDefaultTexts.Length || paramCount > outputs.ParamTupleNameCounts.Length {
+        return -1
+    }
+
+    defaultCount := ParseFunctionParameterDefaultsCore(source, ref tokens, count, funcIndex, ref outputs)
+    if defaultCount != paramCount {
         return -1
     }
 
@@ -108,7 +114,12 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
         return -1
     }
 
-    functionName := FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
+    functionName := ""
+    if funcIndex + 2 < count && tokens.Kinds[funcIndex + 1] == 75 {
+        functionName = FunctionSignatureOperatorClrName(tokens.Kinds[funcIndex + 2], paramCount)
+    } else {
+        functionName = FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
+    }
     if functionName == "" {
         return -1
     }
@@ -218,11 +229,204 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     }
 
     result.Values[0] = returnTupleNameCount
-    result.Values[1] = bodyBrace
+    result.Values[1] = bodyStart
     result.Values[2] = typeParamCount
     result.Values[3] = flatTypeConstraintCount
     result.Values[4] = flatParamTupleNameCount
     result.Values[5] = whereItemCount
+    return paramCount
+}
+
+func FunctionSignatureDefaultKindSupported(kind: int): bool {
+    return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 4
+}
+
+func FunctionSignatureDefaultMemberAccessKind(): int {
+    return 1000
+}
+
+func FunctionSignatureDefaultDottedNameSupported(tokens: &ParserTokenTable, startIndex: int, endIndex: int): bool {
+    if startIndex < 0 || endIndex <= startIndex || endIndex > tokens.Kinds.Length {
+        return false
+    }
+
+    identifierCount := 0
+    dotCount := 0
+    expectIdentifier := true
+    i := startIndex
+    while i < endIndex {
+        kind := tokens.Kinds[i]
+        if expectIdentifier {
+            if kind != 0 {
+                return false
+            }
+            identifierCount = identifierCount + 1
+            expectIdentifier = false
+        } else {
+            if kind != 124 {
+                return false
+            }
+            dotCount = dotCount + 1
+            expectIdentifier = true
+        }
+
+        i = i + 1
+    }
+
+    return !expectIdentifier && identifierCount >= 2 && dotCount >= 1
+}
+
+func ParseFunctionParameterDefaultsCore(source: string, tokens: &ParserTokenTable, count: int, funcIndex: int, outputs: &FunctionSignatureInfoOutputTable): int {
+    if funcIndex < 0 || funcIndex >= count || tokens.Kinds[funcIndex] != 7 {
+        return -1
+    }
+
+    pos := funcIndex + 1
+    if pos < count && tokens.Kinds[pos] == 75 {
+        if pos + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[pos + 1]) {
+            return -1
+        }
+        pos = pos + 2
+    } else if pos < count && tokens.Kinds[pos] == 0 {
+        pos = pos + 1
+    } else {
+        return -1
+    }
+
+    while pos < count && tokens.Kinds[pos] != 127 {
+        pos = pos + 1
+    }
+    if pos >= count || tokens.Kinds[pos] != 127 {
+        return -1
+    }
+    pos = pos + 1
+
+    typeStack := new ParserArgumentStack { Values: new int[](count + 1) }
+    nodes := new ParserNodeTable { Kinds: new int[](count + 1), ValueStarts: new int[](count + 1), ValueLengths: new int[](count + 1), ChildStart: new int[](count + 1), ChildCount: new int[](count + 1), SpanStarts: new int[](count + 1), SpanLengths: new int[](count + 1) }
+    children := new ParserChildIndexTable { Indices: new int[](count + 1) }
+    st := new ParserState { Pos: 0, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
+
+    paramCount := 0
+    foundDefault := 0
+    while pos < count && tokens.Kinds[pos] != 128 {
+        if paramCount >= outputs.ParamDefaultKinds.Length || paramCount >= outputs.ParamDefaultTexts.Length {
+            return -1
+        }
+
+        while pos < count && tokens.Kinds[pos] == 131 {
+            bracketDepth := 1
+            pos = pos + 1
+            while pos < count && bracketDepth > 0 {
+                if tokens.Kinds[pos] == 131 {
+                    bracketDepth = bracketDepth + 1
+                } else if tokens.Kinds[pos] == 132 {
+                    bracketDepth = bracketDepth - 1
+                }
+                pos = pos + 1
+            }
+        }
+
+        modifierKind := 0
+        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42) {
+            if tokens.Kinds[pos] == 78 {
+                modifierKind = 1
+            } else if tokens.Kinds[pos] == 79 {
+                modifierKind = 2
+            }
+            pos = pos + 1
+        }
+
+        if pos >= count || tokens.Kinds[pos] != 0 {
+            return -1
+        }
+        pos = pos + 1
+
+        if pos >= count || tokens.Kinds[pos] != 122 {
+            return -1
+        }
+        pos = pos + 1
+
+        st.Pos = pos
+        st.NodeCursor = 0
+        st.ChildCursor = 0
+        st.SplitGreaterDepth = 0
+        st.ArgStackTop = 0
+        typeRoot := ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref typeStack, ref nodes, ref children, 0)
+        if typeRoot < 0 {
+            return -1
+        }
+        pos = st.Pos
+
+        outputs.ParamDefaultKinds[paramCount] = -1
+        outputs.ParamDefaultTexts[paramCount] = ""
+        outputs.ParamModifierKinds[paramCount] = modifierKind
+
+        if pos < count && tokens.Kinds[pos] == 93 {
+            foundDefault = 1
+            pos = pos + 1
+            if pos >= count {
+                return -1
+            }
+
+            defaultKind := tokens.Kinds[pos]
+            defaultStart := tokens.Starts[pos]
+            defaultLength := tokens.ValueLengths[pos]
+            defaultTokenStart := pos
+            defaultTokenCount := 0
+            defaultDepth := 0
+            keepSkipping := true
+            while keepSkipping && pos < count {
+                k := tokens.Kinds[pos]
+                if k == 127 || k == 131 || k == 129 {
+                    defaultDepth = defaultDepth + 1
+                    defaultTokenCount = defaultTokenCount + 1
+                    pos = pos + 1
+                } else if k == 128 || k == 132 || k == 130 {
+                    if defaultDepth == 0 {
+                        keepSkipping = false
+                    } else {
+                        defaultDepth = defaultDepth - 1
+                        defaultTokenCount = defaultTokenCount + 1
+                        pos = pos + 1
+                    }
+                } else if k == 134 && defaultDepth == 0 {
+                    keepSkipping = false
+                } else {
+                    defaultTokenCount = defaultTokenCount + 1
+                    pos = pos + 1
+                }
+            }
+
+            if defaultTokenCount == 1 && FunctionSignatureDefaultKindSupported(defaultKind) {
+                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            } else if FunctionSignatureDefaultDottedNameSupported(ref tokens, defaultTokenStart, pos) {
+                defaultKind = FunctionSignatureDefaultMemberAccessKind()
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
+            } else {
+                return -1
+            }
+
+            outputs.ParamDefaultKinds[paramCount] = defaultKind
+            outputs.ParamDefaultTexts[paramCount] = FunctionSignatureSpanText(source, defaultStart, defaultLength)
+        } else if foundDefault == 1 {
+            return -1
+        }
+
+        paramCount = paramCount + 1
+
+        if pos >= count || (tokens.Kinds[pos] != 134 && tokens.Kinds[pos] != 128) {
+            return -1
+        }
+
+        if tokens.Kinds[pos] == 134 {
+            pos = pos + 1
+        }
+    }
+
+    if pos >= count || tokens.Kinds[pos] != 128 {
+        return -1
+    }
+
     return paramCount
 }
 
@@ -318,6 +522,152 @@ func FunctionSignatureSpanText(source: string, start: int, length: int): string 
     return source.Substring(start, length)
 }
 
+func FunctionSignatureOperatorKindSupported(kind: int): bool {
+    return kind == 44 || kind == 45 || kind == 88 || kind == 89 || kind == 90 || kind == 91 || kind == 92 || kind == 98 || kind == 99 || kind == 100 || kind == 101 || kind == 102 || kind == 103 || kind == 106 || kind == 107 || kind == 108 || kind == 109 || kind == 110 || kind == 111 || kind == 112 || kind == 113 || kind == 114
+}
+
+func FunctionSignatureOperatorClrName(kind: int, paramCount: int): string {
+    if kind == 44 {
+        if paramCount == 1 {
+            return "op_True"
+        }
+        return ""
+    }
+    if kind == 45 {
+        if paramCount == 1 {
+            return "op_False"
+        }
+        return ""
+    }
+    if kind == 88 {
+        if paramCount == 1 {
+            return "op_UnaryPlus"
+        }
+        if paramCount == 2 {
+            return "op_Addition"
+        }
+        return ""
+    }
+    if kind == 89 {
+        if paramCount == 1 {
+            return "op_UnaryNegation"
+        }
+        if paramCount == 2 {
+            return "op_Subtraction"
+        }
+        return ""
+    }
+    if kind == 90 {
+        if paramCount == 2 {
+            return "op_Multiply"
+        }
+        return ""
+    }
+    if kind == 91 {
+        if paramCount == 2 {
+            return "op_Division"
+        }
+        return ""
+    }
+    if kind == 92 {
+        if paramCount == 2 {
+            return "op_Modulus"
+        }
+        return ""
+    }
+    if kind == 98 {
+        if paramCount == 2 {
+            return "op_Equality"
+        }
+        return ""
+    }
+    if kind == 99 {
+        if paramCount == 2 {
+            return "op_Inequality"
+        }
+        return ""
+    }
+    if kind == 100 {
+        if paramCount == 2 {
+            return "op_LessThan"
+        }
+        return ""
+    }
+    if kind == 101 {
+        if paramCount == 2 {
+            return "op_LessThanOrEqual"
+        }
+        return ""
+    }
+    if kind == 102 {
+        if paramCount == 2 {
+            return "op_GreaterThan"
+        }
+        return ""
+    }
+    if kind == 103 {
+        if paramCount == 2 {
+            return "op_GreaterThanOrEqual"
+        }
+        return ""
+    }
+    if kind == 106 {
+        if paramCount == 1 {
+            return "op_LogicalNot"
+        }
+        return ""
+    }
+    if kind == 107 {
+        if paramCount == 2 {
+            return "op_BitwiseAnd"
+        }
+        return ""
+    }
+    if kind == 108 {
+        if paramCount == 2 {
+            return "op_BitwiseOr"
+        }
+        return ""
+    }
+    if kind == 109 {
+        if paramCount == 2 {
+            return "op_ExclusiveOr"
+        }
+        return ""
+    }
+    if kind == 110 {
+        if paramCount == 1 {
+            return "op_OnesComplement"
+        }
+        return ""
+    }
+    if kind == 111 {
+        if paramCount == 2 {
+            return "op_LeftShift"
+        }
+        return ""
+    }
+    if kind == 112 {
+        if paramCount == 2 {
+            return "op_RightShift"
+        }
+        return ""
+    }
+    if kind == 113 {
+        if paramCount == 1 {
+            return "op_Increment"
+        }
+        return ""
+    }
+    if kind == 114 {
+        if paramCount == 1 {
+            return "op_Decrement"
+        }
+        return ""
+    }
+    return ""
+}
+
 func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
     if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
         return false
@@ -370,7 +720,14 @@ func ParseFunctionSignatureCore(
     funcNameStart := -1
     funcNameLength := 0
     i := funcIndex + 1
-    if i < count && tokens.Kinds[i] == 0 {
+    if i < count && tokens.Kinds[i] == 75 {
+        if i + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[i + 1]) {
+            return -1
+        }
+        funcNameStart = tokens.Starts[i]
+        funcNameLength = tokens.Starts[i + 1] + tokens.ValueLengths[i + 1] - tokens.Starts[i]
+        i = i + 2
+    } else if i < count && tokens.Kinds[i] == 0 {
         funcNameStart = tokens.Starts[i]
         funcNameLength = tokens.ValueLengths[i]
         i = i + 1
@@ -378,7 +735,7 @@ func ParseFunctionSignatureCore(
 
     // Optional generic TYPE-PARAMETER list `<T, U>`: bare comma-separated Identifiers only. An inline
     // constraint (`<T: Base>`), an empty list, or any other form is unmodelled — return -1 (the host
-    // declines to the C# path). With no `<`, the list is empty.
+    // declines to the N# backend path). With no `<`, the list is empty.
     typeParamCount := 0
     if i < count && tokens.Kinds[i] == 100 {
         i = i + 1
@@ -438,8 +795,13 @@ func ParseFunctionSignatureCore(
             }
         }
 
-        // Skip parameter modifiers and `this`.
+        // `ref`/`out` are semantic: they wrap the parsed parameter type in a ByRef node. `params` and `this`
+        // are signature modifiers this kernel does not otherwise model.
+        byRefParameter := false
         while i < count && (tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 || tokens.Kinds[i] == 82 || tokens.Kinds[i] == 42) {
+            if tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 {
+                byRefParameter = true
+            }
             i = i + 1
         }
 
@@ -464,6 +826,13 @@ func ParseFunctionSignatureCore(
             return -1
         }
         i = st.Pos
+        if byRefParameter {
+            childRunStart := st.ChildCursor
+            AppendTypeReferenceChild(ref st, ref children, typeRoot)
+            typeSpanStart := nodes.SpanStarts[typeRoot]
+            typeSpanEnd := typeSpanStart + nodes.SpanLengths[typeRoot]
+            typeRoot = EmitTypeReferenceNode(ref st, ref nodes, 5, -1, 0, childRunStart, 1, typeSpanStart, typeSpanEnd - typeSpanStart)
+        }
 
         parameters.NameStarts[paramCount] = paramNameStart
         parameters.NameLengths[paramCount] = paramNameLength
@@ -531,8 +900,7 @@ func ParseFunctionSignatureCore(
         }
     }
 
-    // Generic CONSTRAINT clauses `where T: Item, Item ... where U: Item ...` (D-17b, mirroring the C#
-    // parser's ParseGenericConstraints). Each item appends one flat row (owner name span + code); the
+    // Generic CONSTRAINT clauses `where T: Item, Item ... where U: Item ...` (D-17b). Each item appends one flat row (owner name span + code); the
     // owner identifier is NOT validated against the declared type parameters here — the host resolves the
     // span against outTypeParamStarts/Lengths (the kernel cannot compare source text). A constraint TYPE
     // parses as another root in the shared node table, exactly like a parameter type; `new` must be

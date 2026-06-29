@@ -173,6 +173,20 @@ public class Token {
         Value: string,
         Line: int,
         Column: int,
+        FileName: string?) {
+        typeValue = Type
+        valueText = Value
+        lineValue = Line
+        columnValue = Column
+        fileNameValue = FileName
+        isTerminatedValue = true
+    }
+
+    constructor(
+        Type: TokenType,
+        Value: string,
+        Line: int,
+        Column: int,
         FileName: string? = null,
         IsTerminated: bool = true) {
         typeValue = Type

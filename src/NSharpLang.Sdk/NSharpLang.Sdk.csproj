@@ -49,6 +49,9 @@
     BeforeTargets="GenerateNuspec"
     DependsOnTargets="BuildNSharpBuildTasksForPack"
     Condition="'$(NoBuild)' != 'true'">
+    <MSBuild Projects="../NSharpLang.Compiler.Dogfood/NSharpLang.Compiler.Dogfood.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)" />
     <MSBuild Projects="../NSharpLang.Cli/Cli.csproj"
              Targets="Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)" />

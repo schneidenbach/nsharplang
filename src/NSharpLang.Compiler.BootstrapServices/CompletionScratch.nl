@@ -4,11 +4,14 @@ import System
 import System.Collections.Generic
 
 public class CompletionReceiverScratch {
-    Contexts: int[] = new int[](1)
-    Prefixes: string[] = new string[](1)
-    Receivers: string[] = new string[](1)
+    Contexts: int[]
+    Prefixes: string[]
+    Receivers: string[]
 
     constructor() {
+        Contexts = new int[](1)
+        Prefixes = new string[](1)
+        Receivers = new string[](1)
         Prefixes[0] = ""
         Receivers[0] = ""
     }

@@ -7041,7 +7041,8 @@ public class Parser
 
         var snippet = GetSourceSnippet(line);
 
-        var error = CompilerError.WithSnippet(
+        var docsUrl = $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}";
+        var error = CompilerError.WithSnippetDetailed(
             code,
             message,
             _fileName ?? "unknown",
@@ -7049,19 +7050,16 @@ public class Parser
             column,
             snippet ?? "",
             length,
-            suggestions?.FirstOrDefault()
+            suggestions?.FirstOrDefault(),
+            ErrorSeverity.Error,
+            humanExplanation,
+            hint,
+            docsUrl
         );
 
-        // Add rich context if provided
-        if (humanExplanation != null || hint != null || suggestions != null)
+        if (suggestions != null)
         {
-            error = error with
-            {
-                HumanExplanation = humanExplanation,
-                ContextualHint = hint,
-                Suggestions = suggestions,
-                DocsUrl = $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}"
-            };
+            error.Suggestions = suggestions;
         }
 
         _errors.Add(error);

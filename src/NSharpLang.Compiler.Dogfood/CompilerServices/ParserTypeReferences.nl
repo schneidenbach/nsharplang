@@ -1,14 +1,14 @@
 import System.Text
 
 // Parser slice 6: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices 1-5
-// produced flat top-level indices via single-pass token scans, this kernel reproduces the C# parser's
-// ParseTypeReference -> ParsePostfixTypeReference -> ParseBaseTypeReference recursion (Parser.cs:1718-1907)
+// produced flat top-level indices via single-pass token scans, this kernel implements the
+// ParseTypeReference -> ParsePostfixTypeReference -> ParseBaseTypeReference recursion
 // for the four dominant type-reference forms and emits a real parent->child AST as a flat columnar node
 // table. It consumes the lexer's brace-inserted token kind/start/value-length arrays produced by
 // TokenizeColumnarSourceInto and builds nodes in POST-ORDER (children before parents), so the
 // root is the last node written.
 //
-// Supported forms (matching the concrete C# TypeReference nodes):
+// Supported forms (matching the concrete type-reference node ABI):
 //   SimpleTypeReference   -> kind 0   e.g. int, string, A.B.C (dotted name folded to one name span)
 //   GenericTypeReference  -> kind 1   e.g. List<int>, Dictionary<string, int>, List<List<int>>
 //   ArrayTypeReference    -> kind 2   e.g. int[], List<int>[]
@@ -23,8 +23,8 @@ import System.Text
 //                                     slot, ONE child (the element type). Only ever a kind-6 child; canonicals
 //                                     ERASE it (tuple identity is positional), the host extracts the names.
 // Deferred to later rungs:
-//   - FunctionTypeReference `Func<...>` -- the C# parser special-cases the *identifier text* "Func", but
-//     this kernel has no source string (only token offsets), so it cannot distinguish Func from any other
+//   - FunctionTypeReference `Func<...>` -- this kernel has no source string (only token offsets),
+//     so it cannot distinguish Func from any other
 //     generic name; Func is therefore excluded from the corpus and will parse as a Generic node. Resolving
 //     it needs the parser to gain source access (a later architectural step that also unlocks name-based
 //     contextual keywords).
@@ -45,7 +45,7 @@ import System.Text
 // (e.g. an unterminated generic), or generic-nesting depth > 64.
 //
 // Parser state is threaded through the recursion in a single caller-owned `ParserState` struct (a
-// faithful analogue of the C# Parser's mutable _position / _splitGreaterDepth fields):
+// production parser state:
 //   st.Pos = pos                 current token index
 //   st.SplitGreaterDepth = splitGreaterDepth   owed `>` count from a split `>>` (RightShift) token
 //   st.NodeCursor = nodeCursor          next free node-table slot
@@ -243,8 +243,8 @@ func AppendTypeReferenceChild(st: &ParserState, outChildIndices: &ParserChildInd
     return slot
 }
 
-// Consume one closing `>` for a generic argument list, mirroring C# ConsumeGreater + the _splitGreaterDepth
-// mechanism (Parser.cs:2047-2065, 5918-5932, 6083-6091): a single `>` (Greater 102) is consumed directly;
+// Consume one closing `>` for a generic argument list, including split `>>` handling:
+// a single `>` (Greater 102) is consumed directly;
 // a `>>` (RightShift 112) is consumed once but credits ONE owed `>` so the enclosing generic close uses the
 // second half without advancing past a real token. Returns the byte end of the consumed `>`, or -1 on a
 // missing close.
@@ -283,9 +283,8 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         return -1
     }
 
-    // ByRef `&T` (Parser.cs:1830-1840): `&` prefixing a postfix type. The C# parser puts this in
-    // ParseBaseTypeReference, so a byref can appear wherever a base type can (a union arm, a generic
-    // argument). depth+1 bounds the (degenerate) `& & T` chain even though the C# parser does not cap it.
+    // ByRef `&T`: `&` prefixing a postfix type. A byref can appear wherever a base type can
+    // (a union arm, a generic argument). depth+1 bounds the degenerate `& & T` chain.
     if tokens.Kinds[pos] == 107 {
         ampStart := tokens.Starts[pos]
         st.Pos = pos + 1

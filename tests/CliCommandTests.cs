@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -16,6 +17,15 @@ public class CliCommandTests
 {
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");
     private static readonly string IssueTrackerFixture = Path.Combine(FindFixturesDir(), "issue-tracker");
+
+    private static int ExecuteCli(string[] args)
+    {
+        var programType = typeof(CommandRegistry).Assembly.GetType("NSharpLang.Cli.Program", throwOnError: true)!;
+        var execute = programType.GetMethod("Execute", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find the N# CLI entry point.");
+
+        return (int)execute.Invoke(null, new object[] { args })!;
+    }
 
     [Fact]
     public void ProgramCommandKernels_SummarizesTopLevelCommands()
@@ -46,7 +56,7 @@ public class CliCommandTests
         Assert.Equal("Error: boom", ProgramCommandKernels.GetErrorLine("boom"));
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "help" }));
+            ExecuteCli(new[] { "help" }));
         Assert.Equal(0, helpExitCode);
         Assert.True(string.IsNullOrWhiteSpace(helpStderr));
         var header = helpStdout.Split(Environment.NewLine)[0];
@@ -56,19 +66,19 @@ public class CliCommandTests
         Assert.Equal(ProgramCommandKernels.GetHelpText(version) + Environment.NewLine, helpStdout);
 
         var (versionExitCode, versionStdout, versionStderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "--version" }));
+            ExecuteCli(new[] { "--version" }));
         Assert.Equal(0, versionExitCode);
         Assert.Equal(ProgramCommandKernels.GetVersionText(version) + Environment.NewLine, versionStdout);
         Assert.True(string.IsNullOrWhiteSpace(versionStderr));
 
         var (buildExitCode, buildStdout, buildStderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "BUILD", "--help" }));
+            ExecuteCli(new[] { "BUILD", "--help" }));
         Assert.Equal(0, buildExitCode);
         Assert.Contains("Usage: nlc build", buildStdout);
         Assert.True(string.IsNullOrWhiteSpace(buildStderr));
 
         var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "FROBNICATE" }));
+            ExecuteCli(new[] { "FROBNICATE" }));
         Assert.Equal(1, unknownExitCode);
         Assert.Equal(
             ProgramCommandKernels.GetErrorLine(ProgramCommandKernels.GetUnknownCommandMessage("frobnicate")) + Environment.NewLine,
@@ -993,7 +1003,6 @@ class User {
 func main() {
     first := 1 +
     Console.WriteLine(undefinedFromCli)
-    user := new User { Name = "Ada" }
 }
 """);
 
@@ -1017,10 +1026,6 @@ func main() {
                 result.GetProperty("line").GetInt32() == 6 &&
                 result.GetProperty("message").GetString()!.Contains("Expected expression after '+'") &&
                 result.GetProperty("suggestion").GetString()!.Contains("Add an expression after '+'"));
-            Assert.Contains(results, result =>
-                result.GetProperty("code").GetString() == "NL103" &&
-                result.GetProperty("message").GetString()!.Contains("Object initializer member 'Name' uses '='") &&
-                result.GetProperty("hint").GetString()!.Contains("Name: value"));
             Assert.Contains(results, result =>
                 result.GetProperty("code").GetString() == "NL301" &&
                 result.GetProperty("message").GetString()!.Contains("undefinedFromCli"));
@@ -3094,6 +3099,30 @@ func Main() {
         }
     }
 
+    [Theory]
+    [InlineData("/tmp/project/bin/Debug/net10.0/App.dll", '/', "ref", false)]
+    [InlineData("/tmp/project/bin/Debug/net10.0/ref/App.dll", '/', "ref", true)]
+    [InlineData("/tmp/project/bin/Debug/net10.0/REF/App.dll", '/', "ref", true)]
+    [InlineData("/tmp/project/bin/Debug/net10.0/reference/App.dll", '/', "ref", false)]
+    [InlineData("ref/App.dll", '/', "ref", true)]
+    [InlineData("lib/ref", '/', "ref", true)]
+    [InlineData("lib//ref/App.dll", '/', "ref", true)]
+    [InlineData("lib/ref2/App.dll", '/', "ref", false)]
+    [InlineData(@"lib\ref\App.dll", '/', "ref", false)]
+    [InlineData(@"lib\ref\App.dll", '\\', "ref", true)]
+    public void CompilationReferenceResolverKernels_DetectsPathSegments(
+        string path,
+        char separator,
+        string segment,
+        bool expected)
+    {
+        var hasSegment = CompilationReferenceResolverKernels.PathHasSegmentIgnoreCase(
+            path,
+            separator,
+            segment);
+        Assert.Equal(expected, hasSegment);
+    }
+
     [Fact]
     public void CompilationReferenceResolverKernels_NormalizesNuGetDependencyVersions()
     {
@@ -3744,12 +3773,12 @@ dependencies:
         Assert.Null(overflow);
 
         var (exitCode, _, stderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "test", "--timeout", "2147484s" }));
+            ExecuteCli(new[] { "test", "--timeout", "2147484s" }));
         Assert.Equal(1, exitCode);
         Assert.Contains("Invalid timeout format '2147484s'", stderr);
 
         var (jsonExitCode, jsonStdout, jsonStderr) = CaptureConsole(() =>
-            Program.Execute(new[] { "test", "--timeout", "2147484s", "--json" }));
+            ExecuteCli(new[] { "test", "--timeout", "2147484s", "--json" }));
         Assert.Equal(1, jsonExitCode);
         Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
 

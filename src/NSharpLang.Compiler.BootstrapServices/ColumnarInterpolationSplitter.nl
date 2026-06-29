@@ -3,14 +3,14 @@ namespace NSharpLang.Compiler.Columnar
 import System.Collections.Generic
 import System.Text
 
-public class ColumnarInterpolationSplitter {
-    public class Part {
-        public IsHole: bool
-        public Text: string
-        public Format: string?
-    }
+public class ColumnarInterpolationPart {
+    public IsHole: bool
+    public Text: string
+    public Format: string?
+}
 
-    public static func TrySplit(literal: string, parts: List<Part>): bool {
+public class ColumnarInterpolationSplitter {
+    public static func TrySplit(literal: string, parts: List<ColumnarInterpolationPart>): bool {
         capacity := literal.Length + 1
         kinds := new int[](capacity)
         texts := new string[](capacity)
@@ -24,7 +24,7 @@ public class ColumnarInterpolationSplitter {
 
         i := 0
         while i < count {
-            part := new Part {
+            part := new ColumnarInterpolationPart {
                 IsHole: kinds[i] == 1,
                 Text: texts[i],
                 Format: formats[i]

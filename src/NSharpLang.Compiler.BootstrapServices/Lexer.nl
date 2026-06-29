@@ -8,9 +8,9 @@ public class Lexer {
     sourceText: string
     fileNameValue: string?
     position: int
-    line: int = 1
-    column: int = 1
-    comments: List<CommentTrivia> = new List<CommentTrivia>()
+    line: int
+    column: int
+    comments: List<CommentTrivia>
 
     Comments: List<CommentTrivia> => comments
 
@@ -18,6 +18,9 @@ public class Lexer {
         sourceText = source
         fileNameValue = fileName
         position = 0
+        line = 1
+        column = 1
+        comments = new List<CommentTrivia>()
     }
 
     public static func IsReservedKeyword(tokenType: TokenType): bool {
@@ -64,7 +67,7 @@ public class Lexer {
         hasBaseIndent := false
         baseIndent := 0
 
-        for token in tokens {
+        foreach token in tokens {
             if token.Type == TokenType.Newline {
                 output.Add(token)
                 atLineStart = true
@@ -611,7 +614,7 @@ public class Lexer {
 
         while !IsAtEnd() {
             if IsAtLineBreak() {
-                return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+                return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
             }
 
             if isInterpolated {
@@ -620,7 +623,7 @@ public class Lexer {
                         builder.Append('\\')
                         Advance()
                         if IsAtEnd() {
-                            return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+                            return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
                         }
 
                         builder.Append(Peek())
@@ -669,7 +672,7 @@ public class Lexer {
                 builder.Append('\\')
                 Advance()
                 if IsAtEnd() {
-                    return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+                    return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
                 }
 
                 builder.Append(Peek())
@@ -681,7 +684,7 @@ public class Lexer {
         }
 
         if IsAtEnd() {
-            return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+            return new Token(TokenType.StringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
         }
 
         builder.Append('"')
@@ -696,7 +699,7 @@ public class Lexer {
         Advance()
 
         if IsAtEnd() || IsAtLineBreak() {
-            return new Token(TokenType.CharLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+            return new Token(TokenType.CharLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
         }
 
         if Peek() == '\\' {
@@ -722,7 +725,7 @@ public class Lexer {
             }
         }
 
-        return new Token(TokenType.CharLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: terminated)
+        return new Token(TokenType.CharLiteral, builder.ToString(), startLine, startColumn, fileNameValue, terminated)
     }
 
     func IsLifetimeStart(): bool {
@@ -811,7 +814,7 @@ public class Lexer {
             Advance()
         }
 
-        return new Token(TokenType.TripleQuoteStringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+        return new Token(TokenType.TripleQuoteStringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
     }
 
     func ReadInterpolatedRawString(startLine: int, startColumn: int): Token {
@@ -845,7 +848,7 @@ public class Lexer {
             Advance()
         }
 
-        return new Token(TokenType.InterpolatedRawStringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, IsTerminated: false)
+        return new Token(TokenType.InterpolatedRawStringLiteral, builder.ToString(), startLine, startColumn, fileNameValue, false)
     }
 
     func ReadSingleLineComment(startLine: int, startColumn: int): Token {

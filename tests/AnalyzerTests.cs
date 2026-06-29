@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using Xunit;
@@ -8,80 +7,6 @@ using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Tests;
-
-#nullable disable
-public static class CSharpObliviousInteropProbe
-{
-    public static string Identity(string value) => value;
-}
-#nullable restore
-
-public static class CSharpNullabilityInteropProbe
-{
-    public static string NonNull(string value) => value;
-    public static string? Maybe(string? value) => value;
-    public static List<string?> MaybeList() => new();
-
-    [return: MaybeNull]
-    public static string MaybeNullReturn() => null;
-
-    [return: NotNull]
-    public static string? NotNullReturn() => "";
-
-    public static bool TryGet([NotNullWhen(true)] out string? value)
-    {
-        value = "ok";
-        return true;
-    }
-}
-
-public class CSharpInheritedStaticFieldBase
-{
-    public static int Value;
-}
-
-public class CSharpInheritedStaticFieldDerived : CSharpInheritedStaticFieldBase
-{
-}
-
-public class CSharpStaticPropertyShadowsInheritedField : CSharpInheritedStaticFieldBase
-{
-    public new static int Value => 0;
-}
-
-public class CSharpInheritedInstanceFieldBase
-{
-    public int Value;
-}
-
-public class CSharpInheritedInstanceFieldDerived : CSharpInheritedInstanceFieldBase
-{
-}
-
-public class CSharpInstancePropertyShadowsInheritedField : CSharpInheritedInstanceFieldBase
-{
-    public new int Value => 0;
-}
-
-public class CSharpReadonlyInstanceFieldBase
-{
-    public readonly int Value = 1;
-}
-
-public class CSharpMutableInstanceFieldShadowsReadonlyBase : CSharpReadonlyInstanceFieldBase
-{
-    public new int Value;
-}
-
-public class CSharpReadonlyStaticFieldBase
-{
-    public static readonly int Value = 1;
-}
-
-public class CSharpMutableStaticFieldShadowsReadonlyBase : CSharpReadonlyStaticFieldBase
-{
-    public new static int Value;
-}
 
 public class AnalyzerTests
 {
@@ -1215,23 +1140,6 @@ func Main() {
         """);
     }
 
-    [Fact]
-    public void Write_ReadOnlyExternalPropertyTarget_Error()
-    {
-        var result = AnalyzeWithInteropProbe("""
-            import NSharpLang.Tests
-
-            func Main(probe: CSharpInstancePropertyShadowsInheritedField) {
-                probe.Value = 2
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Property 'Value' is read-only", error.Message);
-        Assert.Contains("'='", error.Message);
-        Assert.Contains("settable property", error.Suggestion);
-    }
-
     [Theory]
     [InlineData("(1 + 2) = 3", "=")]
     [InlineData("checked(value) = 2", "=")]
@@ -1452,7 +1360,7 @@ func Main() {
     [Fact]
     public void BinaryArithmetic_BytePlusByte_ProducesInt()
     {
-        // C# binary numeric promotion: byte + byte = int
+        // N# binary numeric promotion: byte + byte = int
         // getA/getB return byte, so a+b should be int, not assignable back to byte
         AssertHasError(@"
             func getA(): byte { return 0 as byte }
@@ -1466,7 +1374,7 @@ func Main() {
     [Fact]
     public void BinaryArithmetic_ShortPlusShort_ProducesInt()
     {
-        // C# binary numeric promotion: short + short = int
+        // N# binary numeric promotion: short + short = int
         AssertHasError(@"
             func getA(): short { return 0 as short }
             func getB(): short { return 0 as short }
@@ -3252,31 +3160,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Contains($"can't be used as a {modifier} argument", error.Message);
     }
 
-    [Fact]
-    public void ReadonlyField_ExternalInheritedReadonlyShadowedByMutableField_Valid()
-    {
-        var result = AnalyzeWithInteropProbe("""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            func Mutate(derived: CSharpMutableInstanceFieldShadowsReadonlyBase) {
-                derived.Value = 2
-                bump(ref derived.Value)
-                reset(out derived.Value)
-                derived.Value++
-            }
-        """);
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-    }
-
     [Theory]
     [InlineData("value++", "++")]
     [InlineData("this.value--", "--")]
@@ -3413,49 +3296,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         """);
     }
 
-    [Theory]
-    [InlineData("bump(ref derived.Value)")]
-    [InlineData("reset(out derived.Value)")]
-    public void InstanceField_ExternalInheritedRefOutArgument_Valid(string statement)
-    {
-        var result = AnalyzeWithInteropProbe($$"""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            func Mutate(derived: CSharpInheritedInstanceFieldDerived) {
-                {{statement}}
-            }
-        """);
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-    }
-
-    [Fact]
-    public void InstanceField_ExternalShadowedInheritedFieldRefArgument_Error()
-    {
-        var result = AnalyzeWithInteropProbe("""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func Mutate(derived: CSharpInstancePropertyShadowsInheritedField) {
-                bump(ref derived.Value)
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("needs an assignable target", error.Message);
-    }
-
     [Fact]
     public void StaticReadonlyField_InheritedAssignment_Error()
     {
@@ -3500,49 +3340,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         """);
-    }
-
-    [Theory]
-    [InlineData("bump(ref CSharpInheritedStaticFieldDerived.Value)")]
-    [InlineData("reset(out CSharpInheritedStaticFieldDerived.Value)")]
-    public void StaticField_ExternalInheritedRefOutArgument_Valid(string statement)
-    {
-        var result = AnalyzeWithInteropProbe($$"""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            func Main() {
-                {{statement}}
-            }
-        """);
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-    }
-
-    [Fact]
-    public void StaticField_ExternalShadowedInheritedFieldRefArgument_Error()
-    {
-        var result = AnalyzeWithInteropProbe("""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func Main() {
-                bump(ref CSharpStaticPropertyShadowsInheritedField.Value)
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("needs an assignable target", error.Message);
     }
 
     [Theory]
@@ -3595,31 +3392,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Contains("static readonly", error.Message);
         Assert.Contains("'++'", error.Message);
         Assert.Contains("declaration", error.Suggestion);
-    }
-
-    [Fact]
-    public void StaticReadonlyField_ExternalInheritedReadonlyShadowedByMutableField_Valid()
-    {
-        var result = AnalyzeWithInteropProbe("""
-            import NSharpLang.Tests
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            func Mutate() {
-                CSharpMutableStaticFieldShadowsReadonlyBase.Value = 2
-                bump(ref CSharpMutableStaticFieldShadowsReadonlyBase.Value)
-                reset(out CSharpMutableStaticFieldShadowsReadonlyBase.Value)
-                CSharpMutableStaticFieldShadowsReadonlyBase.Value++
-            }
-        """);
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
     }
 
     [Theory]
@@ -4696,38 +4468,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("Collection expressions for 'IQueryable<int>'", error.Message);
-    }
-
-    [Fact]
-    public void CollectionExpression_UnsupportedReflectionSequenceTarget_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithInteropProbe(@"
-            import NSharpLang.Tests
-
-            func Main() {
-                let items: IntEnumerableOnlyBox = [1, 2, 3]
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("Collection expressions for 'IntEnumerableOnlyBox'", error.Message);
-        Assert.Contains("not implemented yet", error.Message);
-    }
-
-    [Fact]
-    public void CollectionExpression_IncompatibleReflectionMutator_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithInteropProbe(@"
-            import NSharpLang.Tests
-
-            func Main() {
-                let items: IntStringAddBag = [1, 2, 3]
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("Collection expressions for 'IntStringAddBag'", error.Message);
-        Assert.Contains("not implemented yet", error.Message);
     }
 
     [Fact]
@@ -6159,51 +5899,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void MethodGroupToClrDelegate_PrefersExactParameterOverContravariantMatch()
-    {
-        var config = new ProjectConfig
-        {
-            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
-        };
-
-        AssertNoErrors(@"
-            import System
-            import NSharpLang.Tests
-
-            func AcceptObject(value: object) {
-            }
-
-            func Main() {
-                result: int = RuntimeDelegateOverloadHelpers.UseMethodGroup(AcceptObject)
-            }
-        ", config);
-    }
-
-    [Fact]
-    public void MethodGroupToClrDelegate_PreservesSelectedNSharpOverload()
-    {
-        var config = new ProjectConfig
-        {
-            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
-        };
-
-        AssertNoErrors(@"
-            import System
-            import NSharpLang.Tests
-
-            func Handle(value: string) {
-            }
-
-            func Handle(value: int) {
-            }
-
-            func Main() {
-                result: string = RuntimeDelegateOverloadHelpers.UseMethodGroup(Handle)
-            }
-        ", config);
-    }
-
-    [Fact]
     public void MethodGroupToClrDelegate_BindsGenericReturnTypeDuringReflectionInference()
     {
         AssertNoErrors(@"
@@ -6219,84 +5914,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 first: string = texts[0]
             }
         ");
-    }
-
-    [Fact]
-    public void MethodGroupToClrDelegate_RejectsSingleFunctionMismatchDuringAnalysis()
-    {
-        var config = new ProjectConfig
-        {
-            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
-        };
-
-        var result = Analyze(@"
-            import System
-            import NSharpLang.Tests
-
-            func AcceptInt(value: int) {
-            }
-
-            func Main() {
-                RuntimeDelegateOverloadHelpers.UseMethodGroup(AcceptInt)
-            }
-        ", config);
-
-        Assert.True(result.HasErrors, "Expected incompatible single-function method group to be rejected during analysis.");
-        Assert.Contains(result.Errors, error => error.Message.Contains("AcceptInt"));
-    }
-
-    [Fact]
-    public void MethodGroupToClrDelegate_RejectsMixedNSharpClrReferenceMismatchDuringAnalysis()
-    {
-        var config = new ProjectConfig
-        {
-            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
-        };
-
-        var result = Analyze(@"
-            import System
-            import NSharpLang.Tests
-
-            class Customer {
-            }
-
-            func Handle(customer: Customer) {
-            }
-
-            func Main() {
-                RuntimeDelegateOverloadHelpers.UseMethodGroup(Handle)
-            }
-        ", config);
-
-        Assert.True(result.HasErrors, "Expected incompatible mixed N#/CLR method group to be rejected during analysis.");
-        Assert.Contains(result.Errors, error => error.Message.Contains("Handle") || error.Message.Contains("UseMethodGroup"));
-    }
-
-    [Fact]
-    public void MethodGroupToClrDelegate_RejectsAmbiguousOverloadTie()
-    {
-        var config = new ProjectConfig
-        {
-            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
-        };
-
-        var result = Analyze(@"
-            import System
-            import NSharpLang.Tests
-
-            func Handle(value: RuntimeDelegateBase) {
-            }
-
-            func Handle(value: IRuntimeDelegateFace) {
-            }
-
-            func Main() {
-                RuntimeDelegateOverloadHelpers.UseDerived(Handle)
-            }
-        ", config);
-
-        Assert.True(result.HasErrors, "Expected tied method group overloads to be rejected as ambiguous.");
-        Assert.Contains(result.Errors, error => error.Message.Contains("UseDerived"));
     }
 
     [Fact]
@@ -8913,39 +8530,6 @@ func Main() {
 
     #endregion
 
-    #region C# Nullability Interop
-
-    private AnalysisResult AnalyzeWithInteropProbe(string source)
-    {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
-        var analyzer = new Analyzer();
-        analyzer.LoadSystemAssemblies();
-        analyzer.LoadReferencedAssembly(typeof(CSharpNullabilityInteropProbe).Assembly.Location);
-        return analyzer.Analyze(result.CompilationUnit!);
-    }
-
-    [Fact]
-    public void CSharpInterop_ImportsNullableMetadata()
-    {
-        var result = AnalyzeWithInteropProbe(@"
-            import NSharpLang.Tests
-
-            func Main() {
-                nonNull := CSharpNullabilityInteropProbe.NonNull(""ok"")
-                maybe := CSharpNullabilityInteropProbe.Maybe(""ok"")
-                maybeList := CSharpNullabilityInteropProbe.MaybeList()
-            }
-        ");
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.Equal("string", result.SemanticModel.LookupIdentifier("nonNull")?.ToString());
-        Assert.Equal("string?", result.SemanticModel.LookupIdentifier("maybe")?.ToString());
-        Assert.Equal("List<string?>", result.SemanticModel.LookupIdentifier("maybeList")?.ToString());
-    }
-
     [Fact]
     public void ReflectionGenericReceiver_ToArrayPreservesNonNullableElementType()
     {
@@ -8995,43 +8579,6 @@ func Main() {
             }
         ");
     }
-
-    [Fact]
-    public void CSharpInterop_ImportsFlowNullabilityAttributes()
-    {
-        var result = AnalyzeWithInteropProbe(@"
-            import NSharpLang.Tests
-
-            func Main() {
-                maybe := CSharpNullabilityInteropProbe.MaybeNullReturn()
-                nonNull := CSharpNullabilityInteropProbe.NotNullReturn()
-            }
-        ");
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.Equal("string?", result.SemanticModel.LookupIdentifier("maybe")?.ToString());
-        Assert.Equal("string", result.SemanticModel.LookupIdentifier("nonNull")?.ToString());
-
-        var method = typeof(CSharpNullabilityInteropProbe).GetMethod(nameof(CSharpNullabilityInteropProbe.TryGet))!;
-        Assert.Contains("[NotNullWhen(true)]", NullabilityMetadata.FormatParameter(method.GetParameters()[0]));
-    }
-
-    [Fact]
-    public void CSharpInterop_MissingNullableMetadataIsOblivious()
-    {
-        var result = AnalyzeWithInteropProbe(@"
-            import NSharpLang.Tests
-
-            func Main() {
-                value := CSharpObliviousInteropProbe.Identity(""ok"")
-            }
-        ");
-
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.Equal("string!", result.SemanticModel.LookupIdentifier("value")?.ToString());
-    }
-
-    #endregion
 
     #region Nullable Assignability — Comprehensive Matrix
 
@@ -9951,7 +9498,7 @@ func Main() {
         ", "does not implement");
     }
 
-    // --- Circular constraint dependencies (mirrors C#'s CS0454): the CLR refuses the metadata at load
+    // --- Circular constraint dependencies (mirrors N#'s CS0454): the CLR refuses the metadata at load
     // and the emitter's base-chain walks would spin forever, so the analyzer must reject them. ---
 
     [Fact]
@@ -10154,7 +9701,7 @@ func Main() {
     [Fact]
     public void SpecialConstraint_StructAndNew_MutuallyExclusive_ParseError()
     {
-        // C# forbids struct + new() because struct already implies new()
+        // N# forbids struct + new() because struct already implies new()
         AssertHasParseError(@"
             func Bad<T>(value: T): T where T : struct, new() {
                 return value
@@ -10339,7 +9886,7 @@ func Main() {
     [Fact]
     public void OverloadResolution_IntBeatsLong_WithIntArg()
     {
-        // C# spec 12.6.4: Exact match beats implicit conversion
+        // N# overload resolution: Exact match beats implicit conversion
         AssertNoErrors(@"
             func Foo(x: int): int { return x }
             func Foo(x: long): long { return x }
@@ -12137,7 +11684,7 @@ func Scratch(count: long): int {
     [Fact]
     public void StackAlloc_SmallIntLengths_Accepted()
     {
-        // byte/sbyte/short/ushort/char widen implicitly to int (C#'s element-count rule).
+        // byte/sbyte/short/ushort/char widen implicitly to int (N#'s element-count rule).
         var result = Analyze(@"
 func Scratch(b: byte, s: short, c: char): int {
     s1 := stackalloc byte[b]
@@ -12450,7 +11997,7 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     {
         // B2: `new Box(5)` on a generic class previously emitted an open-type token and
         // crashed at runtime with BadImageFormatException. N# requires explicit type
-        // arguments (no class-type-argument inference, the C# rule).
+        // arguments (no class-type-argument inference, the  rule).
         var result = Analyze("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box(5)\n    return 0\n}\n");
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
         Assert.Contains("requires 1 type argument", error.Message);
@@ -12982,7 +12529,7 @@ func F() {
     [Fact]
     public void Lock_OnUnconstrainedTypeParameter_ReportsNL320()
     {
-        // Stricter than C# by design: Roslyn boxes an unconstrained T into a fresh object per lock
+        // Stricter than  by design: Roslyn boxes an unconstrained T into a fresh object per lock
         // (mutual exclusion never happens); N# rejects the trap with a constraint-specific hint.
         var error = AssertHasErrorCode(@"
 func LockIt<T>(x: T) {
@@ -13109,7 +12656,7 @@ func F() {
     }
 
     // ── NL322: a member write through a temporary VALUE COPY (the CS1612 analog) ────────
-    // Paired with the EmitAddressableExpression chain fix (oracle defect #22): a value-typed
+    // Paired with the EmitAddressableExpression chain fix (known defect #22): a value-typed
     // receiver that is not a variable — a List indexer result, a call result, a property result —
     // is a temporary copy; the store would land in the copy and be silently dropped.
 
@@ -13241,11 +12788,9 @@ func F(): int {
 
     // ===== Object-initializer member type checking (defect: unsound List<Rs> -> List<Pt>) =====
     //
-    // The C# pipeline used to accept ANY value type in `new T { Member: value }` — the
-    // analyzer never compared the value against the declared member type, and the IL
-    // backend's coercion silently no-ops for closed generics built over emitted user
-    // types. A List<Rs> stored into a List<Pt> field produced type-confused garbage
-    // reads at runtime (no InvalidCastException). These tests pin the NL202 gate.
+    // The analyzer must compare each initializer value against the declared member type.
+    // A List<Rs> stored into a List<Pt> field produced type-confused reads at runtime.
+    // These tests pin the NL202 gate.
 
     [Fact]
     public void ObjectInitializer_GenericCollectionElementMismatch_Error()

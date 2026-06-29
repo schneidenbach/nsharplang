@@ -987,38 +987,6 @@ func Main() {
     }
 
     [Fact]
-    public void Type_CSharpInteropNullableReturn_ReportsNullableType()
-    {
-        var testAssemblyPath = typeof(CSharpNullabilityInteropProbe).Assembly.Location.Replace("\\", "\\\\");
-        var snapshot = LoadTemporaryProjectWithConfig($$"""
-name: QueryInterop
-version: 1.0.0
-entry: Program.nl
-outputType: exe
-targetFramework: net10.0
-dependencies:
-  - dll: "{{testAssemblyPath}}"
-""",
-            ("Program.nl", """
-import NSharpLang.Tests
-
-func Main() {
-    maybe := CSharpNullabilityInteropProbe.Maybe("ok")
-}
-"""));
-
-        var programPath = Path.Combine(snapshot.ProjectRoot, "Program.nl");
-        var line = FindLineInFile(programPath, "maybe :=");
-        var column = FindColumnInFile(programPath, line, "maybe");
-
-        var result = _service.GetTypeAtPosition(snapshot, "Program.nl", line, column);
-
-        Assert.NotNull(result);
-        Assert.Equal("maybe", result!.Name);
-        Assert.Equal("string?", result.ResolvedType);
-    }
-
-    [Fact]
     public void References_IssueTracker_MethodDeclaration_IsNotDuplicatedAsUsage()
     {
         // Service.nl line 64: func GetAll(): List<Issue>

@@ -588,7 +588,7 @@ internal static class CompilationReferenceResolver
 
     private static string SelectSharedFrameworkDirectory(
         FrameworkCandidate[] candidates,
-        (bool Parsed, int Major, int Minor) targetVersion)
+        TargetFrameworkVersionParseResult targetVersion)
     {
         var versions = new Version[candidates.Length];
         for (var i = 0; i < candidates.Length; i++)

@@ -4,7 +4,13 @@ import System
 import System.Collections.Generic
 
 public class DefiniteAssignmentState {
-    Candidates: HashSet<string> = new HashSet<string>(StringComparer.Ordinal)
-    Assigned: HashSet<string> = new HashSet<string>(StringComparer.Ordinal)
-    Reported: HashSet<ValueTuple<string, int, int>> = new HashSet<ValueTuple<string, int, int>>()
+    Candidates: HashSet<string>
+    Assigned: HashSet<string>
+    Reported: HashSet<ValueTuple<string, int, int>>
+
+    constructor() {
+        Candidates = new HashSet<string>(StringComparer.Ordinal)
+        Assigned = new HashSet<string>(StringComparer.Ordinal)
+        Reported = new HashSet<ValueTuple<string, int, int>>()
+    }
 }

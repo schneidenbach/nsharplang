@@ -20,7 +20,8 @@ public class ProjectFileParser {
             .IgnoreUnmatchedProperties()
             .Build()
 
-        config := deserializer.Deserialize<ProjectConfig>(yaml)
+        configObject := deserializer.Deserialize(yaml, typeof(ProjectConfig))
+        config := (ProjectConfig)configObject
         ValidateConfig(config, Path.GetDirectoryName(yamlPath) ?? Environment.CurrentDirectory)
         return config
     }
@@ -35,13 +36,13 @@ public class ProjectFileParser {
     }
 
     public static func CreateDefault(projectName: string? = null): ProjectConfig {
-        return new ProjectConfig {
-            Name: projectName,
-            Backend: "il",
-            OutputType: "exe",
-            TargetFramework: "net10.0",
-            Language: new LanguageConfig()
-        }
+        config := new ProjectConfig()
+        config.Name = projectName
+        config.Backend = "il"
+        config.OutputType = "exe"
+        config.TargetFramework = "net10.0"
+        config.Language = new LanguageConfig()
+        return config
     }
 
     static func ValidateConfig(config: ProjectConfig, projectDirectory: string) {

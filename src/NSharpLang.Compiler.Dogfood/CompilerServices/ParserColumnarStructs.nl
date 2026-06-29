@@ -5,7 +5,7 @@ import "CompilerServices/ParserLocalFunctions"
 
 // Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
 // rejects unsupported value-type storage/property shapes and member generic/local functions, and exposes only text,
-// flag, and member-index rows needed by the C# transition materializer.
+// flag, and member-index rows needed by the columnar input builder.
 
 struct ColumnarStructTokenTable {
     Kinds: int[]
@@ -59,7 +59,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: scratch.FieldNameStarts, FieldNameLengths: scratch.FieldNameLengths, FieldTypeStarts: scratch.FieldTypeStarts, FieldTypeLengths: scratch.FieldTypeLengths, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitStarts: scratch.FieldInitStarts, FieldInitLengths: scratch.FieldInitLengths, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamStarts: scratch.TypeParamStarts, TypeParamLengths: scratch.TypeParamLengths, BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths }
     declarationResult := new ParserDeclarationResultTable { Values: result.Values }
-    fieldCount := ParseStructDeclarationCore(ref declarationTokens, tokens.Count, structIndex, ref decl, ref declarationResult)
+    fieldCount := ParseStructDeclarationCore(source, ref declarationTokens, tokens.Count, structIndex, ref decl, ref declarationResult)
     methodCount := result.Values[2]
     propCount := result.Values[4]
     typeParamCount := result.Values[7]
@@ -100,10 +100,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         }
     }
 
-    if isReference == 0 && propCount > 0 {
-        return -1
-    }
-
     if typeParamCount > 0 && baseNameCount > 0 {
         return -1
     }
@@ -128,12 +124,12 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
                 return -1
             }
 
-            methodNameIndex := outputs.MethodFuncIndices[i] + 1
-            if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
+            methodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[i])
+            if methodName == "" {
                 return -1
             }
 
-            if ColumnarStructNameMatchesTypeParam(source, ref scratch, typeParamCount, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex]) {
+            if ColumnarStructNameMatchesTypeParamText(source, ref scratch, typeParamCount, methodName) {
                 return -1
             }
 
@@ -159,12 +155,12 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         }
     }
 
-    methodStatus := ColumnarStructMethodUnsupportedStatus(source, ref tokens, ref outputs, methodCount)
-    if methodStatus != 0 {
+    methodUnsupported := ColumnarStructMethodUnsupportedStatus(source, ref tokens, ref outputs, methodCount)
+    if methodUnsupported != 0 {
         return -1
     }
-    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, ref tokens, ref outputs, ctorCount, isReference)
-    if ctorStatus != 0 {
+    ctorUnsupported := ColumnarStructConstructorUnsupportedStatus(source, ref tokens, ref outputs, ctorCount, isReference)
+    if ctorUnsupported != 0 {
         return -1
     }
 
@@ -227,12 +223,15 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
-    cap := tokens.Count + 1
+    cap := (tokens.Count + 1) * 4
     signatureOutputs := new ColumnarFunctionSignatureOutputTable {
         FunctionNameTexts: new string[](1),
         ReturnTypeTexts: new string[](1),
         ParamNameTexts: new string[](cap),
         ParamTypeTexts: new string[](cap),
+        ParamModifierKinds: new int[](cap),
+        ParamDefaultKinds: new int[](cap),
+        ParamDefaultTexts: new string[](cap),
         ParamTupleNameCounts: new int[](cap),
         ParamTupleNameTexts: new string[](cap),
         ReturnTupleNameTexts: new string[](cap),
@@ -254,38 +253,63 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStru
     locals := new ColumnarFunctionLocalTable { NodeIndices: new int[](cap), TokenIndices: new int[](cap) }
     result := new ColumnarFunctionResultTable { Values: new int[](9) }
     methodParamCounts := new int[](methodCount + 1)
+    methodParamStarts := new int[](methodCount + 1)
+    methodNameTexts := new string[](methodCount + 1)
+    methodParamTypeTexts := new string[](cap)
+    nextMethodParamType := 0
 
     for i := 0; i < methodCount; i++ {
         paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], 0, ref signatureOutputs, ref body, ref locals, ref result)
         if paramCount < 0 {
             return -1
         }
+
+        methodName := signatureOutputs.FunctionNameTexts[0]
+        if methodName == "" {
+            return -1
+        }
+
+        if nextMethodParamType + paramCount > methodParamTypeTexts.Length {
+            return -1
+        }
+
         methodParamCounts[i] = paramCount
         if outputs.MethodStaticFlags[i] == 1 {
-            methodNameIndex := outputs.MethodFuncIndices[i] + 1
-            if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
-                return -1
-            }
-
             j := 0
             while j < i {
                 if outputs.MethodStaticFlags[j] == 1 && methodParamCounts[j] == paramCount {
-                    otherNameIndex := outputs.MethodFuncIndices[j] + 1
-                    if otherNameIndex < 0 || otherNameIndex >= tokens.Count || tokens.Kinds[otherNameIndex] != 0 {
-                        return -1
-                    }
+                    if methodName == methodNameTexts[j] {
+                        sameSignature := true
+                        paramSlot := 0
+                        while paramSlot < paramCount {
+                            if signatureOutputs.ParamTypeTexts[paramSlot] != methodParamTypeTexts[methodParamStarts[j] + paramSlot] {
+                                sameSignature = false
+                            }
 
-                    if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], tokens.Starts[otherNameIndex], tokens.ValueLengths[otherNameIndex]) {
-                        return 1
+                            paramSlot = paramSlot + 1
+                        }
+
+                        if sameSignature {
+                            return 1
+                        }
                     }
                 }
 
                 j = j + 1
             }
         }
-        if outputs.MethodStaticFlags[i] == 0 && signatureOutputs.ReturnTypeTexts[0] == "void" {
-            return 1
+        methodNameTexts[i] = methodName
+        methodParamStarts[i] = nextMethodParamType
+        paramSlot := 0
+        while paramSlot < paramCount {
+            if signatureOutputs.ParamTypeTexts[paramSlot] == "" {
+                return -1
+            }
+
+            methodParamTypeTexts[nextMethodParamType + paramSlot] = signatureOutputs.ParamTypeTexts[paramSlot]
+            paramSlot = paramSlot + 1
         }
+        nextMethodParamType = nextMethodParamType + paramCount
         if result.Values[2] > 0 {
             return 1
         }
@@ -299,7 +323,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStru
 
 func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
-    cap := tokens.Count + 1
+    cap := (tokens.Count + 1) * 4
     signatureOutputs := new ColumnarConstructorSignatureOutputTable {
         ParamNameTexts: new string[](cap),
         ParamTypeTexts: new string[](cap),
@@ -402,6 +426,24 @@ func ColumnarStructNameMatchesTypeParam(source: string, scratch: &ColumnarStruct
     return false
 }
 
+func ColumnarStructNameMatchesTypeParamText(source: string, scratch: &ColumnarStructScratchTable, typeParamCount: int, nameText: string): bool {
+    if nameText == "" {
+        return false
+    }
+
+    i := 0
+    while i < typeParamCount {
+        typeParamName := ParserDeclarationSpanText(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i])
+        if typeParamName == nameText {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
 func ColumnarStructFieldNamesDistinct(source: string, scratch: &ColumnarStructScratchTable, fieldCount: int): int {
     if fieldCount < 0 {
         return 0
@@ -454,6 +496,97 @@ func ColumnarStructBaseNamesDistinct(source: string, scratch: &ColumnarStructScr
     return 1
 }
 
+func ColumnarStructOperatorMemberName(kind: int): string {
+    if kind == 44 {
+        return "operator true"
+    }
+    if kind == 45 {
+        return "operator false"
+    }
+    if kind == 88 {
+        return "operator +"
+    }
+    if kind == 89 {
+        return "operator -"
+    }
+    if kind == 90 {
+        return "operator *"
+    }
+    if kind == 91 {
+        return "operator /"
+    }
+    if kind == 92 {
+        return "operator %"
+    }
+    if kind == 98 {
+        return "operator =="
+    }
+    if kind == 99 {
+        return "operator !="
+    }
+    if kind == 100 {
+        return "operator <"
+    }
+    if kind == 101 {
+        return "operator <="
+    }
+    if kind == 102 {
+        return "operator >"
+    }
+    if kind == 103 {
+        return "operator >="
+    }
+    if kind == 106 {
+        return "operator !"
+    }
+    if kind == 107 {
+        return "operator &"
+    }
+    if kind == 108 {
+        return "operator |"
+    }
+    if kind == 109 {
+        return "operator ^"
+    }
+    if kind == 110 {
+        return "operator ~"
+    }
+    if kind == 111 {
+        return "operator <<"
+    }
+    if kind == 112 {
+        return "operator >>"
+    }
+    if kind == 113 {
+        return "operator ++"
+    }
+    if kind == 114 {
+        return "operator --"
+    }
+    return ""
+}
+
+func ColumnarStructMethodMemberNameText(source: string, tokens: &ColumnarStructTokenTable, funcIndex: int): string {
+    methodNameIndex := funcIndex + 1
+    if methodNameIndex < 0 || methodNameIndex >= tokens.Count {
+        return ""
+    }
+
+    if tokens.Kinds[methodNameIndex] == 0 {
+        return ParserDeclarationSpanText(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex])
+    }
+
+    if tokens.Kinds[methodNameIndex] == 75 {
+        symbolIndex := methodNameIndex + 1
+        if symbolIndex < 0 || symbolIndex >= tokens.Count {
+            return ""
+        }
+        return ColumnarStructOperatorMemberName(tokens.Kinds[symbolIndex])
+    }
+
+    return ""
+}
+
 func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarStructTokenTable, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {
     if methodCount < 0 {
         return 0
@@ -465,8 +598,8 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
             return 0
         }
 
-        methodNameIndex := outputs.MethodFuncIndices[i] + 1
-        if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
+        methodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[i])
+        if methodName == "" {
             return 0
         }
 
@@ -476,7 +609,8 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
                 return 0
             }
 
-            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], scratch.FieldNameStarts[f], scratch.FieldNameLengths[f]) {
+            fieldName := ParserDeclarationSpanText(source, scratch.FieldNameStarts[f], scratch.FieldNameLengths[f])
+            if methodName == fieldName {
                 return 0
             }
 
@@ -489,12 +623,12 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
                 return 0
             }
 
-            otherNameIndex := outputs.MethodFuncIndices[j] + 1
-            if otherNameIndex < 0 || otherNameIndex >= tokens.Count || tokens.Kinds[otherNameIndex] != 0 {
+            otherMethodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[j])
+            if otherMethodName == "" {
                 return 0
             }
 
-            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], tokens.Starts[otherNameIndex], tokens.ValueLengths[otherNameIndex]) {
+            if methodName == otherMethodName {
                 if outputs.MethodStaticFlags[i] == 0 || outputs.MethodStaticFlags[j] == 0 {
                     return 0
                 }
@@ -556,17 +690,12 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: &Columnar
 
         m := 0
         while m < methodCount {
-            methodNameIndex := outputs.MethodFuncIndices[m] + 1
-            if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
-                return 0
-            }
-
-            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex]) {
-                return 0
-            }
-
-            methodName := ParserDeclarationSpanText(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex])
+            methodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[m])
             if methodName == "" {
+                return 0
+            }
+
+            if methodName == propName {
                 return 0
             }
 

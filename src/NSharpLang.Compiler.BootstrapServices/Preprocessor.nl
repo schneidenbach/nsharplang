@@ -246,13 +246,15 @@ class ConditionEvaluator {
     text: string
     symbols: IReadOnlySet<string>
     position: int
-    hasError: bool = false
-    errorMessage: string = ""
+    hasError: bool
+    errorMessage: string
 
     constructor(text: string, symbols: IReadOnlySet<string>) {
         this.text = text
         this.symbols = symbols
         position = 0
+        hasError = false
+        errorMessage = ""
     }
 
     public static func TryEvaluate(condition: string, symbols: IReadOnlySet<string>, out value: bool, out errorMessage: string): bool {
@@ -273,7 +275,12 @@ class ConditionEvaluator {
 
         evaluator.SkipWhitespace()
         if evaluator.position < evaluator.text.Length {
-            errorMessage = $"Unexpected character '{evaluator.text[evaluator.position]}' in preprocessor condition '{condition.Trim()}'."
+            unexpected := evaluator.text[evaluator.position].ToString()
+            trimmedCondition := condition.Trim()
+            errorMessage = "Unexpected character '" + unexpected
+            errorMessage = errorMessage + "' in preprocessor condition '"
+            errorMessage = errorMessage + trimmedCondition
+            errorMessage = errorMessage + "'."
             return false
         }
 

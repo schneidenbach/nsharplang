@@ -20,7 +20,7 @@ public record SystemsReport(
         profile := "default"
         mode := "strict"
         aotTarget := "nativeaot"
-        warmup := Array.Empty<string>()
+        warmup := new string[](0)
 
         if config != null {
             profile = config.Language.Profile
@@ -35,9 +35,9 @@ public record SystemsReport(
             mode,
             aotTarget,
             warmup,
-            Array.Empty<SystemsFunctionSummary>(),
-            Array.Empty<SystemsFinding>(),
-            Array.Empty<SystemsTrustedSite>(),
+            new SystemsFunctionSummary[](0),
+            new SystemsFinding[](0),
+            new SystemsTrustedSite[](0),
             new SystemsAotReport(
                 aotTarget,
                 "pass",

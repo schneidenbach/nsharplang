@@ -1,25 +1,26 @@
 import System
 import System.Text
+import "CompilerServices/ParserExpressions"
+import "CompilerServices/ParserTypeReferences"
 
 // First N#-native parser slice: extract the top-level declaration KIND sequence from the
-// brace-inserted parser metadata stream produced by TokenizeColumnarSourceInto, matching the
-// C# parser's CompilationUnit.Declarations dispatch (Parser.cs ParseDeclaration). A top-level
+// brace-inserted parser metadata stream produced by TokenizeColumnarSourceInto. A top-level
 // declaration is a declaration keyword that appears at brace/bracket/paren depth 0 -- i.e. not nested
 // inside a type body ({...}), an attribute list ([...]), or a parameter/argument list ((...)). Leading
 // modifiers (public/static/...) and attributes ([Foo]) are naturally skipped because they are not
 // declaration keywords; `ref struct` and `duck interface` are captured at their `struct`/`interface`
-// keyword exactly as the C# dispatch produces StructDeclaration/InterfaceDeclaration. Returns the
+// keyword. Returns the
 // number of declarations and writes each declaration's keyword TokenType ordinal into outKinds.
 //
 // Recognized declaration keyword ordinals (TokenType, see Token.cs): Func=7, Class=8, Struct=9,
 // Interface=10, Union=12, Record=13, Enum=14, Type=72, Test=73. (The contextual `setup`/`teardown`
 // declarations and preprocessor declarations are intentionally out of scope for this first slice;
 // corpora that exercise this kernel avoid them.)
-// Parser slice 3: the file's package name span. The C# parser's CompilationUnit.Package is the dotted
-// name after a top-level `package` keyword (`package A.B.C`); a file has at most one. This records the
+// Parser slice 3: the file's package name span: the dotted name after a top-level `package` keyword
+// (`package A.B.C`); a file has at most one. This records the
 // span covering the dotted name (first identifier start through the last identifier's end, so the host
 // materializes "A.B.C"). Returns 1 and fills outResult[0]=start, outResult[1]=length when a package is
-// present; returns 0 otherwise (matching CompilationUnit.Package == null). The package keyword is only
+// present; returns 0 otherwise. The package keyword is only
 // recognized at depth 0, before any declaration body.
 struct NamespaceImportTable {
     NsStarts: int[]
@@ -114,6 +115,16 @@ struct StructDeclarationTable {
     BaseNameLengths: int[]
 }
 
+struct PrimaryConstructorParameterTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    TypeStarts: int[]
+    TypeLengths: int[]
+    DefaultKinds: int[]
+    DefaultStarts: int[]
+    DefaultLengths: int[]
+}
+
 struct ConstructorChainArgTable {
     Kinds: int[]
     Starts: int[]
@@ -195,8 +206,8 @@ func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, resul
     return 0
 }
 
-// Parser slice 4: namespace imports. The C# parser processes a prefix of `package`/`import` lines
-// before declarations (Parser.cs:52-81); an `import` whose first token is an Identifier is a
+// Parser slice 4: namespace imports. The parser processes a prefix of `package`/`import` lines
+// before declarations; an `import` whose first token is an Identifier is a
 // NamespaceImport (`import A.B.C [as X]`) routed to CompilationUnit.Imports, while one followed by a
 // string is a FileImport routed elsewhere and skipped here. This walks that header prefix linearly
 // (imports/package are at depth 0, before any brace) and records each namespace import's dotted-name
@@ -265,8 +276,8 @@ func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, 
     return outCount
 }
 
-// Parser slice 5: per-top-level-declaration modifier flags. Mirrors the C# Modifiers flags enum
-// (Declarations.cs:271) and ParseModifiers (Parser.cs) which recognizes, before a declaration keyword,
+// Parser slice 5: per-top-level-declaration modifier flags. Uses the shared modifier flag layout and
+// recognizes, before a declaration keyword,
 // Public/Private/Static/Internal/Protected/Virtual/Override/Abstract/Sealed/Partial/Async/File. Returns
 // 0 for non-modifier tokens. (Readonly/Const/Required/Init are member-level, not declaration modifiers.)
 func ModifierFlag(kind: int): int {
@@ -380,7 +391,7 @@ func IsTopLevelDeclarationKeyword(kind: int): bool {
 // A declaration's name is the token immediately after its keyword (modifiers precede the keyword, so
 // nothing sits between keyword and name) when that token is an Identifier (kind 0). For `test "..."`
 // the token after the keyword is a string literal, so no name is recorded (outNameStart = -1) -- the
-// C# TestDeclaration's string name is out of scope for this slice. The host materializes the name from
+// test string name is out of scope for this slice. The host materializes the name from
 // source via outNameStarts/outNameLengths.
 func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, count: int, decls: &TopLevelDeclarationNameTable): int {
     braceDepth := 0
@@ -890,7 +901,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
 
 // Parser declaration utility: the compacted-token index of the `}` (130) that closes the `{` (129)
 // at `open`, or -1 if `open` is not a left brace or the brace run is unbalanced. This keeps property
-// accessor body delimiting in the N# parser path instead of leaving a C# adapter-side scanner.
+// accessor body delimiting in the N# parser path instead of leaving a host adapter-side scanner.
 func MatchingCloseBraceCore(tokens: &ParserDeclarationKindStream, count: int, open: int): int {
     if open < 0 || open >= count || tokens.Kinds[open] != 129 {
         return -1
@@ -958,23 +969,43 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: &ParserDeclarationTok
         return -1
     }
 
-    if propIndex < 0 || propIndex + 5 >= count {
+    if propIndex < 0 || propIndex + 4 >= count {
         return -1
     }
 
-    if tokens.Kinds[propIndex] != 0 || tokens.Kinds[propIndex + 1] != 122 || tokens.Kinds[propIndex + 2] != 0 || tokens.Kinds[propIndex + 3] != 129 {
+    if tokens.Kinds[propIndex] != 0 || tokens.Kinds[propIndex + 1] != 122 {
         return -1
     }
 
-    if tokens.Kinds[propIndex + 4] != 0 || !ParserDeclarationTokenTextEquals(source, tokens.Starts[propIndex + 4], tokens.ValueLengths[propIndex + 4], "get") {
+    typeResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    typeEnd := ParseDeclarationTypeSpanCore(ref tokens, count, propIndex + 2, ref typeResult)
+    if typeEnd < 0 || typeEnd >= count {
         return -1
     }
 
-    if tokens.Kinds[propIndex + 5] != 129 {
+    if tokens.Kinds[typeEnd] == 120 {
+        result.Values[0] = tokens.Starts[propIndex]
+        result.Values[1] = tokens.ValueLengths[propIndex]
+        result.Values[2] = typeResult.Values[0]
+        result.Values[3] = typeResult.Values[1]
+        result.Values[4] = typeEnd
+        result.Values[5] = -1
+        return 0
+    }
+
+    if typeEnd + 2 >= count || tokens.Kinds[typeEnd] != 129 {
         return -1
     }
 
-    getBodyBrace := propIndex + 5
+    if tokens.Kinds[typeEnd + 1] != 0 || !ParserDeclarationTokenTextEquals(source, tokens.Starts[typeEnd + 1], tokens.ValueLengths[typeEnd + 1], "get") {
+        return -1
+    }
+
+    if tokens.Kinds[typeEnd + 2] != 129 {
+        return -1
+    }
+
+    getBodyBrace := typeEnd + 2
     kindStream := new ParserDeclarationKindStream { Kinds: tokens.Kinds }
     getBodyEnd := MatchingCloseBraceCore(ref kindStream, count, getBodyBrace)
     if getBodyEnd < 0 {
@@ -983,8 +1014,8 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: &ParserDeclarationTok
 
     result.Values[0] = tokens.Starts[propIndex]
     result.Values[1] = tokens.ValueLengths[propIndex]
-    result.Values[2] = tokens.Starts[propIndex + 2]
-    result.Values[3] = tokens.ValueLengths[propIndex + 2]
+    result.Values[2] = typeResult.Values[0]
+    result.Values[3] = typeResult.Values[1]
     result.Values[4] = getBodyBrace
     result.Values[5] = -1
 
@@ -1314,7 +1345,7 @@ func ParserDeclarationNamespaceSpanBefore(tokens: &ParserDeclarationTokenTable, 
             if parenDepth < 0 {
                 parenDepth = 0
             }
-        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 && (kind == 17 || kind == 18) {
+        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 && (kind == 15 || kind == 18) {
             next := ParserDeclarationDottedNameSpanAfter(ref tokens, count, i + 1, ref nameResult)
             if next < 0 {
                 return -1
@@ -1541,6 +1572,9 @@ func ParserDeclarationMemberModifierKind(kind: int): int {
     if kind == 64 || kind == 65 || kind == 66 || kind == 67 {
         return 1
     }
+    if kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
+        return 3
+    }
     return 0
 }
 
@@ -1562,7 +1596,7 @@ func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: 
                 return -1
             }
             result.Values[0] = 1
-        } else {
+        } else if modifierKind == 1 {
             result.Values[1] = result.Values[1] + 1
             if result.Values[1] > 1 {
                 return -1
@@ -1575,9 +1609,330 @@ func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: 
     return pos
 }
 
+func ParseDeclarationTypeSpanCore(tokens: &ParserDeclarationTokenTable, count: int, pos: int, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 2 || pos < 0 || pos >= count || tokens.Kinds[pos] != 0 {
+        return -1
+    }
+
+    typeStart := tokens.Starts[pos]
+    typeEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
+    pos = pos + 1
+
+    if pos < count && tokens.Kinds[pos] == 100 {
+        gdepth := 0
+        parenDepth := 0
+        gdone := 0
+        gprevIdent := 0
+        while pos < count && gdone == 0 {
+            gk := tokens.Kinds[pos]
+            if gk == 100 {
+                gdepth = gdepth + 1
+                gprevIdent = 0
+            } else if gk == 102 {
+                gdepth = gdepth - 1
+                if gdepth == 0 && parenDepth != 0 {
+                    return -1
+                }
+                if gdepth == 0 {
+                    gdone = 1
+                }
+                gprevIdent = 0
+            } else if gk == 112 {
+                gdepth = gdepth - 2
+                if gdepth == 0 && parenDepth != 0 {
+                    return -1
+                }
+                if gdepth == 0 {
+                    gdone = 1
+                }
+                gprevIdent = 0
+            } else if gk == 127 {
+                parenDepth = parenDepth + 1
+                gprevIdent = 0
+            } else if gk == 128 {
+                parenDepth = parenDepth - 1
+                if parenDepth < 0 {
+                    return -1
+                }
+                gprevIdent = 1
+            } else if gk == 0 {
+                if gprevIdent == 1 {
+                    return -1
+                }
+                gprevIdent = 1
+            } else if gk == 131 || gk == 132 || gk == 115 {
+                gprevIdent = gprevIdent
+            } else if gk == 122 && parenDepth > 0 {
+                gprevIdent = 0
+            } else if gk == 134 || gk == 124 {
+                gprevIdent = 0
+            } else {
+                return -1
+            }
+            if gdepth < 0 {
+                return -1
+            }
+            typeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
+            pos = pos + 1
+        }
+        if gdone == 0 {
+            return -1
+        }
+        if parenDepth != 0 {
+            return -1
+        }
+    }
+
+    suffixDone := 0
+    while suffixDone == 0 && pos < count {
+        if pos + 1 < count && tokens.Kinds[pos] == 131 && tokens.Kinds[pos + 1] == 132 {
+            typeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
+            pos = pos + 2
+        } else if pos + 1 < count && tokens.Kinds[pos] == 119 && tokens.Kinds[pos + 1] == 132 {
+            typeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
+            pos = pos + 2
+        } else if tokens.Kinds[pos] == 115 {
+            typeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
+            pos = pos + 1
+        } else {
+            suffixDone = 1
+        }
+    }
+
+    result.Values[0] = typeStart
+    result.Values[1] = typeEnd - typeStart
+    return pos
+}
+
+func ParseDeclarationSimpleInitializerEndCore(tokens: &ParserDeclarationTokenTable, count: int, pos: int, typeResult: &ParserDeclarationResultTable): int {
+    if pos < 0 || pos >= count {
+        return -1
+    }
+
+    kind := tokens.Kinds[pos]
+    if kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 4 {
+        return pos + 1
+    }
+
+    if kind == 0 {
+        pos = pos + 1
+        dotCount := 0
+        while pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+            dotCount = dotCount + 1
+            pos = pos + 2
+        }
+        if dotCount > 0 {
+            return pos
+        }
+        return -1
+    }
+
+    if kind != 41 {
+        return -1
+    }
+
+    pos = pos + 1
+    pos = ParseDeclarationTypeSpanCore(ref tokens, count, pos, ref typeResult)
+    if pos < 0 || pos >= count || tokens.Kinds[pos] != 127 {
+        return -1
+    }
+
+    depth := 0
+    done := 0
+    while pos < count && done == 0 {
+        if tokens.Kinds[pos] == 127 {
+            depth = depth + 1
+        } else if tokens.Kinds[pos] == 128 {
+            depth = depth - 1
+            if depth == 0 {
+                done = 1
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    if done == 0 {
+        return -1
+    }
+
+    return pos
+}
+
+func PrimaryConstructorParameterIndexOf(source: string, parameters: &PrimaryConstructorParameterTable, parameterCount: int, nameStart: int, nameLength: int): int {
+    i := 0
+    while i < parameterCount {
+        if ParserDeclarationSourceSpansEqual(source, parameters.NameStarts[i], parameters.NameLengths[i], nameStart, nameLength) {
+            return i
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
+func ParserDeclarationDefaultMemberAccessKind(): int {
+    return 1000
+}
+
+func ParserDeclarationDefaultDottedNameSupported(tokens: &ParserDeclarationTokenTable, startIndex: int, endIndex: int): bool {
+    if startIndex < 0 || endIndex <= startIndex || endIndex > tokens.Kinds.Length {
+        return false
+    }
+
+    identifierCount := 0
+    dotCount := 0
+    expectIdentifier := true
+    i := startIndex
+    while i < endIndex {
+        kind := tokens.Kinds[i]
+        if expectIdentifier {
+            if kind != 0 {
+                return false
+            }
+            identifierCount = identifierCount + 1
+            expectIdentifier = false
+        } else {
+            if kind != 124 {
+                return false
+            }
+            dotCount = dotCount + 1
+            expectIdentifier = true
+        }
+
+        i = i + 1
+    }
+
+    return !expectIdentifier && identifierCount >= 2 && dotCount >= 1
+}
+
+func ParsePrimaryConstructorParameterSpansCore(source: string, tokens: &ParserDeclarationTokenTable, count: int, leftParenIndex: int, parameters: &PrimaryConstructorParameterTable, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 1 || leftParenIndex < 0 || leftParenIndex >= count || tokens.Kinds[leftParenIndex] != 127 {
+        return -1
+    }
+
+    pos := leftParenIndex + 1
+    paramCount := 0
+    foundDefault := 0
+    typeResult := new ParserDeclarationResultTable { Values: new int[](2) }
+
+    while pos < count && tokens.Kinds[pos] != 128 {
+        if paramCount >= parameters.NameStarts.Length
+            || paramCount >= parameters.TypeStarts.Length
+            || paramCount >= parameters.DefaultKinds.Length {
+            return -1
+        }
+
+        if tokens.Kinds[pos] != 0 {
+            return -1
+        }
+        parameters.NameStarts[paramCount] = tokens.Starts[pos]
+        parameters.NameLengths[paramCount] = tokens.ValueLengths[pos]
+        pos = pos + 1
+
+        if pos >= count || tokens.Kinds[pos] != 122 {
+            return -1
+        }
+        pos = pos + 1
+
+        pos = ParseDeclarationTypeSpanCore(ref tokens, count, pos, ref typeResult)
+        if pos < 0 {
+            return -1
+        }
+        parameters.TypeStarts[paramCount] = typeResult.Values[0]
+        parameters.TypeLengths[paramCount] = typeResult.Values[1]
+        parameters.DefaultKinds[paramCount] = -1
+        parameters.DefaultStarts[paramCount] = -1
+        parameters.DefaultLengths[paramCount] = 0
+
+        if pos < count && tokens.Kinds[pos] == 93 {
+            foundDefault = 1
+            pos = pos + 1
+            if pos >= count {
+                return -1
+            }
+
+            defaultKind := tokens.Kinds[pos]
+            defaultStart := tokens.Starts[pos]
+            defaultLength := tokens.ValueLengths[pos]
+            defaultTokenStart := pos
+            defaultTokenCount := 0
+            defaultDepth := 0
+            keepSkipping := true
+            while keepSkipping && pos < count {
+                k := tokens.Kinds[pos]
+                if k == 127 || k == 131 || k == 129 {
+                    defaultDepth = defaultDepth + 1
+                    defaultTokenCount = defaultTokenCount + 1
+                    pos = pos + 1
+                } else if k == 128 || k == 132 || k == 130 {
+                    if defaultDepth == 0 {
+                        keepSkipping = false
+                    } else {
+                        defaultDepth = defaultDepth - 1
+                        defaultTokenCount = defaultTokenCount + 1
+                        pos = pos + 1
+                    }
+                } else if k == 134 && defaultDepth == 0 {
+                    keepSkipping = false
+                } else {
+                    defaultTokenCount = defaultTokenCount + 1
+                    pos = pos + 1
+                }
+            }
+
+            if defaultTokenCount == 1 && (defaultKind == 46 || defaultKind == 44 || defaultKind == 45 || defaultKind == 1 || defaultKind == 4) {
+                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            } else if ParserDeclarationDefaultDottedNameSupported(ref tokens, defaultTokenStart, pos) {
+                defaultKind = ParserDeclarationDefaultMemberAccessKind()
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
+            } else {
+                return -1
+            }
+
+            parameters.DefaultKinds[paramCount] = defaultKind
+            parameters.DefaultStarts[paramCount] = defaultStart
+            parameters.DefaultLengths[paramCount] = defaultLength
+        } else if foundDefault == 1 {
+            return -1
+        }
+
+        paramCount = paramCount + 1
+
+        if pos >= count || (tokens.Kinds[pos] != 134 && tokens.Kinds[pos] != 128) {
+            return -1
+        }
+
+        if tokens.Kinds[pos] == 134 {
+            pos = pos + 1
+        }
+    }
+
+    if pos >= count || tokens.Kinds[pos] != 128 {
+        return -1
+    }
+
+    result.Values[0] = pos + 1
+    return paramCount
+}
+
+func StructDeclarationFieldIndexOf(source: string, decl: &StructDeclarationTable, fieldCount: int, nameStart: int, nameLength: int): int {
+    i := 0
+    while i < fieldCount {
+        if ParserDeclarationSourceSpansEqual(source, decl.FieldNameStarts[i], decl.FieldNameLengths[i], nameStart, nameLength) {
+            return i
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
 // Parse one struct/class/record declaration into wrapper-owned declaration tables. The flattened
 // ParseStructDeclaration* ABIs live in the parity corpus; product callers compose this core directly.
-func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
+func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := structIndex
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
         return -1
@@ -1595,7 +1950,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // Comma 134, Greater 102): bare comma-separated Identifiers only, the same shape as a generic
     // FUNCTION signature's list. A declaration's list cannot nest, so no `>>` splitting is needed.
     // An inline constraint (`<T: Base>`), an empty list, or any other form returns -1 (the host
-    // declines to the C# path). Name spans go to outTypeParamStarts/Lengths; the count to
+    // declines to the N# backend path). Name spans go to outTypeParamStarts/Lengths; the count to
     // outResult[7] (0 with no `<`).
     typeParamCount := 0
     if pos < count && tokens.Kinds[pos] == 100 {
@@ -1628,6 +1983,29 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
         pos = pos + 1
     }
     result.Values[7] = typeParamCount
+
+    primaryParameters := new PrimaryConstructorParameterTable {
+        NameStarts: new int[](count + 1),
+        NameLengths: new int[](count + 1),
+        TypeStarts: new int[](count + 1),
+        TypeLengths: new int[](count + 1),
+        DefaultKinds: new int[](count + 1),
+        DefaultStarts: new int[](count + 1),
+        DefaultLengths: new int[](count + 1)
+    }
+    primaryResult := new ParserDeclarationResultTable { Values: new int[](1) }
+    primaryCtorParamCount := 0
+    primaryAssignedFlags := new int[](count + 1)
+    if pos < count && tokens.Kinds[pos] == 127 {
+        primaryCtorParamCount = ParsePrimaryConstructorParameterSpansCore(source, ref tokens, count, pos, ref primaryParameters, ref primaryResult)
+        if primaryCtorParamCount < 0 {
+            return -1
+        }
+        pos = primaryResult.Values[0]
+    }
+    if result.Values.Length > 9 {
+        result.Values[9] = primaryCtorParamCount
+    }
 
     // Optional BASE / INTERFACE LIST: `class D: Base, IFace {` or `struct S: IFace {` — a `:` (122) after
     // the type name followed by one or more comma-separated SINGLE Identifiers. Composed/generic bases are
@@ -1677,6 +2055,9 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     fieldsDone := 0
     memberModifierValues := new int[](2)
     memberModifiers := new ParserDeclarationResultTable { Values: memberModifierValues }
+    fieldTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    initializerTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    hasInstanceInitializer := 0
     while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 {
         memberStart := ParseMemberModifierPrefixCore(ref tokens, count, pos, ref memberModifiers)
         if memberStart < 0 || memberStart >= count {
@@ -1722,90 +2103,115 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             }
             pos = pos + 1
 
-            if pos >= count || tokens.Kinds[pos] != 0 {
+            pos = ParseDeclarationTypeSpanCore(ref tokens, count, pos, ref fieldTypeResult)
+            if pos < 0 {
                 return -1
             }
-            fieldTypeStart := tokens.Starts[pos]
-            fieldTypeEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
-            pos = pos + 1
-
-            // Optional balanced generic suffix `<...>` after the type name (`Items: List<int>`,
-            // `Dictionary<string, Pt>`, `List<List<Pt>>`): identifiers (0) and commas (134) only
-            // inside; Less (100) opens, Greater (102) closes one level, and a RightShift (112)
-            // closes TWO (the lexer never splits `>>` here — the span scan credits both). The
-            // recorded span covers the whole composed type; the host whitespace-strips it to the
-            // canonical form. Any other token inside the suffix is unmodelled (-1). TWO ADJACENT
-            // identifiers (`List<i nt>`) are a production parse ERROR that the host's whitespace
-            // strip would FUSE into a valid name (`int`) — reject them here (adversarial-review
-            // finding, probe-confirmed over-acceptance).
-            if pos < count && tokens.Kinds[pos] == 100 {
-                gdepth := 0
-                gdone := 0
-                gprevIdent := 0
-                while pos < count && gdone == 0 {
-                    gk := tokens.Kinds[pos]
-                    if gk == 100 {
-                        gdepth = gdepth + 1
-                        gprevIdent = 0
-                    } else if gk == 102 {
-                        gdepth = gdepth - 1
-                        if gdepth == 0 {
-                            gdone = 1
-                        }
-                        gprevIdent = 0
-                    } else if gk == 112 {
-                        gdepth = gdepth - 2
-                        if gdepth == 0 {
-                            gdone = 1
-                        }
-                        gprevIdent = 0
-                    } else if gk == 0 {
-                        if gprevIdent == 1 {
-                            return -1
-                        }
-                        gprevIdent = 1
-                    } else if gk == 134 {
-                        gprevIdent = 0
-                    } else {
-                        return -1
-                    }
-                    if gdepth < 0 {
-                        return -1
-                    }
-                    fieldTypeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
-                    pos = pos + 1
-                }
-                if gdone == 0 {
-                    return -1
-                }
-            }
-
-            // Optional postfix type suffixes: `[]`, `?`, and `?[]`. This keeps fields aligned with the
-            // type-reference kernel for the table-wrapper migration while still refusing tuple/function
-            // types and any malformed suffix.
-            suffixDone := 0
-            while suffixDone == 0 && pos < count {
-                if pos + 1 < count && tokens.Kinds[pos] == 131 && tokens.Kinds[pos + 1] == 132 {
-                    fieldTypeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
-                    pos = pos + 2
-                } else if pos + 1 < count && tokens.Kinds[pos] == 119 && tokens.Kinds[pos + 1] == 132 {
-                    fieldTypeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
-                    pos = pos + 2
-                } else if tokens.Kinds[pos] == 115 {
-                    fieldTypeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
-                    pos = pos + 1
-                } else {
-                    suffixDone = 1
-                }
-            }
-            decl.FieldTypeStarts[fieldCount] = fieldTypeStart
-            decl.FieldTypeLengths[fieldCount] = fieldTypeEnd - fieldTypeStart
+            decl.FieldTypeStarts[fieldCount] = fieldTypeResult.Values[0]
+            decl.FieldTypeLengths[fieldCount] = fieldTypeResult.Values[1]
             decl.FieldStaticFlags[fieldCount] = memberModifiers.Values[0]
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
 
+            if pos < count && tokens.Kinds[pos] == 129 {
+                decl.PropIndices[propCount] = memberStart
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+                propCount = propCount + 1
+
+                pdepth := 0
+                pdone := 0
+                while pos < count && pdone == 0 {
+                    if tokens.Kinds[pos] == 129 {
+                        pdepth = pdepth + 1
+                    } else if tokens.Kinds[pos] == 130 {
+                        pdepth = pdepth - 1
+                        if pdepth == 0 {
+                            pdone = 1
+                        }
+                    }
+                    pos = pos + 1
+                }
+                if pdone == 0 {
+                    return -1
+                }
+                continue
+            }
+
+            if pos < count && tokens.Kinds[pos] == 120 {
+                decl.PropIndices[propCount] = memberStart
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+                propCount = propCount + 1
+                pos = ParseDeclarationExpressionBodyEndCore(ref tokens, count, pos)
+                if pos < 0 {
+                    return -1
+                }
+                continue
+            }
+
+            if pos < count && tokens.Kinds[pos] == 93 {
+                pos = pos + 1
+                if pos >= count {
+                    return -1
+                }
+
+                initKind := tokens.Kinds[pos]
+                initStart := tokens.Starts[pos]
+                initLength := tokens.ValueLengths[pos]
+                if initKind == 0 {
+                    paramIndex := PrimaryConstructorParameterIndexOf(source, ref primaryParameters, primaryCtorParamCount, initStart, initLength)
+                    if paramIndex < 0 {
+                        initEnd := ParseDeclarationSimpleInitializerEndCore(ref tokens, count, pos, ref initializerTypeResult)
+                        if initEnd < 0 {
+                            return -1
+                        }
+                        initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
+                        pos = initEnd - 1
+                    } else {
+                        primaryAssignedFlags[paramIndex] = 1
+                    }
+                } else if initKind != 46 && initKind != 44 && initKind != 45 && initKind != 1 && initKind != 4 {
+                    initEnd := ParseDeclarationSimpleInitializerEndCore(ref tokens, count, pos, ref initializerTypeResult)
+                    if initEnd < 0 {
+                        return -1
+                    }
+                    initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
+                    pos = initEnd - 1
+                }
+                if memberModifiers.Values[0] == 1 {
+                    if initKind == 0 || initKind == 41 {
+                        return -1
+                    }
+                    decl.FieldInitKinds[fieldCount] = initKind
+                    decl.FieldInitStarts[fieldCount] = initStart
+                    decl.FieldInitLengths[fieldCount] = initLength
+                } else {
+                    hasInstanceInitializer = 1
+                }
+                pos = pos + 1
+            }
+
             fieldCount = fieldCount + 1
+        }
+    }
+
+    if (tokens.Kinds[structIndex] == 8 || tokens.Kinds[structIndex] == 13) && primaryCtorParamCount > 0 {
+        paramIndex := 0
+        while paramIndex < primaryCtorParamCount {
+            if primaryAssignedFlags[paramIndex] == 0
+                && StructDeclarationFieldIndexOf(source, ref decl, fieldCount, primaryParameters.NameStarts[paramIndex], primaryParameters.NameLengths[paramIndex]) < 0 {
+                decl.FieldNameStarts[fieldCount] = primaryParameters.NameStarts[paramIndex]
+                decl.FieldNameLengths[fieldCount] = primaryParameters.NameLengths[paramIndex]
+                decl.FieldTypeStarts[fieldCount] = primaryParameters.TypeStarts[paramIndex]
+                decl.FieldTypeLengths[fieldCount] = primaryParameters.TypeLengths[paramIndex]
+                decl.FieldStaticFlags[fieldCount] = 0
+                decl.FieldInitKinds[fieldCount] = -1
+                decl.FieldInitStarts[fieldCount] = -1
+                decl.FieldInitLengths[fieldCount] = 0
+                fieldCount = fieldCount + 1
+            }
+
+            paramIndex = paramIndex + 1
         }
     }
 
@@ -1820,6 +2226,11 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // A member with no `{` body declines.
     methodCount := 0
     ctorCount := 0
+    syntheticCtorNeeded := primaryCtorParamCount > 0 || hasInstanceInitializer == 1
+    if syntheticCtorNeeded {
+        decl.CtorIndices[ctorCount] = structIndex
+        ctorCount = ctorCount + 1
+    }
     while pos < count && tokens.Kinds[pos] != 130 {
         memberStart := ParseMemberModifierPrefixCore(ref tokens, count, pos, ref memberModifiers)
         if memberStart < 0 || memberStart >= count {
@@ -1835,6 +2246,9 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             if memberModifiers.Values[0] == 1 {
                 return -1
             }
+            if syntheticCtorNeeded {
+                return -1
+            }
             decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
             pos = memberStart + 1
@@ -1842,8 +2256,15 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             return -1
         }
 
-        while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 {
+        while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 120 {
             pos = pos + 1
+        }
+        if pos < count && tokens.Kinds[pos] == 120 {
+            pos = ParseDeclarationExpressionBodyEndCore(ref tokens, count, pos)
+            if pos < 0 {
+                return -1
+            }
+            continue
         }
         if pos >= count || tokens.Kinds[pos] != 129 {
             return -1
@@ -1876,6 +2297,24 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     return fieldCount
 }
 
+func ParseDeclarationExpressionBodyEndCore(tokens: &ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
+    if arrowIndex < 0 || arrowIndex >= count || tokens.Kinds[arrowIndex] != 120 {
+        return -1
+    }
+
+    expressionTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    argStack := new ParserArgumentStack { Values: new int[](count + 1) }
+    nodes := new ParserExpressionNodeTable { Kinds: new int[](count + 1), ValueStarts: new int[](count + 1), ValueLengths: new int[](count + 1), ChildStart: new int[](count + 1), ChildCount: new int[](count + 1), SpanStarts: new int[](count + 1), SpanLengths: new int[](count + 1) }
+    children := new ParserChildIndexTable { Indices: new int[](count + 1) }
+    st := new ParserState { Pos: arrowIndex + 1, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
+    valueRoot := ParseLambdaOrAssignmentExpressionNode(ref expressionTokens, count, ref st, ref argStack, ref nodes, ref children, 0)
+    if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
+        return -1
+    }
+
+    return st.Pos
+}
+
 // Parse a CONSTRUCTOR's chaining initializer `: this(args)` / `: base(args)`, given the constructor's identifier
 // token index (`ctorIndex`, the "constructor" identifier). Scans past the param list `(...)` (balanced) to the
 // optional `:`; with no `:` (or no `(` params) returns 0 with outResult[0] = 0 (no initializer). For `: this(`
@@ -1884,7 +2323,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
 // (134), closed by `)` (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base);
 // outResult[1] = the constructor BODY `{` token index, or -1 if it is missing. Returns the chained-arg count, or
 // -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression / string /
-// other literal — the host declines such a chaining ctor to the C# path).
+// other literal — the host declines such a chaining ctor to the N# backend path).
 // Product constructor-chain core. Flattened ParseConstructor*Into ABIs live in the parity corpus;
 // product callers compose this core through ParserConstructorSignatures.nl.
 func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, result: &ParserDeclarationResultTable): int {
@@ -1980,7 +2419,7 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
 // how many fields that case contributed (so the host re-segments the flat field arrays per case). Returns the case
 // count, or -1 on any unexpected token — a bare case with no `{` body, a primary-ctor `(`, a composed/array/generic
 // field type (a non-Identifier after `:`), a field initializer, a missing name/colon/brace, or an empty union — so
-// the host declines the whole program to the C# path. Slice scope: unions whose case fields are single
+// the host declines the whole program to the N# backend path. Slice scope: unions whose case fields are single
 // builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
 func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := unionIndex

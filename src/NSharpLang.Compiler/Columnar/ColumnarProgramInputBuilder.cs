@@ -13,7 +13,9 @@ internal static class ColumnarProgramInputBuilder
         program = null!;
         var bindings = s_bindings.Value;
         if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+        {
             return false;
+        }
 
         var n = tokens.Count;
         var funcIndices = new int[n + 1];
@@ -43,18 +45,30 @@ internal static class ColumnarProgramInputBuilder
             structRecordFlags,
             declarationResult);
         if (declarationRowCount < 0)
+        {
             return false;
+        }
 
         if (!TryGetColumnarFunctionInputs(bindings, source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))
+        {
             return false;
+        }
         if (!TryGetColumnarEnumInputs(bindings, source, tokens, enumIndices, declarationResult[2], out var enums))
+        {
             return false;
+        }
         if (!TryGetColumnarStructInputs(bindings, source, tokens, structIndices, structReferenceFlags, structRecordFlags, declarationResult[5], out var structs))
+        {
             return false;
+        }
         if (!TryGetColumnarUnionInputs(bindings, source, tokens, unionIndices, declarationResult[3], out var unions))
+        {
             return false;
+        }
         if (!TryGetColumnarInterfaceInputs(bindings, source, tokens, interfaceIndices, declarationResult[4], out var interfaceInputs))
+        {
             return false;
+        }
 
         program = new ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
         return true;
@@ -135,7 +149,9 @@ internal static class ColumnarProgramInputBuilder
                 var memberCount = bindings.ParseColumnarEnumInfo(
                     source, ck, cs, cv, n, enumIndex, outNameTexts, outMemberValues, outEnumNameTexts, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
+                {
                     return false;
+                }
 
                 var enumName = outEnumNameTexts[0];
                 var memberNames = new string[memberCount];
@@ -185,14 +201,16 @@ internal static class ColumnarProgramInputBuilder
                 var outTypeParamTexts = new string[cap];
                 var outBaseNameTexts = new string[cap];
                 var outStructNameTexts = new string[1];
-                var outResult = new int[12];
+                var outResult = new int[10];
                 var fieldCount = bindings.ParseColumnarStructInfo(
                     source, ck, cs, cv, n, structIndex, isReference ? 1 : 0, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
                     outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
                     outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outResult);
                 if (fieldCount < 0 || outResult[1] <= 0)
+                {
                     return false;
+                }
 
                 var structName = outStructNameTexts[0];
 
@@ -241,7 +259,9 @@ internal static class ColumnarProgramInputBuilder
                 for (var m = 0; m < methodCount; m++)
                 {
                     if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: outMethodStaticFlags[m] == 1))
+                    {
                         return false;
+                    }
                     methods.Add(methodInput);
                 }
 
@@ -250,7 +270,9 @@ internal static class ColumnarProgramInputBuilder
                 for (var c = 0; c < ctorCount; c++)
                 {
                     if (!TryParseColumnarConstructorAt(bindings, ck, cs, cv, n, outCtorIndices[c], source, out var ctorInput))
+                    {
                         return false;
+                    }
                     constructors.Add(ctorInput);
                 }
 
@@ -259,7 +281,9 @@ internal static class ColumnarProgramInputBuilder
                 for (var pr = 0; pr < propCount; pr++)
                 {
                     if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput, isStatic: outPropStaticFlags[pr] == 1))
+                    {
                         return false;
+                    }
                     properties.Add(propInput);
                 }
 
@@ -295,16 +319,17 @@ internal static class ColumnarProgramInputBuilder
                     source, ck, cs, cv, n, unionIndex, outCaseNameTexts, outCaseFieldCounts,
                     outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
+                {
                     return false;
+                }
 
                 var unionName = outUnionNameTexts[0];
 
                 var typeParamCount = outResult[2];
 
                 // Stage 6 union-ABI ownership: a small, closed, payload-free, non-generic union is the public
-                // allocation-free readonly tag struct (UnionValueLayout.IsValueStructEmittable →
-                // DeclareValueStructUnion; ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct pins
-                // IsValueType==true). The columnar emitter now OWNS this layout (ColumnarIlEmitter emits the tag
+                // allocation-free readonly tag struct (UnionValueLayout.IsValueStructEmittable). The
+                // columnar emitter now OWNS this layout (ColumnarIlEmitter emits the tag
                 // struct directly), so this flag selects the value-struct emit path instead of the class-hierarchy
                 // one — preserving the public value-struct ABI on the columnar-routed build. The eligibility
                 // decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
@@ -360,6 +385,10 @@ internal static class ColumnarProgramInputBuilder
         var returnTypeTexts = new string[1];
         var paramNameTexts = new string[cap];
         var paramTypeTexts = new string[cap];
+        var paramModifierKinds = new int[cap];
+        var paramDefaultKinds = new int[cap];
+        var paramDefaultTexts = new string[cap];
+        Array.Fill(paramDefaultKinds, -1);
         var paramTupleNameCounts = new int[cap];
         var paramTupleNameTexts = new string[cap];
         var returnTupleNameTexts = new string[cap];
@@ -380,17 +409,23 @@ internal static class ColumnarProgramInputBuilder
         var result = new int[9];
         var paramCount = bindings.ParseColumnarProductFunctionInfo(
             source, ck, cs, cv, n, funcIndex, isLocalFunction ? 1 : 0, functionNameTexts, returnTypeTexts,
-            paramNameTexts, paramTypeTexts, paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
+            paramNameTexts, paramTypeTexts, paramModifierKinds, paramDefaultKinds, paramDefaultTexts,
+            paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
             typeParamTexts, typeParamSpecials, typeParamConstraintCounts, typeParamConstraintTypeTexts,
             bk, bvs, bvl, bcs, bcc, bci, bss, bsl, localFunctionNodeIndices, localFunctionTokenIndices, result);
         if (paramCount < 0)
+        {
             return false;
+        }
 
         var functionName = functionNameTexts[0];
         var returnCanonical = returnTypeTexts[0];
 
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
+        var parsedParamModifierKinds = new int[paramCount];
+        var parsedParamDefaultKinds = new int[paramCount];
+        var parsedParamDefaultTexts = new string?[paramCount];
         string[]?[]? paramTupleNames = null;
         var flatParamTupleNameIndex = 0;
         for (var p = 0; p < paramCount; p++)
@@ -399,6 +434,9 @@ internal static class ColumnarProgramInputBuilder
             var paramType = paramTypeTexts[p];
             paramNames[p] = paramName;
             paramCanonicals[p] = paramType;
+            parsedParamModifierKinds[p] = paramModifierKinds[p];
+            parsedParamDefaultKinds[p] = paramDefaultKinds[p];
+            parsedParamDefaultTexts[p] = paramDefaultKinds[p] >= 0 ? paramDefaultTexts[p] : null;
             var tupleNameCount = paramTupleNameCounts[p];
             if (tupleNameCount < 0 || flatParamTupleNameIndex + tupleNameCount > paramTupleNameTexts.Length)
                 return false;
@@ -422,7 +460,7 @@ internal static class ColumnarProgramInputBuilder
         }
 
         var bodyBrace = result[1];
-        if (bodyBrace < 0 || bodyBrace >= n || ck[bodyBrace] != 129)
+        if (bodyBrace < 0 || bodyBrace >= n || (ck[bodyBrace] != 129 && ck[bodyBrace] != 120))
             return false;
 
         var typeParamNames = Array.Empty<string>();
@@ -467,23 +505,31 @@ internal static class ColumnarProgramInputBuilder
         var rootBlock = result[6];
         var bodyNodeCount = result[7];
         if (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount)
+        {
             return false;
+        }
 
-        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
+        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl);
         input = new ColumnarFunctionInput(
             functionName, returnCanonical, paramNames, paramCanonicals,
             bodyNodes, rootBlock, isStatic, typeParamNames,
             parsedTypeParamSpecials, typeParamTypeConstraints,
             returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
+            paramModifierKinds: parsedParamModifierKinds,
+            paramDefaultKinds: parsedParamDefaultKinds, paramDefaultTexts: parsedParamDefaultTexts,
             isAsync: isAsync);
 
         var localFunctionCount = result[8];
         if (localFunctionCount < 0 || localFunctionCount > localFunctionNodeIndices.Length)
+        {
             return false;
+        }
         for (var lf = 0; lf < localFunctionCount; lf++)
         {
             if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn, isLocalFunction: true))
+            {
                 return false;
+            }
             (input.LocalFunctions ??= []).Add((localFunctionNodeIndices[lf], localFn));
         }
         return true;
@@ -494,7 +540,7 @@ internal static class ColumnarProgramInputBuilder
         out ColumnarConstructorInput input)
     {
         input = null!;
-        var cap = n + 1;
+        var cap = (n + 1) * 4;
         var paramNameTexts = new string[cap];
         var paramTypeTexts = new string[cap];
         var caKinds = new int[cap];
@@ -515,44 +561,67 @@ internal static class ColumnarProgramInputBuilder
             paramNameTexts, paramTypeTexts, caKinds, caStarts, caLengths, caTexts,
             bk, bvs, bvl, bcs, bcc, bci, bss, bsl, ctorResult);
         if (paramCount < 0)
+        {
             return false;
+        }
 
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
+        var parsedParamDefaultKinds = new int[paramCount];
+        var parsedParamDefaultTexts = new string?[paramCount];
         for (var p = 0; p < paramCount; p++)
         {
             var paramName = paramNameTexts[p];
             paramNames[p] = paramName;
             var paramCanonical = paramTypeTexts[p];
             paramCanonicals[p] = paramCanonical;
+            parsedParamDefaultKinds[p] = caKinds[p];
+            parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : null;
         }
 
         var bodyBrace = ctorResult[1];
         if (bodyBrace < 0 || bodyBrace >= n || ck[bodyBrace] != 129)
+        {
             return false;
+        }
         var chainArgCount = ctorResult[3];
         if (chainArgCount < 0)
+        {
             return false;
+        }
 
         var bodyRoot = ctorResult[4];
         var bodyNodeCount = ctorResult[5];
         if (bodyNodeCount <= 0 || bodyRoot < 0 || bodyRoot >= bodyNodeCount)
+        {
             return false;
+        }
 
         var chainArgKinds = new int[chainArgCount];
         var chainArgTexts = new string[chainArgCount];
         for (var a = 0; a < chainArgCount; a++)
         {
-            chainArgKinds[a] = caKinds[a];
-            var chainArgText = caTexts[a];
+            var chainArgIndex = paramCount + a;
+            chainArgKinds[a] = caKinds[chainArgIndex];
+            var chainArgText = caTexts[chainArgIndex];
             chainArgTexts[a] = chainArgText;
         }
 
-        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
+        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl);
         var body = new ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
             bodyNodes, bodyRoot);
-        input = new ColumnarConstructorInput(body, ctorResult[0], chainArgKinds, chainArgTexts);
+        var isSynthesizedInitializer = ctorIndex >= 0
+            && ctorIndex < n
+            && (ck[ctorIndex] == 8 || ck[ctorIndex] == 9 || ck[ctorIndex] == 13);
+        input = new ColumnarConstructorInput(
+            body,
+            ctorResult[0],
+            chainArgKinds,
+            chainArgTexts,
+            parsedParamDefaultKinds,
+            parsedParamDefaultTexts,
+            isSynthesizedInitializer);
         return true;
     }
 
@@ -587,19 +656,25 @@ internal static class ColumnarProgramInputBuilder
             stk, stvs, stvl, stcs, stcc, stci, stss, stsl,
             propInfo);
         if (accessorKind < 0)
+        {
             return false;
+        }
 
         var propName = propNameTexts[0];
         var propType = propTypeTexts[0];
 
         var getBodyBrace = propInfo[4];
-        if (getBodyBrace < 0 || getBodyBrace >= n || ck[getBodyBrace] != 129)
+        if (getBodyBrace < 0 || getBodyBrace >= n || (ck[getBodyBrace] != 129 && ck[getBodyBrace] != 120))
+        {
             return false;
+        }
         var getBodyRoot = propInfo[6];
         var getBodyNodeCount = propInfo[7];
         if (getBodyNodeCount <= 0 || getBodyRoot < 0 || getBodyRoot >= getBodyNodeCount)
+        {
             return false;
-        var getterNodes = new ColumnarNodeTable(gk, gvs, gvl, gcs, gcc, gci);
+        }
+        var getterNodes = new ColumnarNodeTable(gk, gvs, gvl, gcs, gcc, gci, gss, gsl);
         var getter = new ColumnarFunctionInput(
             "get_" + propName, propType, Array.Empty<string>(), Array.Empty<string>(),
             getterNodes, getBodyRoot);
@@ -609,12 +684,16 @@ internal static class ColumnarProgramInputBuilder
         {
             var setBodyBrace = propInfo[5];
             if (setBodyBrace < 0 || setBodyBrace >= n || ck[setBodyBrace] != 129)
+            {
                 return false;
+            }
             var setBodyRoot = propInfo[8];
             var setBodyNodeCount = propInfo[9];
             if (setBodyNodeCount <= 0 || setBodyRoot < 0 || setBodyRoot >= setBodyNodeCount)
+            {
                 return false;
-            var setterNodes = new ColumnarNodeTable(stk, stvs, stvl, stcs, stcc, stci);
+            }
+            var setterNodes = new ColumnarNodeTable(stk, stvs, stvl, stcs, stcc, stci, stss, stsl);
             setter = new ColumnarFunctionInput(
                 "set_" + propName, "void", ["value"], [propType],
                 setterNodes, setBodyRoot);
@@ -772,7 +851,9 @@ internal static class ColumnarProgramInputBuilder
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex, int isLocalFunction,
         string[] outFunctionNameTexts, string[] outReturnTypeTexts,
-        string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
+        string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamModifierKinds,
+        int[] outParamDefaultKinds, string[] outParamDefaultTexts,
+        int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
         string[] outReturnTupleNameTexts, string[] outTypeParamTexts, int[] outTypeParamSpecials,
         int[] outTypeParamConstraintCounts, string[] outTypeParamConstraintTypeTexts,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,

@@ -24,7 +24,12 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
     RelatedInfo: Dictionary<string, string>?
     DiagnosticIdOverride: string?
 
-    DiagnosticId: string => DiagnosticIdOverride ?? "NL" + Convert.ToInt32(Code).ToString("D3")
+    DiagnosticId: string => DiagnosticIdOverride ?? BuildDefaultDiagnosticId()
+
+    func BuildDefaultDiagnosticId(): string {
+        codeValue: int = (int)Code
+        return "NL" + codeValue.ToString("D3")
+    }
 
     public func FormatForTooling(includeCode: bool = true, includeLocation: bool = false): string {
         builder := new StringBuilder()

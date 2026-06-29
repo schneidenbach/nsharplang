@@ -4,26 +4,26 @@ import System
 import System.Diagnostics
 import System.IO
 
+public class DotnetRunResult {
+    public ExitCode: int
+    public Stdout: string
+    public Stderr: string
+
+    constructor(exitCode: int, stdout: string, stderr: string) {
+        ExitCode = exitCode
+        Stdout = stdout
+        Stderr = stderr
+    }
+}
+
 public class DotnetRunner {
     public static DefaultTimeout: TimeSpan => TimeSpan.FromMinutes(5)
-
-    public class RunResult {
-        public ExitCode: int
-        public Stdout: string
-        public Stderr: string
-
-        constructor(exitCode: int, stdout: string, stderr: string) {
-            ExitCode = exitCode
-            Stdout = stdout
-            Stderr = stderr
-        }
-    }
 
     public static func Run(
         arguments: string,
         workingDirectory: string? = null,
         captureOutput: bool = true,
-        timeout: TimeSpan? = null): DotnetRunner.RunResult {
+        timeout: TimeSpan? = null): DotnetRunResult {
         return RunProcessCore("dotnet", arguments, workingDirectory, captureOutput, timeout)
     }
 
@@ -48,7 +48,7 @@ public class DotnetRunner {
         fileName: string,
         arguments: string,
         workingDirectory: string? = null,
-        timeout: TimeSpan? = null): DotnetRunner.RunResult {
+        timeout: TimeSpan? = null): DotnetRunResult {
         return RunProcessCore(fileName, arguments, workingDirectory, true, timeout)
     }
 
@@ -57,7 +57,7 @@ public class DotnetRunner {
         arguments: string,
         workingDirectory: string?,
         captureOutput: bool,
-        timeout: TimeSpan?): DotnetRunner.RunResult {
+        timeout: TimeSpan?): DotnetRunResult {
         psi := BuildPsi(fileName, arguments, workingDirectory)
         psi.RedirectStandardOutput = captureOutput
         psi.RedirectStandardError = captureOutput
@@ -68,7 +68,7 @@ public class DotnetRunner {
 
         if !captureOutput {
             process.WaitForExit()
-            result := new DotnetRunner.RunResult(process.ExitCode, "", "")
+            result := new DotnetRunResult(process.ExitCode, "", "")
             process.Dispose()
             return result
         }
@@ -94,7 +94,7 @@ public class DotnetRunner {
 
         process.WaitForExit()
 
-        result := new DotnetRunner.RunResult(
+        result := new DotnetRunResult(
             process.ExitCode,
             stdoutTask.Result,
             stderrTask.Result)

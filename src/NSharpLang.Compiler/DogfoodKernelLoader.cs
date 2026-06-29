@@ -17,9 +17,15 @@ internal static class DogfoodKernelLoader
     internal static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
         where TDelegate : Delegate
     {
+        var invoke = typeof(TDelegate).GetMethod(nameof(Action.Invoke))
+            ?? throw new MissingMethodException(typeof(TDelegate).FullName, nameof(Action.Invoke));
+        var parameterTypes = Array.ConvertAll(invoke.GetParameters(), parameter => parameter.ParameterType);
         var method = programType.GetMethod(
                 methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static,
+                binder: null,
+                types: parameterTypes,
+                modifiers: null)
             ?? throw new MissingMethodException(programType.FullName, methodName);
 
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);

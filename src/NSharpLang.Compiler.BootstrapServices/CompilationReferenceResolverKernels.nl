@@ -15,9 +15,6 @@ public class TargetFrameworkVersionParseResult {
         this.Minor = Minor
     }
 
-    public static implicit operator ValueTuple<bool, int, int>(value: TargetFrameworkVersionParseResult) {
-        return (value.Parsed, value.Major, value.Minor)
-    }
 }
 
 public class CompilationReferenceResolverKernels {

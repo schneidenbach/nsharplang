@@ -6,10 +6,10 @@ public class ImportDirective {
     Line: int
     Column: int
 
-    constructor(Namespace: string, Alias: string?, Line: int, Column: int) {
-        this.Namespace = Namespace
-        this.Alias = Alias
-        this.Line = Line
-        this.Column = Column
+    constructor(namespaceName: string, alias: string?, line: int, column: int) {
+        this.Namespace = namespaceName
+        this.Alias = alias
+        this.Line = line
+        this.Column = column
     }
 }

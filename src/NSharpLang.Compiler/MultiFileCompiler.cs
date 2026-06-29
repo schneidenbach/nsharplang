@@ -11,6 +11,7 @@ namespace NSharpLang.Compiler;
 
 /// <summary>
 /// Handles compilation of multiple .nl files into a single assembly.
+/// Uses a shared parse/analyze pipeline for analysis and IL emission.
 /// </summary>
 public class MultiFileCompiler
 {
@@ -38,6 +39,7 @@ public class MultiFileCompiler
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
     /// These expose the intermediate products of compilation (ASTs, semantic models)
+    /// without requiring IL emission.
     /// </summary>
     public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
     public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
@@ -50,11 +52,13 @@ public class MultiFileCompiler
     /// <summary>
     /// The project-level semantic index built from all analyzed files.
     /// Contains the merged BindingMap and type-declaration-to-file mapping.
+    /// Available after <see cref="CompileForAnalysis"/> or <see cref="CompileToIlAssembly"/> completes.
     /// </summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
     /// <summary>
     /// Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
+    /// source position. Populated by <see cref="CompileForAnalysis"/> and <see cref="CompileToIlAssembly"/>.
     /// </summary>
     public PerformanceFactStore PerformanceFacts => _performanceFacts;
 
@@ -76,7 +80,7 @@ public class MultiFileCompiler
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
         : this(projectRoot, config, sourceTextOverrides: null)
     {
-    }
+}
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
         : this(BuildSourceFiles(projectRoot, config ?? ProjectFileParser.CreateDefault(), sourceTextOverrides), projectRoot, config, sourceTextOverrides)
@@ -111,7 +115,7 @@ public class MultiFileCompiler
     /// evaluation, seeded from <c>project.yml</c> <c>defines:</c>. The CLI folds
     /// build-configuration symbols (e.g. <c>DEBUG</c>) and <c>--define</c> values
     /// into the same list before constructing the compiler. Symbols are
-    /// case-sensitive, matching C# preprocessor semantics.
+    /// case-sensitive, matching N# preprocessor semantics.
     /// </summary>
     private static IReadOnlySet<string> BuildPreprocessorSymbols(ProjectConfig config)
     {
@@ -477,7 +481,7 @@ public class MultiFileCompiler
                 // Use the shared analyzer (assemblies already loaded in constructor)
                 var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile));
 
-                // Save semantic model for project-wide tooling.
+                // Save semantic model for project-wide analysis and emission.
                 _semanticModels[sourceFile] = result.SemanticModel;
 
                 // Merge binding map for cross-file semantic references
@@ -611,7 +615,7 @@ public class MultiFileCompiler
                 return new MultiFileCompilationResult(
                     false,
                     _allErrors,
-                    null);
+                null);
             }
         }
 
@@ -628,6 +632,9 @@ public class MultiFileCompiler
 
         {
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
+
+            // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
+            // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
                 if (AotMode)
@@ -652,6 +659,13 @@ public class MultiFileCompiler
             success ? outputPath : null);
     }
 
+    // Try to emit the whole assembly via the standalone columnar backend. The assembly is
+    // `assemblyName` and the type is "Program". A SINGLE source routes through the single-file entry; MULTIPLE sources route through the
+    // multi-file merge, which unifies the files into one columnar program so cross-file public calls resolve
+    // exactly as analyzer declaration resolution works across files. Returns false when there are no files,
+    // a source text is unavailable, or the backend declines any function (a construct outside the systems
+    // subset it models). The program has already been parsed and analyzed by this point, so the columnar
+    // backend only does codegen on validated input.
     private bool TryEmitWithColumnarBackend(string assemblyName, string outputPath)
     {
         if (_sourceFiles.Count == 0)
@@ -686,10 +700,10 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
+            HumanExplanation = "AOT builds require successful N# columnar emission after analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
         });
     }
-
 
     private void AddRequiredColumnarEmissionError(string assemblyName)
     {
@@ -700,6 +714,7 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
+            HumanExplanation = "This product path requires successful N# columnar emission after analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
         });
     }
@@ -727,6 +742,8 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
+            HumanExplanation = "Experimental SoA records are the compiler table migration path and require successful N# columnar emission.",
+            Suggestion = "Port the rejected table shape to the columnar backend, or disable NSHARP_EXPERIMENTAL_SOA until that shape is supported."
         });
     }
 
@@ -755,6 +772,11 @@ public class MultiFileCompiler
         return string.Equals(value, "1", StringComparison.Ordinal) ||
             string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
+
+    private string GetProjectAssemblyName()
+        => !string.IsNullOrWhiteSpace(_config?.Name)
+            ? _config!.Name!
+            : Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_projectRoot))) ?? "Project";
 
     private void AppendDebugLog(string message)
     {

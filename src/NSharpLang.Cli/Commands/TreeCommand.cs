@@ -230,7 +230,7 @@ public static class TreeCommand
         return null;
     }
 
-    static string GetDotnetListFailureDetail(DotnetRunner.RunResult result)
+    static string GetDotnetListFailureDetail(DotnetRunResult result)
     {
         if (!string.IsNullOrWhiteSpace(result.Stderr))
             return result.Stderr.Trim();

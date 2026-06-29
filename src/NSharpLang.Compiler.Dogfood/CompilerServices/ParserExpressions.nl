@@ -5,7 +5,7 @@ import "CompilerServices/ParserTypeReferences"
 // the expression node table + the recursive structure with PRIMARY expressions only; later slices layer on
 // postfix (call/index/member), unary, and the binary-operator precedence chain.
 //
-// Supported this slice (matching the concrete C# Expression nodes from ParsePrimaryExpression):
+// Supported this slice (matching the concrete expression node ABI):
 //   IntLiteralExpression    -> kind 0   (IntLiteral token 1)
 //   FloatLiteralExpression  -> kind 1   (FloatLiteral token 2)
 //   CharLiteralExpression   -> kind 2   (CharLiteral token 3)
@@ -93,6 +93,8 @@ import "CompilerServices/ParserTypeReferences"
 //                                         [operand]. )
 //   RefOutArgument          -> kind 54  ( `ref <expr>` / `out <expr>` inside a call argument list; the
 //                                         modifier token lives in the value span, ONE child [target]. )
+//   TypeOfExpression        -> kind 55  ( `typeof(Type)` (Typeof 49) -- ONE child [typeRoot], where the child is a
+//                                         TYPE-kernel subtree. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -160,8 +162,7 @@ func ParseExpressionTypeReferenceNode(tokens: &ParserTokenTable, count: int, st:
 
 // Mirrors Parser.cs IsExpressionStart: the set of token kinds that can begin an expression. Used by the cast
 // detection in ParsePrimaryExpressionNode to disambiguate `( <type> ) <expr>` (a hard cast) from a
-// parenthesized expression -- the C# parser only treats `(...)` as a cast when an expression-start token
-// follows the `)`. Kinds (TokenType ordinals, see Token.cs): Identifier 0, IntLiteral 1, FloatLiteral 2,
+// parenthesized expression. Kinds (TokenType ordinals, see Token.cs): Identifier 0, IntLiteral 1, FloatLiteral 2,
 // CharLiteral 3, StringLiteral 4, TripleQuoteStringLiteral 5, InterpolatedRawStringLiteral 6, Must 20,
 // Match 31, Default 34, Throw 37, New 41, This 42, Base 43, True 44, False 45, Null 46, Typeof 49, Nameof 50,
 // Sizeof 51, Await 69, Immutable 70, Checked 83, Unchecked 84, Plus 88, Minus 89, Not 106, BitwiseNot 110,
@@ -177,8 +178,7 @@ func IsExpressionStartKind(kind: int): bool {
 // `lessPos`, scan a candidate TYPE-ARGUMENT list — identifiers, dots (124), array brackets (131/132), commas
 // (134), and nested `<`(100)/`>`(102)/`>>`(112) — and answer true ONLY when the matching close is followed
 // DIRECTLY by `(` (127). Anything else (an operator, a literal, a `)` …) means the `<` is a comparison, not a
-// type-argument list — exactly the C# parser's rule, so the kernel commits to a generic call precisely where
-// the production parser does.
+// type-argument list, so the kernel commits to a generic call only for the production generic-call shape.
 func IsGenericCallTypeArgs(tokens: &ParserTokenTable, count: int, lessPos: int): bool {
     i := lessPos + 1
     depth := 1
@@ -211,7 +211,7 @@ func IsGenericCallTypeArgs(tokens: &ParserTokenTable, count: int, lessPos: int):
     return false
 }
 
-// Parse a match-case PATTERN with C# pattern precedence (Parser.cs ParsePattern): or > and > not > relational >
+// Parse a match-case PATTERN with N# pattern precedence: or > and > not > relational >
 // primary. Returns the root node index, or -1 on failure. `and` 55 / `or` 56 / `not` 57 are CONTEXTUAL keywords
 // valid only in pattern position. Combinators: OrPattern kind 34 [left,right], AndPattern kind 33 [left,right],
 // NotPattern kind 35 [inner]; leaves are a RelationalPattern (kind 32) or an ordinary primary (literal/identifier).
@@ -304,8 +304,7 @@ func ParseRelationalPatternNode(tokens: &ParserTokenTable, count: int, st: &Pars
         }
     }
     // The non-relational pattern leaf is a POSTFIX expression (not just a primary): this is what lets an enum
-    // constant `Enum.Member` parse as a MemberAccess (kind 8) in pattern position — the columnar analogue of C#'s
-    // ParseRelationalPattern falling back to ParsePrimaryExpression (which in C# includes postfix member access). A
+    // constant `Enum.Member` parse as a MemberAccess (kind 8) in pattern position. A
     // literal/identifier still parses as before (no postfix to apply); a call/index parses but the emitter declines
     // it as a non-constant pattern.
     leaf := ParsePostfixExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
@@ -317,9 +316,9 @@ func ParseRelationalPatternNode(tokens: &ParserTokenTable, count: int, st: &Pars
     // [memberAccessNode, bind0 (Identifier kind 6), bind1, ...]. Fires only when the leaf is a qualified member
     // access (kind 8, e.g. `Result.Success`) immediately followed by `{` (129). Each binding is a BARE identifier
     // naming a case field; `,` (134) separates and `}` (130) closes. A renamed/nested/positional sub-pattern
-    // (`{ field: <pat> }`) declines here (the `:` after a binding is neither `,` nor `}` -> -1), so the whole
-    // program falls back to the C# pipeline. The emitter (case 37) resolves the case, `isinst`-tests it, and binds
-    // each named field to a local.
+    // (`{ field: <pat> }`) declines here (the `:` after a binding is neither `,` nor `}` -> -1), so required
+    // columnar emission rejects the program until that source shape is modeled. The emitter (case 37) resolves the
+    // case, `isinst`-tests it, and binds each named field to a local.
     if nodes.Kinds[leaf] == 8 && st.Pos < count && tokens.Kinds[st.Pos] == 129 {
         st.Pos = st.Pos + 1
         caseArgBase := st.ArgStackTop
@@ -408,6 +407,27 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
     if kind == 0 {
         st.Pos = pos + 1
         return EmitExpressionNode(ref st, ref nodes, 6, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+    }
+    if kind == 49 {
+        typeOfStart := tokenStart
+        st.Pos = pos + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+            return -1
+        }
+        st.Pos = st.Pos + 1
+        st.SplitGreaterDepth = 0
+        typeRoot := ParseExpressionTypeReferenceNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
+        if typeRoot < 0 {
+            return -1
+        }
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+            return -1
+        }
+        typeOfEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+        typeOfChildRun := st.ChildCursor
+        AppendExpressionChild(ref st, ref children, typeRoot)
+        return EmitExpressionNode(ref st, ref nodes, 55, -1, 0, typeOfChildRun, 1, typeOfStart, typeOfEnd - typeOfStart)
     }
     if kind == 31 {
         // `match <value> { <pattern> => <result>, ... }` (Match token 31, Arrow `=>` token 120). MatchExpression
@@ -643,7 +663,58 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
             na = na + 1
         }
         st.ArgStackTop = argBase
-        return EmitExpressionNode(ref st, ref nodes, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
+        newCall := EmitExpressionNode(ref st, ref nodes, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
+
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+            st.Pos = st.Pos + 1
+            initArgBase := st.ArgStackTop
+            argStack.Values[st.ArgStackTop] = newCall
+            st.ArgStackTop = st.ArgStackTop + 1
+            while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+                if tokens.Kinds[st.Pos] != 0 {
+                    st.ArgStackTop = initArgBase
+                    return -1
+                }
+                initNameStart := tokens.Starts[st.Pos]
+                initNameLength := tokens.ValueLengths[st.Pos]
+                st.Pos = st.Pos + 1
+                if st.Pos >= count || tokens.Kinds[st.Pos] != 122 {
+                    st.ArgStackTop = initArgBase
+                    return -1
+                }
+                st.Pos = st.Pos + 1
+                initNameNode := EmitExpressionNode(ref st, ref nodes, 6, initNameStart, initNameLength, -1, 0, initNameStart, initNameLength)
+                argStack.Values[st.ArgStackTop] = initNameNode
+                st.ArgStackTop = st.ArgStackTop + 1
+                initValue := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+                if initValue < 0 {
+                    st.ArgStackTop = initArgBase
+                    return -1
+                }
+                argStack.Values[st.ArgStackTop] = initValue
+                st.ArgStackTop = st.ArgStackTop + 1
+                if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                    st.Pos = st.Pos + 1
+                }
+            }
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
+                st.ArgStackTop = initArgBase
+                return -1
+            }
+            initEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            initChildCount := st.ArgStackTop - initArgBase
+            initChildRun := st.ChildCursor
+            ia := initArgBase
+            while ia < st.ArgStackTop {
+                AppendExpressionChild(ref st, ref children, argStack.Values[ia])
+                ia = ia + 1
+            }
+            st.ArgStackTop = initArgBase
+            return EmitExpressionNode(ref st, ref nodes, 36, -1, 0, initChildRun, initChildCount, newStart, initEnd - newStart)
+        }
+
+        return newCall
     }
 
     if kind == 127 {
@@ -652,7 +723,7 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
         // Cast expression (Parser.cs ParsePrimaryExpression + IsCastExpression): `( <type> ) <operand>`,
         // where an expression-start token follows the `)`, is a hard cast. SPECULATIVELY parse a type from
         // after the `(`; if it is followed by `)` and an expression-start, emit a CastExpression (kind 16):
-        // children = [typeRoot, operand], operand parsed as a unary expression (matching C#). Otherwise roll
+        // children = [typeRoot, operand], operand parsed as a unary expression. Otherwise roll
         // back the speculatively-emitted type nodes / child run / arg-stack and parse as a parenthesized
         // expression. The type kernel refuses type forms it does not support, which rolls back to the paren
         // path (and typically refuses there too) -- never a silently-wrong tree.
@@ -799,9 +870,19 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
 // two index children are appended right after the object/index are fully parsed (fixed arity => contiguous
 // child runs, no arg-stack). Index expressions recurse to this postfix level (the current expression top).
 func ParsePostfixExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    expr := ParsePrimaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
-    if expr < 0 {
-        return -1
+    expr := -1
+    if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+        thisStart := tokens.Starts[st.Pos]
+        memberStart := tokens.Starts[st.Pos + 2]
+        memberLength := tokens.ValueLengths[st.Pos + 2]
+        memberEnd := memberStart + memberLength
+        expr = EmitExpressionNode(ref st, ref nodes, 6, memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+        st.Pos = st.Pos + 3
+    } else {
+        expr = ParsePrimaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
+        if expr < 0 {
+            return -1
+        }
     }
 
     matched := true
@@ -996,7 +1077,7 @@ func ParsePostfixExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
     // Postfix `++`/`--` (Increment 113 / Decrement 114) -- a SINGLE wrap after the suffix chain
     // (PostfixUnary kind 44, the operator token in the value span, ONE child [target]; `n++++` does
     // not re-enter, matching the production grammar). The emitter validates the target (a bare
-    // local/param) and models C# post-semantics (the expression's value is the PRE-step value).
+    // local/param) and keeps the expression value as the PRE-step value.
     if st.Pos < count {
         postOp := tokens.Kinds[st.Pos]
         if postOp == 113 || postOp == 114 {
@@ -1099,7 +1180,7 @@ func ParseUnaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parser
 }
 
 // Precedence level (higher binds tighter) for a left-associative binary operator token, or 0 if the token
-// is not a binary operator. Mirrors the C# precedence chain (Parser.cs:3940-4185), low->high:
+// is not a binary operator. Precedence chain, low->high:
 // ?? (NullCoalesce) < || < && < | < ^ < & < ==,!= < <,<=,>,>= < <<,>> < +,- < *,/,%.
 // `is`/`as` (type tests), range `..`, and assignment are intentionally NOT binary operators here (deferred).
 func BinaryOpPrecedence(kind: int): int {
@@ -1139,10 +1220,10 @@ func BinaryOpPrecedence(kind: int): int {
     return 0
 }
 
-// ParseBinaryExpression: precedence climbing over the C# binary chain (Parser.cs:3940-4185). Parses a unary
+// ParseBinaryExpression: precedence climbing over the binary chain. Parses a unary
 // operand, then while the next token is a binary operator whose precedence >= minPrec, consumes it and
 // parses the right operand at (precedence + 1) -- the left-associative formulation, producing the same
-// left-leaning BinaryExpression trees as the C# while-loop levels. Each BinaryExpression (kind 12) records
+// left-leaning BinaryExpression trees. Each BinaryExpression (kind 12) records
 // the operator token in the value span and has children [left, right] (fixed arity -> contiguous, no
 // arg-stack). `minPrec == 1` is the full-expression entry.
 func ParseBinaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, minPrec: int, depth: int): int {
@@ -1396,12 +1477,12 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 
 // Parser slices 16-17: the STATEMENT kernel -- function bodies, the critical path for parsing the dogfood
 // kernels (flat top-level functions whose bodies are statements). ParseStatementNodesCore parses ONE statement
-// at a token index by dispatching like the C# ParseStatement (Parser.cs:2165), and COMPOSES the slice 10-15
+// at a token index and COMPOSES the slice 10-15
 // expression kernel: statements and expressions share ONE columnar node table (the expression table), with the
 // shared expression `ParserState` (`st`) and `argStack`. Statement nodes use kinds 20+ so they never collide
 // with the expression kinds 0-14. The flattened ParseStatementNodesInto ABI lives in the parity corpus.
 //
-// Supported statement nodes (matching the concrete C# Statement records):
+// Supported statement nodes (matching the concrete statement node ABI):
 //   ReturnStatement              -> kind 20  ( return [value]; 0 or 1 child = the value expression )
 //   BreakStatement               -> kind 21  ( break; 0 children )
 //   ContinueStatement            -> kind 22  ( continue; 0 children )
@@ -1432,7 +1513,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //                                             expression kernel's WithExpression, 53 its AwaitExpression;
 //                                             54 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
-// (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
+// (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. An
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
@@ -1682,7 +1763,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
 
         // C-style `for <init>; <cond>; <incr> { body }`. init/incr are simple statements (a `:=` declaration or
         // an assignment expression statement); cond is an expression. All three clauses are required (an empty
-        // clause makes a sub-parse refuse -> the whole statement declines to the C# parser). Children, in order:
+        // clause makes a sub-parse refuse -> the whole statement declines). Children, in order:
         // [init, cond, incr, body] -> ForStatement kind 28.
         initNode := ParseSimpleStatementNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children)
         if initNode < 0 {
@@ -1729,7 +1810,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
 
         // `foreach <var> in <collection> { body }` (the no-paren, Go-style form). The loop variable name is an
         // identifier stored in the node's value span; children are [collection, body] -> ForeachStatement kind 29.
-        // A parenthesised `foreach (x in y)` or a missing var/`in`/body refuses with -1 -> declines to the C# parser.
+        // A parenthesised `foreach (x in y)` or a missing var/`in`/body refuses with -1 -> declines.
         if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
             return -1
         }
@@ -1856,7 +1937,7 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
     // Tuple DECONSTRUCTION `n0, n1, ... := <tuple>` (>= 2 names): an identifier FOLLOWED BY a comma. Each target
     // is a bare identifier (or `_` discard) emitted as an Identifier node (kind 6); the value follows `:=`. The
     // node is TupleDeconstructionStatement kind 30, children = [name0, ..., nameN-1, value]. A malformed list
-    // (a non-identifier target, a missing `:=` or value) refuses with -1 -> declines to the C# parser.
+    // (a non-identifier target, a missing `:=` or value) refuses with -1 -> declines.
     if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 134 {
         deconStart := tokens.Starts[start]
         deconArgBase := st.ArgStackTop

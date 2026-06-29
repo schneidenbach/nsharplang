@@ -4,7 +4,7 @@ import "CompilerServices/ParserLocalFunctions"
 import "CompilerServices/ParserTypeReferences"
 
 // Product columnar function parser wrapper. It composes the signature rowset, statement-node rowset, and
-// direct local-function discovery so the C# adapter only materializes ColumnarFunctionInput containers.
+// direct local-function discovery so the host adapter only materializes ColumnarFunctionInput containers.
 
 struct ColumnarFunctionTokenTable {
     Kinds: int[]
@@ -18,6 +18,9 @@ struct ColumnarFunctionSignatureOutputTable {
     ReturnTypeTexts: string[]
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamModifierKinds: int[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
@@ -47,9 +50,9 @@ struct ColumnarFunctionResultTable {
     Values: int[]
 }
 
-func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
+func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable { FunctionNameTexts: outFunctionNameTexts, ReturnTypeTexts: outReturnTypeTexts, ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ParamTupleNameCounts: outParamTupleNameCounts, ParamTupleNameTexts: outParamTupleNameTexts, ReturnTupleNameTexts: outReturnTupleNameTexts, TypeParamTexts: outTypeParamTexts, TypeParamSpecials: outTypeParamSpecials, TypeParamConstraintCounts: outTypeParamConstraintCounts, TypeParamConstraintTypeTexts: outTypeParamConstraintTypeTexts }
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable { FunctionNameTexts: outFunctionNameTexts, ReturnTypeTexts: outReturnTypeTexts, ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ParamModifierKinds: outParamModifierKinds, ParamDefaultKinds: outParamDefaultKinds, ParamDefaultTexts: outParamDefaultTexts, ParamTupleNameCounts: outParamTupleNameCounts, ParamTupleNameTexts: outParamTupleNameTexts, ReturnTupleNameTexts: outReturnTupleNameTexts, TypeParamTexts: outTypeParamTexts, TypeParamSpecials: outTypeParamSpecials, TypeParamConstraintCounts: outTypeParamConstraintCounts, TypeParamConstraintTypeTexts: outTypeParamConstraintTypeTexts }
     body := new ColumnarFunctionBodyTable { NodeKinds: outNodeKinds, ValueStarts: outValueStarts, ValueLengths: outValueLengths, ChildStart: outChildStart, ChildCount: outChildCount, ChildIndices: outChildIndices, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
     locals := new ColumnarFunctionLocalTable { NodeIndices: outLocalFunctionNodeIndices, TokenIndices: outLocalFunctionTokenIndices }
     result := new ColumnarFunctionResultTable { Values: outResult }
@@ -62,7 +65,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     }
 
     signatureTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
-    signatureOutput := new FunctionSignatureInfoOutputTable { FunctionNameTexts: signatureOutputs.FunctionNameTexts, ReturnTypeTexts: signatureOutputs.ReturnTypeTexts, ParamNameTexts: signatureOutputs.ParamNameTexts, ParamTypeTexts: signatureOutputs.ParamTypeTexts, ParamTupleNameCounts: signatureOutputs.ParamTupleNameCounts, ParamTupleNameTexts: signatureOutputs.ParamTupleNameTexts, ReturnTupleNameTexts: signatureOutputs.ReturnTupleNameTexts, TypeParamTexts: signatureOutputs.TypeParamTexts, TypeParamSpecials: signatureOutputs.TypeParamSpecials, TypeParamConstraintCounts: signatureOutputs.TypeParamConstraintCounts, TypeParamConstraintTypeTexts: signatureOutputs.TypeParamConstraintTypeTexts }
+    signatureOutput := new FunctionSignatureInfoOutputTable { FunctionNameTexts: signatureOutputs.FunctionNameTexts, ReturnTypeTexts: signatureOutputs.ReturnTypeTexts, ParamNameTexts: signatureOutputs.ParamNameTexts, ParamTypeTexts: signatureOutputs.ParamTypeTexts, ParamModifierKinds: signatureOutputs.ParamModifierKinds, ParamDefaultKinds: signatureOutputs.ParamDefaultKinds, ParamDefaultTexts: signatureOutputs.ParamDefaultTexts, ParamTupleNameCounts: signatureOutputs.ParamTupleNameCounts, ParamTupleNameTexts: signatureOutputs.ParamTupleNameTexts, ReturnTupleNameTexts: signatureOutputs.ReturnTupleNameTexts, TypeParamTexts: signatureOutputs.TypeParamTexts, TypeParamSpecials: signatureOutputs.TypeParamSpecials, TypeParamConstraintCounts: signatureOutputs.TypeParamConstraintCounts, TypeParamConstraintTypeTexts: signatureOutputs.TypeParamConstraintTypeTexts }
     typeStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
     nodes := new ParserNodeTable { Kinds: new int[](tokens.Count + 1), ValueStarts: new int[](tokens.Count + 1), ValueLengths: new int[](tokens.Count + 1), ChildStart: new int[](tokens.Count + 1), ChildCount: new int[](tokens.Count + 1), SpanStarts: new int[](tokens.Count + 1), SpanLengths: new int[](tokens.Count + 1) }
     children := new ParserChildIndexTable { Indices: new int[](tokens.Count + 1) }
@@ -83,12 +86,17 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     }
 
     bodyBrace := signatureResult.Values[1]
-    if bodyBrace < 0 || bodyBrace >= tokens.Count || tokens.Kinds[bodyBrace] != 129 {
+    if bodyBrace < 0 || bodyBrace >= tokens.Count || (tokens.Kinds[bodyBrace] != 129 && tokens.Kinds[bodyBrace] != 120) {
         return -1
     }
 
     bodyResult := new ColumnarFunctionResultTable { Values: new int[](2) }
-    bodyNodeCount := ParseColumnarFunctionBodyNodesCore(ref tokens, bodyBrace, ref body, ref bodyResult)
+    bodyNodeCount := 0
+    if tokens.Kinds[bodyBrace] == 129 {
+        bodyNodeCount = ParseColumnarFunctionBodyNodesCore(ref tokens, bodyBrace, ref body, ref bodyResult)
+    } else {
+        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(ref tokens, bodyBrace, ref body, ref bodyResult)
+    }
     if bodyNodeCount <= 0 {
         return -1
     }
@@ -131,6 +139,30 @@ func ParseColumnarFunctionBodyNodesCore(tokens: &ColumnarFunctionTokenTable, bod
     children := new ParserChildIndexTable { Indices: body.ChildIndices }
     statementResult := new ParserResultTable { Values: result.Values }
     return ParseStatementNodesCore(ref statementTokens, tokens.Count, bodyBrace, ref argStack, ref nodes, ref children, ref statementResult)
+}
+
+func ParseColumnarFunctionExpressionBodyNodesCore(tokens: &ColumnarFunctionTokenTable, arrowIndex: int, body: &ColumnarFunctionBodyTable, result: &ColumnarFunctionResultTable): int {
+    if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
+        return -1
+    }
+
+    expressionTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
+    nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }
+    children := new ParserChildIndexTable { Indices: body.ChildIndices }
+    st := new ParserState { Pos: arrowIndex + 1, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
+    valueRoot := ParseLambdaOrAssignmentExpressionNode(ref expressionTokens, tokens.Count, ref st, ref argStack, ref nodes, ref children, 0)
+    if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
+        return -1
+    }
+
+    childRunStart := st.ChildCursor
+    AppendExpressionChild(ref st, ref children, valueRoot)
+    valueEnd := nodes.SpanStarts[valueRoot] + nodes.SpanLengths[valueRoot]
+    returnNode := EmitExpressionNode(ref st, ref nodes, 20, -1, 0, childRunStart, 1, tokens.Starts[arrowIndex], valueEnd - tokens.Starts[arrowIndex])
+    result.Values[0] = returnNode
+    result.Values[1] = st.Pos
+    return st.NodeCursor
 }
 
 func ColumnarFunctionLocalFunctionNamesDistinct(source: string, tokens: &ColumnarFunctionTokenTable, locals: &ColumnarFunctionLocalTable, localFunctionCount: int): int {

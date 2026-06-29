@@ -27,6 +27,10 @@ public class DiagnosticCatalog {
         return false
     }
 
+    public static func GetDefaultSeverity(code: string): DiagnosticSeverity {
+        return GetDefaultSeverity(code, DiagnosticSeverity.Warning)
+    }
+
     public static func GetDefaultSeverity(code: string, fallback: DiagnosticSeverity = DiagnosticSeverity.Warning): DiagnosticSeverity {
         descriptor := EmptyDescriptor()
         if TryGetDescriptor(code, out descriptor) {
