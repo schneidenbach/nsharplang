@@ -27,6 +27,104 @@ public class ImportEdge {
     }
 }
 
+public class FileImportGraphEntry {
+    SourceFile: string
+    ImportPath: string
+    Line: int
+    Column: int
+    Length: int
+
+    constructor(sourceFile: string, importPath: string, line: int, column: int, length: int) {
+        this.SourceFile = sourceFile
+        this.ImportPath = importPath
+        this.Line = line
+        this.Column = column
+        this.Length = length
+    }
+}
+
+public class ImportGraphBuildResult {
+    EdgesByFile: Dictionary<string, List<ImportEdge> >
+    ResolvedDiagnosticKeys: List<string>
+
+    constructor(edgesByFile: Dictionary<string, List<ImportEdge> >, resolvedDiagnosticKeys: List<string>) {
+        this.EdgesByFile = edgesByFile
+        this.ResolvedDiagnosticKeys = resolvedDiagnosticKeys
+    }
+}
+
+public class ImportGraphBuilder {
+    public static func Build(
+        sourceFiles: List<string>,
+        fileImports: List<FileImportGraphEntry>,
+        projectRoot: string): ImportGraphBuildResult {
+        graph := new Dictionary<string, List<ImportEdge> >(StringComparer.OrdinalIgnoreCase)
+        resolvedDiagnosticKeys := new List<string>()
+        sourceFileByFullPath := BuildSourceFileMap(sourceFiles)
+
+        i := 0
+        while i < fileImports.Count {
+            fileImport := fileImports[i]
+            resolver := new FileResolver(projectRoot, fileImport.SourceFile)
+            resolvedPath := ResolveImportedCompilationUnitPath(resolver, fileImport.ImportPath, sourceFileByFullPath)
+            if resolvedPath != null {
+                edges := new List<ImportEdge>()
+                if !graph.TryGetValue(fileImport.SourceFile, out edges) {
+                    edges = new List<ImportEdge>()
+                    graph[fileImport.SourceFile] = edges
+                }
+
+                resolvedDiagnosticKeys.Add(BuildFileImportDiagnosticKey(fileImport.SourceFile, fileImport.Line, fileImport.Column))
+                edges.Add(new ImportEdge(
+                    fileImport.SourceFile,
+                    resolvedPath,
+                    fileImport.ImportPath,
+                    fileImport.Line,
+                    fileImport.Column,
+                    fileImport.Length))
+            }
+
+            i = i + 1
+        }
+
+        return new ImportGraphBuildResult(graph, resolvedDiagnosticKeys)
+    }
+
+    static func BuildSourceFileMap(sourceFiles: List<string>): Dictionary<string, string> {
+        sourceFileByFullPath := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+
+        i := 0
+        while i < sourceFiles.Count {
+            fullPath := Path.GetFullPath(sourceFiles[i])
+            existing := ""
+            if !sourceFileByFullPath.TryGetValue(fullPath, out existing) {
+                sourceFileByFullPath[fullPath] = sourceFiles[i]
+            }
+
+            i = i + 1
+        }
+
+        return sourceFileByFullPath
+    }
+
+    static func ResolveImportedCompilationUnitPath(
+        resolver: FileResolver,
+        importPath: string,
+        sourceFileByFullPath: Dictionary<string, string>): string? {
+        resolvedPath := Path.GetFullPath(resolver.ResolveFilePath(importPath))
+        sourceFile := ""
+        if sourceFileByFullPath.TryGetValue(resolvedPath, out sourceFile) {
+            return sourceFile
+        }
+
+        return null
+    }
+
+    public static func BuildFileImportDiagnosticKey(filePath: string, line: int, column: int): string {
+        return Path.GetFullPath(filePath) + ":" + line.ToString() + ":" + column.ToString()
+    }
+}
+
 public class ImportTraversalFrame {
     SourceFile: string
     Edges: List<ImportEdge>

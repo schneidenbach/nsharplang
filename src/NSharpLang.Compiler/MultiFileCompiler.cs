@@ -240,10 +240,19 @@ public class MultiFileCompiler
     /// </summary>
     private void DetectCircularFileImports()
     {
-        var edgesByFile = BuildFileImportGraph();
+        var sourceFiles = _compilationUnits.Keys.ToList();
+        var graph = ImportGraphBuilder.Build(
+            sourceFiles,
+            CollectFileImportGraphEntries(),
+            _projectRoot);
+        foreach (var diagnosticKey in graph.ResolvedDiagnosticKeys)
+        {
+            _resolvedFileImportDiagnosticKeys.Add(diagnosticKey);
+        }
+
         var cycles = ImportGraphCycleDetector.Detect(
-            _compilationUnits.Keys.ToList(),
-            edgesByFile,
+            sourceFiles,
+            graph.EdgesByFile,
             _projectRoot,
             MaxDisplayedImportCycleNodes);
         foreach (var cycle in cycles)
@@ -252,33 +261,16 @@ public class MultiFileCompiler
         }
     }
 
-    private Dictionary<string, List<ImportEdge>> BuildFileImportGraph()
+    private List<FileImportGraphEntry> CollectFileImportGraphEntries()
     {
-        var graph = new Dictionary<string, List<ImportEdge>>(StringComparer.OrdinalIgnoreCase);
-        var sourceFileByFullPath = _compilationUnits.Keys.ToDictionary(
-            Path.GetFullPath,
-            path => path,
-            StringComparer.OrdinalIgnoreCase);
+        var fileImports = new List<FileImportGraphEntry>();
 
         foreach (var (sourceFile, compilationUnit) in _compilationUnits)
         {
-            var resolver = new FileResolver(_projectRoot, sourceFile);
             foreach (var fileImport in compilationUnit.FileImports.OfType<FileImport>())
             {
-                var resolvedPath = ResolveImportedCompilationUnitPath(resolver, fileImport.Path, sourceFileByFullPath);
-                if (resolvedPath == null)
-                    continue;
-
-                if (!graph.TryGetValue(sourceFile, out var edges))
-                {
-                    edges = new List<ImportEdge>();
-                    graph[sourceFile] = edges;
-                }
-
-                _resolvedFileImportDiagnosticKeys.Add(BuildFileImportDiagnosticKey(sourceFile, fileImport.Line, fileImport.DiagnosticColumn));
-                edges.Add(new ImportEdge(
+                fileImports.Add(new FileImportGraphEntry(
                     sourceFile,
-                    resolvedPath,
                     fileImport.Path,
                     fileImport.Line,
                     fileImport.DiagnosticColumn,
@@ -286,23 +278,7 @@ public class MultiFileCompiler
             }
         }
 
-        return graph;
-    }
-
-    private static string? ResolveImportedCompilationUnitPath(
-        FileResolver resolver,
-        string importPath,
-        IReadOnlyDictionary<string, string> sourceFileByFullPath)
-    {
-        var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
-        return sourceFileByFullPath.TryGetValue(resolvedPath, out var sourceFile)
-            ? sourceFile
-            : null;
-    }
-
-    private static string BuildFileImportDiagnosticKey(string filePath, int line, int column)
-    {
-        return $"{Path.GetFullPath(filePath)}:{line}:{column}";
+        return fileImports;
     }
 
     private void ReportCircularImportCycle(ImportCycle cycle)
@@ -358,7 +334,7 @@ public class MultiFileCompiler
 
         if (error.Code == ErrorCode.ImportNotFound &&
             error.FileName != null &&
-            _resolvedFileImportDiagnosticKeys.Contains(BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)))
+            _resolvedFileImportDiagnosticKeys.Contains(ImportGraphBuilder.BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)))
         {
             return true;
         }
