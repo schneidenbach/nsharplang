@@ -323,25 +323,6 @@ public class MultiFileCompiler
             return CodeIntelligenceTextUtilities.GetSourceLine(ReadSourceText(filePath), line);
     }
 
-    private bool ShouldSuppressAnalyzerDiagnostic(CompilerError error)
-    {
-        if (error.Code == ErrorCode.CircularImport &&
-            error.FileName != null &&
-            _filesInReportedImportCycles.Contains(Path.GetFullPath(error.FileName)))
-        {
-            return true;
-        }
-
-        if (error.Code == ErrorCode.ImportNotFound &&
-            error.FileName != null &&
-            _resolvedFileImportDiagnosticKeys.Contains(ImportGraphBuilder.BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
     /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
@@ -382,7 +363,10 @@ public class MultiFileCompiler
                 // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
                 foreach (var error in result.Errors)
                 {
-                    if (ShouldSuppressAnalyzerDiagnostic(error))
+                    if (ImportGraphDiagnosticSuppressor.ShouldSuppressAnalyzerDiagnostic(
+                            error,
+                            _filesInReportedImportCycles,
+                            _resolvedFileImportDiagnosticKeys))
                         continue;
 
                     _allErrors.Add(error);

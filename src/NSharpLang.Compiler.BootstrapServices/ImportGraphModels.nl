@@ -125,6 +125,27 @@ public class ImportGraphBuilder {
     }
 }
 
+public class ImportGraphDiagnosticSuppressor {
+    public static func ShouldSuppressAnalyzerDiagnostic(
+        error: CompilerError,
+        filesInReportedImportCycles: HashSet<string>,
+        resolvedFileImportDiagnosticKeys: HashSet<string>): bool {
+        if error.Code == ErrorCode.CircularImport &&
+            error.FileName != null &&
+            filesInReportedImportCycles.Contains(Path.GetFullPath(error.FileName)) {
+            return true
+        }
+
+        if error.Code == ErrorCode.ImportNotFound &&
+            error.FileName != null &&
+            resolvedFileImportDiagnosticKeys.Contains(ImportGraphBuilder.BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)) {
+            return true
+        }
+
+        return false
+    }
+}
+
 public class ImportTraversalFrame {
     SourceFile: string
     Edges: List<ImportEdge>
