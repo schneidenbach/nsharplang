@@ -105,6 +105,52 @@ public class ExternalTypeInfo: TypeInfo {
     }
 }
 
+public class BuiltInTypes {
+    public static Int: SimpleTypeInfo => new SimpleTypeInfo("int")
+    public static Long: SimpleTypeInfo => new SimpleTypeInfo("long")
+    public static Float: SimpleTypeInfo => new SimpleTypeInfo("float")
+    public static Double: SimpleTypeInfo => new SimpleTypeInfo("double")
+    public static Decimal: SimpleTypeInfo => new SimpleTypeInfo("decimal")
+    public static Byte: SimpleTypeInfo => new SimpleTypeInfo("byte")
+    public static SByte: SimpleTypeInfo => new SimpleTypeInfo("sbyte")
+    public static Short: SimpleTypeInfo => new SimpleTypeInfo("short")
+    public static UShort: SimpleTypeInfo => new SimpleTypeInfo("ushort")
+    public static UInt: SimpleTypeInfo => new SimpleTypeInfo("uint")
+    public static ULong: SimpleTypeInfo => new SimpleTypeInfo("ulong")
+    public static Char: SimpleTypeInfo => new SimpleTypeInfo("char")
+    public static Bool: SimpleTypeInfo => new SimpleTypeInfo("bool")
+    public static String: SimpleTypeInfo => new SimpleTypeInfo("string")
+    public static Void: SimpleTypeInfo => new SimpleTypeInfo("void")
+    public static Object: SimpleTypeInfo => new SimpleTypeInfo("object")
+    public static Null: SimpleTypeInfo => new SimpleTypeInfo("null")
+    public static Never: SimpleTypeInfo => new SimpleTypeInfo("never")
+    public static Unknown: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.ErrorRecovery)
+    public static InferenceHole: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.InferenceHole)
+    public static DeferredExternal: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.DeferredExternal)
+
+    public static func Is(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
+        if typeInfo == null {
+            return false
+        }
+
+        simple := typeInfo as SimpleTypeInfo
+        if simple == null {
+            return false
+        }
+
+        return simple.Equals(builtIn)
+    }
+
+    public static func IsNot(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
+        return !Is(typeInfo, builtIn)
+    }
+
+    public static func IsUnknown(typeInfo: TypeInfo): bool {
+        unknown := typeInfo as UnknownTypeInfo
+        return unknown != null
+    }
+}
+
 public class TupleTypeElementInfo {
     Name: string?
     Type: TypeInfo

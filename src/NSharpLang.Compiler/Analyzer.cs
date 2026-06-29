@@ -23426,36 +23426,3 @@ public class NSharpMethodGroupInfo : TypeInfo
 
     public override string ToString() => Declarations.Count > 0 ? $"{Declarations[0].Name}(...)" : "method group";
 }
-
-public static class BuiltInTypes
-{
-    public static readonly SimpleTypeInfo Int = new("int");
-    public static readonly SimpleTypeInfo Long = new("long");
-    public static readonly SimpleTypeInfo Float = new("float");
-    public static readonly SimpleTypeInfo Double = new("double");
-    public static readonly SimpleTypeInfo Decimal = new("decimal");
-    public static readonly SimpleTypeInfo Byte = new("byte");
-    public static readonly SimpleTypeInfo SByte = new("sbyte");
-    public static readonly SimpleTypeInfo Short = new("short");
-    public static readonly SimpleTypeInfo UShort = new("ushort");
-    public static readonly SimpleTypeInfo UInt = new("uint");
-    public static readonly SimpleTypeInfo ULong = new("ulong");
-    public static readonly SimpleTypeInfo Char = new("char");
-    public static readonly SimpleTypeInfo Bool = new("bool");
-    public static readonly SimpleTypeInfo String = new("string");
-    public static readonly SimpleTypeInfo Void = new("void");
-    public static readonly SimpleTypeInfo Object = new("object");
-    public static readonly SimpleTypeInfo Null = new("null");
-    public static readonly SimpleTypeInfo Never = new("never");
-    public static readonly UnknownTypeInfo Unknown = new(UnknownKind.ErrorRecovery);
-    public static readonly UnknownTypeInfo InferenceHole = new(UnknownKind.InferenceHole);
-    public static readonly UnknownTypeInfo DeferredExternal = new(UnknownKind.DeferredExternal);
-
-    public static bool Is(TypeInfo? type, SimpleTypeInfo builtIn)
-        => ReferenceEquals(type, builtIn) || type is SimpleTypeInfo simple && simple.Equals(builtIn);
-
-    public static bool IsNot(TypeInfo? type, SimpleTypeInfo builtIn)
-        => !Is(type, builtIn);
-
-    public static bool IsUnknown(TypeInfo type) => type is UnknownTypeInfo;
-}
