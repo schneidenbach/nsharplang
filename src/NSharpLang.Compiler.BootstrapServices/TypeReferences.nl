@@ -54,6 +54,22 @@ public class TupleTypeReference: TypeReference {
     }
 }
 
+public class GenericTypeReference: TypeReference {
+    Name: string
+    TypeArguments: List<TypeReference>
+    Line: int
+    Column: int
+
+    NameSpan: SourceSpan => SourceSpan.FromStartAndLength(Line, Column, Name.Length)
+
+    constructor(name: string, typeArguments: List<TypeReference>, line: int = 0, column: int = 0) {
+        Name = name
+        TypeArguments = typeArguments
+        Line = line
+        Column = column
+    }
+}
+
 public class ByRefTypeReference: TypeReference {
     InnerType: TypeReference
 

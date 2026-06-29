@@ -220,21 +220,6 @@ public record AttributeNode(
     int Line = 1,
     int Column = 1);
 
-public class GenericTypeReference : TypeReference
-{
-    public string Name { get; }
-    public List<TypeReference> TypeArguments { get; }
-    public int Line { get; init; }
-    public int Column { get; init; }
-    public SourceSpan NameSpan => SourceSpan.FromStartAndLength(Line, Column, Name.Length);
-
-    public GenericTypeReference(string name, List<TypeReference> typeArguments)
-    {
-        Name = name;
-        TypeArguments = typeArguments;
-    }
-}
-
 public class UnionTypeReference : TypeReference
 {
     public List<TypeReference> Arms { get; }
