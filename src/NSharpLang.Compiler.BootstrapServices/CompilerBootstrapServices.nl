@@ -56,6 +56,104 @@ public class SourceFileDeduplicator {
     }
 }
 
+public class MultiFileCompilerInputs {
+    SourceFiles: List<string>
+    SourceTextOverrides: Dictionary<string, string>
+    PreprocessorSymbols: HashSet<string>
+
+    constructor(sourceFiles: List<string>, sourceTextOverrides: Dictionary<string, string>, preprocessorSymbols: HashSet<string>) {
+        this.SourceFiles = sourceFiles
+        this.SourceTextOverrides = sourceTextOverrides
+        this.PreprocessorSymbols = preprocessorSymbols
+    }
+}
+
+public class MultiFileCompilerInputBuilder {
+    public static func Build(
+        sourceFiles: IReadOnlyList<string>,
+        config: ProjectConfig,
+        sourceTextOverridePaths: string[],
+        sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+        normalizedOverrides := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        normalizedSourceFiles := NormalizeSourceFiles(sourceFiles, sourceTextOverridePaths, sourceTextOverrideTexts, normalizedOverrides)
+        preprocessorSymbols := BuildPreprocessorSymbols(config)
+        return new MultiFileCompilerInputs(normalizedSourceFiles, normalizedOverrides, preprocessorSymbols)
+    }
+
+    public static func BuildFromProject(
+        projectRoot: string,
+        config: ProjectConfig,
+        sourceTextOverridePaths: string[],
+        sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+        return Build(DiscoverSourceFiles(projectRoot, config), config, sourceTextOverridePaths, sourceTextOverrideTexts)
+    }
+
+    static func NormalizeSourceFiles(
+        sourceFiles: IReadOnlyList<string>,
+        sourceTextOverridePaths: string[],
+        sourceTextOverrideTexts: string[],
+        normalizedOverrides: Dictionary<string, string>): List<string> {
+        candidates := new List<string>()
+
+        i := 0
+        while i < sourceFiles.Count {
+            candidates.Add(Path.GetFullPath(sourceFiles[i]))
+            i = i + 1
+        }
+
+        i = 0
+        while i < sourceTextOverridePaths.Length {
+            fullPath := Path.GetFullPath(sourceTextOverridePaths[i])
+            sourceText := ""
+            if i < sourceTextOverrideTexts.Length {
+                sourceText = sourceTextOverrideTexts[i]
+            }
+
+            normalizedOverrides[fullPath] = sourceText
+            candidates.Add(fullPath)
+            i = i + 1
+        }
+
+        dogfoodSourceFiles := new List<string>()
+        if SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(candidates, out dogfoodSourceFiles) {
+            return dogfoodSourceFiles
+        }
+
+        throw new InvalidOperationException("N# source-file deduplication declined.")
+    }
+
+    static func BuildPreprocessorSymbols(config: ProjectConfig): HashSet<string> {
+        symbols := new HashSet<string>(StringComparer.Ordinal)
+        i := 0
+        while i < config.Defines.Count {
+            define := config.Defines[i]
+            if !string.IsNullOrWhiteSpace(define) {
+                symbols.Add(define.Trim())
+            }
+
+            i = i + 1
+        }
+
+        return symbols
+    }
+
+    static func DiscoverSourceFiles(projectRoot: string, config: ProjectConfig): List<string> {
+        result := new List<string>()
+        if !Directory.Exists(projectRoot) {
+            return result
+        }
+
+        sourceFiles := config.GetSourceFiles(projectRoot, false)
+        i := 0
+        while i < sourceFiles.Length {
+            result.Add(Path.GetFullPath(sourceFiles[i]))
+            i = i + 1
+        }
+
+        return result
+    }
+}
+
 public class ProjectSourceFileFilter {
     public static func Filter(files: string[], projectRoot: string, excludePatterns: string[], includeTests: bool): string[] {
         relativePaths := new string[](files.Length)

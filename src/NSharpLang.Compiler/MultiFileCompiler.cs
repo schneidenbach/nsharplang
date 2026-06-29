@@ -83,7 +83,7 @@ public class MultiFileCompiler
 }
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
-        : this(BuildSourceFiles(projectRoot, config ?? ProjectFileParser.CreateDefault(), sourceTextOverrides), projectRoot, config, sourceTextOverrides)
+        : this(BuildProjectInputs(projectRoot, config, sourceTextOverrides), projectRoot, config)
     {
     }
 
@@ -93,15 +93,17 @@ public class MultiFileCompiler
     }
 
     public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
+        : this(BuildExplicitInputs(sourceFiles, config, sourceTextOverrides), projectRoot, config)
+    {
+    }
+
+    private MultiFileCompiler(MultiFileCompilerInputs inputs, string projectRoot, ProjectConfig? config)
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
-        _preprocessorSymbols = BuildPreprocessorSymbols(_config);
-        _sourceTextOverrides = NormalizeSourceTextOverrides(sourceTextOverrides);
-        _sourceFiles = DeduplicateSourceFilesOrdinalIgnoreCase(sourceFiles
-            .Select(Path.GetFullPath)
-            .Concat(_sourceTextOverrides.Keys)
-            .ToList());
+        _preprocessorSymbols = inputs.PreprocessorSymbols;
+        _sourceTextOverrides = inputs.SourceTextOverrides;
+        _sourceFiles = inputs.SourceFiles;
         _debugLoggingEnabled = IsDebugLoggingEnabled();
 
         // Initialize shared analyzer ONCE with system assemblies and project config
@@ -110,52 +112,50 @@ public class MultiFileCompiler
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
     }
 
-    /// <summary>
-    /// Builds the set of conditional-compilation symbols that drive <c>#if</c>
-    /// evaluation, seeded from <c>project.yml</c> <c>defines:</c>. The CLI folds
-    /// build-configuration symbols (e.g. <c>DEBUG</c>) and <c>--define</c> values
-    /// into the same list before constructing the compiler. Symbols are
-    /// case-sensitive, matching N# preprocessor semantics.
-    /// </summary>
-    private static IReadOnlySet<string> BuildPreprocessorSymbols(ProjectConfig config)
+    private static MultiFileCompilerInputs BuildProjectInputs(
+        string projectRoot,
+        ProjectConfig? config,
+        IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
-        var symbols = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var define in config.Defines)
-        {
-            if (!string.IsNullOrWhiteSpace(define))
-            {
-                symbols.Add(define.Trim());
-            }
-        }
-
-        return symbols;
+        var (paths, texts) = CopySourceTextOverrides(sourceTextOverrides);
+        return MultiFileCompilerInputBuilder.BuildFromProject(
+            projectRoot,
+            config ?? ProjectFileParser.CreateDefault(),
+            paths,
+            texts);
     }
 
-    private static List<string> BuildSourceFiles(string projectRoot, ProjectConfig config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
+    private static MultiFileCompilerInputs BuildExplicitInputs(
+        IEnumerable<string> sourceFiles,
+        ProjectConfig? config,
+        IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
-        return DeduplicateSourceFilesOrdinalIgnoreCase(DiscoverSourceFiles(projectRoot, config)
-            .Concat(NormalizeSourceTextOverrides(sourceTextOverrides).Keys)
-            .ToList());
+        var (paths, texts) = CopySourceTextOverrides(sourceTextOverrides);
+        return MultiFileCompilerInputBuilder.Build(
+            sourceFiles.ToList(),
+            config ?? ProjectFileParser.CreateDefault(),
+            paths,
+            texts);
     }
 
-    private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
-    {
-        return SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
-            ? dogfoodSourceFiles
-            : throw new InvalidOperationException("N# source-file deduplication declined.");
-    }
-
-    private static IReadOnlyDictionary<string, string> NormalizeSourceTextOverrides(IReadOnlyDictionary<string, string>? sourceTextOverrides)
+    private static (string[] Paths, string[] Texts) CopySourceTextOverrides(IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
         if (sourceTextOverrides == null || sourceTextOverrides.Count == 0)
         {
-            return new Dictionary<string, string>();
+            return (Array.Empty<string>(), Array.Empty<string>());
         }
 
-        return sourceTextOverrides.ToDictionary(
-            kvp => Path.GetFullPath(kvp.Key),
-            kvp => kvp.Value,
-            StringComparer.OrdinalIgnoreCase);
+        var paths = new string[sourceTextOverrides.Count];
+        var texts = new string[sourceTextOverrides.Count];
+        var index = 0;
+        foreach (var (path, text) in sourceTextOverrides)
+        {
+            paths[index] = path;
+            texts[index] = text;
+            index++;
+        }
+
+        return (paths, texts);
     }
 
     private string ReadSourceText(string sourceFile)
@@ -176,23 +176,6 @@ public class MultiFileCompiler
                 _sourceTexts[fullPath] = ReadSourceText(sourceFile);
             }
         }
-    }
-
-    /// <summary>
-    /// Discovers all .nl files in the project directory using ProjectConfig exclude patterns
-    /// (excludes .tests.nl files)
-    /// </summary>
-    private static List<string> DiscoverSourceFiles(string projectRoot, ProjectConfig config)
-    {
-        if (!Directory.Exists(projectRoot))
-        {
-            return new List<string>();
-        }
-
-        // Use ProjectConfig's GetSourceFiles method which respects exclude patterns
-        return config.GetSourceFiles(projectRoot, includeTests: false)
-            .Select(f => Path.GetFullPath(f))
-            .ToList();
     }
 
     /// <summary>
