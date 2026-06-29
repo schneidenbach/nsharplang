@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 
 namespace NSharpLang.Compiler;
@@ -33,6 +34,24 @@ internal static class DogfoodKernelLoader
 
     private static Assembly? TryLoadDogfoodAssembly()
     {
+        try
+        {
             return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
+        }
+        catch (FileNotFoundException)
+        {
+        }
+
+        var compilerAssemblyPath = typeof(DogfoodKernelLoader).Assembly.Location;
+        var compilerDirectory = Path.GetDirectoryName(compilerAssemblyPath);
+        if (string.IsNullOrWhiteSpace(compilerDirectory))
+        {
+            return null;
+        }
+
+        var adjacentDogfoodAssembly = Path.Combine(compilerDirectory, $"{DogfoodAssemblyName}.dll");
+        return File.Exists(adjacentDogfoodAssembly)
+            ? Assembly.LoadFrom(adjacentDogfoodAssembly)
+            : null;
     }
 }

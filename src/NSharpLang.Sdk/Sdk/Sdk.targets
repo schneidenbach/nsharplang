@@ -12,6 +12,11 @@
     <UseAppHost Condition="'$(UseAppHost)' == ''">false</UseAppHost>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And '$(MSBuildProjectName)' == 'NSharpLang.Compiler.BootstrapServices'">false</NSharpEmitValidateWithLegacyAnalysis>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == ''">true</NSharpEmitValidateWithLegacyAnalysis>
+  </PropertyGroup>
+
   <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
@@ -162,7 +167,8 @@
       Configuration="$(Configuration)"
       DefineConstants="$(DefineConstants)"
       TargetAssemblyPath="@(IntermediateAssembly)"
-      TargetReferenceAssemblyPath="@(IntermediateRefAssembly)" />
+      TargetReferenceAssemblyPath="@(IntermediateRefAssembly)"
+      ValidateWithLegacyAnalysis="$(NSharpEmitValidateWithLegacyAnalysis)" />
   </Target>
 
   <!-- Format N# files -->

@@ -162,6 +162,18 @@ public class MultiFileCompiler
             : File.ReadAllText(fullPath);
     }
 
+    private void ReadAllSourceTexts()
+    {
+        foreach (var sourceFile in _sourceFiles)
+        {
+            var fullPath = Path.GetFullPath(sourceFile);
+            if (!_sourceTexts.ContainsKey(fullPath))
+            {
+                _sourceTexts[fullPath] = ReadSourceText(sourceFile);
+            }
+        }
+    }
+
     /// <summary>
     /// Discovers all .nl files in the project directory using ProjectConfig exclude patterns
     /// (excludes .tests.nl files)
@@ -564,9 +576,30 @@ public class MultiFileCompiler
         AnalyzeAllFiles();
     }
 
-    public MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath, bool validateStrictLint = false)
+    public MultiFileCompilationResult CompileToIlAssembly(
+        string assemblyName,
+        string outputPath,
+        bool validateStrictLint = false,
+        bool validateWithLegacyAnalysis = true)
     {
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START");
+
+        var runLegacyValidation = validateWithLegacyAnalysis || validateStrictLint;
+        if (!runLegacyValidation)
+        {
+            ReadAllSourceTexts();
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
+            if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
+            {
+                AddRequiredColumnarEmitOnlyEmissionError(assemblyName);
+            }
+
+            var emitOnlySuccess = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
+            return new MultiFileCompilationResult(
+                emitOnlySuccess,
+                _allErrors,
+                emitOnlySuccess ? outputPath : null);
+        }
 
         ParseAllFiles();
         var errorsBeforeLint = _allErrors.Count(error => error.Severity == ErrorSeverity.Error);
@@ -667,6 +700,20 @@ public class MultiFileCompiler
             0,
             ErrorSeverity.Error)
         {
+            Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
+        });
+    }
+
+    private void AddRequiredColumnarEmitOnlyEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar emission is required for '{assemblyName}', but the columnar backend declined.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "This emit-only path bypasses the legacy C# AST/Analyzer and requires successful N# columnar emission.",
             Suggestion = "Port the rejected source shape to the columnar backend before using this product path."
         });
     }

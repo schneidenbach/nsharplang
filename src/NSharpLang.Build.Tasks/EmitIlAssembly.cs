@@ -39,6 +39,8 @@ public class EmitIlAssembly : Task
     /// </summary>
     public string? DefineConstants { get; set; }
 
+    public bool ValidateWithLegacyAnalysis { get; set; } = true;
+
     public override bool Execute()
     {
         try
@@ -58,7 +60,10 @@ public class EmitIlAssembly : Task
             AddResolvedDllReferences(config, TargetAssemblyPath, TargetReferenceAssemblyPath);
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
-            var result = compiler.CompileToIlAssembly(config.EffectiveName, TargetAssemblyPath);
+            var result = compiler.CompileToIlAssembly(
+                config.EffectiveName,
+                TargetAssemblyPath,
+                validateWithLegacyAnalysis: ValidateWithLegacyAnalysis);
 
             foreach (var error in result.Errors)
             {
