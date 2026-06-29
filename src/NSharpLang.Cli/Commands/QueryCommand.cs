@@ -981,7 +981,11 @@ public static class QueryCommand
             CompilationReferenceResolver.AddResolvedDllReferences(
                 projectDir,
                 config,
-                new ReferenceResolutionOptions(Quiet: true, BuildProjectReferences: false));
+                new ReferenceResolutionOptions
+                {
+                    Quiet = true,
+                    BuildProjectReferences = false
+                });
             return Service.LoadProject(projectDir, config);
         }
         catch (Exception ex)
@@ -1005,7 +1009,11 @@ public static class QueryCommand
         CompilationReferenceResolver.AddResolvedDllReferences(
             projectDir,
             config,
-            new ReferenceResolutionOptions(Quiet: true, BuildProjectReferences: false));
+            new ReferenceResolutionOptions
+            {
+                Quiet = true,
+                BuildProjectReferences = false
+            });
         return Service.LoadProject(projectDir, config);
     }
 

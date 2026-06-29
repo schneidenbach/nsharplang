@@ -4,6 +4,55 @@ import System
 import System.Collections.Generic
 import System.IO
 
+public class ReferenceResolutionOptions {
+    configurationValue: string
+    includeTestsValue: bool
+    buildProjectReferencesValue: bool
+    quietValue: bool
+    aotModeValue: bool
+
+    Configuration: string {
+        get { return configurationValue }
+        set { configurationValue = value }
+    }
+
+    IncludeTests: bool {
+        get { return includeTestsValue }
+        set { includeTestsValue = value }
+    }
+
+    BuildProjectReferences: bool {
+        get { return buildProjectReferencesValue }
+        set { buildProjectReferencesValue = value }
+    }
+
+    Quiet: bool {
+        get { return quietValue }
+        set { quietValue = value }
+    }
+
+    AotMode: bool {
+        get { return aotModeValue }
+        set { aotModeValue = value }
+    }
+
+    constructor() {
+        configurationValue = "Debug"
+        includeTestsValue = false
+        buildProjectReferencesValue = true
+        quietValue = false
+        aotModeValue = false
+    }
+
+    constructor(Configuration: string, IncludeTests: bool, BuildProjectReferences: bool, Quiet: bool, AotMode: bool) {
+        configurationValue = Configuration
+        includeTestsValue = IncludeTests
+        buildProjectReferencesValue = BuildProjectReferences
+        quietValue = Quiet
+        aotModeValue = AotMode
+    }
+}
+
 public class ReferenceResolutionResult {
     runtimeAssets: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 

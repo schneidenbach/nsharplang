@@ -43,7 +43,10 @@ public static class CheckCommand
                 CompilationReferenceResolver.AddResolvedDllReferences(
                     projectDir,
                     projectConfig,
-                    new ReferenceResolutionOptions(AotMode: aot));
+                    new ReferenceResolutionOptions
+                    {
+                        AotMode = aot
+                    });
             }
 
             CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig);

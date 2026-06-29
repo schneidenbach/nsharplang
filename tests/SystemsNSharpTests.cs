@@ -2061,7 +2061,11 @@ class Box {}
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
             projectRoot,
             config,
-            new ReferenceResolutionOptions(Configuration: configuration, Quiet: true));
+            new ReferenceResolutionOptions
+            {
+                Configuration = configuration,
+                Quiet = true
+            });
 
         Directory.CreateDirectory(outputDir);
         var assemblyName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);

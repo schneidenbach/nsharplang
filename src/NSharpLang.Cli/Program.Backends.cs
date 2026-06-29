@@ -39,7 +39,12 @@ partial class Program
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions(Configuration: configuration, Quiet: !verbose, AotMode: aot));
+                new ReferenceResolutionOptions
+                {
+                    Configuration = configuration,
+                    Quiet = !verbose,
+                    AotMode = aot
+                });
             resolveSw.Stop();
 
             compileSw.Start();
@@ -86,7 +91,11 @@ partial class Program
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
                 config,
-                new ReferenceResolutionOptions(Configuration: release ? "Release" : "Debug", BuildProjectReferences: false));
+                new ReferenceResolutionOptions
+                {
+                    Configuration = release ? "Release" : "Debug",
+                    BuildProjectReferences = false
+                });
             var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
             if (outputPath == null)
             {
@@ -126,7 +135,10 @@ partial class Program
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions(Configuration: configuration));
+                new ReferenceResolutionOptions
+                {
+                    Configuration = configuration
+                });
             var outputPath = CompileProjectWithIlBackend(projectRoot, config, outputDir, references);
             if (outputPath == null)
             {
@@ -162,7 +174,10 @@ partial class Program
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
                 config,
-                new ReferenceResolutionOptions(BuildProjectReferences: false));
+                new ReferenceResolutionOptions
+                {
+                    BuildProjectReferences = false
+                });
             var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, tempDir, references);
             if (outputPath == null)
             {
@@ -199,7 +214,13 @@ partial class Program
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
             projectRoot,
             config,
-            new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose, AotMode: aotMode));
+            new ReferenceResolutionOptions
+            {
+                Configuration = configuration,
+                IncludeTests = includeTests,
+                Quiet = !verbose,
+                AotMode = aotMode
+            });
 
         return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests, aotMode);
     }

@@ -12,13 +12,6 @@ using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli;
 
-internal sealed record ReferenceResolutionOptions(
-    string Configuration = "Debug",
-    bool IncludeTests = false,
-    bool BuildProjectReferences = true,
-    bool Quiet = false,
-    bool AotMode = false);
-
 internal static class CompilationReferenceResolver
 {
     private static readonly HttpClient HttpClient = new()
@@ -157,7 +150,18 @@ internal static class CompilationReferenceResolver
         context.ActiveProjectRoots.Push(projectRoot);
         try
         {
-            var references = ResolveProjectReferences(projectRoot, config, options with { IncludeTests = false }, context);
+            var references = ResolveProjectReferences(
+                projectRoot,
+                config,
+                new ReferenceResolutionOptions
+                {
+                    Configuration = options.Configuration,
+                    IncludeTests = false,
+                    BuildProjectReferences = options.BuildProjectReferences,
+                    Quiet = options.Quiet,
+                    AotMode = options.AotMode
+                },
+                context);
             var outputDirectory = GetStableOutputDirectory(projectRoot, config, options.Configuration);
             Directory.CreateDirectory(outputDirectory);
 
