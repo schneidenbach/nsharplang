@@ -23408,16 +23408,6 @@ public class EnumTypeInfo : TypeInfo
     public override string ToString() => Declaration.Name;
 }
 
-public class AliasTypeInfo : TypeInfo
-{
-    public AliasTypeInfo(TypeReference aliasedType)
-    {
-        AliasedType = aliasedType;
-    }
-
-    public TypeReference AliasedType { get; }
-}
-
 /// <summary>
 /// Represents a newtype (distinct wrapper type).
 /// Unlike AliasTypeInfo, newtypes are NOT transparent — they are distinct from their underlying type.
