@@ -249,3 +249,27 @@ public class ColumnarInterfaceInput {
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
     }
 }
+
+public class ColumnarProgramInput {
+    Source: string
+    Functions: IReadOnlyList<ColumnarFunctionInput>
+    Enums: IReadOnlyList<ColumnarEnumInput>
+    Structs: IReadOnlyList<ColumnarStructInput>
+    Unions: IReadOnlyList<ColumnarUnionInput>
+    Interfaces: IReadOnlyList<ColumnarInterfaceInput>
+
+    constructor(
+        source: string,
+        functions: IReadOnlyList<ColumnarFunctionInput>,
+        enums: IReadOnlyList<ColumnarEnumInput>,
+        structs: IReadOnlyList<ColumnarStructInput>,
+        unions: IReadOnlyList<ColumnarUnionInput>,
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>) {
+        Source = source
+        Functions = functions
+        Enums = enums
+        Structs = structs
+        Unions = unions
+        Interfaces = interfaces
+    }
+}

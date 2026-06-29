@@ -16,36 +16,6 @@ using YamlParser = YamlDotNet.Core.IParser;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
-/// One parsed columnar program as consumed by the standalone columnar emitter. The columnar input builder owns source
-/// parsing and declaration collection; the emitter owns lowering this single typed bundle to an assembly.
-/// </summary>
-internal sealed class ColumnarProgramInput
-{
-    internal ColumnarProgramInput(
-        string source,
-        IReadOnlyList<ColumnarFunctionInput> functions,
-        IReadOnlyList<ColumnarEnumInput>? enums = null,
-        IReadOnlyList<ColumnarStructInput>? structs = null,
-        IReadOnlyList<ColumnarUnionInput>? unions = null,
-        IReadOnlyList<ColumnarInterfaceInput>? interfaces = null)
-    {
-        Source = source;
-        Functions = functions;
-        Enums = enums ?? Array.Empty<ColumnarEnumInput>();
-        Structs = structs ?? Array.Empty<ColumnarStructInput>();
-        Unions = unions ?? Array.Empty<ColumnarUnionInput>();
-        Interfaces = interfaces ?? Array.Empty<ColumnarInterfaceInput>();
-    }
-
-    internal string Source { get; }
-    internal IReadOnlyList<ColumnarFunctionInput> Functions { get; }
-    internal IReadOnlyList<ColumnarEnumInput> Enums { get; }
-    internal IReadOnlyList<ColumnarStructInput> Structs { get; }
-    internal IReadOnlyList<ColumnarUnionInput> Unions { get; }
-    internal IReadOnlyList<ColumnarInterfaceInput> Interfaces { get; }
-}
-
-/// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
 /// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
 /// against the builder handles directly — never <c>GetField</c>, which throws on an un-finalized TypeBuilder). Built
