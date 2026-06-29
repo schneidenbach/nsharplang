@@ -146,6 +146,63 @@ public class ImportGraphDiagnosticSuppressor {
     }
 }
 
+public class ImportCycleDiagnosticReporter {
+    public static func Report(
+        cycle: ImportCycle,
+        reportedImportCycles: HashSet<string>,
+        filesInReportedImportCycles: HashSet<string>,
+        errors: List<CompilerError>,
+        maxReportedImportCycles: int,
+        sourceSnippet: string?) {
+        if !reportedImportCycles.Add(cycle.CanonicalKey) {
+            return
+        }
+
+        pathLimit := Math.Max(0, cycle.Path.Count - 1)
+        i := 0
+        while i < pathLimit {
+            filesInReportedImportCycles.Add(Path.GetFullPath(cycle.Path[i]))
+            i = i + 1
+        }
+
+        if CountCircularImportErrors(errors) >= maxReportedImportCycles {
+            return
+        }
+
+        edge := cycle.Edge
+        errors.Add(new CompilerError(
+            ErrorCode.CircularImport,
+            "Circular import detected: " + cycle.DisplayPath,
+            edge.Line,
+            edge.Column,
+            ErrorSeverity.Error) {
+            FileName: edge.SourceFile,
+            SourceSnippet: sourceSnippet,
+            Length: Math.Max(1, edge.Length),
+            HumanExplanation: "File imports form a cycle: " + cycle.DisplayPath,
+            ContextualHint:
+                "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
+                "Import path: " + cycle.DisplayPath,
+            Suggestion: "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
+            DocsUrl: "https://docs.n-sharp.dev/errors/NL703"
+        })
+    }
+
+    static func CountCircularImportErrors(errors: List<CompilerError>): int {
+        count := 0
+        i := 0
+        while i < errors.Count {
+            if errors[i].Code == ErrorCode.CircularImport {
+                count = count + 1
+            }
+
+            i = i + 1
+        }
+
+        return count
+    }
+}
+
 public class ImportTraversalFrame {
     SourceFile: string
     Edges: List<ImportEdge>

@@ -257,7 +257,13 @@ public class MultiFileCompiler
             MaxDisplayedImportCycleNodes);
         foreach (var cycle in cycles)
         {
-            ReportCircularImportCycle(cycle);
+            ImportCycleDiagnosticReporter.Report(
+                cycle,
+                _reportedImportCycles,
+                _filesInReportedImportCycles,
+                _allErrors,
+                MaxReportedImportCycles,
+                TryReadSourceLine(cycle.Edge.SourceFile, cycle.Edge.Line));
         }
     }
 
@@ -279,40 +285,6 @@ public class MultiFileCompiler
         }
 
         return fileImports;
-    }
-
-    private void ReportCircularImportCycle(ImportCycle cycle)
-    {
-        if (!_reportedImportCycles.Add(cycle.CanonicalKey))
-            return;
-
-        foreach (var filePath in cycle.Path.Take(Math.Max(0, cycle.Path.Count - 1)))
-        {
-            _filesInReportedImportCycles.Add(Path.GetFullPath(filePath));
-        }
-
-        if (_allErrors.Count(error => error.Code == ErrorCode.CircularImport) >= MaxReportedImportCycles)
-            return;
-
-        var edge = cycle.Edge;
-        var sourceSnippet = TryReadSourceLine(edge.SourceFile, edge.Line);
-        _allErrors.Add(new CompilerError(
-            ErrorCode.CircularImport,
-            $"Circular import detected: {cycle.DisplayPath}",
-            edge.Line,
-            edge.Column,
-            ErrorSeverity.Error)
-        {
-            FileName = edge.SourceFile,
-            SourceSnippet = sourceSnippet,
-            Length = Math.Max(1, edge.Length),
-            HumanExplanation = $"File imports form a cycle: {cycle.DisplayPath}",
-            ContextualHint =
-                "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
-                $"Import path: {cycle.DisplayPath}",
-            Suggestion = "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
-            DocsUrl = "https://docs.n-sharp.dev/errors/NL703"
-        });
     }
 
     private string? TryReadSourceLine(string filePath, int line)
