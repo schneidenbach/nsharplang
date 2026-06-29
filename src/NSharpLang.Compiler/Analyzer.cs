@@ -23188,30 +23188,6 @@ public class UnknownTypeInfo : TypeInfo
         => !(left == right);
 }
 
-public class SimpleTypeInfo : TypeInfo
-{
-    public SimpleTypeInfo(string name)
-    {
-        Name = name;
-    }
-
-    public string Name { get; }
-
-    public override string ToString() => Name;
-
-    public override bool Equals(object? value)
-        => value is SimpleTypeInfo other && string.Equals(Name, other.Name, StringComparison.Ordinal);
-
-    public override int GetHashCode()
-        => Name.GetHashCode(StringComparison.Ordinal);
-
-    public static bool operator ==(SimpleTypeInfo? left, SimpleTypeInfo? right)
-        => left is null ? right is null : left.Equals(right);
-
-    public static bool operator !=(SimpleTypeInfo? left, SimpleTypeInfo? right)
-        => !(left == right);
-}
-
 public class FunctionTypeInfo : TypeInfo
 {
     public FunctionTypeInfo(FunctionDeclaration? declaration)
