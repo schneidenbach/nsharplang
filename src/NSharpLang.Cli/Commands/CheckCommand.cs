@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
@@ -134,7 +133,7 @@ public static class CheckCommand
 
             if (!compileResult.Success)
             {
-                foreach (var error in FilterCompilerErrorsBySeverity(compileResult.Errors, ErrorSeverity.Error))
+                foreach (var error in CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error))
                 {
                     results.Add(CodeIntelligenceService.ToDiagnosticResult(error, projectDir));
                 }
@@ -146,14 +145,6 @@ public static class CheckCommand
         }
 
         return results;
-    }
-
-    private static List<CompilerError> FilterCompilerErrorsBySeverity(
-        IEnumerable<CompilerError> errors,
-        ErrorSeverity severity)
-    {
-        var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
-        return CompilerErrorSeverityFilter.Filter(errorList, severity);
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

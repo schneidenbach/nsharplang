@@ -88,7 +88,7 @@ public static class LintCommand
                     var tokens = lexer.Tokenize();
                     var parser = new Parser(tokens, file, source);
                     var parseResult = parser.ParseCompilationUnit();
-                    var parseErrors = FilterCompilerErrorsBySeverity(parseResult.Errors, ErrorSeverity.Error);
+                    var parseErrors = CompilerErrorSeverityFilter.Filter(parseResult.Errors, ErrorSeverity.Error);
 
                     if (parseErrors.Count > 0)
                     {
@@ -208,13 +208,6 @@ public static class LintCommand
 
     private static string NormalizePath(string path)
         => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
-
-    private static List<CompilerError> FilterCompilerErrorsBySeverity(
-        IReadOnlyList<CompilerError> errors,
-        ErrorSeverity severity)
-    {
-        return CompilerErrorSeverityFilter.Filter(errors, severity);
-    }
 
     private static string? ExtractSourceLine(string source, int line) =>
         CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);
