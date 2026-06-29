@@ -530,7 +530,7 @@ internal static class ColumnarProgramInputBuilder
             {
                 return false;
             }
-            (input.LocalFunctions ??= []).Add((localFunctionNodeIndices[lf], localFn));
+            (input.LocalFunctions ??= []).Add(new ColumnarLocalFunctionInput(localFunctionNodeIndices[lf], localFn));
         }
         return true;
     }

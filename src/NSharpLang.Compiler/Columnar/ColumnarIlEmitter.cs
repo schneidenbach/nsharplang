@@ -75,86 +75,6 @@ internal sealed class ColumnarInterfaceInput
 }
 
 /// <summary>
-/// One top-level function's parsed signature plus its columnar body node tables, as consumed by
-/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table is produced per-function by the parser
-/// kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
-/// </summary>
-internal sealed class ColumnarFunctionInput
-{
-    internal ColumnarFunctionInput(
-        string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
-        ColumnarNodeTable bodyNodes, int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
-        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
-        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
-        int[]? paramModifierKinds = null, int[]? paramDefaultKinds = null, string?[]? paramDefaultTexts = null,
-        bool isAsync = false)
-    {
-        Name = name;
-        ReturnCanonical = returnCanonical;
-        IsAsync = isAsync;
-        ParamNames = paramNames;
-        ParamCanonicals = paramCanonicals;
-        ParamModifierKinds = paramModifierKinds ?? Array.Empty<int>();
-        ParamDefaultKinds = paramDefaultKinds ?? Array.Empty<int>();
-        ParamDefaultTexts = paramDefaultTexts ?? Array.Empty<string?>();
-        BodyNodes = bodyNodes;
-        BodyRoot = bodyRoot;
-        IsStatic = isStatic;
-        ReturnTupleElementNames = returnTupleElementNames;
-        ParamTupleElementNames = paramTupleElementNames;
-        TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
-        TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[TypeParamNames.Length];
-        if (typeParamTypeConstraints == null)
-        {
-            typeParamTypeConstraints = new string[TypeParamNames.Length][];
-            for (var t = 0; t < typeParamTypeConstraints.Length; t++)
-                typeParamTypeConstraints[t] = System.Array.Empty<string>();
-        }
-        TypeParamTypeConstraints = typeParamTypeConstraints;
-    }
-
-    internal string Name { get; }
-    internal string ReturnCanonical { get; }
-    internal string[] ParamNames { get; }
-    internal string[] ParamCanonicals { get; }
-    internal int[] ParamModifierKinds { get; }
-    internal int[] ParamDefaultKinds { get; }
-    internal string?[] ParamDefaultTexts { get; }
-    internal ColumnarNodeTable BodyNodes { get; }
-    internal int BodyRoot { get; }
-    // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
-    // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
-    // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
-    internal bool IsStatic { get; }
-    // True for an `async func` (the adapter reads the kernel's per-declaration modifier flags). The
-    // emitter uses the current synchronous async lowering: the declared return wraps into
-    // ValueTask/ValueTask<T> (Task/Task<T> for `main` — the entry-point rule), returns wrap into
-    // completed tasks, the body runs inside a fault guard whose catch converts to a faulted task,
-    // and `await` is a blocking GetAwaiter().GetResult(). Real state machines are deferred.
-    internal bool IsAsync { get; }
-    // Tuple ELEMENT NAMES declared on the RETURN type / each PARAM type (`(x: int, y: int)`), null when
-    // unnamed or non-tuple — canonicals ERASE names (tuple identity is positional, .NET semantics), so
-    // they travel here for the emitter's name->ItemN member mapping.
-    internal string[]? ReturnTupleElementNames { get; }
-    internal string[]?[]? ParamTupleElementNames { get; }
-    // Generic TYPE-PARAMETER names (`func Identity<T>(x: T): T` → ["T"]); empty for a non-generic function. A
-    // generic TOP-LEVEL function declares a real CLR generic method (DefineGenericParameters, mirroring the
-    // legacy emitter's primary strategy); call sites infer the type arguments from the emitted argument types and bind
-    // via MakeGenericMethod. Generic METHODS on user types decline (the legacy emitter itself fails on them — B12).
-    internal string[] TypeParamNames { get; }
-    // Generic CONSTRAINTS (`where T: Base, new()` — D-17b), positionally aligned with TypeParamNames. Special
-    // flags mirror SpecialConstraintKind (Class=1, Struct=2, New=4); type constraints are canonical type names
-    // (a base class, `string`, or another of the function's own type parameters). Both default to "none".
-    internal int[] TypeParamSpecialConstraints { get; }
-    internal string[][] TypeParamTypeConstraints { get; }
-    // LOCAL FUNCTIONS declared as DIRECT children of this body's root block (kind-41 statements): the body
-    // node index paired with the nested declaration's own parsed input (set by the adapter; null when none).
-    // The emitter declares them as `<parent>g__{n}` statics before the body emits; a kind-41 node whose
-    // index is NOT in this list (a nested-block declaration) declines.
-    internal List<(int NodeIndex, ColumnarFunctionInput Fn)>? LocalFunctions { get; set; }
-}
-
-/// <summary>
 /// One CONSTRUCTOR: either an explicit constructor or the initializer constructor synthesized from a type declaration.
 /// Its signature + body (<see cref="Body"/>, a nameless void function) plus its optional chaining initializer.
 /// <see cref="ChainInitKind"/> is 0 (none), 1 (<c>: this(args)</c>), or 2 (<c>: base(args)</c>).
@@ -4171,8 +4091,10 @@ internal sealed class ColumnarIlEmitter
             {
                 localFuncs = new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal);
                 declaredLocalFuncNodes = new Dictionary<int, string>();
-                foreach (var (nodeIndex, localFn) in fn.LocalFunctions)
+                foreach (var localFunction in fn.LocalFunctions)
                 {
+                    var nodeIndex = localFunction.NodeIndex;
+                    var localFn = localFunction.Function;
                     Type localReturn;
                     if (localFn.ReturnCanonical == "void")
                         localReturn = typeof(void);
@@ -4224,8 +4146,9 @@ internal sealed class ColumnarIlEmitter
                 var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
                 CollectBindingNames(fn.BodyNodes, source, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
-                foreach (var (_, localFn) in fn.LocalFunctions)
+                foreach (var localFunction in fn.LocalFunctions)
                 {
+                    var localFn = localFunction.Function;
                     visiblePrefix.Add(localFn.Name);
                     var target = localFuncs![localFn.Name];
                     var localOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);

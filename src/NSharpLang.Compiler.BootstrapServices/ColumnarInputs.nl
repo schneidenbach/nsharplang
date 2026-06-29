@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System.Collections.Generic
+
 public class ColumnarEnumInput {
     nameValue: string
     memberNamesValue: string[]
@@ -44,5 +46,78 @@ public class ColumnarUnionInput {
         caseFieldTypeCanonicalsValue = caseFieldTypeCanonicals
         typeParamNamesValue = typeParamNames ?? new string[](0)
         isValueStructValue = isValueStruct
+    }
+}
+
+public class ColumnarFunctionInput {
+    Name: string
+    ReturnCanonical: string
+    ParamNames: string[]
+    ParamCanonicals: string[]
+    ParamModifierKinds: int[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+    BodyNodes: ColumnarNodeTable
+    BodyRoot: int
+    IsStatic: bool
+    IsAsync: bool
+    ReturnTupleElementNames: string[]?
+    ParamTupleElementNames: string[][]?
+    TypeParamNames: string[]
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
+    public LocalFunctions: List<ColumnarLocalFunctionInput>?
+
+    constructor(
+        name: string,
+        returnCanonical: string,
+        paramNames: string[],
+        paramCanonicals: string[],
+        bodyNodes: ColumnarNodeTable,
+        bodyRoot: int,
+        isStatic: bool = false,
+        typeParamNames: string[]? = null,
+        typeParamSpecialConstraints: int[]? = null,
+        typeParamTypeConstraints: string[][]? = null,
+        returnTupleElementNames: string[]? = null,
+        paramTupleElementNames: string[][]? = null,
+        paramModifierKinds: int[]? = null,
+        paramDefaultKinds: int[]? = null,
+        paramDefaultTexts: string[]? = null,
+        isAsync: bool = false) {
+        Name = name
+        ReturnCanonical = returnCanonical
+        IsAsync = isAsync
+        ParamNames = paramNames
+        ParamCanonicals = paramCanonicals
+        ParamModifierKinds = paramModifierKinds ?? new int[](0)
+        ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
+        ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
+        BodyNodes = bodyNodes
+        BodyRoot = bodyRoot
+        IsStatic = isStatic
+        ReturnTupleElementNames = returnTupleElementNames
+        ParamTupleElementNames = paramTupleElementNames
+        TypeParamNames = typeParamNames ?? new string[](0)
+        TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[](TypeParamNames.Length)
+        if typeParamTypeConstraints == null {
+            typeParamTypeConstraints = new string[][](TypeParamNames.Length)
+            t := 0
+            while t < typeParamTypeConstraints.Length {
+                typeParamTypeConstraints[t] = new string[](0)
+                t = t + 1
+            }
+        }
+        TypeParamTypeConstraints = typeParamTypeConstraints
+    }
+}
+
+public class ColumnarLocalFunctionInput {
+    NodeIndex: int
+    Function: ColumnarFunctionInput
+
+    constructor(nodeIndex: int, function: ColumnarFunctionInput) {
+        NodeIndex = nodeIndex
+        Function = function
     }
 }
