@@ -7039,26 +7039,18 @@ public class Parser
 
         var snippet = GetSourceSnippet(line);
 
-        var docsUrl = $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}";
-        var error = CompilerError.WithSnippetDetailed(
+        var error = ParserErrorDiagnostics.Create(
             code,
             message,
-            _fileName ?? "unknown",
+            _fileName,
             line,
             column,
-            snippet ?? "",
+            snippet,
             length,
-            suggestions?.FirstOrDefault(),
-            ErrorSeverity.Error,
             humanExplanation,
             hint,
-            docsUrl
+            suggestions
         );
-
-        if (suggestions != null)
-        {
-            error.Suggestions = suggestions;
-        }
 
         _errors.Add(error);
         _panicMode = true;
