@@ -110,12 +110,6 @@ public record SoaRecordDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
-public record SoaColumnDeclaration(
-    string Name,
-    TypeReference Type,
-    int Line = 0,
-    int Column = 0);
-
 // Interface declaration
 public record InterfaceDeclaration(
     string Name,
@@ -137,16 +131,6 @@ public record UnionDeclaration(
     List<AttributeNode> Attributes,
     int Line,
     int Column) : Declaration(Line, Column);
-
-public record UnionCase(
-    string Name,
-    List<UnionCaseProperty>? Properties,
-    int Line = 0,
-    int Column = 0);
-
-public record UnionCaseProperty(
-    string Name,
-    TypeReference Type);
 
 // Enum declaration
 public record EnumDeclaration(
