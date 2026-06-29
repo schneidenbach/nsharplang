@@ -368,20 +368,15 @@ public class MultiFileCompiler
             foreach (var diagnostic in linter.Lint(compilationUnit, fullPath, source)
                          .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
             {
-                _allErrors.Add(new CompilerError(
-                    ErrorCode.InvalidSyntax,
+                _allErrors.Add(StrictLintDiagnostics.FromLintDiagnostic(
+                    fullPath,
+                    diagnostic.Code,
                     diagnostic.Message,
                     diagnostic.Location.Line,
                     diagnostic.Location.Column,
-                    ErrorSeverity.Error)
-                {
-                    FileName = fullPath,
-                    Length = Math.Max(diagnostic.Length, 1),
-                    Suggestion = diagnostic.Suggestion,
-                    SourceSnippet = TryReadSourceLine(fullPath, diagnostic.Location.Line)?.TrimEnd(),
-                    DiagnosticIdOverride = diagnostic.Code,
-                    DocsUrl = DiagnosticCatalog.DocsUrlFor(diagnostic.Code)
-                });
+                    diagnostic.Length,
+                    diagnostic.Suggestion,
+                    TryReadSourceLine(fullPath, diagnostic.Location.Line)));
             }
         }
     }
