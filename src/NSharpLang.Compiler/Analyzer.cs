@@ -23169,40 +23169,6 @@ public class Analyzer : IDisposable
 
 // Supporting types - now in ErrorReporting.cs
 
-public class Scope
-{
-    public ScopeKind Kind { get; }
-    public Dictionary<string, TypeInfo> Symbols { get; } = new();
-    public Dictionary<string, TypeInfo> Types { get; } = new();
-    public Dictionary<string, NullState> NullStates { get; } = new(StringComparer.Ordinal);
-    internal Dictionary<string, ErrorTupleResultGuard> ErrorTupleResults { get; } = new(StringComparer.Ordinal);
-    internal HashSet<string> AvailableErrorTupleResults { get; } = new(StringComparer.Ordinal);
-
-    // Declaration locations for binding map (name → declaration info)
-    private readonly Dictionary<string, SymbolDeclaration> _declarationLocations = new();
-
-    public Scope(ScopeKind kind)
-    {
-        Kind = kind;
-    }
-
-    /// <summary>
-    /// Record where a symbol was declared in this scope (for binding map lookups).
-    /// </summary>
-    public void RecordDeclarationLocation(string name, string? file, int line, int column, string kind)
-    {
-        _declarationLocations[name] = new SymbolDeclaration(name, file, line, column, kind);
-    }
-
-    /// <summary>
-    /// Get the declaration location for a symbol in this scope.
-    /// </summary>
-    public SymbolDeclaration? GetDeclarationLocation(string name)
-    {
-        return _declarationLocations.TryGetValue(name, out var decl) ? decl : null;
-    }
-}
-
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
 
 public class UnknownTypeInfo : TypeInfo
