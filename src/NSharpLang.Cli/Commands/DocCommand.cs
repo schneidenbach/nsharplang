@@ -368,13 +368,3 @@ internal static class ProjectDocGenerator
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }
-
-internal record DocManifest(
-    string IndexPath,
-    int PageCount,
-    IReadOnlyList<DocPage> Pages);
-
-internal record DocPage(
-    string Name,
-    string Kind,
-    string Path);
