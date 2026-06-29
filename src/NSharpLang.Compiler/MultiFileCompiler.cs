@@ -340,7 +340,7 @@ public class MultiFileCompiler
         _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts, _semanticModels);
         foreach (var finding in _systemsReport.Findings)
         {
-            _allErrors.Add(finding.ToCompilerError());
+            _allErrors.Add(SystemsFindingDiagnostics.ToCompilerError(finding));
         }
     }
 

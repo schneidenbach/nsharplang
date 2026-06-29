@@ -6,29 +6,6 @@ using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.Performance;
 
-public static class SystemsFindingExtensions
-{
-    public static CompilerError ToCompilerError(this SystemsFinding finding)
-    {
-        var severity = string.Equals(finding.Severity, "error", StringComparison.OrdinalIgnoreCase)
-            ? ErrorSeverity.Error
-            : ErrorSeverity.Warning;
-
-        return new CompilerError(ErrorCode.InvalidSyntax, finding.Message, finding.Line, finding.Column, severity)
-        {
-            DiagnosticIdOverride = finding.Code,
-            FileName = finding.File,
-            Length = finding.Length,
-            Suggestion = finding.Suggestion,
-            HumanExplanation = $"Systems policy '{finding.Policy ?? "local"}' rejected the '{finding.Effect}' effect.",
-            ContextualHint = finding.CallPath.Count > 0
-                ? $"effect path: {string.Join(" -> ", finding.CallPath)}"
-                : null,
-            DocsUrl = $"https://docs.n-sharp.dev/errors/{finding.Code}"
-        };
-    }
-}
-
 /// <summary>
 /// Systems N# policy/effect analyzer. This is deliberately conservative and source based:
 /// it gives the check/build/query surfaces deterministic facts without changing emitted IL.
