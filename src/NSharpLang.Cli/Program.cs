@@ -849,7 +849,8 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         return extraction.Defines.ToList();
     }
 
-    static string NormalizePath(string path) => path.Replace('\\', '/');
+    static string NormalizePath(string path)
+        => NSharpLang.Compiler.CodeIntelligence.OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     static string FormatElapsed(TimeSpan elapsed)
     {

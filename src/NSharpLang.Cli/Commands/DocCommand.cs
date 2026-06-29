@@ -142,7 +142,8 @@ public static class DocCommand
         }
     }
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }
 
 internal static class ProjectDocGenerator
@@ -366,5 +367,6 @@ internal static class ProjectDocGenerator
             parameter.HasDefault,
             parameter.DefaultValue ?? string.Empty);
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }

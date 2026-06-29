@@ -304,5 +304,6 @@ public static class FixCommand
         }
     }
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }

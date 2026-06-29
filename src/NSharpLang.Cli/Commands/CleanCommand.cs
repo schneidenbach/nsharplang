@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -97,5 +98,6 @@ public static class CleanCommand
         return 1;
     }
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }

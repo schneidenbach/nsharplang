@@ -1020,7 +1020,8 @@ public static class QueryCommand
     private static string GetRelativePath(string basePath, string filePath)
         => Path.GetRelativePath(basePath, filePath);
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     private static string GetProjectRoot(QueryOptions options)
         => Path.GetFullPath(options.ProjectDir ?? Directory.GetCurrentDirectory());

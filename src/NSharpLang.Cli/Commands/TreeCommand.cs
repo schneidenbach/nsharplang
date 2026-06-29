@@ -290,7 +290,8 @@ public static class TreeCommand
         return 1;
     }
 
-    static string NormalizePath(string path) => path.Replace('\\', '/');
+    static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     private sealed record TreeReport(
         int SchemaVersion,

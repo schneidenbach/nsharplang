@@ -206,7 +206,8 @@ public static class LintCommand
         return $"{elapsed.TotalSeconds:F1}s";
     }
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
+    private static string NormalizePath(string path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     private static List<CompilerError> FilterCompilerErrorsBySeverity(
         IReadOnlyList<CompilerError> errors,

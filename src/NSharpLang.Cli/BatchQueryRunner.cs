@@ -531,5 +531,6 @@ internal static class BatchQueryRunner
         var normalized => normalized
     };
 
-    private static string? NormalizePath(string? path) => path?.Replace('\\', '/');
+    private static string? NormalizePath(string? path)
+        => OutputFormatterNormalizationKernels.NormalizePath(path);
 }
