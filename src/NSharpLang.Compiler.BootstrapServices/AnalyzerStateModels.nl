@@ -36,6 +36,22 @@ public class FlowNarrowing {
     }
 }
 
+public class ImportedSymbolInfo {
+    nameValue: string
+    typeValue: TypeInfo
+    declarationValue: SymbolDeclaration
+
+    Name: string => nameValue
+    Type: TypeInfo => typeValue
+    Declaration: SymbolDeclaration => declarationValue
+
+    constructor(name: string, symbolType: TypeInfo, declaration: SymbolDeclaration) {
+        nameValue = name
+        typeValue = symbolType
+        declarationValue = declaration
+    }
+}
+
 public class Scope {
     kindValue: ScopeKind
     symbolsValue: Dictionary<string, TypeInfo>

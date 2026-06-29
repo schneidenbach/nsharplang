@@ -23165,8 +23165,6 @@ public class Analyzer : IDisposable
 
 // Supporting types - now in ErrorReporting.cs
 
-internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
-
 public class UnknownTypeInfo : TypeInfo
 {
     public UnknownTypeInfo(UnknownKind kind)
