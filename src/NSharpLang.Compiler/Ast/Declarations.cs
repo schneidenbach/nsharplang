@@ -236,44 +236,44 @@ public record AttributeNode(
     int Line = 1,
     int Column = 1);
 
-// Type references
-public abstract record TypeReference
+public class GenericTypeReference : TypeReference
 {
-    public SourceSpan Span { get; init; } = SourceSpan.None;
-}
-
-public record SimpleTypeReference(string Name, int Line = 0, int Column = 0) : TypeReference
-{
-    public SourceSpan NameSpan => Span.IsValid ? Span : SourceSpan.FromStartAndLength(Line, Column, Name.Length);
-}
-
-public record GenericTypeReference(
-    string Name,
-    List<TypeReference> TypeArguments) : TypeReference
-{
+    public string Name { get; }
+    public List<TypeReference> TypeArguments { get; }
     public int Line { get; init; }
     public int Column { get; init; }
     public SourceSpan NameSpan => SourceSpan.FromStartAndLength(Line, Column, Name.Length);
+
+    public GenericTypeReference(string name, List<TypeReference> typeArguments)
+    {
+        Name = name;
+        TypeArguments = typeArguments;
+    }
 }
 
-public record ArrayTypeReference(TypeReference ElementType) : TypeReference;
-
-public record NullableTypeReference(TypeReference InnerType) : TypeReference;
-
-public record UnionTypeReference(List<TypeReference> Arms) : TypeReference
+public class UnionTypeReference : TypeReference
 {
+    public List<TypeReference> Arms { get; }
+
+    public UnionTypeReference(List<TypeReference> arms)
+    {
+        Arms = arms;
+    }
+
     public override string ToString() => string.Join(" | ", Arms);
 }
 
-public record TupleTypeReference(List<TupleTypeElement> Elements) : TypeReference;
+public class FunctionTypeReference : TypeReference
+{
+    public List<TypeReference> ParameterTypes { get; }
+    public TypeReference ReturnType { get; }
 
-public record TupleTypeElement(TypeReference Type, string? Name);
-
-public record FunctionTypeReference(
-    List<TypeReference> ParameterTypes,
-    TypeReference ReturnType) : TypeReference;
-
-public record ByRefTypeReference(TypeReference InnerType) : TypeReference;
+    public FunctionTypeReference(List<TypeReference> parameterTypes, TypeReference returnType)
+    {
+        ParameterTypes = parameterTypes;
+        ReturnType = returnType;
+    }
+}
 
 // Test declaration (for .tests.nl files)
 public record TestDeclaration(

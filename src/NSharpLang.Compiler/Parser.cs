@@ -1987,10 +1987,8 @@ public class Parser
 
         if (elements.Count == 1 && elements[0].Name is null)
         {
-            return elements[0].Type with
-            {
-                Span = SpanFromTokens(leftParen, rightParen)
-            };
+            elements[0].Type.Span = SpanFromTokens(leftParen, rightParen);
+            return elements[0].Type;
         }
 
         return new TupleTypeReference(elements)
