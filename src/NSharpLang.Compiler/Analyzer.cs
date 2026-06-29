@@ -16494,7 +16494,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeTupleExpression(TupleExpression tuple)
     {
-        var elements = new List<(string? Name, TypeInfo Type)>(tuple.Elements.Count);
+        var elements = new List<TupleTypeElementInfo>(tuple.Elements.Count);
 
         for (var i = 0; i < tuple.Elements.Count; i++)
         {
@@ -16510,7 +16510,7 @@ public class Analyzer : IDisposable
             _currentExpectedType = previousExpectedType;
             ReportSoaRowEscapeIfNeeded(element.Value, elementType, "stored in a tuple");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(element.Value, "stored in a tuple");
-            elements.Add((element.Name, elementType));
+            elements.Add(new TupleTypeElementInfo(element.Name, elementType));
         }
 
         return new TupleTypeInfo(elements);
@@ -18669,7 +18669,7 @@ public class Analyzer : IDisposable
             NullableTypeReference nullable => new NullableTypeInfo(ResolveType(nullable.InnerType)),
             UnionTypeReference union => ResolveAnonymousUnionType(union),
             TupleTypeReference tuple => new TupleTypeInfo(
-                tuple.Elements.Select(e => (e.Name, ResolveType(e.Type))).ToList()),
+                tuple.Elements.Select(e => new TupleTypeElementInfo(e.Name, ResolveType(e.Type))).ToList()),
             FunctionTypeReference function => new FunctionTypeInfo(null)
             {
                 ParameterTypes = function.ParameterTypes.Select(ResolveType).ToList(),
@@ -23210,16 +23210,6 @@ public class SimpleTypeInfo : TypeInfo
 
     public static bool operator !=(SimpleTypeInfo? left, SimpleTypeInfo? right)
         => !(left == right);
-}
-
-public class TupleTypeInfo : TypeInfo
-{
-    public TupleTypeInfo(List<(string? Name, TypeInfo Type)> elements)
-    {
-        Elements = elements;
-    }
-
-    public List<(string? Name, TypeInfo Type)> Elements { get; }
 }
 
 public class FunctionTypeInfo : TypeInfo
