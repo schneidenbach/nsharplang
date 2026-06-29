@@ -1451,7 +1451,7 @@ public class Analyzer : IDisposable
     private bool TryConvertLiteralTypeInfoToClrType(TypeInfo typeInfo, out Type clrType)
     {
         clrType = TryConvertTypeInfoToClrType(typeInfo) ?? typeof(object);
-        return clrType != typeof(object) || typeInfo == BuiltInTypes.Object;
+        return clrType != typeof(object) || BuiltInTypes.Is(typeInfo, BuiltInTypes.Object);
     }
 
     private bool TryInferAttributeMemberAccessClrType(MemberAccessExpression memberAccess, out Type clrType)
@@ -1931,7 +1931,7 @@ public class Analyzer : IDisposable
             // Iterator functions (func* / async*) use yield, not explicit return.
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
             var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (IsUnitTaskLikeType(functionReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
-            if (functionReturnType != BuiltInTypes.Void && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
+            if (BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
             {
                 var sourceSnippet = GetSourceSnippet(func.Line);
 
@@ -1961,16 +1961,16 @@ public class Analyzer : IDisposable
         {
             // Expression-bodied method: check expression type matches return type
             var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var expectedExpressionType = !isGenerator && functionReturnType != BuiltInTypes.Void ? functionReturnType : null;
+            var expectedExpressionType = !isGenerator && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) ? functionReturnType : null;
             var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(func.ExpressionBody, "returned");
             var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
-            if (!reportedGeneratorExpressionBody && functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
+            if (!reportedGeneratorExpressionBody && BuiltInTypes.Is(functionReturnType, BuiltInTypes.Void) && BuiltInTypes.IsNot(exprType, BuiltInTypes.Void))
             {
                 AddExpressionBodyReturnError(func, exprType);
             }
-            else if (!reportedGeneratorExpressionBody && functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
+            else if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !IsAssignable(functionReturnType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 var sourceSnippet = GetSourceSnippet(diagnosticLine);
@@ -2525,7 +2525,7 @@ public class Analyzer : IDisposable
             return true;
 
         if (resolved is NullableTypeInfo nullable)
-            return ResolveTypeAlias(nullable.InnerType) == BuiltInTypes.String;
+            return BuiltInTypes.Is(ResolveTypeAlias(nullable.InnerType), BuiltInTypes.String);
 
         if (resolved is EnumTypeInfo enumType)
             return enumType.Declaration.Type == EnumType.Int;
@@ -2533,12 +2533,12 @@ public class Analyzer : IDisposable
         if (resolved is ReflectionTypeInfo reflectionType && reflectionType.Type.IsEnum)
             return Enum.GetUnderlyingType(reflectionType.Type) == typeof(int);
 
-        return resolved == BuiltInTypes.Int
-            || resolved == BuiltInTypes.UInt
-            || resolved == BuiltInTypes.Long
-            || resolved == BuiltInTypes.Bool
-            || resolved == BuiltInTypes.Char
-            || resolved == BuiltInTypes.String;
+        return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.UInt)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.Long)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.Bool)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.Char)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.String);
     }
 
     private static (int Line, int Column, int Length) GetSoaColumnTypeDiagnosticSpan(SoaColumnDeclaration column)
@@ -4511,13 +4511,13 @@ public class Analyzer : IDisposable
         else if (func.ExpressionBody != null)
         {
             var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var expectedExpressionType = !isGenerator && returnType != BuiltInTypes.Void ? returnType : null;
+            var expectedExpressionType = !isGenerator && BuiltInTypes.IsNot(returnType, BuiltInTypes.Void) ? returnType : null;
             var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(func.ExpressionBody, "returned");
             var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
             // Verify expression type matches return type
-            if (!reportedGeneratorExpressionBody && returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
+            if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(returnType, BuiltInTypes.Void) && !IsAssignable(returnType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
@@ -4605,7 +4605,7 @@ public class Analyzer : IDisposable
         else if (inferredType != null)
         {
             // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
-            if (inferredType == BuiltInTypes.Void)
+            if (BuiltInTypes.Is(inferredType, BuiltInTypes.Void))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = varDecl.Initializer != null
                     ? GetExpressionDiagnosticSpan(varDecl.Initializer)
@@ -5236,7 +5236,7 @@ public class Analyzer : IDisposable
             case ArrayTypeInfo arrayType when !requireAsync:
                 elementType = arrayType.ElementType;
                 return true;
-            case SimpleTypeInfo simpleType when !requireAsync && simpleType == BuiltInTypes.String:
+            case SimpleTypeInfo simpleType when !requireAsync && BuiltInTypes.Is(simpleType, BuiltInTypes.String):
                 elementType = BuiltInTypes.Char;
                 return true;
             case GenericTypeInfo genericType when TryGetGenericLoopSequenceElementType(genericType, requireAsync, out elementType):
@@ -5561,7 +5561,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            if (_currentReturnType != BuiltInTypes.Void && !(_currentFunctionIsAsync && IsUnitTaskLikeType(_currentReturnType)))
+            if (BuiltInTypes.IsNot(_currentReturnType, BuiltInTypes.Void) && !(_currentFunctionIsAsync && IsUnitTaskLikeType(_currentReturnType)))
             {
                 var sourceSnippet = GetSourceSnippet(returnStmt.Line);
 
@@ -5600,7 +5600,7 @@ public class Analyzer : IDisposable
             : (returnStmt.Line, returnStmt.Column, 6);
         var diagnosticSourceSnippet = GetSourceSnippet(diagnosticLine) ?? sourceSnippet;
 
-        if (_currentReturnType == BuiltInTypes.Void)
+        if (BuiltInTypes.Is(_currentReturnType, BuiltInTypes.Void))
         {
             error = _currentFunctionReturnTypeWasOmitted
                 ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
@@ -5676,7 +5676,7 @@ public class Analyzer : IDisposable
     {
         var functionName = _currentFunction?.Name ?? "this function";
 
-        if (_currentReturnType == BuiltInTypes.Void)
+        if (BuiltInTypes.Is(_currentReturnType, BuiltInTypes.Void))
         {
             return _currentFunctionReturnTypeWasOmitted
                 ? $"Function '{functionName}' has no return type annotation, so it is treated as 'void', but this code gives back '{returnedType}'"
@@ -5802,7 +5802,7 @@ public class Analyzer : IDisposable
             resolved = ResolveTypeAlias(oblivious.InnerType);
         }
 
-        if (resolved == BuiltInTypes.Null || resolved == BuiltInTypes.Never)
+        if (BuiltInTypes.Is(resolved, BuiltInTypes.Null) || BuiltInTypes.Is(resolved, BuiltInTypes.Never))
         {
             return true;
         }
@@ -5967,7 +5967,7 @@ public class Analyzer : IDisposable
                 continue;
             }
 
-            if (function.ReturnType == null || ResolveType(function.ReturnType) == BuiltInTypes.Void)
+            if (function.ReturnType == null || BuiltInTypes.Is(ResolveType(function.ReturnType), BuiltInTypes.Void))
             {
                 return true;
             }
@@ -6469,7 +6469,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (type == BuiltInTypes.Decimal)
+        if (BuiltInTypes.Is(type, BuiltInTypes.Decimal))
         {
             return false;
         }
@@ -6966,7 +6966,7 @@ public class Analyzer : IDisposable
     {
         var resolved = ResolveTypeAlias(type);
 
-        if (resolved == BuiltInTypes.Null)
+        if (BuiltInTypes.Is(resolved, BuiltInTypes.Null))
             return NullState.Null;
 
         if (resolved is NullableTypeInfo)
@@ -8375,7 +8375,7 @@ public class Analyzer : IDisposable
 
         var resolvedIndexType = ResolveTypeAlias(indexType);
         if (BuiltInTypes.IsUnknown(resolvedIndexType)
-            || resolvedIndexType == BuiltInTypes.Int
+            || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
             || IsIndexLikeType(resolvedIndexType))
         {
             return true;
@@ -8391,15 +8391,15 @@ public class Analyzer : IDisposable
             return false;
 
         var resolvedIndexType = ResolveTypeAlias(indexType);
-        return BuiltInTypes.IsUnknown(resolvedIndexType) || resolvedIndexType == BuiltInTypes.Int;
+        return BuiltInTypes.IsUnknown(resolvedIndexType) || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int);
     }
 
     private bool ReportNegativeSoaRowIndexIfNeeded(Expression expression, TypeInfo indexType, string targetDescription)
     {
         var resolvedIndexType = ResolveTypeAlias(indexType);
-        if (resolvedIndexType != BuiltInTypes.Int
-            && resolvedIndexType != BuiltInTypes.Short
-            && resolvedIndexType != BuiltInTypes.SByte)
+        if (BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Int)
+            && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Short)
+            && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.SByte))
         {
             return false;
         }
@@ -8576,8 +8576,8 @@ public class Analyzer : IDisposable
     private TypeInfo MakeNullableResult(TypeInfo type)
     {
         var resolved = ResolveTypeAlias(type);
-        if (resolved == BuiltInTypes.Void
-            || resolved == BuiltInTypes.Never
+        if (BuiltInTypes.Is(resolved, BuiltInTypes.Void)
+            || BuiltInTypes.Is(resolved, BuiltInTypes.Never)
             || resolved is UnknownTypeInfo
             || resolved is NullableTypeInfo)
         {
@@ -8968,7 +8968,7 @@ public class Analyzer : IDisposable
         receiverType = ResolveAliasAndMetadata(receiverType);
         return receiverType switch
         {
-            SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => false,
             SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null
                                      || (IsKnownBuiltInReceiverWithoutReflection(simple)
                                          && !IsKnownBuiltInMemberWithoutReflection(simple, memberName, includeStaticMembers)),
@@ -8993,16 +8993,16 @@ public class Analyzer : IDisposable
 
         return receiverType switch
         {
-            SimpleTypeInfo simple when simple == BuiltInTypes.String =>
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) =>
                 BuiltInStringInstanceMembers.Contains(memberName)
                 || (includeStaticMembers && BuiltInStringStaticMembers.Contains(memberName)),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Bool =>
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) =>
                 BuiltInBooleanInstanceMembers.Contains(memberName)
                 || (includeStaticMembers && BuiltInBooleanStaticMembers.Contains(memberName)),
             SimpleTypeInfo simple when IsBuiltInNumericType(simple) =>
                 BuiltInNumericInstanceMembers.Contains(memberName)
                 || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Char =>
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) =>
                 BuiltInNumericInstanceMembers.Contains(memberName)
                 || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
             ArrayTypeInfo => BuiltInArrayMembers.Contains(memberName),
@@ -9011,23 +9011,23 @@ public class Analyzer : IDisposable
     }
 
     private static bool IsKnownBuiltInReceiverWithoutReflection(SimpleTypeInfo type)
-        => type == BuiltInTypes.String
-           || type == BuiltInTypes.Bool
-           || type == BuiltInTypes.Char
+        => BuiltInTypes.Is(type, BuiltInTypes.String)
+           || BuiltInTypes.Is(type, BuiltInTypes.Bool)
+           || BuiltInTypes.Is(type, BuiltInTypes.Char)
            || IsBuiltInNumericType(type);
 
     private static bool IsBuiltInNumericType(SimpleTypeInfo type)
-        => type == BuiltInTypes.Int
-           || type == BuiltInTypes.Long
-           || type == BuiltInTypes.Float
-           || type == BuiltInTypes.Double
-           || type == BuiltInTypes.Decimal
-           || type == BuiltInTypes.Byte
-           || type == BuiltInTypes.SByte
-           || type == BuiltInTypes.Short
-           || type == BuiltInTypes.UShort
-           || type == BuiltInTypes.UInt
-           || type == BuiltInTypes.ULong;
+        => BuiltInTypes.Is(type, BuiltInTypes.Int)
+           || BuiltInTypes.Is(type, BuiltInTypes.Long)
+           || BuiltInTypes.Is(type, BuiltInTypes.Float)
+           || BuiltInTypes.Is(type, BuiltInTypes.Double)
+           || BuiltInTypes.Is(type, BuiltInTypes.Decimal)
+           || BuiltInTypes.Is(type, BuiltInTypes.Byte)
+           || BuiltInTypes.Is(type, BuiltInTypes.SByte)
+           || BuiltInTypes.Is(type, BuiltInTypes.Short)
+           || BuiltInTypes.Is(type, BuiltInTypes.UShort)
+           || BuiltInTypes.Is(type, BuiltInTypes.UInt)
+           || BuiltInTypes.Is(type, BuiltInTypes.ULong);
 
     private static bool HasReliableReflectionMemberSet(Type type)
     {
@@ -9391,7 +9391,7 @@ public class Analyzer : IDisposable
         // Convert built-in simple types to reflection types for full CLR member resolution.
         // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
         if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
-            && objectType != BuiltInTypes.Null && objectType != BuiltInTypes.Never && objectType != BuiltInTypes.Void)
+            && BuiltInTypes.IsNot(objectType, BuiltInTypes.Null) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Never) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Void))
         {
             var clrType = TryConvertTypeInfoToClrType(objectType);
             if (clrType != null)
@@ -10460,22 +10460,22 @@ public class Analyzer : IDisposable
 
         return resolvedType switch
         {
-            SimpleTypeInfo simple when simple == BuiltInTypes.Int => _wellKnownTypes.Int32,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Long => _wellKnownTypes.Int64,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Float => _wellKnownTypes.Single,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Double => _wellKnownTypes.Double,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => _wellKnownTypes.Decimal,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => _wellKnownTypes.Byte,
-            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => _wellKnownTypes.SByte,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Short => _wellKnownTypes.Int16,
-            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => _wellKnownTypes.UInt16,
-            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => _wellKnownTypes.UInt32,
-            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => _wellKnownTypes.UInt64,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Char => _wellKnownTypes.Char,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => _wellKnownTypes.Boolean,
-            SimpleTypeInfo simple when simple == BuiltInTypes.String => _wellKnownTypes.String,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Void => _wellKnownTypes.Void,
-            SimpleTypeInfo simple when simple == BuiltInTypes.Object => _wellKnownTypes.Object,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Int) => _wellKnownTypes.Int32,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Long) => _wellKnownTypes.Int64,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Float) => _wellKnownTypes.Single,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Double) => _wellKnownTypes.Double,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Decimal) => _wellKnownTypes.Decimal,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Byte) => _wellKnownTypes.Byte,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.SByte) => _wellKnownTypes.SByte,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Short) => _wellKnownTypes.Int16,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UShort) => _wellKnownTypes.UInt16,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UInt) => _wellKnownTypes.UInt32,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.ULong) => _wellKnownTypes.UInt64,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) => _wellKnownTypes.Char,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) => _wellKnownTypes.Boolean,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) => _wellKnownTypes.String,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Void) => _wellKnownTypes.Void,
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => _wellKnownTypes.Object,
             ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
             ObliviousTypeInfo oblivious => TryConvertTypeInfoToClrType(oblivious.InnerType),
@@ -10490,22 +10490,22 @@ public class Analyzer : IDisposable
     {
         return typeInfo switch
         {
-            SimpleTypeInfo simple when simple == BuiltInTypes.Int => typeof(int),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Long => typeof(long),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Float => typeof(float),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Double => typeof(double),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => typeof(decimal),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => typeof(byte),
-            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => typeof(sbyte),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Short => typeof(short),
-            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => typeof(ushort),
-            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => typeof(uint),
-            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => typeof(ulong),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Char => typeof(char),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => typeof(bool),
-            SimpleTypeInfo simple when simple == BuiltInTypes.String => typeof(string),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Void => typeof(void),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Object => typeof(object),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Int) => typeof(int),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Long) => typeof(long),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Float) => typeof(float),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Double) => typeof(double),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Decimal) => typeof(decimal),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Byte) => typeof(byte),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.SByte) => typeof(sbyte),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Short) => typeof(short),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UShort) => typeof(ushort),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UInt) => typeof(uint),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.ULong) => typeof(ulong),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) => typeof(char),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) => typeof(bool),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) => typeof(string),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Void) => typeof(void),
+            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => typeof(object),
             ArrayTypeInfo array => TryConvertBuiltInTypeInfoToRuntimeClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => TryConvertBuiltInTypeInfoToRuntimeClrType(nullable.InnerType) is { IsValueType: true } innerType
                 ? typeof(Nullable<>).MakeGenericType(innerType)
@@ -11165,7 +11165,7 @@ public class Analyzer : IDisposable
 
         resolvedIndexType = ResolveTypeAlias(resolvedIndexType);
         return BuiltInTypes.IsUnknown(resolvedIndexType)
-            || resolvedIndexType == BuiltInTypes.Int
+            || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
             || IsIndexLikeType(resolvedIndexType);
     }
 
@@ -12548,7 +12548,7 @@ public class Analyzer : IDisposable
         }
 
         var usesTaskFamily = string.Equals(decl.Name, "main", StringComparison.OrdinalIgnoreCase);
-        if (sourceReturnType == BuiltInTypes.Void)
+        if (BuiltInTypes.Is(sourceReturnType, BuiltInTypes.Void))
         {
             return usesTaskFamily
                 ? new ReflectionTypeInfo(typeof(System.Threading.Tasks.Task))
@@ -12792,7 +12792,7 @@ public class Analyzer : IDisposable
         // Skip types that provide no inference information
         if (BuiltInTypes.IsUnknown(argType))
             return;
-        if (argType == BuiltInTypes.Null)
+        if (BuiltInTypes.Is(argType, BuiltInTypes.Null))
             return; // null carries no type information for generic inference
 
         if (paramTypeRef is SimpleTypeReference simple)
@@ -16971,7 +16971,7 @@ public class Analyzer : IDisposable
             {
                 // A SoA-specific diagnostic is more useful than the generic int-length mismatch.
             }
-            else if (lengthType != BuiltInTypes.Int)
+            else if (BuiltInTypes.IsNot(lengthType, BuiltInTypes.Int))
             {
                 Error(ErrorCode.TypeMismatch,
                     $"Array length must be an int, not '{lengthType}'",
@@ -17478,12 +17478,12 @@ public class Analyzer : IDisposable
     private bool IsImplicitlyIntStackAllocLength(TypeInfo type)
     {
         type = ResolveTypeAlias(type);
-        return type == BuiltInTypes.Int
-               || type == BuiltInTypes.Short
-               || type == BuiltInTypes.SByte
-               || type == BuiltInTypes.Byte
-               || type == BuiltInTypes.UShort
-               || type == BuiltInTypes.Char;
+        return BuiltInTypes.Is(type, BuiltInTypes.Int)
+               || BuiltInTypes.Is(type, BuiltInTypes.Short)
+               || BuiltInTypes.Is(type, BuiltInTypes.SByte)
+               || BuiltInTypes.Is(type, BuiltInTypes.Byte)
+               || BuiltInTypes.Is(type, BuiltInTypes.UShort)
+               || BuiltInTypes.Is(type, BuiltInTypes.Char);
     }
 
     private bool IsConstantNegative(Expression expression)
@@ -17542,9 +17542,9 @@ public class Analyzer : IDisposable
             return true;
 
         var resolved = ResolveTypeAlias(LookupType(simple.Name) ?? BuiltInTypes.Unknown);
-        return resolved == BuiltInTypes.Int
-               || resolved == BuiltInTypes.Short
-               || resolved == BuiltInTypes.SByte;
+        return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
+               || BuiltInTypes.Is(resolved, BuiltInTypes.Short)
+               || BuiltInTypes.Is(resolved, BuiltInTypes.SByte);
     }
 
     /// <summary>
@@ -19539,10 +19539,10 @@ public class Analyzer : IDisposable
         var resolvedSource = ResolveTypeAlias(source);
 
         if (resolvedTarget == resolvedSource) return true;
-        if (resolvedSource == BuiltInTypes.Null && resolvedTarget is NullableTypeInfo) return true;
+        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && resolvedTarget is NullableTypeInfo) return true;
         // null is assignable to any reference type (string, classes, interfaces, arrays, delegates)
-        if (resolvedSource == BuiltInTypes.Null && IsReferenceType(resolvedTarget)) return true;
-        if (resolvedSource == BuiltInTypes.Never) return true;
+        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && IsReferenceType(resolvedTarget)) return true;
+        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Never)) return true;
 
         // Unknown type handling — distinguished by kind
         // ErrorRecovery: suppress follow-on errors (an error was already reported upstream)
@@ -19589,7 +19589,7 @@ public class Analyzer : IDisposable
             return false;
 
         // Everything is assignable to object, except bare method references which are not values.
-        if (resolvedTarget == BuiltInTypes.Object) return true;
+        if (BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object)) return true;
 
         if (IsArrayToSpanAssignable(resolvedTarget, resolvedSource)) return true;
 
@@ -20582,7 +20582,7 @@ public class Analyzer : IDisposable
         if (resolvedSource is InterfaceTypeInfo || resolvedTarget is InterfaceTypeInfo) return true;
 
         // Either is object — anything can be boxed to/from object
-        if (resolvedSource == BuiltInTypes.Object || resolvedTarget == BuiltInTypes.Object) return true;
+        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Object) || BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object)) return true;
 
         // Nullable types — unwrapping is always a valid pattern
         if (resolvedSource is NullableTypeInfo || resolvedTarget is NullableTypeInfo) return true;
@@ -20783,18 +20783,18 @@ public class Analyzer : IDisposable
 
     private bool IsNumericType(TypeInfo type)
     {
-        return type == BuiltInTypes.Int || type == BuiltInTypes.Long
-            || type == BuiltInTypes.Float || type == BuiltInTypes.Double
-            || type == BuiltInTypes.Decimal || type == BuiltInTypes.Byte
-            || type == BuiltInTypes.SByte || type == BuiltInTypes.Short
-            || type == BuiltInTypes.UShort || type == BuiltInTypes.UInt
-            || type == BuiltInTypes.ULong || type == BuiltInTypes.Char;
+        return BuiltInTypes.Is(type, BuiltInTypes.Int) || BuiltInTypes.Is(type, BuiltInTypes.Long)
+            || BuiltInTypes.Is(type, BuiltInTypes.Float) || BuiltInTypes.Is(type, BuiltInTypes.Double)
+            || BuiltInTypes.Is(type, BuiltInTypes.Decimal) || BuiltInTypes.Is(type, BuiltInTypes.Byte)
+            || BuiltInTypes.Is(type, BuiltInTypes.SByte) || BuiltInTypes.Is(type, BuiltInTypes.Short)
+            || BuiltInTypes.Is(type, BuiltInTypes.UShort) || BuiltInTypes.Is(type, BuiltInTypes.UInt)
+            || BuiltInTypes.Is(type, BuiltInTypes.ULong) || BuiltInTypes.Is(type, BuiltInTypes.Char);
     }
 
     private bool IsPrimitiveRelationalType(TypeInfo type)
     {
         var resolved = ResolveTypeAlias(type);
-        if (IsNumericType(resolved) && resolved != BuiltInTypes.Decimal)
+        if (IsNumericType(resolved) && BuiltInTypes.IsNot(resolved, BuiltInTypes.Decimal))
         {
             return true;
         }
@@ -20843,7 +20843,7 @@ public class Analyzer : IDisposable
         var resolvedLeft = ResolveTypeAlias(left);
         var resolvedRight = ResolveTypeAlias(right);
 
-        if (resolvedLeft == BuiltInTypes.Null || resolvedRight == BuiltInTypes.Null)
+        if (BuiltInTypes.Is(resolvedLeft, BuiltInTypes.Null) || BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null))
         {
             return true;
         }
@@ -20886,7 +20886,7 @@ public class Analyzer : IDisposable
     private bool IsBoolLikeType(TypeInfo type)
     {
         var resolved = ResolveTypeAlias(type);
-        if (resolved == BuiltInTypes.Bool)
+        if (BuiltInTypes.Is(resolved, BuiltInTypes.Bool))
         {
             return true;
         }
@@ -20909,11 +20909,11 @@ public class Analyzer : IDisposable
 
     private bool IsIntegralType(TypeInfo type)
     {
-        return type == BuiltInTypes.Int || type == BuiltInTypes.Long
-            || type == BuiltInTypes.Byte || type == BuiltInTypes.SByte
-            || type == BuiltInTypes.Short || type == BuiltInTypes.UShort
-            || type == BuiltInTypes.UInt || type == BuiltInTypes.ULong
-            || type == BuiltInTypes.Char;
+        return BuiltInTypes.Is(type, BuiltInTypes.Int) || BuiltInTypes.Is(type, BuiltInTypes.Long)
+            || BuiltInTypes.Is(type, BuiltInTypes.Byte) || BuiltInTypes.Is(type, BuiltInTypes.SByte)
+            || BuiltInTypes.Is(type, BuiltInTypes.Short) || BuiltInTypes.Is(type, BuiltInTypes.UShort)
+            || BuiltInTypes.Is(type, BuiltInTypes.UInt) || BuiltInTypes.Is(type, BuiltInTypes.ULong)
+            || BuiltInTypes.Is(type, BuiltInTypes.Char);
     }
 
     private bool IsBitwiseEnumType(TypeInfo type)
@@ -20941,12 +20941,12 @@ public class Analyzer : IDisposable
 
     private bool IsBoolType(TypeInfo type)
     {
-        return type == BuiltInTypes.Bool;
+        return BuiltInTypes.Is(type, BuiltInTypes.Bool);
     }
 
     private bool IsStringType(TypeInfo type)
     {
-        return type == BuiltInTypes.String;
+        return BuiltInTypes.Is(type, BuiltInTypes.String);
     }
 
     private bool IsNullableType(TypeInfo type)
@@ -23205,49 +23205,71 @@ public class Scope
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
 
-// Type system
-public abstract record TypeInfo
+public class UnknownTypeInfo : TypeInfo
 {
-    public override string ToString() => GetType().Name;
-}
+    public UnknownTypeInfo(UnknownKind kind)
+    {
+        Kind = kind;
+    }
 
-public record UnknownTypeInfo(UnknownKind Kind) : TypeInfo
-{
+    public UnknownKind Kind { get; }
+
     public override string ToString() => "unknown";
+
+    public override bool Equals(object? value)
+        => value is UnknownTypeInfo other && Kind == other.Kind;
+
+    public override int GetHashCode() => (int)Kind;
+
+    public static bool operator ==(UnknownTypeInfo? left, UnknownTypeInfo? right)
+        => left is null ? right is null : left.Equals(right);
+
+    public static bool operator !=(UnknownTypeInfo? left, UnknownTypeInfo? right)
+        => !(left == right);
 }
 
-public record SimpleTypeInfo(string Name) : TypeInfo
+public class SimpleTypeInfo : TypeInfo
 {
+    public SimpleTypeInfo(string name)
+    {
+        Name = name;
+    }
+
+    public string Name { get; }
+
     public override string ToString() => Name;
+
+    public override bool Equals(object? value)
+        => value is SimpleTypeInfo other && string.Equals(Name, other.Name, StringComparison.Ordinal);
+
+    public override int GetHashCode()
+        => Name.GetHashCode(StringComparison.Ordinal);
+
+    public static bool operator ==(SimpleTypeInfo? left, SimpleTypeInfo? right)
+        => left is null ? right is null : left.Equals(right);
+
+    public static bool operator !=(SimpleTypeInfo? left, SimpleTypeInfo? right)
+        => !(left == right);
 }
 
-public record GenericTypeInfo(string Name, List<TypeInfo> TypeArguments) : TypeInfo
+public class TupleTypeInfo : TypeInfo
 {
-    public override string ToString() => $"{Name}<{string.Join(", ", TypeArguments)}>";
+    public TupleTypeInfo(List<(string? Name, TypeInfo Type)> elements)
+    {
+        Elements = elements;
+    }
+
+    public List<(string? Name, TypeInfo Type)> Elements { get; }
 }
 
-public record ArrayTypeInfo(TypeInfo ElementType) : TypeInfo
+public class FunctionTypeInfo : TypeInfo
 {
-    public override string ToString() => $"{ElementType}[]";
-}
+    public FunctionTypeInfo(FunctionDeclaration? declaration)
+    {
+        Declaration = declaration;
+    }
 
-public record NullableTypeInfo(TypeInfo InnerType) : TypeInfo
-{
-    public override string ToString() => $"{InnerType}?";
-}
-
-/// <summary>
-/// Represents external CLR reference nullability that had no C# nullable metadata.
-/// </summary>
-public record ObliviousTypeInfo(TypeInfo InnerType) : TypeInfo
-{
-    public override string ToString() => $"{InnerType}!";
-}
-
-public record TupleTypeInfo(List<(string? Name, TypeInfo Type)> Elements) : TypeInfo;
-
-public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
-{
+    public FunctionDeclaration? Declaration { get; }
     public string? SyntheticName { get; set; }
     public List<string>? ParameterNames { get; set; }
     public List<TypeInfo>? ParameterTypes { get; set; }
@@ -23255,42 +23277,144 @@ public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
     public TypeInfo? ReturnType { get; set; }
 }
 
-public record ByRefTypeInfo(TypeInfo InnerType) : TypeInfo
+public class GenericTypeInfo : TypeInfo
 {
+    public GenericTypeInfo(string name, List<TypeInfo> typeArguments)
+    {
+        Name = name;
+        TypeArguments = typeArguments;
+    }
+
+    public string Name { get; }
+    public List<TypeInfo> TypeArguments { get; }
+
+    public override string ToString() => $"{Name}<{string.Join(", ", TypeArguments)}>";
+}
+
+public class ArrayTypeInfo : TypeInfo
+{
+    public ArrayTypeInfo(TypeInfo elementType)
+    {
+        ElementType = elementType;
+    }
+
+    public TypeInfo ElementType { get; }
+
+    public override string ToString() => $"{ElementType}[]";
+}
+
+public class NullableTypeInfo : TypeInfo
+{
+    public NullableTypeInfo(TypeInfo innerType)
+    {
+        InnerType = innerType;
+    }
+
+    public TypeInfo InnerType { get; }
+
+    public override string ToString() => $"{InnerType}?";
+}
+
+/// <summary>
+/// Represents external CLR reference nullability that had no C# nullable metadata.
+/// </summary>
+public class ObliviousTypeInfo : TypeInfo
+{
+    public ObliviousTypeInfo(TypeInfo innerType)
+    {
+        InnerType = innerType;
+    }
+
+    public TypeInfo InnerType { get; }
+
+    public override string ToString() => $"{InnerType}!";
+}
+
+public class ByRefTypeInfo : TypeInfo
+{
+    public ByRefTypeInfo(TypeInfo innerType)
+    {
+        InnerType = innerType;
+    }
+
+    public TypeInfo InnerType { get; }
+
     public override string ToString() => $"&{InnerType}";
 }
 
-public record ClassTypeInfo(ClassDeclaration Declaration) : TypeInfo
+public class ClassTypeInfo : TypeInfo
 {
+    public ClassTypeInfo(ClassDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public ClassDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record StructTypeInfo(StructDeclaration Declaration) : TypeInfo
+public class StructTypeInfo : TypeInfo
 {
+    public StructTypeInfo(StructDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public StructDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record RecordTypeInfo(RecordDeclaration Declaration) : TypeInfo
+public class RecordTypeInfo : TypeInfo
 {
+    public RecordTypeInfo(RecordDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public RecordDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record SoaRecordTypeInfo(SoaRecordDeclaration Declaration) : TypeInfo
+public class SoaRecordTypeInfo : TypeInfo
 {
+    public SoaRecordTypeInfo(SoaRecordDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public SoaRecordDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record SoaRowTypeInfo(SoaRecordDeclaration Declaration) : TypeInfo
+public class SoaRowTypeInfo : TypeInfo
 {
+    public SoaRowTypeInfo(SoaRecordDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public SoaRecordDeclaration Declaration { get; }
+
     public override string ToString() => $"{Declaration.Name}.Row";
 }
 
-public record InterfaceTypeInfo(InterfaceDeclaration Declaration) : TypeInfo
+public class InterfaceTypeInfo : TypeInfo
 {
+    public InterfaceTypeInfo(InterfaceDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public InterfaceDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record UnionTypeInfo : TypeInfo
+public class UnionTypeInfo : TypeInfo
 {
     public UnionDeclaration? Declaration { get; }
     public IReadOnlyList<TypeInfo> Arms { get; }
@@ -23312,35 +23436,73 @@ public record UnionTypeInfo : TypeInfo
         => IsAnonymous ? string.Join(" | ", Arms.Select(a => a.ToString())) : Declaration!.Name;
 }
 
-public record EnumTypeInfo(EnumDeclaration Declaration) : TypeInfo
+public class EnumTypeInfo : TypeInfo
 {
+    public EnumTypeInfo(EnumDeclaration declaration)
+    {
+        Declaration = declaration;
+    }
+
+    public EnumDeclaration Declaration { get; }
+
     public override string ToString() => Declaration.Name;
 }
 
-public record AliasTypeInfo(TypeReference AliasedType) : TypeInfo;
+public class AliasTypeInfo : TypeInfo
+{
+    public AliasTypeInfo(TypeReference aliasedType)
+    {
+        AliasedType = aliasedType;
+    }
+
+    public TypeReference AliasedType { get; }
+}
 
 /// <summary>
 /// Represents a newtype (distinct wrapper type).
 /// Unlike AliasTypeInfo, newtypes are NOT transparent — they are distinct from their underlying type.
 /// </summary>
-public record NewtypeInfo(string Name, TypeReference UnderlyingType) : TypeInfo
+public class NewtypeInfo : TypeInfo
 {
+    public NewtypeInfo(string name, TypeReference underlyingType)
+    {
+        Name = name;
+        UnderlyingType = underlyingType;
+    }
+
+    public string Name { get; }
+    public TypeReference UnderlyingType { get; }
+
     public override string ToString() => Name;
 }
 
 /// <summary>
 /// Represents a type resolved via .NET reflection (external types like System.Console)
 /// </summary>
-public record ReflectionTypeInfo(Type Type) : TypeInfo
+public class ReflectionTypeInfo : TypeInfo
 {
+    public ReflectionTypeInfo(Type type)
+    {
+        Type = type;
+    }
+
+    public Type Type { get; }
+
     public override string ToString() => Type.Name;
 }
 
 /// <summary>
 /// Represents a method resolved via .NET reflection
 /// </summary>
-public record ReflectionMethodInfo(MethodInfo Method) : TypeInfo
+public class ReflectionMethodInfo : TypeInfo
 {
+    public ReflectionMethodInfo(MethodInfo method)
+    {
+        Method = method;
+    }
+
+    public MethodInfo Method { get; }
+
     public override string ToString() => $"{Method.Name}(...)";
 }
 
@@ -23348,33 +23510,70 @@ public record ReflectionMethodInfo(MethodInfo Method) : TypeInfo
 /// Represents a .NET event resolved via reflection. N# does not model events as fields;
 /// they are subscribed/unsubscribed exclusively through the <c>on</c>/<c>off</c> keywords.
 /// </summary>
-public record ReflectionEventInfo(System.Reflection.EventInfo Event) : TypeInfo
+public class ReflectionEventInfo : TypeInfo
 {
+    public ReflectionEventInfo(System.Reflection.EventInfo @event)
+    {
+        Event = @event;
+    }
+
+    public System.Reflection.EventInfo Event { get; }
+
     public override string ToString() => $"event {Event.Name}";
 }
 
 /// <summary>
 /// Represents a group of overloaded methods resolved via .NET reflection
 /// </summary>
-public record ReflectionMethodGroupInfo(MethodInfo[] Methods) : TypeInfo
+public class ReflectionMethodGroupInfo : TypeInfo
 {
+    public ReflectionMethodGroupInfo(MethodInfo[] methods)
+    {
+        Methods = methods;
+    }
+
+    public MethodInfo[] Methods { get; }
+
     public override string ToString() => Methods.Length > 0 ? $"{Methods[0].Name}(...)" : "method group";
 }
 
 /// <summary>
 /// Represents a group of overloaded N#-declared methods
 /// </summary>
-public record NSharpMethodGroupInfo(List<FunctionDeclaration> Declarations) : TypeInfo
+public class NSharpMethodGroupInfo : TypeInfo
 {
+    public NSharpMethodGroupInfo(List<FunctionDeclaration> declarations)
+    {
+        Declarations = declarations;
+    }
+
+    public List<FunctionDeclaration> Declarations { get; }
+
     public override string ToString() => Declarations.Count > 0 ? $"{Declarations[0].Name}(...)" : "method group";
 }
 
-/// <summary>
-/// Represents an external type that couldn't be fully resolved
-/// </summary>
-public record ExternalTypeInfo(string Name) : TypeInfo
+public class ExternalTypeInfo : TypeInfo
 {
+    public ExternalTypeInfo(string name)
+    {
+        Name = name;
+    }
+
+    public string Name { get; }
+
     public override string ToString() => Name;
+
+    public override bool Equals(object? value)
+        => value is ExternalTypeInfo other && string.Equals(Name, other.Name, StringComparison.Ordinal);
+
+    public override int GetHashCode()
+        => Name.GetHashCode(StringComparison.Ordinal);
+
+    public static bool operator ==(ExternalTypeInfo? left, ExternalTypeInfo? right)
+        => left is null ? right is null : left.Equals(right);
+
+    public static bool operator !=(ExternalTypeInfo? left, ExternalTypeInfo? right)
+        => !(left == right);
 }
 
 public static class BuiltInTypes
@@ -23401,6 +23600,11 @@ public static class BuiltInTypes
     public static readonly UnknownTypeInfo InferenceHole = new(UnknownKind.InferenceHole);
     public static readonly UnknownTypeInfo DeferredExternal = new(UnknownKind.DeferredExternal);
 
-    /// <summary>Check if a TypeInfo is any kind of Unknown.</summary>
+    public static bool Is(TypeInfo? type, SimpleTypeInfo builtIn)
+        => ReferenceEquals(type, builtIn) || type is SimpleTypeInfo simple && simple.Equals(builtIn);
+
+    public static bool IsNot(TypeInfo? type, SimpleTypeInfo builtIn)
+        => !Is(type, builtIn);
+
     public static bool IsUnknown(TypeInfo type) => type is UnknownTypeInfo;
 }
