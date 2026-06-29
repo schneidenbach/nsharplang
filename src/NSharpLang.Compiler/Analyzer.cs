@@ -23165,29 +23165,6 @@ public class Analyzer : IDisposable
 
 // Supporting types - now in ErrorReporting.cs
 
-public class UnknownTypeInfo : TypeInfo
-{
-    public UnknownTypeInfo(UnknownKind kind)
-    {
-        Kind = kind;
-    }
-
-    public UnknownKind Kind { get; }
-
-    public override string ToString() => "unknown";
-
-    public override bool Equals(object? value)
-        => value is UnknownTypeInfo other && Kind == other.Kind;
-
-    public override int GetHashCode() => (int)Kind;
-
-    public static bool operator ==(UnknownTypeInfo? left, UnknownTypeInfo? right)
-        => left is null ? right is null : left.Equals(right);
-
-    public static bool operator !=(UnknownTypeInfo? left, UnknownTypeInfo? right)
-        => !(left == right);
-}
-
 public class FunctionTypeInfo : TypeInfo
 {
     public FunctionTypeInfo(FunctionDeclaration? declaration)
@@ -23375,24 +23352,6 @@ public class EnumTypeInfo : TypeInfo
 }
 
 /// <summary>
-/// Represents a newtype (distinct wrapper type).
-/// Unlike AliasTypeInfo, newtypes are NOT transparent — they are distinct from their underlying type.
-/// </summary>
-public class NewtypeInfo : TypeInfo
-{
-    public NewtypeInfo(string name, TypeReference underlyingType)
-    {
-        Name = name;
-        UnderlyingType = underlyingType;
-    }
-
-    public string Name { get; }
-    public TypeReference UnderlyingType { get; }
-
-    public override string ToString() => Name;
-}
-
-/// <summary>
 /// Represents a type resolved via .NET reflection (external types like System.Console)
 /// </summary>
 public class ReflectionTypeInfo : TypeInfo
@@ -23466,30 +23425,6 @@ public class NSharpMethodGroupInfo : TypeInfo
     public List<FunctionDeclaration> Declarations { get; }
 
     public override string ToString() => Declarations.Count > 0 ? $"{Declarations[0].Name}(...)" : "method group";
-}
-
-public class ExternalTypeInfo : TypeInfo
-{
-    public ExternalTypeInfo(string name)
-    {
-        Name = name;
-    }
-
-    public string Name { get; }
-
-    public override string ToString() => Name;
-
-    public override bool Equals(object? value)
-        => value is ExternalTypeInfo other && string.Equals(Name, other.Name, StringComparison.Ordinal);
-
-    public override int GetHashCode()
-        => Name.GetHashCode(StringComparison.Ordinal);
-
-    public static bool operator ==(ExternalTypeInfo? left, ExternalTypeInfo? right)
-        => left is null ? right is null : left.Equals(right);
-
-    public static bool operator !=(ExternalTypeInfo? left, ExternalTypeInfo? right)
-        => !(left == right);
 }
 
 public static class BuiltInTypes
