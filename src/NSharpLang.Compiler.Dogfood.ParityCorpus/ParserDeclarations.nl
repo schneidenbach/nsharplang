@@ -28,7 +28,7 @@ func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: i
 
 func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outKinds: int[], outNameStarts: int[], outNameLengths: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decls := new TopLevelDeclarationNameTable { Kinds: outKinds, NameStarts: outNameStarts, NameLengths: outNameLengths }
+    decls := new TopLevelDeclarationNameTable { Kinds: outKinds, Indices: new int[](count + 1), NameStarts: outNameStarts, NameLengths: outNameLengths }
     return TopLevelDeclarationNameSpansCore(ref tokens, count, ref decls)
 }
 

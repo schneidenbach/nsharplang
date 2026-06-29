@@ -168,7 +168,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         return -1
     }
 
-    structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    structName := ParserDeclarationQualifiedNameText(source, ref declarationTokens, tokens.Count, structIndex, result.Values[0], result.Values[1])
     if structName == "" {
         return -1
     }

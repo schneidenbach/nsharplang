@@ -71,6 +71,7 @@ struct TopLevelColumnarProgramDeclarationTable {
 
 struct TopLevelDeclarationNameTable {
     Kinds: int[]
+    Indices: int[]
     NameStarts: int[]
     NameLengths: int[]
 }
@@ -419,6 +420,7 @@ func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, coun
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
                 decls.Kinds[outCount] = kind
+                decls.Indices[outCount] = i
                 if i + 1 < count && tokens.Kinds[i + 1] == 0 {
                     decls.NameStarts[outCount] = tokens.Starts[i + 1]
                     decls.NameLengths[outCount] = tokens.ValueLengths[i + 1]
@@ -548,13 +550,13 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &P
         return -1
     }
 
-    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
+    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), Indices: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
     nameCount := TopLevelDeclarationNameSpansCore(ref rawTokens, rawCount, ref names)
     if nameCount != functionResult.Values[0] {
         return -1
     }
 
-    if TopLevelTypeDeclarationNamesDistinct(source, ref names, nameCount) == 0 {
+    if TopLevelTypeDeclarationNamesDistinct(source, ref rawTokens, rawCount, ref names, nameCount) == 0 {
         return -1
     }
 
@@ -580,7 +582,7 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &P
     return functionCount + nominalCount + structCount
 }
 
-func TopLevelTypeDeclarationNamesDistinct(source: string, decls: &TopLevelDeclarationNameTable, declCount: int): int {
+func TopLevelTypeDeclarationNamesDistinct(source: string, tokens: &ParserDeclarationTokenTable, count: int, decls: &TopLevelDeclarationNameTable, declCount: int): int {
     if declCount < 0 {
         return 0
     }
@@ -600,7 +602,10 @@ func TopLevelTypeDeclarationNamesDistinct(source: string, decls: &TopLevelDeclar
                     }
 
                     if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
-                        return 0
+                        namespaceMatch := ParserDeclarationNamespacesEqual(source, ref tokens, count, decls.Indices[i], decls.Indices[j])
+                        if namespaceMatch != 0 {
+                            return 0
+                        }
                     }
                 }
 
@@ -698,7 +703,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &
         i = i + 1
     }
 
-    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
+    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), Indices: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
     nameCount := TopLevelDeclarationNameSpansCore(ref rawTokens, rawCount, ref names)
     if nameCount != declCount {
         return -1
@@ -1231,6 +1236,144 @@ func ParserDeclarationSourceSpansEqual(source: string, leftStart: int, leftLengt
     }
 
     return true
+}
+
+func ParserDeclarationDottedNameSpanAfter(tokens: &ParserDeclarationTokenTable, count: int, nameStartIndex: int, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 2 {
+        return -1
+    }
+    result.Values[0] = -1
+    result.Values[1] = 0
+
+    if nameStartIndex < 0 || nameStartIndex >= count || tokens.Kinds[nameStartIndex] != 0 {
+        return -1
+    }
+
+    start := tokens.Starts[nameStartIndex]
+    end := tokens.Starts[nameStartIndex] + tokens.ValueLengths[nameStartIndex]
+    pos := nameStartIndex + 1
+    expectDot := 1
+    while pos < count {
+        if expectDot == 1 {
+            if tokens.Kinds[pos] != 124 {
+                break
+            }
+            expectDot = 0
+        } else {
+            if tokens.Kinds[pos] != 0 {
+                return -1
+            }
+            end = tokens.Starts[pos] + tokens.ValueLengths[pos]
+            expectDot = 1
+        }
+
+        pos = pos + 1
+    }
+
+    if expectDot == 0 {
+        return -1
+    }
+
+    result.Values[0] = start
+    result.Values[1] = end - start
+    return pos
+}
+
+func ParserDeclarationNamespaceSpanBefore(tokens: &ParserDeclarationTokenTable, count: int, declarationIndex: int, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 2 || declarationIndex < 0 || declarationIndex > count {
+        return -1
+    }
+
+    result.Values[0] = -1
+    result.Values[1] = 0
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    i := 0
+    nameResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    while i < declarationIndex {
+        kind := tokens.Kinds[i]
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 && (kind == 17 || kind == 18) {
+            next := ParserDeclarationDottedNameSpanAfter(ref tokens, count, i + 1, ref nameResult)
+            if next < 0 {
+                return -1
+            }
+
+            result.Values[0] = nameResult.Values[0]
+            result.Values[1] = nameResult.Values[1]
+            i = next - 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ParserDeclarationQualifiedNameText(source: string, tokens: &ParserDeclarationTokenTable, count: int, declarationIndex: int, nameStart: int, nameLength: int): string {
+    name := ParserDeclarationSpanText(source, nameStart, nameLength)
+    if name == "" {
+        return ""
+    }
+
+    namespaceResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    if ParserDeclarationNamespaceSpanBefore(ref tokens, count, declarationIndex, ref namespaceResult) < 0 {
+        return ""
+    }
+
+    if namespaceResult.Values[1] <= 0 {
+        return name
+    }
+
+    namespaceName := ParserDeclarationSpanText(source, namespaceResult.Values[0], namespaceResult.Values[1])
+    if namespaceName == "" {
+        return ""
+    }
+
+    return namespaceName + "." + name
+}
+
+func ParserDeclarationNamespacesEqual(source: string, tokens: &ParserDeclarationTokenTable, count: int, leftDeclarationIndex: int, rightDeclarationIndex: int): int {
+    leftResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    rightResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    if ParserDeclarationNamespaceSpanBefore(ref tokens, count, leftDeclarationIndex, ref leftResult) < 0 {
+        return -1
+    }
+    if ParserDeclarationNamespaceSpanBefore(ref tokens, count, rightDeclarationIndex, ref rightResult) < 0 {
+        return -1
+    }
+
+    if leftResult.Values[1] != rightResult.Values[1] {
+        return 0
+    }
+    if leftResult.Values[1] == 0 {
+        return 1
+    }
+    if ParserDeclarationSourceSpansEqual(source, leftResult.Values[0], leftResult.Values[1], rightResult.Values[0], rightResult.Values[1]) {
+        return 1
+    }
+    return 0
 }
 
 func ParserDeclarationNextEnumValue(value: int): int {

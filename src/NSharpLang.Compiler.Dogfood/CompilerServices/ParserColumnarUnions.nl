@@ -72,7 +72,7 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
         return -1
     }
 
-    unionName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    unionName := ParserDeclarationQualifiedNameText(source, ref declarationTokens, tokens.Count, unionIndex, result.Values[0], result.Values[1])
     if unionName == "" {
         return -1
     }

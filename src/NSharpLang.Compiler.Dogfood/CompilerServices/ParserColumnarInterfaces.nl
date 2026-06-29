@@ -1,4 +1,5 @@
 import "CompilerServices/ParserColumnarFunctions"
+import "CompilerServices/ParserDeclarations"
 import "CompilerServices/ParserFunctionSignatures"
 import "CompilerServices/ParserInterfaceSignatures"
 import "CompilerServices/ParserTypeReferences"
@@ -61,6 +62,13 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
     if methodCount < 0 {
         return -1
     }
+
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    interfaceName := ParserDeclarationQualifiedNameText(source, ref declarationTokens, tokens.Count, interfaceIndex, result.Values[0], result.Values[1])
+    if interfaceName == "" {
+        return -1
+    }
+    outputs.InterfaceNameTexts[0] = interfaceName
 
     if ColumnarInterfaceBaseNamesDistinct(ref outputs, result.Values[2]) == 0 {
         return -1

@@ -58,7 +58,7 @@ func ParseColumnarEnumInfoCore(source: string, tokens: &ColumnarEnumTokenTable, 
         return -1
     }
 
-    enumName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    enumName := ParserDeclarationQualifiedNameText(source, ref declarationTokens, tokens.Count, enumIndex, result.Values[0], result.Values[1])
     if enumName == "" {
         return -1
     }
