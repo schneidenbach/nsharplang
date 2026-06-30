@@ -9435,7 +9435,7 @@ public class Analyzer : IDisposable
             if (methods.Length > 0)
             {
                 // Return a special type that represents overloaded methods
-                return new ReflectionMethodGroupInfo(methods);
+                return new ReflectionMethodGroupInfo(methods, $"{methods[0].Name}(...)");
             }
 
             // No member found on reflection type, try extension methods
@@ -9835,13 +9835,13 @@ public class Analyzer : IDisposable
 
         if (methods.Length == 1)
         {
-            memberType = new ReflectionMethodInfo(methods[0]);
+            memberType = new ReflectionMethodInfo(methods[0], $"{methods[0].Name}(...)");
             return true;
         }
 
         if (methods.Length > 1)
         {
-            memberType = new ReflectionMethodGroupInfo(methods);
+            memberType = new ReflectionMethodGroupInfo(methods, $"{methods[0].Name}(...)");
             return true;
         }
 
@@ -9904,10 +9904,10 @@ public class Analyzer : IDisposable
         {
             var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
             if (externalExtensions.Count == 1)
-                return new ReflectionMethodInfo(externalExtensions[0]);
+                return new ReflectionMethodInfo(externalExtensions[0], $"{externalExtensions[0].Name}(...)");
 
             if (externalExtensions.Count > 1)
-                return new ReflectionMethodGroupInfo(externalExtensions.ToArray());
+                return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), $"{externalExtensions[0].Name}(...)");
 
             return BuiltInTypes.Unknown;
         }
@@ -9932,10 +9932,10 @@ public class Analyzer : IDisposable
         {
             var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
             if (externalExtensions.Count == 1)
-                return new ReflectionMethodInfo(externalExtensions[0]);
+                return new ReflectionMethodInfo(externalExtensions[0], $"{externalExtensions[0].Name}(...)");
 
             if (externalExtensions.Count > 1)
-                return new ReflectionMethodGroupInfo(externalExtensions.ToArray());
+                return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), $"{externalExtensions[0].Name}(...)");
 
             return BuiltInTypes.Unknown;
         }
@@ -23220,21 +23220,6 @@ public class EnumTypeInfo : TypeInfo
 }
 
 /// <summary>
-/// Represents a method resolved via .NET reflection
-/// </summary>
-public class ReflectionMethodInfo : TypeInfo
-{
-    public ReflectionMethodInfo(MethodInfo method)
-    {
-        Method = method;
-    }
-
-    public MethodInfo Method { get; }
-
-    public override string ToString() => $"{Method.Name}(...)";
-}
-
-/// <summary>
 /// Represents a .NET event resolved via reflection. N# does not model events as fields;
 /// they are subscribed/unsubscribed exclusively through the <c>on</c>/<c>off</c> keywords.
 /// </summary>
@@ -23248,21 +23233,6 @@ public class ReflectionEventInfo : TypeInfo
     public System.Reflection.EventInfo Event { get; }
 
     public override string ToString() => $"event {Event.Name}";
-}
-
-/// <summary>
-/// Represents a group of overloaded methods resolved via .NET reflection
-/// </summary>
-public class ReflectionMethodGroupInfo : TypeInfo
-{
-    public ReflectionMethodGroupInfo(MethodInfo[] methods)
-    {
-        Methods = methods;
-    }
-
-    public MethodInfo[] Methods { get; }
-
-    public override string ToString() => Methods.Length > 0 ? $"{Methods[0].Name}(...)" : "method group";
 }
 
 /// <summary>

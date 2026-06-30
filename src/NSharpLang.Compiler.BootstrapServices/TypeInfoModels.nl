@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import System.Text
 import NSharpLang.Compiler.Ast
 
@@ -289,5 +290,43 @@ public class ByRefTypeInfo: TypeInfo {
     override func ToString(): string {
         innerObject := innerTypeValue as object
         return "&" + innerObject.ToString()
+    }
+}
+
+public class ReflectionMethodInfo: TypeInfo {
+    Method: MethodInfo
+    displayValue: string
+
+    constructor(method: MethodInfo) {
+        Method = method
+        displayValue = "method"
+    }
+
+    constructor(method: MethodInfo, displayText: string) {
+        Method = method
+        displayValue = displayText
+    }
+
+    override func ToString(): string {
+        return displayValue
+    }
+}
+
+public class ReflectionMethodGroupInfo: TypeInfo {
+    Methods: MethodInfo[]
+    displayValue: string
+
+    constructor(methods: MethodInfo[]) {
+        Methods = methods
+        displayValue = "method group"
+    }
+
+    constructor(methods: MethodInfo[], displayText: string) {
+        Methods = methods
+        displayValue = displayText
+    }
+
+    override func ToString(): string {
+        return displayValue
     }
 }
