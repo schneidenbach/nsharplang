@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -710,126 +709,12 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-    // ── Diagnostic Clustering ───────────────────────────────────────────
-
-    private static void AppendDiagnosticClusterSummary(StringBuilder sb, List<DiagnosticCluster> clusters)
-    {
-        if (clusters.Count == 0)
-            return;
-
-        var diagnosticCount = clusters.Sum(cluster => cluster.Count);
-        sb.AppendLine($"Diagnostic clusters ({clusters.Count} group{(clusters.Count == 1 ? "" : "s")}, {diagnosticCount} diagnostic{(diagnosticCount == 1 ? "" : "s")})");
-        foreach (var cluster in clusters.Take(10))
-        {
-            sb.AppendLine($"  [{cluster.Count}x] {cluster.Category} / {cluster.SourceConstruct} / risk: {cluster.Risk}");
-            sb.AppendLine($"       recipe: {cluster.Recipe}");
-            sb.AppendLine($"       root: {cluster.RootLocation.File}:{cluster.RootLocation.Line}:{cluster.RootLocation.Column}");
-            sb.AppendLine($"       next command: {cluster.NextCommand}");
-            sb.AppendLine($"       example: {cluster.Examples[0].Message}");
-            foreach (var action in cluster.SuggestedNextActions.Take(2))
-            {
-                sb.AppendLine($"       next: {action}");
-            }
-        }
-        if (clusters.Count > 10)
-        {
-            sb.AppendLine($"  ... {clusters.Count - 10} more cluster{(clusters.Count - 10 == 1 ? "" : "s")} omitted; use --json for the full AI-consumable cluster list.");
-        }
-        sb.AppendLine();
-    }
-
     // ── Elm-Style Text Output ──────────────────────────────────────────
 
     public static string DiagnosticsToText(List<DiagnosticResult> results)
     {
-        if (results.Count == 0)
-            return OutputFormatterDiagnosticKernels.GetNoDiagnosticsText();
-
-        var sb = new StringBuilder();
-        var summary = SummarizeDiagnostics(results);
-
-        AppendDiagnosticClusterSummary(sb, OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results));
-
-        foreach (var diag in results)
-        {
-            sb.AppendLine(FormatSingleDiagnosticText(diag));
-        }
-
-        // Summary line
-        sb.AppendLine();
-        sb.AppendLine(OutputFormatterDiagnosticKernels.GetFoundSummaryText(summary));
-
-        return sb.ToString();
+        return OutputFormatterTextBuilders.DiagnosticsToText(results);
     }
-
-    private static string FormatSingleDiagnosticText(DiagnosticResult diag)
-    {
-        var sb = new StringBuilder();
-
-        var title = FormatDiagnosticTitle(diag);
-
-        sb.AppendLine(OutputFormatterDiagnosticKernels.GetHeaderLineText(
-            title,
-            diag.File,
-            diag.Line,
-            diag.Column));
-        sb.AppendLine();
-
-        // Source snippet with line number and caret
-        if (!string.IsNullOrWhiteSpace(diag.SourceSnippet))
-        {
-            sb.AppendLine(OutputFormatterDiagnosticKernels.GetSourceLineText(diag.Line, diag.SourceSnippet.TrimEnd()));
-            sb.AppendLine(OutputFormatterDiagnosticKernels.GetCaretLineText(diag.Line, diag.Column, diag.Length));
-        }
-
-        sb.AppendLine();
-
-        // Main message
-        sb.AppendLine(diag.Message);
-
-        // Explanation (the "why")
-        if (!string.IsNullOrWhiteSpace(diag.Explanation))
-        {
-            sb.AppendLine();
-            sb.AppendLine(diag.Explanation);
-        }
-
-        // Type mismatch details
-        if (!string.IsNullOrWhiteSpace(diag.ExpectedType) || !string.IsNullOrWhiteSpace(diag.ActualType))
-        {
-            sb.AppendLine();
-            if (!string.IsNullOrWhiteSpace(diag.ExpectedType))
-                sb.AppendLine(OutputFormatterDiagnosticKernels.GetExpectedTypeText(diag.ExpectedType));
-            if (!string.IsNullOrWhiteSpace(diag.ActualType))
-                sb.AppendLine(OutputFormatterDiagnosticKernels.GetActualTypeText(diag.ActualType));
-        }
-
-        // Hint
-        if (!string.IsNullOrWhiteSpace(diag.Hint))
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterDiagnosticKernels.GetHintText(diag.Hint));
-        }
-
-        // Suggestion
-        if (!string.IsNullOrWhiteSpace(diag.Suggestion))
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterDiagnosticKernels.GetSuggestionText(diag.Suggestion));
-        }
-
-        // Docs URL
-        if (!string.IsNullOrWhiteSpace(diag.DocsUrl))
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterDiagnosticKernels.GetDocsUrlText(diag.DocsUrl));
-        }
-
-        return sb.ToString();
-    }
-
-    private static string FormatDiagnosticTitle(DiagnosticResult diag)
-        => OutputFormatterDiagnosticKernels.GetDiagnosticTitle(diag.Code, diag.Severity);
 
     public static string SymbolsToText(List<SymbolResult> results)
     {

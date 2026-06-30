@@ -5,6 +5,26 @@ import System.Collections.Generic
 import System.Text
 
 public class OutputFormatterTextBuilders {
+    public static func DiagnosticsToText(results: List<DiagnosticResult>): string {
+        if results.Count == 0 {
+            return OutputFormatterDiagnosticKernels.GetNoDiagnosticsText()
+        }
+
+        builder := new StringBuilder()
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
+
+        AppendDiagnosticClusterSummary(builder, OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results))
+
+        foreach diagnostic in results {
+            builder.AppendLine(FormatSingleDiagnosticText(diagnostic))
+        }
+
+        builder.AppendLine()
+        builder.AppendLine(OutputFormatterDiagnosticKernels.GetFoundSummaryText(summary))
+
+        return builder.ToString()
+    }
+
     public static func SymbolsToText(results: List<SymbolResult>): string {
         if results.Count == 0 {
             return OutputFormatterTextKernels.GetNoSymbolsText()
@@ -314,6 +334,155 @@ public class OutputFormatterTextBuilders {
         builder.AppendLine()
         builder.Append(CompletionsToText(result.Completions, fileName, line, column))
         return builder.ToString()
+    }
+
+    static func AppendDiagnosticClusterSummary(builder: StringBuilder, clusters: List<DiagnosticCluster>) {
+        if clusters.Count == 0 {
+            return
+        }
+
+        diagnosticCount := 0
+        foreach cluster in clusters {
+            diagnosticCount = diagnosticCount + cluster.Count
+        }
+
+        builder.AppendLine(
+            "Diagnostic clusters (" +
+            clusters.Count.ToString() +
+            " group" +
+            PluralSuffix(clusters.Count) +
+            ", " +
+            diagnosticCount.ToString() +
+            " diagnostic" +
+            PluralSuffix(diagnosticCount) +
+            ")")
+
+        count := clusters.Count
+        if count > 10 {
+            count = 10
+        }
+
+        index := 0
+        while index < count {
+            cluster := clusters[index]
+            builder.AppendLine(
+                "  [" +
+                cluster.Count.ToString() +
+                "x] " +
+                cluster.Category +
+                " / " +
+                cluster.SourceConstruct +
+                " / risk: " +
+                cluster.Risk)
+            builder.AppendLine("       recipe: " + cluster.Recipe)
+            builder.AppendLine(
+                "       root: " +
+                cluster.RootLocation.File +
+                ":" +
+                cluster.RootLocation.Line.ToString() +
+                ":" +
+                cluster.RootLocation.Column.ToString())
+            builder.AppendLine("       next command: " + cluster.NextCommand)
+            builder.AppendLine("       example: " + cluster.Examples[0].Message)
+
+            actionCount := cluster.SuggestedNextActions.Length
+            if actionCount > 2 {
+                actionCount = 2
+            }
+
+            actionIndex := 0
+            while actionIndex < actionCount {
+                builder.AppendLine("       next: " + cluster.SuggestedNextActions[actionIndex])
+                actionIndex = actionIndex + 1
+            }
+
+            index = index + 1
+        }
+
+        if clusters.Count > 10 {
+            omitted := clusters.Count - 10
+            builder.AppendLine(
+                "  ... " +
+                omitted.ToString() +
+                " more cluster" +
+                PluralSuffix(omitted) +
+                " omitted; use --json for the full AI-consumable cluster list.")
+        }
+
+        builder.AppendLine()
+    }
+
+    static func FormatSingleDiagnosticText(diagnostic: DiagnosticResult): string {
+        builder := new StringBuilder()
+
+        title := OutputFormatterDiagnosticKernels.GetDiagnosticTitle(diagnostic.Code, diagnostic.Severity)
+        builder.AppendLine(OutputFormatterDiagnosticKernels.GetHeaderLineText(
+            title,
+            diagnostic.File,
+            diagnostic.Line,
+            diagnostic.Column))
+        builder.AppendLine()
+
+        sourceSnippet := diagnostic.SourceSnippet ?? ""
+        if !String.IsNullOrWhiteSpace(sourceSnippet) {
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetSourceLineText(
+                diagnostic.Line,
+                sourceSnippet.TrimEnd()))
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetCaretLineText(
+                diagnostic.Line,
+                diagnostic.Column,
+                diagnostic.Length))
+        }
+
+        builder.AppendLine()
+        builder.AppendLine(diagnostic.Message)
+
+        explanation := diagnostic.Explanation ?? ""
+        if !String.IsNullOrWhiteSpace(explanation) {
+            builder.AppendLine()
+            builder.AppendLine(explanation)
+        }
+
+        expectedType := diagnostic.ExpectedType ?? ""
+        actualType := diagnostic.ActualType ?? ""
+        if !String.IsNullOrWhiteSpace(expectedType) || !String.IsNullOrWhiteSpace(actualType) {
+            builder.AppendLine()
+            if !String.IsNullOrWhiteSpace(expectedType) {
+                builder.AppendLine(OutputFormatterDiagnosticKernels.GetExpectedTypeText(expectedType))
+            }
+
+            if !String.IsNullOrWhiteSpace(actualType) {
+                builder.AppendLine(OutputFormatterDiagnosticKernels.GetActualTypeText(actualType))
+            }
+        }
+
+        hint := diagnostic.Hint ?? ""
+        if !String.IsNullOrWhiteSpace(hint) {
+            builder.AppendLine()
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetHintText(hint))
+        }
+
+        suggestion := diagnostic.Suggestion ?? ""
+        if !String.IsNullOrWhiteSpace(suggestion) {
+            builder.AppendLine()
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetSuggestionText(suggestion))
+        }
+
+        docsUrl := diagnostic.DocsUrl ?? ""
+        if !String.IsNullOrWhiteSpace(docsUrl) {
+            builder.AppendLine()
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetDocsUrlText(docsUrl))
+        }
+
+        return builder.ToString()
+    }
+
+    static func PluralSuffix(count: int): string {
+        if count == 1 {
+            return ""
+        }
+
+        return "s"
     }
 
     static func AppendSymbolText(builder: StringBuilder, symbol: SymbolResult, indent: int) {
