@@ -1,9 +1,23 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
+import System.Collections.Generic
 import System.Text
 
 public class OutputFormatterTextBuilders {
+    public static func SymbolsToText(results: List<SymbolResult>): string {
+        if results.Count == 0 {
+            return OutputFormatterTextKernels.GetNoSymbolsText()
+        }
+
+        builder := new StringBuilder()
+        foreach symbol in results {
+            AppendSymbolText(builder, symbol, 0)
+        }
+
+        return builder.ToString()
+    }
+
     public static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
@@ -106,6 +120,28 @@ public class OutputFormatterTextBuilders {
         builder.AppendLine()
         builder.Append(CompletionsToText(result.Completions, fileName, line, column))
         return builder.ToString()
+    }
+
+    static func AppendSymbolText(builder: StringBuilder, symbol: SymbolResult, indent: int) {
+        builder.AppendLine(OutputFormatterTextKernels.GetSymbolLineText(symbol, indent))
+
+        if symbol.Parameters != null {
+            parameters := symbol.Parameters ?? new ParameterResult[](0)
+            if parameters.Length > 0 {
+                builder.AppendLine(OutputFormatterTextKernels.GetSymbolParametersLineText(parameters, indent))
+            }
+        }
+
+        if symbol.Members != null {
+            members := symbol.Members ?? new SymbolResult[](0)
+            if members.Length > 0 {
+                index := 0
+                while index < members.Length {
+                    AppendSymbolText(builder, members[index], indent + 1)
+                    index = index + 1
+                }
+            }
+        }
     }
 
     static func CompletionContextText(context: CompletionContext): string {

@@ -873,33 +873,7 @@ public static class OutputFormatter
 
     public static string SymbolsToText(List<SymbolResult> results)
     {
-        if (results.Count == 0)
-            return OutputFormatterTextKernels.GetNoSymbolsText();
-
-        var sb = new StringBuilder();
-        foreach (var sym in results)
-        {
-            FormatSymbolText(sb, sym, indent: 0);
-        }
-        return sb.ToString();
-    }
-
-    private static void FormatSymbolText(StringBuilder sb, SymbolResult sym, int indent)
-    {
-        sb.AppendLine(OutputFormatterTextKernels.GetSymbolLineText(sym, indent));
-
-        if (sym.Parameters is { Length: > 0 })
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetSymbolParametersLineText(sym.Parameters, indent));
-        }
-
-        if (sym.Members is { Length: > 0 })
-        {
-            foreach (var member in sym.Members)
-            {
-                FormatSymbolText(sb, member, indent + 1);
-            }
-        }
+        return OutputFormatterTextBuilders.SymbolsToText(results);
     }
 
     public static string OutlineToText(OutlineResult result)
