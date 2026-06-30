@@ -45,7 +45,7 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 - **StructTypeInfo**: From struct declarations
 - **RecordTypeInfo**: From record declarations (reference or struct)
 - **InterfaceTypeInfo**: From interface declarations
-- **UnionTypeInfo**: From union declarations
+- **UnionTypeInfo**: N#-owned union metadata derived from union declarations
 - **EnumTypeInfo**: From enum declarations (int or string)
 
 ### External Types

@@ -397,8 +397,6 @@ public class CompletionEngine
                 return r.Declaration;
             case InterfaceTypeInfo i:
                 return i.Declaration;
-            case UnionTypeInfo u:
-                return u.Declaration;
         }
 
         var typeName = FormatTypeInfo(typeInfo);

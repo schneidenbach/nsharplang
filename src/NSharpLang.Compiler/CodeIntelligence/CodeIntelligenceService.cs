@@ -1407,7 +1407,7 @@ public class CodeIntelligenceService
             return EnumTypeInfoFactory.FromDeclaration(enumDecl);
 
         if (decl is UnionDeclaration unionDecl && unionDecl.Cases.Any(c => c.Name == name))
-            return new UnionTypeInfo(unionDecl);
+            return UnionTypeInfoFactory.FromDeclaration(unionDecl);
 
         return null;
     }
@@ -1425,7 +1425,7 @@ public class CodeIntelligenceService
             SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
             InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
             EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
-            UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
+            UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
             FieldDeclaration fd when fd.Name == name && fd.Type != null => ResolveTypeReferenceToTypeInfo(fd.Type, snapshot),
             PropertyDeclaration pd when pd.Name == name => ResolveTypeReferenceToTypeInfo(pd.Type, snapshot),
             TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
@@ -1478,7 +1478,7 @@ public class CodeIntelligenceService
                     SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
                     InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
                     EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
-                    UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
+                    UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
                     TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
                     NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),
                     _ => null

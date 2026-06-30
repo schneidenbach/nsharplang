@@ -322,7 +322,7 @@ public class Analyzer : IDisposable
             else if (decl is InterfaceDeclaration interfaceDecl)
                 DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
-                DeclareType(unionDecl.Name, new UnionTypeInfo(unionDecl), decl.Line, decl.Column);
+                DeclareType(unionDecl.Name, UnionTypeInfoFactory.FromDeclaration(unionDecl), decl.Line, decl.Column);
             else if (decl is EnumDeclaration enumDecl)
                 DeclareType(enumDecl.Name, EnumTypeInfoFactory.FromDeclaration(enumDecl), decl.Line, decl.Column);
             else if (decl is TypeAliasDeclaration aliasDecl)
@@ -9246,7 +9246,7 @@ public class Analyzer : IDisposable
         RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name, recordType.Declaration),
         InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name, interfaceType.Declaration),
         EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
-        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name, unionType.Declaration),
+        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
         _ => _currentFilePath
     };
 
@@ -9893,7 +9893,7 @@ public class Analyzer : IDisposable
         SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
         InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
         EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
-        UnionDeclaration unionDecl => new UnionTypeInfo(unionDecl),
+        UnionDeclaration unionDecl => UnionTypeInfoFactory.FromDeclaration(unionDecl),
         TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
         NewtypeDeclaration newtypeDecl => new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType),
         _ => BuiltInTypes.Unknown
@@ -22317,7 +22317,7 @@ public class Analyzer : IDisposable
                     RecordDeclaration r => new RecordTypeInfo(r),
                     SoaRecordDeclaration soa => SoaTypeInfoFactory.FromDeclaration(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i),
-                    UnionDeclaration u => new UnionTypeInfo(u),
+                    UnionDeclaration u => UnionTypeInfoFactory.FromDeclaration(u),
                     EnumDeclaration e => EnumTypeInfoFactory.FromDeclaration(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
                     NewtypeDeclaration n => new NewtypeInfo(n.Name, n.UnderlyingType),
@@ -23154,18 +23154,6 @@ public class InterfaceTypeInfo : TypeInfo
     }
 
     public InterfaceDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
-public class UnionTypeInfo : TypeInfo
-{
-    public UnionDeclaration Declaration { get; }
-
-    public UnionTypeInfo(UnionDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
 
     public override string ToString() => Declaration.Name;
 }

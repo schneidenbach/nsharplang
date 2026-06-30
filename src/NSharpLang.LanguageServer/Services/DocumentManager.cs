@@ -800,7 +800,7 @@ public class DocumentManager
             }
             else if (decl is UnionDeclaration unionDecl)
             {
-                symbols[unionDecl.Name] = new UnionTypeInfo(unionDecl);
+                symbols[unionDecl.Name] = UnionTypeInfoFactory.FromDeclaration(unionDecl);
             }
         }
 

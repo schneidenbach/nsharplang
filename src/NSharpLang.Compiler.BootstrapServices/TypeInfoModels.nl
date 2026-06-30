@@ -374,6 +374,41 @@ public class SoaRowTypeInfo: TypeInfo {
     }
 }
 
+public class UnionDeclarationInfo {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    Cases: List<UnionCase>
+    Line: int
+    Column: int
+
+    constructor(
+        name: string,
+        typeParameters: List<TypeParameter>?,
+        cases: List<UnionCase>,
+        line: int = 0,
+        column: int = 0) {
+        Name = name
+        TypeParameters = typeParameters
+        Cases = cases
+        Line = line
+        Column = column
+    }
+}
+
+public class UnionTypeInfo: TypeInfo {
+    declarationValue: UnionDeclarationInfo
+
+    Declaration: UnionDeclarationInfo => declarationValue
+
+    constructor(declaration: UnionDeclarationInfo) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return declarationValue.Name
+    }
+}
+
 public enum EnumMemberValueKind {
     None,
     String,
