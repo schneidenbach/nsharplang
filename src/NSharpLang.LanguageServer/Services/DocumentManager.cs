@@ -796,7 +796,7 @@ public class DocumentManager
             }
             else if (decl is EnumDeclaration enumDecl)
             {
-                symbols[enumDecl.Name] = new EnumTypeInfo(enumDecl);
+                symbols[enumDecl.Name] = EnumTypeInfoFactory.FromDeclaration(enumDecl);
             }
             else if (decl is UnionDeclaration unionDecl)
             {

@@ -318,6 +318,63 @@ public class ByRefTypeInfo: TypeInfo {
     }
 }
 
+public enum EnumMemberValueKind {
+    None,
+    String,
+    Integer
+}
+
+public class EnumMemberInfo {
+    Name: string
+    Line: int
+    Column: int
+    ValueKind: EnumMemberValueKind
+    ValueText: string?
+
+    constructor(
+        name: string,
+        line: int = 0,
+        column: int = 0,
+        valueKind: EnumMemberValueKind = 0,
+        valueText: string? = null) {
+        Name = name
+        Line = line
+        Column = column
+        ValueKind = valueKind
+        ValueText = valueText
+    }
+}
+
+public class EnumDeclarationInfo {
+    Name: string
+    Members: List<EnumMemberInfo>
+    Type: EnumType
+    Line: int
+    Column: int
+
+    constructor(name: string, members: List<EnumMemberInfo>, enumType: EnumType, line: int = 0, column: int = 0) {
+        Name = name
+        Members = members
+        Type = enumType
+        Line = line
+        Column = column
+    }
+}
+
+public class EnumTypeInfo: TypeInfo {
+    declarationValue: EnumDeclarationInfo
+
+    Declaration: EnumDeclarationInfo => declarationValue
+
+    constructor(declaration: EnumDeclarationInfo) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return declarationValue.Name
+    }
+}
+
 public class ReflectionMethodInfo: TypeInfo {
     Method: MethodInfo
     displayValue: string

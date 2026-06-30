@@ -1404,7 +1404,7 @@ public class CodeIntelligenceService
         }
 
         if (decl is EnumDeclaration enumDecl && enumDecl.Members.Any(m => m.Name == name))
-            return new EnumTypeInfo(enumDecl);
+            return EnumTypeInfoFactory.FromDeclaration(enumDecl);
 
         if (decl is UnionDeclaration unionDecl && unionDecl.Cases.Any(c => c.Name == name))
             return new UnionTypeInfo(unionDecl);
@@ -1424,7 +1424,7 @@ public class CodeIntelligenceService
             RecordDeclaration r when r.Name == name => new RecordTypeInfo(r),
             SoaRecordDeclaration soa when soa.Name == name => new SoaRecordTypeInfo(soa),
             InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
-            EnumDeclaration e when e.Name == name => new EnumTypeInfo(e),
+            EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
             UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
             FieldDeclaration fd when fd.Name == name && fd.Type != null => ResolveTypeReferenceToTypeInfo(fd.Type, snapshot),
             PropertyDeclaration pd when pd.Name == name => ResolveTypeReferenceToTypeInfo(pd.Type, snapshot),
@@ -1477,7 +1477,7 @@ public class CodeIntelligenceService
                     RecordDeclaration r when r.Name == name => new RecordTypeInfo(r),
                     SoaRecordDeclaration soa when soa.Name == name => new SoaRecordTypeInfo(soa),
                     InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
-                    EnumDeclaration e when e.Name == name => new EnumTypeInfo(e),
+                    EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
                     UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
                     TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
                     NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),

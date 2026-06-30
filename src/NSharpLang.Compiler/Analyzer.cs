@@ -324,7 +324,7 @@ public class Analyzer : IDisposable
             else if (decl is UnionDeclaration unionDecl)
                 DeclareType(unionDecl.Name, new UnionTypeInfo(unionDecl), decl.Line, decl.Column);
             else if (decl is EnumDeclaration enumDecl)
-                DeclareType(enumDecl.Name, new EnumTypeInfo(enumDecl), decl.Line, decl.Column);
+                DeclareType(enumDecl.Name, EnumTypeInfoFactory.FromDeclaration(enumDecl), decl.Line, decl.Column);
             else if (decl is TypeAliasDeclaration aliasDecl)
                 DeclareType(aliasDecl.Name, new AliasTypeInfo(aliasDecl.Type), decl.Line, decl.Column);
             else if (decl is NewtypeDeclaration newtypeDecl)
@@ -9245,7 +9245,7 @@ public class Analyzer : IDisposable
         StructTypeInfo structType => GetDeclarationFilePath(structType.Declaration.Name, structType.Declaration),
         RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name, recordType.Declaration),
         InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name, interfaceType.Declaration),
-        EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name, enumType.Declaration),
+        EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
         UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name, unionType.Declaration),
         _ => _currentFilePath
     };
@@ -9892,7 +9892,7 @@ public class Analyzer : IDisposable
         RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl),
         SoaRecordDeclaration soaRecordDecl => new SoaRecordTypeInfo(soaRecordDecl),
         InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
-        EnumDeclaration enumDecl => new EnumTypeInfo(enumDecl),
+        EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
         UnionDeclaration unionDecl => new UnionTypeInfo(unionDecl),
         TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
         NewtypeDeclaration newtypeDecl => new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType),
@@ -18579,15 +18579,15 @@ public class Analyzer : IDisposable
                 // Check if literal matches an enum member value
                 foreach (var member in enumType.Declaration.Members)
                 {
-                    if (member.Value is StringLiteralExpression strLit &&
+                    if (member.ValueKind == EnumMemberValueKind.String &&
                         literalPattern.Literal is StringLiteralExpression patternStr &&
-                        strLit.Value == patternStr.Value)
+                        member.ValueText == patternStr.Value)
                     {
                         coveredMembers.Add(member.Name);
                     }
-                    else if (member.Value is IntLiteralExpression intLit &&
+                    else if (member.ValueKind == EnumMemberValueKind.Integer &&
                              literalPattern.Literal is IntLiteralExpression patternInt &&
-                             intLit.Value == patternInt.Value)
+                             member.ValueText == patternInt.Value)
                     {
                         coveredMembers.Add(member.Name);
                     }
@@ -22318,7 +22318,7 @@ public class Analyzer : IDisposable
                     SoaRecordDeclaration soa => new SoaRecordTypeInfo(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i),
                     UnionDeclaration u => new UnionTypeInfo(u),
-                    EnumDeclaration e => new EnumTypeInfo(e),
+                    EnumDeclaration e => EnumTypeInfoFactory.FromDeclaration(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
                     NewtypeDeclaration n => new NewtypeInfo(n.Name, n.UnderlyingType),
                     FunctionDeclaration f => CreateFunctionTypeInfo(f),
@@ -23193,19 +23193,6 @@ public class UnionTypeInfo : TypeInfo
 
     public override string ToString() => Declaration.Name;
 }
-
-public class EnumTypeInfo : TypeInfo
-{
-    public EnumTypeInfo(EnumDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public EnumDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
 
 /// <summary>
 /// Represents a group of overloaded N#-declared methods
