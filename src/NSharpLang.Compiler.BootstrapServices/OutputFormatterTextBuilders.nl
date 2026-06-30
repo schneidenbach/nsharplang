@@ -73,6 +73,76 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
+    public static func DocToText(result: DocResult): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetDocHeaderText(result))
+
+        if result.Namespace != null {
+            namespaceName := result.Namespace ?? ""
+            builder.AppendLine(OutputFormatterTextKernels.GetDocNamespaceLineText(namespaceName))
+        }
+
+        summary := result.Summary ?? ""
+        if !String.IsNullOrWhiteSpace(summary) {
+            builder.AppendLine()
+            builder.AppendLine(OutputFormatterTextKernels.GetDocSummaryLineText(summary))
+        }
+
+        if result.BaseTypes != null {
+            baseTypes := result.BaseTypes ?? new string[](0)
+            if baseTypes.Length > 0 {
+                builder.AppendLine()
+                builder.AppendLine(OutputFormatterTextKernels.GetDocImplementsLineText(baseTypes))
+            }
+        }
+
+        if result.Parameters != null {
+            parameters := result.Parameters ?? new DocParameterResult[](0)
+            if parameters.Length > 0 {
+                builder.AppendLine()
+                builder.AppendLine(OutputFormatterTextKernels.GetDocParametersHeaderText())
+                index := 0
+                while index < parameters.Length {
+                    builder.AppendLine(OutputFormatterTextKernels.GetDocParameterLineText(parameters[index]))
+                    index = index + 1
+                }
+            }
+        }
+
+        if result.ReturnType != null {
+            returnType := result.ReturnType ?? ""
+            if returnType != "void" {
+                builder.AppendLine()
+                builder.AppendLine(OutputFormatterTextKernels.GetDocReturnsLineText(returnType, result.ReturnDoc))
+            }
+        }
+
+        if result.Members != null {
+            members := result.Members ?? new DocMemberResult[](0)
+            if members.Length > 0 {
+                builder.AppendLine()
+                builder.AppendLine(OutputFormatterTextKernels.GetDocMembersHeaderText(result.Kind))
+
+                count := members.Length
+                if count > 30 {
+                    count = 30
+                }
+
+                index := 0
+                while index < count {
+                    builder.AppendLine(OutputFormatterTextKernels.GetDocMemberLineText(members[index]))
+                    index = index + 1
+                }
+
+                if members.Length > 30 {
+                    builder.AppendLine(OutputFormatterTextKernels.GetDocOverflowLineText(members.Length - 30))
+                }
+            }
+        }
+
+        return builder.ToString()
+    }
+
     public static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(

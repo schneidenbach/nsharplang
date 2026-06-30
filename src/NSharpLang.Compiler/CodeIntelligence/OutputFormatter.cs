@@ -858,60 +858,6 @@ public static class OutputFormatter
 
     public static string DocToText(DocResult result)
     {
-        var sb = new StringBuilder();
-
-        // Header
-        sb.AppendLine(OutputFormatterTextKernels.GetDocHeaderText(result));
-        if (result.Namespace != null)
-            sb.AppendLine(OutputFormatterTextKernels.GetDocNamespaceLineText(result.Namespace));
-
-        // Summary
-        if (!string.IsNullOrWhiteSpace(result.Summary))
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetDocSummaryLineText(result.Summary));
-        }
-
-        // Base types
-        if (result.BaseTypes is { Length: > 0 })
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetDocImplementsLineText(result.BaseTypes));
-        }
-
-        // Parameters (for methods)
-        if (result.Parameters is { Length: > 0 })
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetDocParametersHeaderText());
-            foreach (var p in result.Parameters)
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetDocParameterLineText(p));
-            }
-        }
-
-        // Return type
-        if (result.ReturnType != null && result.ReturnType != "void")
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetDocReturnsLineText(result.ReturnType, result.ReturnDoc));
-        }
-
-        // Members (for types, or overloads for methods)
-        if (result.Members is { Length: > 0 })
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetDocMembersHeaderText(result.Kind));
-            foreach (var m in result.Members.Take(30))
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetDocMemberLineText(m));
-            }
-            if (result.Members.Length > 30)
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetDocOverflowLineText(result.Members.Length - 30));
-            }
-        }
-
-        return sb.ToString();
+        return OutputFormatterTextBuilders.DocToText(result);
     }
 }
