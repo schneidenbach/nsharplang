@@ -55,7 +55,7 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 - **ExternalTypeInfo**: Unresolved external type (placeholder)
 
 ### Special Types
-- **FunctionTypeInfo**: Function signatures
+- **FunctionTypeInfo**: N#-owned function signature metadata; source declarations remain opaque handles until the function declaration model moves
 - **ArrayTypeInfo**: Array types (`T[]`)
 - **GenericTypeInfo**: Generic types (`List<T>`)
 - **NullableTypeInfo**: Nullable types (`T?`)

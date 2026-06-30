@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
 
@@ -303,7 +304,7 @@ public static class NullabilityMetadata
     private static string FormatFunctionType(FunctionTypeInfo function)
     {
         if (function.ParameterTypes == null || function.ReturnType == null)
-            return function.Declaration?.Name ?? "function";
+            return (function.Declaration as FunctionDeclaration)?.Name ?? "function";
 
         return $"({string.Join(", ", function.ParameterTypes.Select(FormatTypeInfo))}) -> {FormatTypeInfo(function.ReturnType)}";
     }

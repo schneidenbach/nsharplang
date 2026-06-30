@@ -288,6 +288,19 @@ public class NullableTypeInfo: TypeInfo {
     }
 }
 
+public class FunctionTypeInfo: TypeInfo {
+    Declaration: object?
+    SyntheticName: string?
+    ParameterNames: List<string>?
+    ParameterTypes: List<TypeInfo>?
+    ParameterModifiers: List<ParameterModifier>?
+    ReturnType: TypeInfo?
+
+    constructor(declaration: object?) {
+        Declaration = declaration
+    }
+}
+
 public class ObliviousTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
 

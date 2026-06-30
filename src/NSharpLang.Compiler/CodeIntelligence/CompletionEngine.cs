@@ -195,8 +195,8 @@ public class CompletionEngine
             var functions = new List<CompletionItem>();
             foreach (var (name, typeInfo) in semanticModel.Functions)
             {
-                var paramStr = typeInfo is FunctionTypeInfo funcType && funcType.Declaration != null
-                    ? FormatParameters(funcType.Declaration.Parameters)
+                var paramStr = typeInfo is FunctionTypeInfo { Declaration: FunctionDeclaration declaration }
+                    ? FormatParameters(declaration.Parameters)
                     : null;
                 functions.Add(new CompletionItem(name, "function", FormatTypeInfo(typeInfo), paramStr, null, false));
             }
@@ -464,8 +464,8 @@ public class CompletionEngine
     }
 
     private static string FormatTypeInfo(TypeInfo typeInfo)
-        => typeInfo is FunctionTypeInfo { Declaration.ReturnType: not null } function
-            ? CodeIntelligenceService.FormatTypeReferencePublic(function.Declaration.ReturnType)
+        => typeInfo is FunctionTypeInfo { Declaration: FunctionDeclaration { ReturnType: not null } declaration }
+            ? CodeIntelligenceService.FormatTypeReferencePublic(declaration.ReturnType)
             : NullabilityMetadata.FormatTypeInfo(typeInfo);
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)

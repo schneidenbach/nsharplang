@@ -753,7 +753,7 @@ public sealed class SystemsAnalyzer
 
         var declaration = calleeType switch
         {
-            FunctionTypeInfo { Declaration: { } resolved } => resolved,
+            FunctionTypeInfo { Declaration: FunctionDeclaration resolved } => resolved,
             NSharpMethodGroupInfo { Declarations: [{ } single] } => single,
             _ => null
         };

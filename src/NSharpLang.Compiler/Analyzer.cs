@@ -1847,10 +1847,9 @@ public class Analyzer : IDisposable
         {
             // Already in a method group (registered by class first pass) — skip
         }
-        else if (existingSymbol is FunctionTypeInfo existingFunc
-                 && existingFunc.Declaration != null
-                 && funcType.Declaration != null
-                 && ParameterSignaturesMatch(existingFunc.Declaration, funcType.Declaration))
+        else if (existingSymbol is FunctionTypeInfo { Declaration: FunctionDeclaration existingDecl }
+                 && funcType.Declaration is FunctionDeclaration funcDecl
+                 && ParameterSignaturesMatch(existingDecl, funcDecl))
         {
             // Same function already declared (by class first pass) — skip
         }
@@ -3821,7 +3820,7 @@ public class Analyzer : IDisposable
 
         switch (calleeType)
         {
-            case FunctionTypeInfo { Declaration: { } declaration } when HasMustUseAttribute(declaration.Attributes):
+            case FunctionTypeInfo { Declaration: FunctionDeclaration declaration } when HasMustUseAttribute(declaration.Attributes):
                 reason = $"'{declaration.Name}' is marked [MustUse]";
                 return true;
             case NSharpMethodGroupInfo group when group.Declarations.All(d => HasMustUseAttribute(d.Attributes)) && group.Declarations.Count > 0:
@@ -6912,7 +6911,7 @@ public class Analyzer : IDisposable
                 ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
                 ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
                 NSharpMethodGroupInfo methodGroup when methodGroup.Declarations.Count > 0 => methodGroup.Declarations[0].Name,
-                FunctionTypeInfo { Declaration: { } declaration } => declaration.Name,
+                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration.Name,
                 _ => "method"
             }
         };
@@ -10658,8 +10657,9 @@ public class Analyzer : IDisposable
         var argTypes = new List<TypeInfo>();
         if (calleeType is FunctionTypeInfo functionType && functionType.ParameterTypes != null)
         {
+            var functionDeclaration = functionType.Declaration as FunctionDeclaration;
             int[]? syntheticParameterIndexByArgument = null;
-            if (functionType.Declaration == null
+            if (functionDeclaration == null
                 && call.Arguments.Count == functionType.ParameterTypes.Count
                 && TryBindSyntheticFunctionArguments(
                     functionType,
@@ -10675,10 +10675,10 @@ public class Analyzer : IDisposable
             // so pairing arguments with declared parameters skips the `this` parameter (mirrors the
             // paramStartIndex shift in the argument validation below). Without the shift a lambda
             // argument pairs with the RECEIVER's type and loses its delegate-type inference source.
-            var expectedParamOffset = functionType.Declaration is { } decl
-                && IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
-            var nsharpExpectedBindings = functionType.Declaration is { } nsharpDeclaration
-                ? TryInferNSharpGenericBindings(nsharpDeclaration, call, new List<TypeInfo>())
+            var expectedParamOffset = functionDeclaration != null
+                && IsReceiverStyleExtensionCall(functionDeclaration, call) ? 1 : 0;
+            var nsharpExpectedBindings = functionDeclaration != null
+                ? TryInferNSharpGenericBindings(functionDeclaration, call, new List<TypeInfo>())
                 : null;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
@@ -10686,10 +10686,10 @@ public class Analyzer : IDisposable
                 var argumentErrorsBefore = _errors.Count;
                 Dictionary<Expression, TypeInfo>? refOutTargetExpressionTypes;
                 TypeInfo? expectedType;
-                if (functionType.Declaration is { } declaration)
+                if (functionDeclaration != null)
                 {
                     expectedType = GetExpectedNSharpCallArgumentType(
-                        declaration,
+                        functionDeclaration,
                         call,
                         i,
                         expectedParamOffset,
@@ -10756,14 +10756,15 @@ public class Analyzer : IDisposable
         // Resolve return type from function type
         if (calleeType is FunctionTypeInfo funcType)
         {
+            var declaration = funcType.Declaration as FunctionDeclaration;
             // If we have the function declaration, check parameter types
-            if (funcType.Declaration != null)
+            if (declaration != null)
             {
-                var parameters = funcType.Declaration.Parameters;
+                var parameters = declaration.Parameters;
 
                 // Receiver-style extension calls (`value.Extension(...)`) bind the receiver to the
                 // `this` parameter. Direct calls (`Extension(value, ...)`) pass it explicitly.
-                var paramStartIndex = IsReceiverStyleExtensionCall(funcType.Declaration, call) ? 1 : 0;
+                var paramStartIndex = IsReceiverStyleExtensionCall(declaration, call) ? 1 : 0;
                 var effectiveParamCount = parameters.Count - paramStartIndex;
 
                 // Check if last parameter is params
@@ -10789,7 +10790,7 @@ public class Analyzer : IDisposable
                 if (argTypes.Count < minArgs)
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
+                        GetCallDiagnosticSpan(call, declaration.Name);
                     // Use ErrorMessageBuilder for better error message
                     var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
@@ -10801,7 +10802,7 @@ public class Analyzer : IDisposable
                             diagnosticColumn,
                             sourceSnippet,
                             diagnosticLength,
-                            funcType.Declaration.Name,
+                            declaration.Name,
                             minArgs,
                             argTypes.Count
                         );
@@ -10810,14 +10811,14 @@ public class Analyzer : IDisposable
                     else
                     {
                         Error(ErrorCode.WrongArgumentCount,
-                            $"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
+                            $"'{declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
                             diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else if (!hasParamsParameter && argTypes.Count > effectiveParamCount)
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
+                        GetCallDiagnosticSpan(call, declaration.Name);
                     // Use ErrorMessageBuilder for better error message
                     var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
@@ -10829,7 +10830,7 @@ public class Analyzer : IDisposable
                             diagnosticColumn,
                             sourceSnippet,
                             diagnosticLength,
-                            funcType.Declaration.Name,
+                            declaration.Name,
                             effectiveParamCount,
                             argTypes.Count
                         );
@@ -10838,15 +10839,15 @@ public class Analyzer : IDisposable
                     else
                     {
                         Error(ErrorCode.WrongArgumentCount,
-                            $"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
+                            $"'{declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
                             diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else
                 {
                     // Infer generic bindings for single N#-declared function
-                    var genericBindings = TryInferNSharpGenericBindings(funcType.Declaration, call, argTypes);
-                    ValidateGenericConstraints(funcType.Declaration, call, genericBindings);
+                    var genericBindings = TryInferNSharpGenericBindings(declaration, call, argTypes);
+                    ValidateGenericConstraints(declaration, call, genericBindings);
 
                     // Check each parameter type (non-params parameters)
                     int regularParamCount = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
@@ -10872,7 +10873,7 @@ public class Analyzer : IDisposable
                                     diagnosticColumn,
                                     sourceSnippet,
                                     diagnosticLength,
-                                    funcType.Declaration.Name,
+                                    declaration.Name,
                                     i + 1,
                                     parameters[paramIndex].Name,
                                     argType.ToString(),
@@ -10945,7 +10946,7 @@ public class Analyzer : IDisposable
                     }
                 }
 
-                return ResolveNSharpReturnType(funcType.Declaration, call, argTypes);
+                return ResolveNSharpReturnType(declaration, call, argTypes);
             }
             else if (funcType.ParameterTypes != null)
             {
@@ -21205,15 +21206,15 @@ public class Analyzer : IDisposable
         {
             // Allow function overloading: merge into NSharpMethodGroupInfo
             // Only if parameter signatures differ (same name + same params = duplicate error)
-            if (type is FunctionTypeInfo newFunc && newFunc.Declaration != null)
+            if (type is FunctionTypeInfo { Declaration: FunctionDeclaration newDeclaration })
             {
-                if (existing is FunctionTypeInfo existingFunc && existingFunc.Declaration != null)
+                if (existing is FunctionTypeInfo { Declaration: FunctionDeclaration existingDeclaration })
                 {
-                    if (HasDistinctParameterSignature(newFunc.Declaration, new[] { existingFunc.Declaration }))
+                    if (HasDistinctParameterSignature(newDeclaration, new[] { existingDeclaration }))
                     {
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = new NSharpMethodGroupInfo(
-                            new List<FunctionDeclaration> { existingFunc.Declaration, newFunc.Declaration });
+                            new List<FunctionDeclaration> { existingDeclaration, newDeclaration });
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -21226,10 +21227,10 @@ public class Analyzer : IDisposable
 
                 if (existing is NSharpMethodGroupInfo group)
                 {
-                    if (HasDistinctParameterSignature(newFunc.Declaration, group.Declarations))
+                    if (HasDistinctParameterSignature(newDeclaration, group.Declarations))
                     {
                         // Add to existing method group
-                        group.Declarations.Add(newFunc.Declaration);
+                        group.Declarations.Add(newDeclaration);
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -23094,21 +23095,6 @@ public class Analyzer : IDisposable
 }
 
 // Supporting types - now in ErrorReporting.cs
-
-public class FunctionTypeInfo : TypeInfo
-{
-    public FunctionTypeInfo(FunctionDeclaration? declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public FunctionDeclaration? Declaration { get; }
-    public string? SyntheticName { get; set; }
-    public List<string>? ParameterNames { get; set; }
-    public List<TypeInfo>? ParameterTypes { get; set; }
-    public List<Ast.ParameterModifier>? ParameterModifiers { get; set; }
-    public TypeInfo? ReturnType { get; set; }
-}
 
 public class ClassTypeInfo : TypeInfo
 {
