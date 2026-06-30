@@ -4,6 +4,13 @@ import System
 import System.Collections.Generic
 
 public class CodeIntelligenceResultKernels {
+    public static func SuppressLintShadowingDiagnosticResults(
+        diagnostics: List<DiagnosticResult>,
+        shadowedFiles: IReadOnlyList<string>): List<DiagnosticResult> {
+        selection := SuppressLintShadowingDiagnostics(diagnostics, shadowedFiles)
+        return MaterializeDiagnosticResults(diagnostics, selection.Item1, selection.Item2)
+    }
+
     public static func SuppressLintShadowingDiagnostics(
         diagnostics: IReadOnlyList<DiagnosticResult>,
         shadowedFiles: IReadOnlyList<string>): ValueTuple<int[], int> {
@@ -51,6 +58,12 @@ public class CodeIntelligenceResultKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
+    public static func DeduplicateDiagnosticsPreservingOrderResults(
+        diagnostics: List<DiagnosticResult>): List<DiagnosticResult> {
+        selection := DeduplicateDiagnosticsPreservingOrder(diagnostics)
+        return MaterializeDiagnosticResults(diagnostics, selection.Item1, selection.Item2)
+    }
+
     public static func DeduplicateReferences(
         references: IReadOnlyList<ReferenceResult>): ValueTuple<int[], int> {
         items := ReferenceList(references)
@@ -75,6 +88,21 @@ public class CodeIntelligenceResultKernels {
         }
 
         return NormalizeSlash(fullPath[charBeforeIndex]) == '/'
+    }
+
+    static func MaterializeDiagnosticResults(
+        diagnostics: List<DiagnosticResult>,
+        indices: int[],
+        count: int): List<DiagnosticResult> {
+        results := new List<DiagnosticResult>(count)
+        i := 0
+        while i < count {
+            diagnosticIndex := indices[i]
+            results.Add(diagnostics[diagnosticIndex])
+            i = i + 1
+        }
+
+        return results
     }
 
     static func DiagnosticList(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {

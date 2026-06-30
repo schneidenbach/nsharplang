@@ -213,17 +213,9 @@ public class CodeIntelligenceService
         List<DiagnosticResult> lintDiagnostics,
         IReadOnlyList<string> filesWithCompilerShadowingErrors)
     {
-        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.SuppressLintShadowingDiagnostics(
+        return CodeIntelligenceResultKernels.SuppressLintShadowingDiagnosticResults(
             lintDiagnostics,
             filesWithCompilerShadowingErrors);
-        var filtered = new List<DiagnosticResult>(resultCount);
-        for (var i = 0; i < resultCount; i++)
-        {
-            var diagnosticIndex = resultIndices[i];
-            filtered.Add(lintDiagnostics[diagnosticIndex]);
-        }
-
-        return filtered;
     }
 
     public static DiagnosticResult ToDiagnosticResult(
@@ -325,15 +317,7 @@ public class CodeIntelligenceService
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
     {
-        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrder(diagnostics);
-        var deduplicated = new List<DiagnosticResult>(resultCount);
-        for (var i = 0; i < resultCount; i++)
-        {
-            var diagnosticIndex = resultIndices[i];
-            deduplicated.Add(diagnostics[diagnosticIndex]);
-        }
-
-        return deduplicated;
+        return CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrderResults(diagnostics);
     }
 
     // ── Navigation Queries ──────────────────────────────────────────────
