@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using NSharpLang.Compiler.Ast;
 
@@ -23,25 +22,7 @@ public static class FixApplicator
     /// </summary>
     public static string ApplyEdits(string source, List<TextEdit> edits)
     {
-        if (edits.Count == 0) return source;
-
-        var sortedEdits = ValidateAndSortEdits(source, edits);
-        var inputs = MaterializeEditInputs(sortedEdits);
-        var output = new string[1];
-        var code = FixApplicatorEditEngine.ApplyOrderedTextEdits(
-            source,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.NewTexts,
-            inputs.Count,
-            output);
-
-        if (code != 0)
-            throw new InvalidOperationException("N# fix applicator kernel rejected the edit application.");
-
-        return output[0];
+        return FixApplicatorCore.ApplyEdits(source, edits);
     }
 
     /// <summary>
@@ -51,12 +32,7 @@ public static class FixApplicator
     /// </summary>
     public static List<TextEdit> ValidateAndSortEdits(IReadOnlyCollection<TextEdit> edits)
     {
-        // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions.
-        // Same-position zero-width inserts are applied in reverse input order so the final text
-        // preserves the caller's input order.
-        var sortedEdits = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
-        ValidateSortedEdits(null, sortedEdits);
-        return sortedEdits;
+        return FixApplicatorCore.ValidateAndSortEdits(edits);
     }
 
     /// <summary>
@@ -65,73 +41,8 @@ public static class FixApplicator
     /// </summary>
     public static List<TextEdit> ValidateAndSortEdits(string source, IReadOnlyCollection<TextEdit> edits)
     {
-        var sortedEdits = ValidateAndSortEdits(edits);
-        ValidateSortedEdits(source, sortedEdits);
-        return sortedEdits;
+        return FixApplicatorCore.ValidateAndSortEdits(source, edits);
     }
-
-    private static void ValidateSortedEdits(string? source, List<TextEdit> sortedEdits)
-    {
-        var inputs = MaterializeEditInputs(sortedEdits);
-        var errorInfo = new int[2];
-        var code = FixApplicatorEditEngine.ValidateOrderedTextEdits(
-            source ?? string.Empty,
-            source == null ? 0 : 1,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.NewTexts,
-            inputs.Count,
-            errorInfo);
-
-        if (code == 0)
-            return;
-
-        throw CreateValidationException(code, errorInfo, inputs);
-    }
-
-    private static InvalidOperationException CreateValidationException(int code, int[] errorInfo, EditInputs inputs)
-    {
-        return new InvalidOperationException(FixApplicatorValidationMessages.BuildValidationMessage(
-            code,
-            errorInfo,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.Count));
-    }
-
-    private static EditInputs MaterializeEditInputs(IReadOnlyList<TextEdit> edits)
-    {
-        var count = edits.Count;
-        var startLines = new int[count];
-        var startColumns = new int[count];
-        var endLines = new int[count];
-        var endColumns = new int[count];
-        var newTexts = new string[count];
-
-        for (var i = 0; i < count; i++)
-        {
-            var edit = edits[i];
-            startLines[i] = edit.StartLine;
-            startColumns[i] = edit.StartColumn;
-            endLines[i] = edit.EndLine;
-            endColumns[i] = edit.EndColumn;
-            newTexts[i] = edit.NewText;
-        }
-
-        return new EditInputs(startLines, startColumns, endLines, endColumns, newTexts, count);
-    }
-
-    private readonly record struct EditInputs(
-        int[] StartLines,
-        int[] StartColumns,
-        int[] EndLines,
-        int[] EndColumns,
-        string[] NewTexts,
-        int Count);
 
     /// <summary>
     /// Collect all fixable diagnostics for a file and return the code actions.
