@@ -585,63 +585,7 @@ public static class OutputFormatter
 
     public static string InspectToText(InspectResult result, string file, int line, int col)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetInspectHeaderText(file, line, col));
-        sb.AppendLine();
-
-        if (result.Symbol != null)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectSymbolLineText(result.Symbol));
-            if (result.Symbol.Definition != null)
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(result.Symbol.Definition));
-            }
-        }
-        else
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectNoSymbolText());
-        }
-
-        sb.AppendLine();
-
-        if (result.Type != null)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectTypeLineText(result.Type));
-            if (!string.IsNullOrWhiteSpace(result.Type.Nullability))
-                sb.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(result.Type.Nullability));
-        }
-        else
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectUnknownTypeText());
-        }
-
-        sb.AppendLine();
-
-        if (result.Definition != null)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectDefinitionLineText(result.Definition));
-        }
-        else
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectNoDefinitionText());
-        }
-
-        sb.AppendLine();
-        sb.AppendLine(OutputFormatterTextKernels.GetInspectReferencesHeaderText(
-            result.References.Count,
-            result.References.DefinitionCount));
-        foreach (var reference in result.References.Results.Take(10))
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(reference));
-        }
-        if (result.References.Count > 10)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetInspectReferencesOverflowLineText(result.References.Count - 10));
-        }
-
-        sb.AppendLine();
-        sb.Append(CompletionsToText(result.Completions, file, line, col));
-        return sb.ToString();
+        return OutputFormatterTextBuilders.InspectToText(result, file, line, col);
     }
 
     public static string DocToJson(DocResult result, string query)

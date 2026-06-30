@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
+import System
 import System.Text
 
 public class OutputFormatterTextBuilders {
@@ -41,6 +42,69 @@ public class OutputFormatterTextBuilders {
             }
         }
 
+        return builder.ToString()
+    }
+
+    public static func InspectToText(result: InspectResult, fileName: string, line: int, column: int): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetInspectHeaderText(fileName, line, column))
+        builder.AppendLine()
+
+        if result.Symbol != null {
+            symbol := (InspectSymbolResult)result.Symbol
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectSymbolLineText(symbol))
+            if symbol.Definition != null {
+                definition := (LocationResult)symbol.Definition
+                builder.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(definition))
+            }
+        } else {
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectNoSymbolText())
+        }
+
+        builder.AppendLine()
+
+        if result.Type != null {
+            typeResult := (TypeResult)result.Type
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectTypeLineText(typeResult))
+            nullability := typeResult.Nullability ?? ""
+            if !String.IsNullOrWhiteSpace(nullability) {
+                builder.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(nullability))
+            }
+        } else {
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectUnknownTypeText())
+        }
+
+        builder.AppendLine()
+
+        if result.Definition != null {
+            definitionResult := (DefinitionResult)result.Definition
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectDefinitionLineText(definitionResult))
+        } else {
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectNoDefinitionText())
+        }
+
+        builder.AppendLine()
+        builder.AppendLine(OutputFormatterTextKernels.GetInspectReferencesHeaderText(
+            result.References.Count,
+            result.References.DefinitionCount))
+
+        referenceCount := result.References.Results.Length
+        if referenceCount > 10 {
+            referenceCount = 10
+        }
+
+        referenceIndex := 0
+        while referenceIndex < referenceCount {
+            builder.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(result.References.Results[referenceIndex]))
+            referenceIndex = referenceIndex + 1
+        }
+
+        if result.References.Count > 10 {
+            builder.AppendLine(OutputFormatterTextKernels.GetInspectReferencesOverflowLineText(result.References.Count - 10))
+        }
+
+        builder.AppendLine()
+        builder.Append(CompletionsToText(result.Completions, fileName, line, column))
         return builder.ToString()
     }
 
