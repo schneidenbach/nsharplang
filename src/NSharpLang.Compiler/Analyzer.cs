@@ -128,6 +128,11 @@ public class Analyzer : IDisposable
         "Reverse"
     };
 
+    private static List<FunctionDeclaration> GetNSharpMethodGroupDeclarations(NSharpMethodGroupInfo methodGroup)
+        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
+            .OfType<FunctionDeclaration>()
+            .ToList();
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -3831,7 +3836,7 @@ public class Analyzer : IDisposable
                 return true;
             case NSharpMethodGroupInfo group:
                 {
-                    var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(group);
+                    var declarations = GetNSharpMethodGroupDeclarations(group);
                     if (declarations.Count > 0 && declarations.All(d => HasMustUseAttribute(d.Attributes)))
                     {
                         reason = $"'{declarations[0].Name}' is marked [MustUse]";
@@ -6924,7 +6929,7 @@ public class Analyzer : IDisposable
             {
                 ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
                 ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
-                NSharpMethodGroupInfo methodGroup when NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup) is [var first, ..] => first.Name,
+                NSharpMethodGroupInfo methodGroup when GetNSharpMethodGroupDeclarations(methodGroup) is [var first, ..] => first.Name,
                 FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration.Name,
                 _ => "method"
             }
@@ -11714,7 +11719,7 @@ public class Analyzer : IDisposable
 
     private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
     {
-        var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup);
+        var declarations = GetNSharpMethodGroupDeclarations(methodGroup);
         if (declarations.Count == 0)
             return;
 
@@ -12040,7 +12045,7 @@ public class Analyzer : IDisposable
         int bestScore = -1;
         bool ambiguous = false;
 
-        foreach (var decl in NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup))
+        foreach (var decl in GetNSharpMethodGroupDeclarations(methodGroup))
         {
             var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
             var effectiveParamCount = decl.Parameters.Count - paramStart;
@@ -13581,7 +13586,7 @@ public class Analyzer : IDisposable
             var bestScore = -1;
             var ambiguous = false;
             FunctionTypeInfo? bestFunctionType = null;
-            foreach (var declaration in NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup))
+            foreach (var declaration in GetNSharpMethodGroupDeclarations(methodGroup))
             {
                 var candidateType = CreateFunctionTypeInfo(declaration);
                 if (!TryGetMatchScore(candidateType, out var candidateScore))
@@ -21273,7 +21278,7 @@ public class Analyzer : IDisposable
 
                 if (existing is NSharpMethodGroupInfo group)
                 {
-                    var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(group);
+                    var declarations = GetNSharpMethodGroupDeclarations(group);
                     if (HasDistinctParameterSignature(newDeclaration, declarations))
                     {
                         // Add to existing method group
