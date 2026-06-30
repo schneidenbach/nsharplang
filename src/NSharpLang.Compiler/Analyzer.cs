@@ -318,7 +318,7 @@ public class Analyzer : IDisposable
             else if (decl is RecordDeclaration recordDecl)
                 DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl), decl.Line, decl.Column);
             else if (decl is SoaRecordDeclaration soaRecordDecl)
-                DeclareType(soaRecordDecl.Name, new SoaRecordTypeInfo(soaRecordDecl), decl.Line, decl.Column);
+                DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
                 DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
@@ -9667,7 +9667,7 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private static SoaColumnDeclaration? TryGetSoaColumn(SoaRecordDeclaration declaration, string name)
+    private static SoaColumnInfo? TryGetSoaColumn(SoaRecordDeclarationInfo declaration, string name)
         => declaration.Columns.FirstOrDefault(column => column.Name == name);
 
     private static FunctionTypeInfo CreateSoaIntrinsicFunction(
@@ -9890,7 +9890,7 @@ public class Analyzer : IDisposable
         ClassDeclaration classDecl => new ClassTypeInfo(classDecl),
         StructDeclaration structDecl => new StructTypeInfo(structDecl),
         RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl),
-        SoaRecordDeclaration soaRecordDecl => new SoaRecordTypeInfo(soaRecordDecl),
+        SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
         InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
         EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
         UnionDeclaration unionDecl => new UnionTypeInfo(unionDecl),
@@ -22315,7 +22315,7 @@ public class Analyzer : IDisposable
                     ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
                     StructDeclaration s => new StructTypeInfo(s),
                     RecordDeclaration r => new RecordTypeInfo(r),
-                    SoaRecordDeclaration soa => new SoaRecordTypeInfo(soa),
+                    SoaRecordDeclaration soa => SoaTypeInfoFactory.FromDeclaration(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i),
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => EnumTypeInfoFactory.FromDeclaration(e),
@@ -23144,30 +23144,6 @@ public class RecordTypeInfo : TypeInfo
     public RecordDeclaration Declaration { get; }
 
     public override string ToString() => Declaration.Name;
-}
-
-public class SoaRecordTypeInfo : TypeInfo
-{
-    public SoaRecordTypeInfo(SoaRecordDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public SoaRecordDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
-public class SoaRowTypeInfo : TypeInfo
-{
-    public SoaRowTypeInfo(SoaRecordDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public SoaRecordDeclaration Declaration { get; }
-
-    public override string ToString() => $"{Declaration.Name}.Row";
 }
 
 public class InterfaceTypeInfo : TypeInfo

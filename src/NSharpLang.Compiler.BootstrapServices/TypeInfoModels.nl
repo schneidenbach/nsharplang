@@ -318,6 +318,62 @@ public class ByRefTypeInfo: TypeInfo {
     }
 }
 
+public class SoaColumnInfo {
+    Name: string
+    Type: TypeReference
+    Line: int
+    Column: int
+
+    constructor(name: string, columnType: TypeReference, line: int = 0, column: int = 0) {
+        Name = name
+        Type = columnType
+        Line = line
+        Column = column
+    }
+}
+
+public class SoaRecordDeclarationInfo {
+    Name: string
+    Columns: List<SoaColumnInfo>
+    Line: int
+    Column: int
+
+    constructor(name: string, columns: List<SoaColumnInfo>, line: int = 0, column: int = 0) {
+        Name = name
+        Columns = columns
+        Line = line
+        Column = column
+    }
+}
+
+public class SoaRecordTypeInfo: TypeInfo {
+    declarationValue: SoaRecordDeclarationInfo
+
+    Declaration: SoaRecordDeclarationInfo => declarationValue
+
+    constructor(declaration: SoaRecordDeclarationInfo) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return declarationValue.Name
+    }
+}
+
+public class SoaRowTypeInfo: TypeInfo {
+    declarationValue: SoaRecordDeclarationInfo
+
+    Declaration: SoaRecordDeclarationInfo => declarationValue
+
+    constructor(declaration: SoaRecordDeclarationInfo) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return $"{declarationValue.Name}.Row"
+    }
+}
+
 public enum EnumMemberValueKind {
     None,
     String,
