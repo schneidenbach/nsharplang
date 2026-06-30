@@ -177,77 +177,6 @@ internal class LintVisitor
             ? CodeIntelligenceTextUtilities.GetSourceLine(_sourceText, oneBasedLine) ?? string.Empty
             : string.Empty;
 
-    private (Location Location, int Length) GetBlockOwnerDiagnosticSpan(BlockStatement block)
-    {
-        var sourceLine = SourceLine(block.Line);
-        if (string.IsNullOrEmpty(sourceLine))
-            return (new Location(block.Line, block.Column, _filePath), 1);
-
-        var searchEnd = block.Column > 0
-            ? Math.Clamp(block.Column - 1, 0, sourceLine.Length)
-            : sourceLine.Length;
-        var prefix = sourceLine[..searchEnd];
-
-        var bestColumn = 0;
-        var bestKeyword = string.Empty;
-        foreach (var keyword in BlockOwnerKeywords)
-        {
-            var column = FindKeywordColumn(prefix, keyword);
-            if (column > bestColumn)
-            {
-                bestColumn = column;
-                bestKeyword = keyword;
-            }
-        }
-
-        return bestColumn > 0
-            ? (new Location(block.Line, bestColumn, _filePath), bestKeyword.Length)
-            : (new Location(block.Line, block.Column, _filePath), 1);
-    }
-
-    private static readonly string[] BlockOwnerKeywords =
-    [
-        "foreach",
-        "finally",
-        "throws",
-        "catch",
-        "while",
-        "switch",
-        "assert",
-        "using",
-        "lock",
-        "else",
-        "func",
-        "test",
-        "try",
-        "for",
-        "if"
-    ];
-
-    private static int FindKeywordColumn(string text, string keyword)
-    {
-        var searchIndex = text.Length;
-        while (searchIndex > 0)
-        {
-            var index = text.LastIndexOf(keyword, searchIndex - 1, StringComparison.Ordinal);
-            if (index < 0)
-                return 0;
-
-            var beforeIsIdentifier = index > 0 && IsIdentifierPart(text[index - 1]);
-            var afterIndex = index + keyword.Length;
-            var afterIsIdentifier = afterIndex < text.Length && IsIdentifierPart(text[afterIndex]);
-            if (!beforeIsIdentifier && !afterIsIdentifier)
-                return index + 1;
-
-            searchIndex = index;
-        }
-
-        return 0;
-    }
-
-    private static bool IsIdentifierPart(char ch)
-        => char.IsLetterOrDigit(ch) || ch == '_';
-
     private int FindTokenColumn(int oneBasedLine, string token, int fallbackColumn)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -649,14 +578,17 @@ internal class LintVisitor
                     // NL011: Empty catch block
                     if (catchBlockIsEmpty)
                     {
-                        var (location, length) = GetBlockOwnerDiagnosticSpan(catchClause.Block);
+                        var span = LinterBlockOwnerSpanResolver.Resolve(
+                            catchClause.Block.Line,
+                            catchClause.Block.Column,
+                            SourceLine(catchClause.Block.Line));
                         AddDiagnostic(
                             "NL011",
                             "This catch block is empty — exceptions will be silently swallowed",
-                            location,
+                            new Location(span.Line, span.Column, _filePath),
                             _config.GetSeverity("NL011"),
                             "Log the error, handle it, or add a comment explaining why it's safe to ignore",
-                            length);
+                            span.Length);
                     }
 
                     PushScope();
