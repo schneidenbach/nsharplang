@@ -487,11 +487,19 @@ copy_source_tree
 mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
 
 BOOTSTRAP_NUGET_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
-BOOTSTRAP_SDK_PACKAGE="$BOOTSTRAP_NUGET_PACKAGES/nsharplang.sdk"
-if [ -d "$BOOTSTRAP_SDK_PACKAGE" ] && [ ! -d "$RUN_DEPS/nuget/packages/nsharplang.sdk" ]; then
-    mkdir -p "$RUN_DEPS/nuget/packages"
-    cp -R "$BOOTSTRAP_SDK_PACKAGE" "$RUN_DEPS/nuget/packages/"
-fi
+copy_bootstrap_nuget_package() {
+    local package_id="$1"
+    local package_dir="$BOOTSTRAP_NUGET_PACKAGES/$package_id"
+    local target_dir="$RUN_DEPS/nuget/packages/$package_id"
+
+    if [ -d "$package_dir" ] && [ ! -d "$target_dir" ]; then
+        mkdir -p "$RUN_DEPS/nuget/packages"
+        cp -R "$package_dir" "$RUN_DEPS/nuget/packages/"
+    fi
+}
+
+copy_bootstrap_nuget_package nsharplang.sdk
+copy_bootstrap_nuget_package nsharplang.runtime
 
 START_TIME="$(date +%s)"
 

@@ -423,7 +423,6 @@ section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing runtime to local NuGet feed..."
 mkdir -p "$LOCAL_FEED"
 rm -f "$LOCAL_FEED"/NSharpLang.Runtime.*.nupkg
-remove_nuget_package_cache NSharpLang.Runtime
 if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -o "$LOCAL_FEED" -v q; then
     handle_success "Runtime packed"
 else
@@ -433,8 +432,8 @@ fi
 echo "Packing SDK to local NuGet feed..."
 mkdir -p "$LOCAL_FEED"
 rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
-remove_nuget_package_cache NSharpLang.Sdk
 dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate -v q
+dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Compiler.Dogfood/NSharpLang.Compiler.Dogfood.csproj --force-evaluate -v q
 dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q
 if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
     handle_success "SDK packed"
