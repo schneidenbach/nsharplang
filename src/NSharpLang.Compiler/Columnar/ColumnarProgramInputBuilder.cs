@@ -12,6 +12,9 @@ internal static class ColumnarProgramInputBuilder
     {
         program = null!;
         var bindings = s_bindings.Value;
+        if (bindings is null)
+            return false;
+
         if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
         {
             return false;

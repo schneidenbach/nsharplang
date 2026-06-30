@@ -6,6 +6,7 @@
     <NSharpDogfoodBuildTasksProject Condition="'$(NSharpDogfoodBuildTasksProject)' == ''">$(MSBuildThisFileDirectory)..\NSharpLang.Build.Tasks\NSharpLang.Build.Tasks.csproj</NSharpDogfoodBuildTasksProject>
     <NSharpDogfoodBuildTasksAssembly Condition="'$(NSharpDogfoodBuildTasksAssembly)' == ''">$(MSBuildThisFileDirectory)..\NSharpLang.Build.Tasks\bin\$(Configuration)\net10.0\NSharpLang.Build.Tasks.dll</NSharpDogfoodBuildTasksAssembly>
     <NSharpDogfoodBootstrapAssembly Condition="'$(NSharpDogfoodBootstrapAssembly)' == ''">$(MSBuildThisFileDirectory)bin\$(Configuration)\net10.0\$(NSharpDogfoodAssemblyName).dll</NSharpDogfoodBootstrapAssembly>
+    <NSharpDogfoodBootstrapPackageAssembly Condition="'$(NSharpDogfoodBootstrapPackageAssembly)' == '' And '$(NuGetPackageRoot)' != ''">$([System.IO.Path]::Combine('$(NuGetPackageRoot)', 'nsharplang.sdk', '0.1.0', 'tools', '$(NSharpDogfoodAssemblyName).dll'))</NSharpDogfoodBootstrapPackageAssembly>
   </PropertyGroup>
 
   <UsingTask
@@ -44,6 +45,11 @@
       DestinationFiles="$(_NSharpDogfoodBuildTasksCompilerServices)"
       SkipUnchangedFiles="true"
       Condition="Exists('$(NSharpDogfoodBootstrapAssembly)') And '$(NSharpDogfoodBootstrapAssembly)' != '$(_NSharpDogfoodBuildTasksCompilerServices)'" />
+    <Copy
+      SourceFiles="$(NSharpDogfoodBootstrapPackageAssembly)"
+      DestinationFiles="$(_NSharpDogfoodBuildTasksCompilerServices)"
+      SkipUnchangedFiles="true"
+      Condition="!Exists('$(_NSharpDogfoodBuildTasksCompilerServices)') And Exists('$(NSharpDogfoodBootstrapPackageAssembly)')" />
     <Message Importance="High" Text="Emitting N# dogfood compiler services to $(NSharpDogfoodOutputPath)..." />
     <EmitIlAssembly
       Sources="@(_NSharpDogfoodSources)"
