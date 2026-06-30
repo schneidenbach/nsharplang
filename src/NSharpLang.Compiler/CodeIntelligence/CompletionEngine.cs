@@ -390,13 +390,13 @@ public class CompletionEngine
         switch (typeInfo)
         {
             case ClassTypeInfo c:
-                return c.Declaration;
+                return c.GetDeclaration();
             case StructTypeInfo s:
-                return s.Declaration;
+                return s.GetDeclaration();
             case RecordTypeInfo r:
-                return r.Declaration;
+                return r.GetDeclaration();
             case InterfaceTypeInfo i:
-                return i.Declaration;
+                return i.GetDeclaration();
         }
 
         var typeName = FormatTypeInfo(typeInfo);

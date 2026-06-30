@@ -41,10 +41,10 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 - **UnknownTypeInfo**: Type not yet resolved
 
 ### User-Defined Types
-- **ClassTypeInfo**: From class declarations
-- **StructTypeInfo**: From struct declarations
-- **RecordTypeInfo**: From record declarations (reference or struct)
-- **InterfaceTypeInfo**: From interface declarations
+- **ClassTypeInfo**: N#-owned class declaration metadata
+- **StructTypeInfo**: N#-owned struct declaration metadata
+- **RecordTypeInfo**: N#-owned record declaration metadata (reference or struct)
+- **InterfaceTypeInfo**: N#-owned interface declaration metadata
 - **UnionTypeInfo**: N#-owned union metadata derived from union declarations
 - **EnumTypeInfo**: From enum declarations (int or string)
 

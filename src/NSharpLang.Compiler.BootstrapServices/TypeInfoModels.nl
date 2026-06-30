@@ -9,6 +9,101 @@ import NSharpLang.Compiler.Ast
 public class TypeInfo {
 }
 
+public class SourceNominalTypeInfoNames {
+    public static func GetName(declaration: object, fallback: string): string {
+        property := declaration.GetType().GetProperty("Name")
+        if property != null {
+            rawName := property.GetValue(declaration)
+            name := SourceNominalTypeInfoNameValue(rawName)
+            if name.Length > 0 {
+                return name
+            }
+        }
+
+        field := declaration.GetType().GetField("Name")
+        if field == null {
+            return fallback
+        }
+
+        rawFieldName := field.GetValue(declaration)
+        nameFromField := SourceNominalTypeInfoNameValue(rawFieldName)
+        if nameFromField.Length > 0 {
+            return nameFromField
+        }
+
+        return fallback
+    }
+
+    static func SourceNominalTypeInfoNameValue(rawName: object): string {
+        if rawName == null {
+            return ""
+        }
+
+        name := rawName as string
+        if name == null {
+            return ""
+        }
+
+        return name
+    }
+}
+
+public class ClassTypeInfo: TypeInfo {
+    declarationValue: object
+
+    Declaration: object => declarationValue
+
+    constructor(declaration: object) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return SourceNominalTypeInfoNames.GetName(declarationValue, "class")
+    }
+}
+
+public class StructTypeInfo: TypeInfo {
+    declarationValue: object
+
+    Declaration: object => declarationValue
+
+    constructor(declaration: object) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return SourceNominalTypeInfoNames.GetName(declarationValue, "struct")
+    }
+}
+
+public class RecordTypeInfo: TypeInfo {
+    declarationValue: object
+
+    Declaration: object => declarationValue
+
+    constructor(declaration: object) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return SourceNominalTypeInfoNames.GetName(declarationValue, "record")
+    }
+}
+
+public class InterfaceTypeInfo: TypeInfo {
+    declarationValue: object
+
+    Declaration: object => declarationValue
+
+    constructor(declaration: object) {
+        declarationValue = declaration
+    }
+
+    override func ToString(): string {
+        return SourceNominalTypeInfoNames.GetName(declarationValue, "interface")
+    }
+}
+
 public class SimpleTypeInfo: TypeInfo {
     nameValue: string
 

@@ -1157,17 +1157,23 @@ public class Analyzer : IDisposable
             return IsClrAttributeType(reflectionType);
         }
 
-        if (type is not ClassTypeInfo classType || classType.Declaration.BaseClass == null)
+        if (type is not ClassTypeInfo classType)
         {
             return false;
         }
 
-        if (!seenClasses.Add(classType.Declaration))
+        var classDeclaration = classType.GetDeclaration();
+        var baseClass = classDeclaration.BaseClass;
+        if (baseClass == null)
         {
             return false;
         }
 
-        var baseType = ResolveTypeAlias(ResolveType(classType.Declaration.BaseClass));
+        if (!seenClasses.Add(classDeclaration))
+        {
+            return false;
+        }
+        var baseType = ResolveTypeAlias(ResolveType(baseClass));
         return baseType is ReflectionTypeInfo { Type: var baseReflectionType } && IsClrAttributeType(baseReflectionType)
             || SourceTypeDerivesFromAttribute(baseType, seenClasses);
     }
@@ -5245,13 +5251,13 @@ public class Analyzer : IDisposable
                 return true;
             case ReflectionTypeInfo reflectionType when TryGetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync, out elementType):
                 return true;
-            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.Declaration.Interfaces, requireAsync, out elementType):
+            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.GetDeclaration().Interfaces, requireAsync, out elementType):
                 return true;
-            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.Declaration.Interfaces, requireAsync, out elementType):
+            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.GetDeclaration().Interfaces, requireAsync, out elementType):
                 return true;
-            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.Declaration.Interfaces, requireAsync, out elementType):
+            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.GetDeclaration().Interfaces, requireAsync, out elementType):
                 return true;
-            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.Declaration.BaseInterfaces, requireAsync, out elementType):
+            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.GetDeclaration().BaseInterfaces, requireAsync, out elementType):
                 return true;
             default:
                 return false;
@@ -5846,8 +5852,9 @@ public class Analyzer : IDisposable
 
         if (resolved is ClassTypeInfo classType)
         {
-            return classType.Declaration.BaseClass != null
-                && IsThrowableType(ResolveType(classType.Declaration.BaseClass));
+            var classDeclaration = classType.GetDeclaration();
+            return classDeclaration.BaseClass != null
+                && IsThrowableType(ResolveType(classDeclaration.BaseClass));
         }
 
         return false;
@@ -5949,10 +5956,10 @@ public class Analyzer : IDisposable
         type = ResolveTypeAlias(type);
         return type switch
         {
-            ClassTypeInfo classType => HasDisposePatternMember(classType.Declaration.Members),
-            StructTypeInfo structType => HasDisposePatternMember(structType.Declaration.Members),
-            RecordTypeInfo recordType => HasDisposePatternMember(recordType.Declaration.Members),
-            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.Declaration.Members),
+            ClassTypeInfo classType => HasDisposePatternMember(classType.GetDeclaration().Members),
+            StructTypeInfo structType => HasDisposePatternMember(structType.GetDeclaration().Members),
+            RecordTypeInfo recordType => HasDisposePatternMember(recordType.GetDeclaration().Members),
+            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.GetDeclaration().Members),
             ReflectionTypeInfo reflectionType => HasReflectionDisposePattern(reflectionType.Type),
             _ => false
         };
@@ -6090,7 +6097,7 @@ public class Analyzer : IDisposable
                 var isClassConstraint = constraintType switch
                 {
                     ClassTypeInfo => true,
-                    RecordTypeInfo record => !record.Declaration.IsStruct,
+                    RecordTypeInfo record => !record.GetDeclaration().IsStruct,
                     ReflectionTypeInfo refl => refl.Type.IsClass,
                     _ => false
                 };
@@ -6132,7 +6139,7 @@ public class Analyzer : IDisposable
             case TupleTypeInfo: // ValueTuple
                 return true;
             case RecordTypeInfo record:
-                return record.Declaration.IsStruct;
+                return record.GetDeclaration().IsStruct;
             case NullableTypeInfo nullable:
                 // `T?` over a value type is Nullable<T> — itself a struct. Over a reference type it
                 // is only a nullability annotation.
@@ -6598,7 +6605,7 @@ public class Analyzer : IDisposable
             if (valueType is ClassTypeInfo classType)
             {
                 // Check for both field and property declarations
-                var member = classType.Declaration.Members.FirstOrDefault(m =>
+                var member = classType.GetDeclaration().Members.FirstOrDefault(m =>
                     (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
@@ -6610,7 +6617,7 @@ public class Analyzer : IDisposable
             else if (valueType is StructTypeInfo structType)
             {
                 // Check for both field and property declarations
-                var member = structType.Declaration.Members.FirstOrDefault(m =>
+                var member = structType.GetDeclaration().Members.FirstOrDefault(m =>
                     (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
@@ -6622,7 +6629,7 @@ public class Analyzer : IDisposable
             else if (valueType is RecordTypeInfo recordType)
             {
                 // Check for both field and property declarations
-                var member = recordType.Declaration.Members.FirstOrDefault(m =>
+                var member = recordType.GetDeclaration().Members.FirstOrDefault(m =>
                     (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
@@ -7627,9 +7634,9 @@ public class Analyzer : IDisposable
 
         var members = operandType switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
             _ => null
         };
 
@@ -7820,9 +7827,9 @@ public class Analyzer : IDisposable
 
         var members = operandType switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
             _ => null
         };
 
@@ -8751,10 +8758,10 @@ public class Analyzer : IDisposable
 
         var members = ownerType switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
-            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            InterfaceTypeInfo interfaceType => interfaceType.GetDeclaration().Members,
             _ => null
         };
 
@@ -8799,18 +8806,19 @@ public class Analyzer : IDisposable
         {
             case ClassTypeInfo classType:
                 filePath = GetDeclarationFileForType(classType);
-                if (TryFindDeclarationMemberNode(classType.Declaration.Members, memberName, out var classMember))
+                var classDeclaration = classType.GetDeclaration();
+                if (TryFindDeclarationMemberNode(classDeclaration.Members, memberName, out var classMember))
                 {
                     isExported = IsExportedByCasingOrModifier(memberName, classMember);
                     return true;
                 }
-                if (classType.Declaration.BaseClass != null)
-                    return TryFindMemberExportVisibility(ResolveType(classType.Declaration.BaseClass), memberName, out isExported, out filePath);
+                if (classDeclaration.BaseClass != null)
+                    return TryFindMemberExportVisibility(ResolveType(classDeclaration.BaseClass), memberName, out isExported, out filePath);
                 return false;
 
             case StructTypeInfo structType:
                 filePath = GetDeclarationFileForType(structType);
-                if (TryFindDeclarationMemberNode(structType.Declaration.Members, memberName, out var structMember))
+                if (TryFindDeclarationMemberNode(structType.GetDeclaration().Members, memberName, out var structMember))
                 {
                     isExported = IsExportedByCasingOrModifier(memberName, structMember);
                     return true;
@@ -8819,7 +8827,7 @@ public class Analyzer : IDisposable
 
             case RecordTypeInfo recordType:
                 filePath = GetDeclarationFileForType(recordType);
-                if (TryFindDeclarationMemberNode(recordType.Declaration.Members, memberName, out var recordMember))
+                if (TryFindDeclarationMemberNode(recordType.GetDeclaration().Members, memberName, out var recordMember))
                 {
                     isExported = IsExportedByCasingOrModifier(memberName, recordMember);
                     return true;
@@ -8828,7 +8836,7 @@ public class Analyzer : IDisposable
 
             case InterfaceTypeInfo interfaceType:
                 filePath = GetDeclarationFileForType(interfaceType);
-                if (TryFindDeclarationMemberNode(interfaceType.Declaration.Members, memberName, out var interfaceMember))
+                if (TryFindDeclarationMemberNode(interfaceType.GetDeclaration().Members, memberName, out var interfaceMember))
                 {
                     isExported = IsExportedByCasingOrModifier(memberName, interfaceMember);
                     return true;
@@ -8903,20 +8911,21 @@ public class Analyzer : IDisposable
         switch (objectType)
         {
             case ClassTypeInfo classType:
-                if (TryFindDeclarationMember(classType.Declaration.Members, memberName, GetDeclarationFileForType(classType), out declaration))
+                var classDeclaration = classType.GetDeclaration();
+                if (TryFindDeclarationMember(classDeclaration.Members, memberName, GetDeclarationFileForType(classType), out declaration))
                     return true;
-                if (classType.Declaration.BaseClass != null)
-                    return TryFindMemberDeclaration(ResolveType(classType.Declaration.BaseClass), memberName, out declaration);
+                if (classDeclaration.BaseClass != null)
+                    return TryFindMemberDeclaration(ResolveType(classDeclaration.BaseClass), memberName, out declaration);
                 return false;
 
             case StructTypeInfo structType:
-                return TryFindDeclarationMember(structType.Declaration.Members, memberName, GetDeclarationFileForType(structType), out declaration);
+                return TryFindDeclarationMember(structType.GetDeclaration().Members, memberName, GetDeclarationFileForType(structType), out declaration);
 
             case RecordTypeInfo recordType:
-                return TryFindDeclarationMember(recordType.Declaration.Members, memberName, GetDeclarationFileForType(recordType), out declaration);
+                return TryFindDeclarationMember(recordType.GetDeclaration().Members, memberName, GetDeclarationFileForType(recordType), out declaration);
 
             case InterfaceTypeInfo interfaceType:
-                return TryFindDeclarationMember(interfaceType.Declaration.Members, memberName, GetDeclarationFileForType(interfaceType), out declaration);
+                return TryFindDeclarationMember(interfaceType.GetDeclaration().Members, memberName, GetDeclarationFileForType(interfaceType), out declaration);
 
             case EnumTypeInfo enumType:
                 var enumMember = enumType.Declaration.Members.FirstOrDefault(member => member.Name == memberName);
@@ -9123,26 +9132,27 @@ public class Analyzer : IDisposable
 
         if (receiverType is ClassTypeInfo classType)
         {
-            var members = GetDeclaredMemberNames(classType.Declaration.Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(classType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            var classDeclaration = classType.GetDeclaration();
+            var members = GetDeclaredMemberNames(classDeclaration.Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(classDeclaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
-            if (classType.Declaration.BaseClass != null)
-                members.AddRange(GetAvailableMemberNames(ResolveType(classType.Declaration.BaseClass), includeStaticMembers));
+            if (classDeclaration.BaseClass != null)
+                members.AddRange(GetAvailableMemberNames(ResolveType(classDeclaration.BaseClass), includeStaticMembers));
             return members;
         }
 
         if (receiverType is StructTypeInfo structType)
         {
-            var members = GetDeclaredMemberNames(structType.Declaration.Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(structType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            var members = GetDeclaredMemberNames(structType.GetDeclaration().Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(structType.GetDeclaration().PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
 
         if (receiverType is RecordTypeInfo recordType)
         {
-            var members = GetDeclaredMemberNames(recordType.Declaration.Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(recordType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            var members = GetDeclaredMemberNames(recordType.GetDeclaration().Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(recordType.GetDeclaration().PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
@@ -9164,7 +9174,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is InterfaceTypeInfo interfaceType)
         {
-            var members = GetDeclaredMemberNames(interfaceType.Declaration.Members);
+            var members = GetDeclaredMemberNames(interfaceType.GetDeclaration().Members);
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
@@ -9247,10 +9257,10 @@ public class Analyzer : IDisposable
 
     private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
     {
-        ClassTypeInfo classType => GetDeclarationFilePath(classType.Declaration.Name, classType.Declaration),
-        StructTypeInfo structType => GetDeclarationFilePath(structType.Declaration.Name, structType.Declaration),
-        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name, recordType.Declaration),
-        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name, interfaceType.Declaration),
+        ClassTypeInfo classType => GetDeclarationFilePath(classType.GetDeclaration().Name, classType.GetDeclaration()),
+        StructTypeInfo structType => GetDeclarationFilePath(structType.GetDeclaration().Name, structType.GetDeclaration()),
+        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.GetDeclaration().Name, recordType.GetDeclaration()),
+        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.GetDeclaration().Name, interfaceType.GetDeclaration()),
         EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
         UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
         _ => _currentFilePath
@@ -9451,26 +9461,27 @@ public class Analyzer : IDisposable
         // Handle declared types
         if (objectType is ClassTypeInfo classType)
         {
-            var resolvedMember = ResolveDeclaredMember(classType.Declaration.Members, memberName);
+            var resolvedMember = ResolveDeclaredMember(classType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(classType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(classType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(classType.Declaration.Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(classType.GetDeclaration().Members, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
 
             // If member not found, check base class
-            if (classType.Declaration.BaseClass != null)
+            var classDeclaration = classType.GetDeclaration();
+            if (classDeclaration.BaseClass != null)
             {
-                var baseType = ResolveType(classType.Declaration.BaseClass);
+                var baseType = ResolveType(classDeclaration.BaseClass);
                 var baseMember = ResolveMember(baseType, memberName, includeStaticMembers);
                 if (!BuiltInTypes.IsUnknown(baseMember))
                     return baseMember;
@@ -9482,18 +9493,18 @@ public class Analyzer : IDisposable
 
         if (objectType is StructTypeInfo structType)
         {
-            var resolvedMember = ResolveDeclaredMember(structType.Declaration.Members, memberName);
+            var resolvedMember = ResolveDeclaredMember(structType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(structType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(structType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(structType.Declaration.Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(structType.GetDeclaration().Members, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9504,18 +9515,18 @@ public class Analyzer : IDisposable
 
         if (objectType is RecordTypeInfo recordType)
         {
-            var resolvedMember = ResolveDeclaredMember(recordType.Declaration.Members, memberName);
+            var resolvedMember = ResolveDeclaredMember(recordType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(recordType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(recordType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(recordType.Declaration.Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(recordType.GetDeclaration().Members, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9526,12 +9537,12 @@ public class Analyzer : IDisposable
 
         if (objectType is InterfaceTypeInfo interfaceType)
         {
-            var resolvedMember = ResolveDeclaredMember(interfaceType.Declaration.Members, memberName);
+            var resolvedMember = ResolveDeclaredMember(interfaceType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(interfaceType.Declaration.Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(interfaceType.GetDeclaration().Members, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -11194,9 +11205,9 @@ public class Analyzer : IDisposable
     {
         List<Declaration>? members = owner switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
             _ => null,
         };
 
@@ -11211,12 +11222,16 @@ public class Analyzer : IDisposable
                     && field.Modifiers.HasFlag(Modifiers.Static);
             }
 
-            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
-                return BuiltInTypes.IsUnknown(baseType)
-                    ? null
-                    : ClassifyStaticFieldMember(baseType, memberName);
+                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                if (baseClass != null)
+                {
+                    var baseType = ResolveType(baseClass);
+                    return BuiltInTypes.IsUnknown(baseType)
+                        ? null
+                        : ClassifyStaticFieldMember(baseType, memberName);
+                }
             }
 
             return false;
@@ -12487,13 +12502,14 @@ public class Analyzer : IDisposable
 
         if (type is ClassTypeInfo classType)
         {
+            var classDeclaration = classType.GetDeclaration();
             // A class with a primary constructor (C# 12-style `class Foo(int x)`) suppresses
             // the implicit default constructor, so it does NOT satisfy new().
-            if (classType.Declaration.PrimaryConstructorParameters != null
-                && classType.Declaration.PrimaryConstructorParameters.Count > 0)
+            if (classDeclaration.PrimaryConstructorParameters != null
+                && classDeclaration.PrimaryConstructorParameters.Count > 0)
                 return false;
 
-            var constructors = classType.Declaration.Members
+            var constructors = classDeclaration.Members
                 .OfType<ConstructorDeclaration>();
             // If no explicit constructors, the implicit default constructor is available
             return !constructors.Any() || constructors.Any(c => c.Parameters.Count == 0);
@@ -12501,14 +12517,15 @@ public class Analyzer : IDisposable
 
         if (type is RecordTypeInfo recordType)
         {
+            var recordDeclaration = recordType.GetDeclaration();
             // Record structs always have an implicit parameterless constructor regardless of
             // whether they declare primary constructor parameters.
-            if (recordType.Declaration.IsStruct)
+            if (recordDeclaration.IsStruct)
                 return true;
 
             // Record classes: a primary constructor with params suppresses the default ctor
-            return recordType.Declaration.PrimaryConstructorParameters == null
-                || recordType.Declaration.PrimaryConstructorParameters.Count == 0;
+            return recordDeclaration.PrimaryConstructorParameters == null
+                || recordDeclaration.PrimaryConstructorParameters.Count == 0;
         }
 
         if (type is ReflectionTypeInfo refl)
@@ -14844,10 +14861,10 @@ public class Analyzer : IDisposable
 
         var members = owner switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
-            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            InterfaceTypeInfo interfaceType => interfaceType.GetDeclaration().Members,
             _ => null,
         };
 
@@ -14864,11 +14881,15 @@ public class Analyzer : IDisposable
                     && (property.SetBody == null || property.PropertyModifier.HasFlag(PropertyModifier.Readonly));
             }
 
-            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
-                return !BuiltInTypes.IsUnknown(baseType)
-                    && TryIsReadOnlyPropertyMember(baseType, memberName, includeStaticMembers);
+                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                if (baseClass != null)
+                {
+                    var baseType = ResolveType(baseClass);
+                    return !BuiltInTypes.IsUnknown(baseType)
+                        && TryIsReadOnlyPropertyMember(baseType, memberName, includeStaticMembers);
+                }
             }
 
             return false;
@@ -15507,7 +15528,7 @@ public class Analyzer : IDisposable
     private static bool IsProvenValueTypeReceiver(TypeInfo type) => type switch
     {
         StructTypeInfo => true,
-        RecordTypeInfo record => record.Declaration.IsStruct,
+        RecordTypeInfo record => record.GetDeclaration().IsStruct,
         ReflectionTypeInfo reflected => reflected.Type.IsValueType,
         _ => false,
     };
@@ -15535,9 +15556,9 @@ public class Analyzer : IDisposable
     {
         List<Declaration>? members = owner switch
         {
-            StructTypeInfo s => s.Declaration.Members,
-            ClassTypeInfo c => c.Declaration.Members,
-            RecordTypeInfo r => r.Declaration.Members,
+            StructTypeInfo s => s.GetDeclaration().Members,
+            ClassTypeInfo c => c.GetDeclaration().Members,
+            RecordTypeInfo r => r.GetDeclaration().Members,
             _ => null,
         };
         if (members != null)
@@ -15550,12 +15571,16 @@ public class Analyzer : IDisposable
                 return declaredMember is FieldDeclaration;
             }
 
-            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
-                return BuiltInTypes.IsUnknown(baseType)
-                    ? null
-                    : ClassifyInstanceFieldMember(baseType, memberName);
+                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                if (baseClass != null)
+                {
+                    var baseType = ResolveType(baseClass);
+                    return BuiltInTypes.IsUnknown(baseType)
+                        ? null
+                        : ClassifyInstanceFieldMember(baseType, memberName);
+                }
             }
 
             return false;
@@ -15815,9 +15840,9 @@ public class Analyzer : IDisposable
         resolvedFieldName = string.Empty;
         List<Declaration>? members = owner switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
             _ => null,
         };
 
@@ -15842,12 +15867,16 @@ public class Analyzer : IDisposable
             }
         }
 
-        if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+        if (owner is ClassTypeInfo classTypeWithBase)
         {
-            var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
-            if (TryFindReadonlyStaticField(baseType, fieldName, out resolvedFieldName))
+            var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+            if (baseClass != null)
             {
-                return true;
+                var baseType = ResolveType(baseClass);
+                if (TryFindReadonlyStaticField(baseType, fieldName, out resolvedFieldName))
+                {
+                    return true;
+                }
             }
         }
 
@@ -15925,9 +15954,9 @@ public class Analyzer : IDisposable
         resolvedFieldName = string.Empty;
         List<Declaration>? members = receiver switch
         {
-            ClassTypeInfo classType => classType.Declaration.Members,
-            StructTypeInfo structType => structType.Declaration.Members,
-            RecordTypeInfo recordType => recordType.Declaration.Members,
+            ClassTypeInfo classType => classType.GetDeclaration().Members,
+            StructTypeInfo structType => structType.GetDeclaration().Members,
+            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
             _ => null,
         };
 
@@ -15952,12 +15981,16 @@ public class Analyzer : IDisposable
             }
         }
 
-        if (receiver is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+        if (receiver is ClassTypeInfo classTypeWithBase)
         {
-            var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
-            if (TryFindReadonlyInstanceField(baseType, fieldName, out resolvedFieldName))
+            var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+            if (baseClass != null)
             {
-                return true;
+                var baseType = ResolveType(baseClass);
+                if (TryFindReadonlyInstanceField(baseType, fieldName, out resolvedFieldName))
+                {
+                    return true;
+                }
             }
         }
 
@@ -17267,7 +17300,7 @@ public class Analyzer : IDisposable
                 // Same-named functions, generated members, and inherited members resolve
                 // on the open type — only a conclusively absent member reports (a base
                 // class would need its own substitution chain, so it suppresses instead).
-                var hasBaseClass = openType is ClassTypeInfo { Declaration.BaseClass: not null };
+                var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.GetDeclaration().BaseClass != null;
                 if (!hasBaseClass
                     && BuiltInTypes.IsUnknown(ResolveMember(openType, memberName, includeStaticMembers: false))
                     && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
@@ -17398,19 +17431,19 @@ public class Analyzer : IDisposable
         switch (type)
         {
             case ClassTypeInfo classInfo:
-                typeParameters = classInfo.Declaration.TypeParameters;
-                members = classInfo.Declaration.Members;
-                primaryConstructorParameters = classInfo.Declaration.PrimaryConstructorParameters;
+                typeParameters = classInfo.GetDeclaration().TypeParameters;
+                members = classInfo.GetDeclaration().Members;
+                primaryConstructorParameters = classInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             case StructTypeInfo structInfo:
-                typeParameters = structInfo.Declaration.TypeParameters;
-                members = structInfo.Declaration.Members;
-                primaryConstructorParameters = structInfo.Declaration.PrimaryConstructorParameters;
+                typeParameters = structInfo.GetDeclaration().TypeParameters;
+                members = structInfo.GetDeclaration().Members;
+                primaryConstructorParameters = structInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             case RecordTypeInfo recordInfo:
-                typeParameters = recordInfo.Declaration.TypeParameters;
-                members = recordInfo.Declaration.Members;
-                primaryConstructorParameters = recordInfo.Declaration.PrimaryConstructorParameters;
+                typeParameters = recordInfo.GetDeclaration().TypeParameters;
+                members = recordInfo.GetDeclaration().Members;
+                primaryConstructorParameters = recordInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             default:
                 typeParameters = null;
@@ -18846,11 +18879,11 @@ public class Analyzer : IDisposable
         => resolvedName switch
         {
             SimpleTypeInfo => 0,
-            ClassTypeInfo classInfo => classInfo.Declaration.TypeParameters?.Count ?? 0,
-            StructTypeInfo structInfo => structInfo.Declaration.TypeParameters?.Count ?? 0,
-            RecordTypeInfo recordInfo => recordInfo.Declaration.TypeParameters?.Count ?? 0,
+            ClassTypeInfo classInfo => classInfo.GetDeclaration().TypeParameters?.Count ?? 0,
+            StructTypeInfo structInfo => structInfo.GetDeclaration().TypeParameters?.Count ?? 0,
+            RecordTypeInfo recordInfo => recordInfo.GetDeclaration().TypeParameters?.Count ?? 0,
             SoaRecordTypeInfo => 0,
-            InterfaceTypeInfo interfaceInfo => interfaceInfo.Declaration.TypeParameters?.Count ?? 0,
+            InterfaceTypeInfo interfaceInfo => interfaceInfo.GetDeclaration().TypeParameters?.Count ?? 0,
             UnionTypeInfo unionInfo => unionInfo.Declaration.TypeParameters?.Count ?? 0,
             EnumTypeInfo => 0,
             AliasTypeInfo => 0,
@@ -19505,11 +19538,13 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeBaseExpression()
     {
         var currentType = GetCurrentTypeScope();
-        return currentType switch
+        if (currentType is ClassTypeInfo classType)
         {
-            ClassTypeInfo classType when classType.Declaration.BaseClass != null => ResolveType(classType.Declaration.BaseClass),
-            _ => currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown
-        };
+            var baseClass = classType.GetDeclaration().BaseClass;
+            if (baseClass != null)
+                return ResolveType(baseClass);
+        }
+        return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
     }
 
     // Convention-based visibility checking
@@ -19648,7 +19683,7 @@ public class Analyzer : IDisposable
             return IsLambdaAssignableToDelegate(funcType, delegateType);
 
         // Duck interface structural typing
-        if (resolvedTarget is InterfaceTypeInfo iface && iface.Declaration.IsDuckInterface)
+        if (resolvedTarget is InterfaceTypeInfo iface && iface.GetDeclaration().IsDuckInterface)
         {
             return ImplementsDuckInterface(resolvedSource, iface);
         }
@@ -20294,13 +20329,14 @@ public class Analyzer : IDisposable
         if (source is ClassTypeInfo classSource)
         {
             // Walk base class chain
-            if (classSource.Declaration.BaseClass != null)
+            var classDeclaration = classSource.GetDeclaration();
+            if (classDeclaration.BaseClass != null)
             {
-                var baseType = ResolveType(classSource.Declaration.BaseClass);
+                var baseType = ResolveType(classDeclaration.BaseClass);
                 if (IsAssignable(target, baseType)) return true;
             }
             // Check implemented interfaces
-            foreach (var iface in classSource.Declaration.Interfaces)
+            foreach (var iface in classDeclaration.Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;
@@ -20310,7 +20346,7 @@ public class Analyzer : IDisposable
         // Struct interface implementation
         if (source is StructTypeInfo structSource)
         {
-            foreach (var iface in structSource.Declaration.Interfaces)
+            foreach (var iface in structSource.GetDeclaration().Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;
@@ -20320,7 +20356,7 @@ public class Analyzer : IDisposable
         // Record inheritance/interfaces
         if (source is RecordTypeInfo recordSource)
         {
-            foreach (var iface in recordSource.Declaration.Interfaces)
+            foreach (var iface in recordSource.GetDeclaration().Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;
@@ -20330,7 +20366,7 @@ public class Analyzer : IDisposable
         // Interface inheritance
         if (source is InterfaceTypeInfo ifaceSource)
         {
-            foreach (var baseIface in ifaceSource.Declaration.BaseInterfaces)
+            foreach (var baseIface in ifaceSource.GetDeclaration().BaseInterfaces)
             {
                 var baseType = ResolveType(baseIface);
                 if (IsAssignable(target, baseType)) return true;
@@ -20472,11 +20508,11 @@ public class Analyzer : IDisposable
         List<Declaration>? sourceMembers = null;
 
         if (source is ClassTypeInfo classType)
-            sourceMembers = classType.Declaration.Members;
+            sourceMembers = classType.GetDeclaration().Members;
         else if (source is StructTypeInfo structType)
-            sourceMembers = structType.Declaration.Members;
+            sourceMembers = structType.GetDeclaration().Members;
         else if (source is RecordTypeInfo recordType)
-            sourceMembers = recordType.Declaration.Members;
+            sourceMembers = recordType.GetDeclaration().Members;
         else
             return false; // No conversion operators for other types
 
@@ -20546,7 +20582,7 @@ public class Analyzer : IDisposable
             return true;
         // Records: reference types by default, but record struct is a value type
         if (type is RecordTypeInfo recordType)
-            return !recordType.Declaration.IsStruct;
+            return !recordType.GetDeclaration().IsStruct;
         // Structs and enums are value types
         if (type is StructTypeInfo or EnumTypeInfo or ByRefTypeInfo)
             return false;
@@ -20628,11 +20664,11 @@ public class Analyzer : IDisposable
 
         // Sealed class to unrelated class — impossible
         // (IsAssignable already checked above, so if we get here they're unrelated)
-        if (resolvedSource is ClassTypeInfo srcClass && srcClass.Declaration.Modifiers.HasFlag(Modifiers.Sealed))
+        if (resolvedSource is ClassTypeInfo srcClass && srcClass.GetDeclaration().Modifiers.HasFlag(Modifiers.Sealed))
         {
             if (resolvedTarget is ClassTypeInfo) return false;
         }
-        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.Declaration.Modifiers.HasFlag(Modifiers.Sealed))
+        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.GetDeclaration().Modifiers.HasFlag(Modifiers.Sealed))
         {
             if (resolvedSource is ClassTypeInfo) return false;
         }
@@ -20715,16 +20751,16 @@ public class Analyzer : IDisposable
         List<Declaration>? sourceMembers = null;
 
         if (source is ClassTypeInfo classType)
-            sourceMembers = classType.Declaration.Members;
+            sourceMembers = classType.GetDeclaration().Members;
         else if (source is StructTypeInfo structType)
-            sourceMembers = structType.Declaration.Members;
+            sourceMembers = structType.GetDeclaration().Members;
         else if (source is RecordTypeInfo recordType)
-            sourceMembers = recordType.Declaration.Members;
+            sourceMembers = recordType.GetDeclaration().Members;
         else
             return false; // Can't check structural compatibility for other types
 
         // For each method in the duck interface, check if source has a matching method
-        foreach (var interfaceMember in duckInterface.Declaration.Members)
+        foreach (var interfaceMember in duckInterface.GetDeclaration().Members)
         {
             if (interfaceMember is not FunctionDeclaration interfaceMethod)
                 continue; // Skip non-method members
@@ -20903,9 +20939,11 @@ public class Analyzer : IDisposable
 
     private static bool IsSameRecordStructType(TypeInfo left, TypeInfo right)
     {
-        return left is RecordTypeInfo { Declaration.IsStruct: true } leftRecord
-            && right is RecordTypeInfo { Declaration.IsStruct: true } rightRecord
-            && ReferenceEquals(leftRecord.Declaration, rightRecord.Declaration);
+        return left is RecordTypeInfo leftRecord
+            && leftRecord.GetDeclaration().IsStruct
+            && right is RecordTypeInfo rightRecord
+            && rightRecord.GetDeclaration().IsStruct
+            && ReferenceEquals(leftRecord.GetDeclaration(), rightRecord.GetDeclaration());
     }
 
     private bool IsIntegralType(TypeInfo type)
@@ -23101,54 +23139,4 @@ public class Analyzer : IDisposable
             }
         }
     }
-}
-
-// Supporting types - now in ErrorReporting.cs
-
-public class ClassTypeInfo : TypeInfo
-{
-    public ClassTypeInfo(ClassDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public ClassDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
-public class StructTypeInfo : TypeInfo
-{
-    public StructTypeInfo(StructDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public StructDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
-public class RecordTypeInfo : TypeInfo
-{
-    public RecordTypeInfo(RecordDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public RecordDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
-}
-
-public class InterfaceTypeInfo : TypeInfo
-{
-    public InterfaceTypeInfo(InterfaceDeclaration declaration)
-    {
-        Declaration = declaration;
-    }
-
-    public InterfaceDeclaration Declaration { get; }
-
-    public override string ToString() => Declaration.Name;
 }

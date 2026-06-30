@@ -249,10 +249,10 @@ public class CompletionHandler : CompletionHandlerBase
         // Get the type name from the TypeInfo — handle all TypeInfo variants
         string? typeName = typeInfo switch
         {
-            ClassTypeInfo c => c.Declaration.Name,
-            StructTypeInfo s => s.Declaration.Name,
-            RecordTypeInfo r => r.Declaration.Name,
-            InterfaceTypeInfo i => i.Declaration.Name,
+            ClassTypeInfo c => c.GetDeclaration().Name,
+            StructTypeInfo s => s.GetDeclaration().Name,
+            RecordTypeInfo r => r.GetDeclaration().Name,
+            InterfaceTypeInfo i => i.GetDeclaration().Name,
             UnionTypeInfo u => u.Declaration.Name,
             _ => typeInfo.ToString() // SimpleTypeInfo, etc. — ToString() returns the type name
         };

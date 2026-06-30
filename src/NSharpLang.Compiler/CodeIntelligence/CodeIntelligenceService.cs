@@ -1315,15 +1315,20 @@ public class CodeIntelligenceService
 
     private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, TypeInfo receiverType, string memberName)
     {
+        if (receiverType is ClassTypeInfo classType)
+        {
+            var classDeclaration = classType.GetDeclaration();
+            return FindMemberTypeInfo(snapshot, classDeclaration, memberName)
+                ?? (classDeclaration.BaseClass != null
+                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classDeclaration.BaseClass, snapshot), memberName)
+                    : null);
+        }
+
         return receiverType switch
         {
-            ClassTypeInfo classType => FindMemberTypeInfo(snapshot, classType.Declaration, memberName)
-                ?? (classType.Declaration.BaseClass != null
-                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classType.Declaration.BaseClass, snapshot), memberName)
-                    : null),
-            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.Declaration, memberName),
-            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.Declaration, memberName),
-            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.Declaration, memberName),
+            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.GetDeclaration(), memberName),
+            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.GetDeclaration(), memberName),
+            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.GetDeclaration(), memberName),
             EnumTypeInfo => receiverType,
             AnonymousUnionTypeInfo => receiverType,
             UnionTypeInfo => receiverType,
@@ -1525,11 +1530,11 @@ public class CodeIntelligenceService
     {
         return typeInfo switch
         {
-            ClassTypeInfo c => c.Declaration.Name,
-            StructTypeInfo s => s.Declaration.Name,
-            RecordTypeInfo r => r.Declaration.Name,
+            ClassTypeInfo c => c.GetDeclaration().Name,
+            StructTypeInfo s => s.GetDeclaration().Name,
+            RecordTypeInfo r => r.GetDeclaration().Name,
             SoaRecordTypeInfo soa => soa.Declaration.Name,
-            InterfaceTypeInfo i => i.Declaration.Name,
+            InterfaceTypeInfo i => i.GetDeclaration().Name,
             EnumTypeInfo e => e.Declaration.Name,
             AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
             UnionTypeInfo u => u.Declaration.Name,

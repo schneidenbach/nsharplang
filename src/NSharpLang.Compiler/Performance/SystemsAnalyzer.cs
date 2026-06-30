@@ -872,7 +872,7 @@ public sealed class SystemsAnalyzer
                 if (constraintType is not InterfaceTypeInfo iface)
                     continue;
 
-                var declared = iface.Declaration.Members
+                var declared = iface.GetDeclaration().Members
                     .OfType<FunctionDeclaration>()
                     .FirstOrDefault(candidate => candidate.Name == member.MemberName);
                 if (declared != null && TryGetEntryForDeclaration(declared, context, out entry))
