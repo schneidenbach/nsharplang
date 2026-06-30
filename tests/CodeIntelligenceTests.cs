@@ -137,6 +137,25 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void FilterDiagnosticsBySeverity_MaterializesNSharpFilteredResults()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
+                null, null, null, null, "int", "string", null),
+            new("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1,
+                null, null, null, null, null, null, null),
+            new("NL902", "info", "Informational", "Program.nl", 12, 4, 1,
+                null, null, null, null, null, null, null)
+        };
+
+        var warnings = OutputFormatter.FilterDiagnosticsBySeverity(diagnostics, "WARNING");
+
+        var warning = Assert.Single(warnings);
+        Assert.Equal("NL901", warning.Code);
+    }
+
+    [Fact]
     public void OutlineToJson_IncludesImportsAndStructure()
     {
         var outline = new OutlineResult("Program.nl",

@@ -128,31 +128,14 @@ public static class OutputFormatter
         IReadOnlyList<DiagnosticResult> diagnostics,
         string severity)
     {
-        var (resultIndices, resultCount) = OutputFormatterDiagnosticKernels.FilterDiagnosticSeverities(
+        return OutputFormatterDiagnosticKernels.FilterDiagnosticSeverityResults(
             diagnostics,
             severity);
-
-        var results = new List<DiagnosticResult>(resultCount);
-        for (var i = 0; i < resultCount; i++)
-        {
-            var diagnosticIndex = resultIndices[i];
-            results.Add(diagnostics[diagnosticIndex]);
-        }
-
-        return results;
     }
 
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateDiagnostics(diagnostics);
-        var results = new List<DiagnosticResult>(resultCount);
-        for (var i = 0; i < resultCount; i++)
-        {
-            var diagnosticIndex = resultIndices[i];
-            results.Add(diagnostics[diagnosticIndex]);
-        }
-
-        return results;
+        return CodeIntelligenceResultKernels.DeduplicateDiagnosticResults(diagnostics);
     }
 
     // ── JSON Output ────────────────────────────────────────────────────

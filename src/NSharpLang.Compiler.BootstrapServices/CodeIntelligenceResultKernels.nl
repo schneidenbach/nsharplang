@@ -50,6 +50,15 @@ public class CodeIntelligenceResultKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
+    public static func DeduplicateDiagnosticResults(
+        diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
+        items := DiagnosticList(diagnostics)
+        result := UniqueDiagnosticIndices(items)
+        values := result.ToArray()
+        SortDiagnosticIndices(values, values.Length, items)
+        return MaterializeDiagnosticResults(items, values, values.Length)
+    }
+
     public static func DeduplicateDiagnosticsPreservingOrder(
         diagnostics: IReadOnlyList<DiagnosticResult>): ValueTuple<int[], int> {
         items := DiagnosticList(diagnostics)

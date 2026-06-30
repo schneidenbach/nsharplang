@@ -45,6 +45,22 @@ public class OutputFormatterDiagnosticKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
+    public static func FilterDiagnosticSeverityResults(
+        diagnostics: IReadOnlyList<DiagnosticResult>,
+        targetSeverity: string): List<DiagnosticResult> {
+        result := new List<DiagnosticResult>()
+
+        foreach diagnosticValue in diagnostics {
+            diagnostic := (DiagnosticResult)diagnosticValue
+            severity := diagnostic.Severity
+            if String.Equals(severity, targetSeverity, StringComparison.OrdinalIgnoreCase) {
+                result.Add(diagnostic)
+            }
+        }
+
+        return result
+    }
+
     public static func GetDiagnosticTitle(code: string, severity: string): string {
         label := DiagnosticSeverityLabel(severity)
         if label == "" {
