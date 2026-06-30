@@ -580,36 +580,7 @@ public static class OutputFormatter
 
     public static string CompletionsToText(CompletionResult result, string file, int line, int col)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
-            file,
-            line,
-            col,
-            result.Context.ToString().ToLowerInvariant()));
-
-        if (result.Receiver != null)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetCompletionReceiverLineText(
-                result.Receiver,
-                result.ReceiverType));
-        }
-
-        sb.AppendLine();
-
-        foreach (var (category, items) in result.Completions)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetCompletionCategoryLineText(category, items.Count));
-            foreach (var item in items.Take(50)) // Limit for text output
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetCompletionItemLineText(item));
-            }
-            if (items.Count > 50)
-            {
-                sb.AppendLine(OutputFormatterTextKernels.GetCompletionOverflowLineText(items.Count - 50));
-            }
-        }
-
-        return sb.ToString();
+        return OutputFormatterTextBuilders.CompletionsToText(result, file, line, col);
     }
 
     public static string InspectToText(InspectResult result, string file, int line, int col)
