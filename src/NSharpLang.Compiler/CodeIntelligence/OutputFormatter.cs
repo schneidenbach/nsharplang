@@ -23,8 +23,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 public static class OutputFormatter
 {
     private const int SchemaVersion = 1;
-    private const int InspectSummaryReferenceSampleSize = 5;
-    private const int InspectSummaryCompletionSampleSize = 8;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -567,7 +565,7 @@ public static class OutputFormatter
 
     public static string InspectSummaryToJson(InspectResult result, string file, int line, int col)
     {
-        var summary = Normalize(ToInspectSummary(result));
+        var summary = Normalize(InspectSummaryBuilder.Build(result));
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -835,63 +833,6 @@ public static class OutputFormatter
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
-    }
-
-    private static InspectSummaryResult ToInspectSummary(InspectResult result)
-    {
-        var groups = result.Completions.Completions
-            .OrderBy(group => group.Key, StringComparer.Ordinal)
-            .ToArray();
-
-        var groupCounts = groups.ToDictionary(
-            group => group.Key,
-            group => group.Value.Count,
-            StringComparer.Ordinal);
-
-        var sampledGroups = groups.ToDictionary(
-            group => group.Key,
-            group => group.Value
-                .Select(item => item.Name)
-                .Distinct(StringComparer.Ordinal)
-                .Take(InspectSummaryCompletionSampleSize)
-                .ToArray(),
-            StringComparer.Ordinal);
-
-        var definition = result.Definition != null
-            ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
-            : result.Symbol?.Definition;
-
-        var referenceFiles = OutputFormatterReferenceFileKernels.BuildInspectSummaryReferenceFiles(result.References.Results);
-
-        var referenceSample = result.References.Results
-            .Take(InspectSummaryReferenceSampleSize)
-            .Select(reference => new InspectReferenceSummaryResult(
-                reference.File,
-                reference.Line,
-                reference.Column,
-                reference.IsDefinition))
-            .ToArray();
-
-        return new InspectSummaryResult(
-            result.Symbol != null
-                ? new InspectSummarySymbolResult(result.Symbol.Name, result.Symbol.Kind)
-                : null,
-            result.Type != null
-                ? new InspectSummaryTypeResult(result.Type.Name, result.Type.ResolvedType, result.Type.Kind, result.Type.Nullability)
-                : null,
-            definition,
-            new InspectSummaryReferencesResult(
-                result.References.Count,
-                result.References.DefinitionCount,
-                referenceFiles,
-                referenceSample),
-            new InspectSummaryCompletionsResult(
-                result.Completions.Context.ToString().ToLowerInvariant(),
-                result.Completions.Receiver,
-                result.Completions.ReceiverType,
-                result.Completions.Completions.Sum(group => group.Value.Count),
-                groupCounts,
-                sampledGroups));
     }
 
     // ── Diagnostic Clustering ───────────────────────────────────────────
