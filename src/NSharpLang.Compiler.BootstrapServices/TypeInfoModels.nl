@@ -301,6 +301,18 @@ public class FunctionTypeInfo: TypeInfo {
     }
 }
 
+public class NSharpMethodGroupInfo: TypeInfo {
+    Declarations: List<object>
+
+    constructor(declarations: List<object>) {
+        Declarations = declarations
+    }
+
+    override func ToString(): string {
+        return "method group"
+    }
+}
+
 public class ObliviousTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
 

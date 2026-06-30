@@ -56,6 +56,7 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 
 ### Special Types
 - **FunctionTypeInfo**: N#-owned function signature metadata; source declarations remain opaque handles until the function declaration model moves
+- **NSharpMethodGroupInfo**: N#-owned overload group metadata with opaque source declaration handles
 - **ArrayTypeInfo**: Array types (`T[]`)
 - **GenericTypeInfo**: Generic types (`List<T>`)
 - **NullableTypeInfo**: Nullable types (`T?`)

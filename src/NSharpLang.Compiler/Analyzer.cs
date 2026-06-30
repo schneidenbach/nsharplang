@@ -3823,9 +3823,16 @@ public class Analyzer : IDisposable
             case FunctionTypeInfo { Declaration: FunctionDeclaration declaration } when HasMustUseAttribute(declaration.Attributes):
                 reason = $"'{declaration.Name}' is marked [MustUse]";
                 return true;
-            case NSharpMethodGroupInfo group when group.Declarations.All(d => HasMustUseAttribute(d.Attributes)) && group.Declarations.Count > 0:
-                reason = $"'{group.Declarations[0].Name}' is marked [MustUse]";
-                return true;
+            case NSharpMethodGroupInfo group:
+                {
+                    var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(group);
+                    if (declarations.Count > 0 && declarations.All(d => HasMustUseAttribute(d.Attributes)))
+                    {
+                        reason = $"'{declarations[0].Name}' is marked [MustUse]";
+                        return true;
+                    }
+                    return false;
+                }
             case ReflectionMethodInfo method when HasMustUseAttribute(method.Method):
                 reason = $"'{method.Method.Name}' is marked [MustUse]";
                 return true;
@@ -6910,7 +6917,7 @@ public class Analyzer : IDisposable
             {
                 ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
                 ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
-                NSharpMethodGroupInfo methodGroup when methodGroup.Declarations.Count > 0 => methodGroup.Declarations[0].Name,
+                NSharpMethodGroupInfo methodGroup when NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup) is [var first, ..] => first.Name,
                 FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration.Name,
                 _ => "method"
             }
@@ -9763,7 +9770,7 @@ public class Analyzer : IDisposable
         if (matchingFunctions.Count == 1)
             return CreateFunctionTypeInfo(matchingFunctions[0]);
         if (matchingFunctions.Count > 1)
-            return new NSharpMethodGroupInfo(matchingFunctions);
+            return NSharpMethodGroupInfoFactory.FromDeclarations(matchingFunctions);
 
         return null;
     }
@@ -9950,7 +9957,7 @@ public class Analyzer : IDisposable
             return CreateFunctionTypeInfo(applicableExtensions[0]);
 
         // Multiple matches - return method group for overload resolution
-        return new NSharpMethodGroupInfo(applicableExtensions);
+        return NSharpMethodGroupInfoFactory.FromDeclarations(applicableExtensions);
     }
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
@@ -11692,13 +11699,14 @@ public class Analyzer : IDisposable
 
     private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
     {
-        if (methodGroup.Declarations.Count == 0)
+        var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup);
+        if (declarations.Count == 0)
             return;
 
-        var functionName = GetCallTargetName(call) ?? methodGroup.Declarations[0].Name;
+        var functionName = GetCallTargetName(call) ?? declarations[0].Name;
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
-        var candidateSignatures = methodGroup.Declarations
+        var candidateSignatures = declarations
             .Select(declaration => FormatNSharpMethodSignature(declaration, call))
             .Distinct(StringComparer.Ordinal)
             .Take(8)
@@ -12017,7 +12025,7 @@ public class Analyzer : IDisposable
         int bestScore = -1;
         bool ambiguous = false;
 
-        foreach (var decl in methodGroup.Declarations)
+        foreach (var decl in NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup))
         {
             var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
             var effectiveParamCount = decl.Parameters.Count - paramStart;
@@ -13556,7 +13564,7 @@ public class Analyzer : IDisposable
             var bestScore = -1;
             var ambiguous = false;
             FunctionTypeInfo? bestFunctionType = null;
-            foreach (var declaration in methodGroup.Declarations)
+            foreach (var declaration in NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup))
             {
                 var candidateType = CreateFunctionTypeInfo(declaration);
                 if (!TryGetMatchScore(candidateType, out var candidateScore))
@@ -21213,8 +21221,8 @@ public class Analyzer : IDisposable
                     if (HasDistinctParameterSignature(newDeclaration, new[] { existingDeclaration }))
                     {
                         // Upgrade single function to method group
-                        currentScope.Symbols[name] = new NSharpMethodGroupInfo(
-                            new List<FunctionDeclaration> { existingDeclaration, newDeclaration });
+                        currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromDeclarations(
+                            new[] { existingDeclaration, newDeclaration });
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -21227,10 +21235,11 @@ public class Analyzer : IDisposable
 
                 if (existing is NSharpMethodGroupInfo group)
                 {
-                    if (HasDistinctParameterSignature(newDeclaration, group.Declarations))
+                    var declarations = NSharpMethodGroupInfoFactory.GetDeclarations(group);
+                    if (HasDistinctParameterSignature(newDeclaration, declarations))
                     {
                         // Add to existing method group
-                        group.Declarations.Add(newDeclaration);
+                        NSharpMethodGroupInfoFactory.AddDeclaration(group, newDeclaration);
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -23142,19 +23151,4 @@ public class InterfaceTypeInfo : TypeInfo
     public InterfaceDeclaration Declaration { get; }
 
     public override string ToString() => Declaration.Name;
-}
-
-/// <summary>
-/// Represents a group of overloaded N#-declared methods
-/// </summary>
-public class NSharpMethodGroupInfo : TypeInfo
-{
-    public NSharpMethodGroupInfo(List<FunctionDeclaration> declarations)
-    {
-        Declarations = declarations;
-    }
-
-    public List<FunctionDeclaration> Declarations { get; }
-
-    public override string ToString() => Declarations.Count > 0 ? $"{Declarations[0].Name}(...)" : "method group";
 }

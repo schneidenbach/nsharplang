@@ -754,7 +754,7 @@ public sealed class SystemsAnalyzer
         var declaration = calleeType switch
         {
             FunctionTypeInfo { Declaration: FunctionDeclaration resolved } => resolved,
-            NSharpMethodGroupInfo { Declarations: [{ } single] } => single,
+            NSharpMethodGroupInfo group when NSharpMethodGroupInfoFactory.GetDeclarations(group) is [{ } single] => single,
             _ => null
         };
 
