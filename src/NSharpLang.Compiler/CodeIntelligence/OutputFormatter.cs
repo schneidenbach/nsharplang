@@ -358,31 +358,21 @@ public static class OutputFormatter
             projectRoot = NormalizePath(projectRoot),
             perfReport = new
             {
-                allocationSites = NormalizePerfSites(allocationSites),
-                delegateSites = NormalizePerfSites(delegateSites),
-                boxingSites = NormalizePerfSites(boxingSites),
-                dispatchSites = NormalizePerfSites(dispatchSites),
-                closureCaptures = NormalizePerfSites(closureCaptures),
-                poolSites = NormalizePerfSites(poolSites),
-                resourceSites = NormalizePerfSites(resourceSites),
-                boundaryLeakSites = NormalizePerfSites(boundaryLeakSites),
-                hotReadinessSites = NormalizePerfSites(hotReadinessSites),
-                implicitTrapSites = NormalizePerfSites(implicitTrapSites),
-                trustedSites = NormalizeTrustedPerfSites(trustedSites),
+                allocationSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(allocationSites ?? Array.Empty<PerfReportSite>()),
+                delegateSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(delegateSites ?? Array.Empty<PerfReportSite>()),
+                boxingSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(boxingSites ?? Array.Empty<PerfReportSite>()),
+                dispatchSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(dispatchSites ?? Array.Empty<PerfReportSite>()),
+                closureCaptures = OutputFormatterNormalizationKernels.NormalizePerfReportSites(closureCaptures ?? Array.Empty<PerfReportSite>()),
+                poolSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(poolSites ?? Array.Empty<PerfReportSite>()),
+                resourceSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(resourceSites ?? Array.Empty<PerfReportSite>()),
+                boundaryLeakSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(boundaryLeakSites ?? Array.Empty<PerfReportSite>()),
+                hotReadinessSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(hotReadinessSites ?? Array.Empty<PerfReportSite>()),
+                implicitTrapSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(implicitTrapSites ?? Array.Empty<PerfReportSite>()),
+                trustedSites = OutputFormatterNormalizationKernels.NormalizePerfReportTrustedSites(trustedSites ?? Array.Empty<PerfReportTrustedSite>()),
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
-
-    private static IReadOnlyList<PerfReportSite> NormalizePerfSites(IReadOnlyList<PerfReportSite>? sites)
-        => (sites ?? Array.Empty<PerfReportSite>())
-            .Select(OutputFormatterNormalizationKernels.NormalizePerfReportSite)
-            .ToArray();
-
-    private static IReadOnlyList<PerfReportTrustedSite> NormalizeTrustedPerfSites(IReadOnlyList<PerfReportTrustedSite>? sites)
-        => (sites ?? Array.Empty<PerfReportTrustedSite>())
-            .Select(OutputFormatterNormalizationKernels.NormalizePerfReportTrustedSite)
-            .ToArray();
 
     public static string CheckSystemsReportToJson(
         List<DiagnosticResult> diagnostics,
@@ -390,11 +380,7 @@ public static class OutputFormatter
         int checkedFiles,
         SystemsReport report)
     {
-        var summary = new DiagnosticSummary(
-            Errors: diagnostics.Count(d => d.Severity == "error"),
-            Warnings: diagnostics.Count(d => d.Severity == "warning"),
-            Info: diagnostics.Count(d => d.Severity == "info")
-        );
+        var summary = SummarizeDiagnostics(diagnostics);
 
         var envelope = new
         {
@@ -405,7 +391,7 @@ public static class OutputFormatter
             ok = summary.Errors == 0,
             diagnostics = diagnostics.Select(Normalize).ToList(),
             summary,
-            systemsReport = NormalizeSystemsReport(report)
+            systemsReport = OutputFormatterNormalizationKernels.NormalizeSystemsReport(report)
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -418,75 +404,10 @@ public static class OutputFormatter
             command = "trusted",
             ok = true,
             projectRoot = NormalizePath(projectRoot),
-            results = report.TrustedSites.Select(Normalize).ToArray(),
+            results = OutputFormatterNormalizationKernels.NormalizeSystemsTrustedSites(report.TrustedSites),
             summary = new { trustedSites = report.TrustedSites.Count }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
-    }
-
-    private static object NormalizeSystemsReport(SystemsReport report)
-    {
-        return new
-        {
-            report.SchemaVersion,
-            report.Profile,
-            report.Mode,
-            report.AotTarget,
-            aot = report.Aot,
-            warmup = report.Warmup,
-            functions = report.Functions.Select(Normalize).ToArray(),
-            findings = report.Findings.Select(Normalize).ToArray(),
-            trustedSites = report.TrustedSites.Select(Normalize).ToArray(),
-            report.Summary
-        };
-    }
-
-    private static SystemsFunctionSummary Normalize(SystemsFunctionSummary function)
-    {
-        return new SystemsFunctionSummary(
-            function.Name,
-            NormalizePath(function.File) ?? function.File,
-            function.Line,
-            function.Column,
-            function.IsHot,
-            function.IsBoundary,
-            function.AllocNone,
-            function.SummarySource,
-            function.Effects,
-            function.Calls);
-    }
-
-    private static SystemsFinding Normalize(SystemsFinding finding)
-    {
-        return new SystemsFinding(
-            finding.Code,
-            finding.Severity,
-            finding.Effect,
-            finding.Message,
-            NormalizePath(finding.File) ?? finding.File,
-            finding.Line,
-            finding.Column,
-            finding.Length,
-            finding.Function,
-            finding.Policy,
-            finding.SummarySource,
-            finding.Suggestion,
-            finding.CallPath);
-    }
-
-    private static SystemsTrustedSite Normalize(SystemsTrustedSite site)
-    {
-        return new SystemsTrustedSite(
-            site.Function,
-            NormalizePath(site.File) ?? site.File,
-            site.Line,
-            site.Column,
-            site.Reason,
-            site.Owner,
-            site.Review,
-            site.Expires,
-            site.HasUnsafe,
-            site.BodyStatementCount);
     }
 
     public static string PerfToJson(string file, int line, int col, string? projectRoot,
