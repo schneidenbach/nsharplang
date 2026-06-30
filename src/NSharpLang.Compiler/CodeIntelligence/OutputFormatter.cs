@@ -878,35 +878,7 @@ public static class OutputFormatter
 
     public static string OutlineToText(OutlineResult result)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetOutlineFileLineText(result.File));
-
-        if (result.Imports.Length > 0)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetOutlineImportsLineText(result.Imports));
-        }
-
-        sb.AppendLine();
-
-        foreach (var entry in result.Outline)
-        {
-            FormatOutlineEntryText(sb, entry, indent: 0);
-        }
-
-        return sb.ToString();
-    }
-
-    private static void FormatOutlineEntryText(StringBuilder sb, OutlineEntry entry, int indent)
-    {
-        sb.AppendLine(OutputFormatterTextKernels.GetOutlineEntryLineText(entry, indent));
-
-        if (entry.Children is { Length: > 0 })
-        {
-            foreach (var child in entry.Children)
-            {
-                FormatOutlineEntryText(sb, child, indent + 1);
-            }
-        }
+        return OutputFormatterTextBuilders.OutlineToText(result);
     }
 
     public static string TypeToText(TypeResult result, string file, int line, int col)

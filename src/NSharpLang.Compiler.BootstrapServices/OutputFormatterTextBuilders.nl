@@ -18,6 +18,25 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
+    public static func OutlineToText(result: OutlineResult): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetOutlineFileLineText(result.File))
+
+        if result.Imports.Length > 0 {
+            builder.AppendLine(OutputFormatterTextKernels.GetOutlineImportsLineText(result.Imports))
+        }
+
+        builder.AppendLine()
+
+        index := 0
+        while index < result.Outline.Length {
+            AppendOutlineEntryText(builder, result.Outline[index], 0)
+            index = index + 1
+        }
+
+        return builder.ToString()
+    }
+
     public static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
@@ -138,6 +157,21 @@ public class OutputFormatterTextBuilders {
                 index := 0
                 while index < members.Length {
                     AppendSymbolText(builder, members[index], indent + 1)
+                    index = index + 1
+                }
+            }
+        }
+    }
+
+    static func AppendOutlineEntryText(builder: StringBuilder, entry: OutlineEntry, indent: int) {
+        builder.AppendLine(OutputFormatterTextKernels.GetOutlineEntryLineText(entry, indent))
+
+        if entry.Children != null {
+            children := entry.Children ?? new OutlineEntry[](0)
+            if children.Length > 0 {
+                index := 0
+                while index < children.Length {
+                    AppendOutlineEntryText(builder, children[index], indent + 1)
                     index = index + 1
                 }
             }
