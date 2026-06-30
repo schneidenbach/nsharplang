@@ -63,7 +63,8 @@ From highest to lowest:
 See `src/NSharpLang.Compiler/Ast/` folder:
 
 **Adding an expression node or a new Expression-typed child?** Update
-`AstChildren.Of` (`Ast/AstChildren.cs`) — the shared exhaustive child enumeration that the
+`AstChildrenCore.Of` (`src/NSharpLang.Compiler.BootstrapServices/AstChildrenCore.nl`) — the N#-owned
+shared exhaustive child enumeration that the typed `AstChildren.Of` C# adapter exposes to
 linter, definite assignment, capture/escape scans, and performance analyzers recurse
 through. `AstChildrenTests` fails until every Expression-typed slot (including slots inside
 `Argument`/`PropertyInitializer`/`TupleElement`/`MatchCase`/`InterpolatedStringHole`) is
