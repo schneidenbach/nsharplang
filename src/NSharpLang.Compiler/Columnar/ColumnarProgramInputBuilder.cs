@@ -261,7 +261,8 @@ internal static class ColumnarProgramInputBuilder
                 var methods = new List<ColumnarFunctionInput>(methodCount);
                 for (var m = 0; m < methodCount; m++)
                 {
-                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: outMethodStaticFlags[m] == 1))
+                    var methodModifierFlags = outMethodStaticFlags[m];
+                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, modifierFlags: methodModifierFlags))
                     {
                         return false;
                     }
@@ -379,7 +380,7 @@ internal static class ColumnarProgramInputBuilder
 
     private static bool TryParseColumnarFunctionAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
-        out ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false)
+        out ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false, int modifierFlags = 0)
     {
         input = null!;
         var cap = n + 1;
@@ -520,7 +521,8 @@ internal static class ColumnarProgramInputBuilder
             returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
             paramModifierKinds: parsedParamModifierKinds,
             paramDefaultKinds: parsedParamDefaultKinds, paramDefaultTexts: parsedParamDefaultTexts,
-            isAsync: isAsync);
+            isAsync: isAsync,
+            modifierFlags: modifierFlags);
 
         var localFunctionCount = result[8];
         if (localFunctionCount < 0 || localFunctionCount > localFunctionNodeIndices.Length)

@@ -236,6 +236,8 @@ internal sealed class ColumnarIlEmitter
         typeof(ValueTuple<int, int>).GetField("Item2")
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
 
+    private const int NSharpModifierOverride = 65536;
+
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
     // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
@@ -899,6 +901,31 @@ internal sealed class ColumnarIlEmitter
                 return true;
         }
         method = default;
+        return false;
+    }
+
+    private static bool TryFindObjectOverrideTarget(string name, Type returnType, Type[] paramTypes, out MethodInfo target)
+    {
+        target = null!;
+
+        if (name == "ToString" && returnType == typeof(string) && paramTypes.Length == 0)
+        {
+            target = typeof(object).GetMethod(nameof(ToString), Type.EmptyTypes)!;
+            return true;
+        }
+
+        if (name == "Equals" && returnType == typeof(bool) && paramTypes.Length == 1 && paramTypes[0] == typeof(object))
+        {
+            target = typeof(object).GetMethod(nameof(Equals), new[] { typeof(object) })!;
+            return true;
+        }
+
+        if (name == "GetHashCode" && returnType == typeof(int) && paramTypes.Length == 0)
+        {
+            target = typeof(object).GetMethod(nameof(GetHashCode), Type.EmptyTypes)!;
+            return true;
+        }
+
         return false;
     }
 
@@ -3224,6 +3251,7 @@ internal sealed class ColumnarIlEmitter
                 var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
                 List<MethodBuilder>? overriddenInterfaceMethods = null;
                 List<MethodInfo>? overriddenExternalInterfaceMethods = null;
+                MethodInfo? overriddenObjectMethod = null;
                 var seenOverriddenInterfaceMethods = new HashSet<MethodBuilder>();
                 var seenOverriddenExternalInterfaceMethods = new HashSet<MethodInfo>();
                 foreach (var implementedInterface in def.ImplementedInterfaces)
@@ -3249,9 +3277,18 @@ internal sealed class ColumnarIlEmitter
                         }
                     }
                 }
+                if ((m.ModifierFlags & NSharpModifierOverride) != 0)
+                {
+                    if (!TryFindObjectOverrideTarget(m.Name, mReturn, mParamTypes, out overriddenObjectMethod))
+                        return false;
+                    methodAttributes |= MethodAttributes.Virtual;
+                    methodAttributes &= ~MethodAttributes.NewSlot;
+                }
                 var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mReturn, mParamTypes);
                 if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
                     return false;
+                if (overriddenObjectMethod != null)
+                    def.Builder.DefineMethodOverride(mb, overriddenObjectMethod);
                 if (overriddenInterfaceMethods != null)
                 {
                     foreach (var overriddenInterfaceMethod in overriddenInterfaceMethods)

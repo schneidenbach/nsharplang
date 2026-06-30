@@ -66,6 +66,7 @@ public class ColumnarFunctionInput {
     TypeParamNames: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
+    ModifierFlags: int
     public LocalFunctions: List<ColumnarLocalFunctionInput>?
 
     constructor(
@@ -84,10 +85,12 @@ public class ColumnarFunctionInput {
         paramModifierKinds: int[]? = null,
         paramDefaultKinds: int[]? = null,
         paramDefaultTexts: string[]? = null,
-        isAsync: bool = false) {
+        isAsync: bool = false,
+        modifierFlags: int = 0) {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
+        ModifierFlags = modifierFlags
         ParamNames = paramNames
         ParamCanonicals = paramCanonicals
         ParamModifierKinds = paramModifierKinds ?? new int[](0)

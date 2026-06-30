@@ -106,6 +106,7 @@ struct StructDeclarationTable {
     FieldInitLengths: int[]
     MethodFuncIndices: int[]
     MethodStaticFlags: int[]
+    MethodModifierFlags: int[]
     CtorIndices: int[]
     PropIndices: int[]
     PropStaticFlags: int[]
@@ -1585,10 +1586,20 @@ func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: 
 
     result.Values[0] = 0
     result.Values[1] = 0
+    if result.Values.Length >= 3 {
+        result.Values[2] = 0
+    }
     while pos < count {
         modifierKind := ParserDeclarationMemberModifierKind(tokens.Kinds[pos])
         if modifierKind == 0 {
             break
+        }
+
+        if result.Values.Length >= 3 {
+            flag := ModifierFlag(tokens.Kinds[pos])
+            if flag != 0 {
+                result.Values[2] = result.Values[2] | flag
+            }
         }
 
         if modifierKind == 2 {
@@ -2053,7 +2064,7 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
     fieldCount := 0
     propCount := 0
     fieldsDone := 0
-    memberModifierValues := new int[](2)
+    memberModifierValues := new int[](3)
     memberModifiers := new ParserDeclarationResultTable { Values: memberModifierValues }
     fieldTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
     initializerTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
@@ -2240,6 +2251,9 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
         if tokens.Kinds[memberStart] == 7 {
             decl.MethodFuncIndices[methodCount] = memberStart
             decl.MethodStaticFlags[methodCount] = memberModifiers.Values[0]
+            if decl.MethodModifierFlags.Length > methodCount {
+                decl.MethodModifierFlags[methodCount] = memberModifiers.Values[2]
+            }
             methodCount = methodCount + 1
             pos = memberStart + 1
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {

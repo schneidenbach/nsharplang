@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Text
 import NSharpLang.Compiler.Ast
 
 public class TypeInfo {
@@ -195,5 +196,98 @@ public class AliasTypeInfo: TypeInfo {
 
     constructor(aliasedType: TypeReference) {
         aliasedTypeValue = aliasedType
+    }
+}
+
+public class GenericTypeInfo: TypeInfo {
+    nameValue: string
+    typeArgumentsValue: List<TypeInfo>
+
+    Name: string => nameValue
+    TypeArguments: List<TypeInfo> => typeArgumentsValue
+
+    constructor(name: string, typeArguments: List<TypeInfo>) {
+        nameValue = name
+        typeArgumentsValue = typeArguments
+    }
+
+    override func ToString(): string {
+        builder := new StringBuilder()
+        builder.Append(nameValue)
+        builder.Append("<")
+
+        index := 0
+        while index < typeArgumentsValue.Count {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            argumentObject := typeArgumentsValue[index] as object
+            builder.Append(argumentObject.ToString())
+            index = index + 1
+        }
+
+        builder.Append(">")
+        return builder.ToString()
+    }
+}
+
+public class ArrayTypeInfo: TypeInfo {
+    elementTypeValue: TypeInfo
+
+    ElementType: TypeInfo => elementTypeValue
+
+    constructor(elementType: TypeInfo) {
+        elementTypeValue = elementType
+    }
+
+    override func ToString(): string {
+        elementObject := elementTypeValue as object
+        return elementObject.ToString() + "[]"
+    }
+}
+
+public class NullableTypeInfo: TypeInfo {
+    innerTypeValue: TypeInfo
+
+    InnerType: TypeInfo => innerTypeValue
+
+    constructor(innerType: TypeInfo) {
+        innerTypeValue = innerType
+    }
+
+    override func ToString(): string {
+        innerObject := innerTypeValue as object
+        return innerObject.ToString() + "?"
+    }
+}
+
+public class ObliviousTypeInfo: TypeInfo {
+    innerTypeValue: TypeInfo
+
+    InnerType: TypeInfo => innerTypeValue
+
+    constructor(innerType: TypeInfo) {
+        innerTypeValue = innerType
+    }
+
+    override func ToString(): string {
+        innerObject := innerTypeValue as object
+        return innerObject.ToString() + "!"
+    }
+}
+
+public class ByRefTypeInfo: TypeInfo {
+    innerTypeValue: TypeInfo
+
+    InnerType: TypeInfo => innerTypeValue
+
+    constructor(innerType: TypeInfo) {
+        innerTypeValue = innerType
+    }
+
+    override func ToString(): string {
+        innerObject := innerTypeValue as object
+        return "&" + innerObject.ToString()
     }
 }

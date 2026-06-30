@@ -57,7 +57,7 @@ func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts:
 
 func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, result: &ColumnarStructResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
-    decl := new StructDeclarationTable { FieldNameStarts: scratch.FieldNameStarts, FieldNameLengths: scratch.FieldNameLengths, FieldTypeStarts: scratch.FieldTypeStarts, FieldTypeLengths: scratch.FieldTypeLengths, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitStarts: scratch.FieldInitStarts, FieldInitLengths: scratch.FieldInitLengths, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamStarts: scratch.TypeParamStarts, TypeParamLengths: scratch.TypeParamLengths, BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths }
+    decl := new StructDeclarationTable { FieldNameStarts: scratch.FieldNameStarts, FieldNameLengths: scratch.FieldNameLengths, FieldTypeStarts: scratch.FieldTypeStarts, FieldTypeLengths: scratch.FieldTypeLengths, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitStarts: scratch.FieldInitStarts, FieldInitLengths: scratch.FieldInitLengths, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, MethodModifierFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamStarts: scratch.TypeParamStarts, TypeParamLengths: scratch.TypeParamLengths, BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths }
     declarationResult := new ParserDeclarationResultTable { Values: result.Values }
     fieldCount := ParseStructDeclarationCore(source, ref declarationTokens, tokens.Count, structIndex, ref decl, ref declarationResult)
     methodCount := result.Values[2]
@@ -120,7 +120,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
 
         i = 0
         while i < methodCount {
-            if outputs.MethodStaticFlags[i] == 1 {
+            if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
                 return -1
             }
 
@@ -274,10 +274,10 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStru
         }
 
         methodParamCounts[i] = paramCount
-        if outputs.MethodStaticFlags[i] == 1 {
+        if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
             j := 0
             while j < i {
-                if outputs.MethodStaticFlags[j] == 1 && methodParamCounts[j] == paramCount {
+                if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) && methodParamCounts[j] == paramCount {
                     if methodName == methodNameTexts[j] {
                         sameSignature := true
                         paramSlot := 0
@@ -587,6 +587,10 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: &ColumnarStructT
     return ""
 }
 
+func ColumnarStructMethodFlagIsStatic(flags: int): bool {
+    return (flags & 16) != 0
+}
+
 func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarStructTokenTable, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {
     if methodCount < 0 {
         return 0
@@ -594,10 +598,6 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
 
     i := 0
     while i < methodCount {
-        if outputs.MethodStaticFlags[i] != 0 && outputs.MethodStaticFlags[i] != 1 {
-            return 0
-        }
-
         methodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[i])
         if methodName == "" {
             return 0
@@ -619,17 +619,13 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
 
         j := i + 1
         while j < methodCount {
-            if outputs.MethodStaticFlags[j] != 0 && outputs.MethodStaticFlags[j] != 1 {
-                return 0
-            }
-
             otherMethodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[j])
             if otherMethodName == "" {
                 return 0
             }
 
             if methodName == otherMethodName {
-                if outputs.MethodStaticFlags[i] == 0 || outputs.MethodStaticFlags[j] == 0 {
+                if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) || !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) {
                     return 0
                 }
             }
