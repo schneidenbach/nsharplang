@@ -16,8 +16,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// </summary>
 public static class FixApplicator
 {
-    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
-
     /// <summary>
     /// Apply a list of TextEdits to source text.
     /// Edits are applied in reverse order (bottom-to-top) so that line numbers
@@ -30,7 +28,7 @@ public static class FixApplicator
         var sortedEdits = ValidateAndSortEdits(source, edits);
         var inputs = MaterializeEditInputs(sortedEdits);
         var output = new string[1];
-        var code = RequiredBindings.ApplyOrderedTextEdits(
+        var code = FixApplicatorEditEngine.ApplyOrderedTextEdits(
             source,
             inputs.StartLines,
             inputs.StartColumns,
@@ -76,7 +74,7 @@ public static class FixApplicator
     {
         var inputs = MaterializeEditInputs(sortedEdits);
         var errorInfo = new int[2];
-        var code = RequiredBindings.ValidateOrderedTextEdits(
+        var code = FixApplicatorEditEngine.ValidateOrderedTextEdits(
             source ?? string.Empty,
             source == null ? 0 : 1,
             inputs.StartLines,
@@ -126,43 +124,6 @@ public static class FixApplicator
 
         return new EditInputs(startLines, startColumns, endLines, endColumns, newTexts, count);
     }
-
-    private static Bindings RequiredBindings
-        => s_bindings.Value ?? throw new InvalidOperationException("N# fix applicator kernels are unavailable.");
-
-    private static Bindings? LoadBindings()
-        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<FixValidateOrderedTextEdits>(
-                programType,
-                "FixValidateOrderedTextEdits"),
-            DogfoodKernelLoader.CreateDelegate<FixApplyOrderedTextEdits>(
-                programType,
-                "FixApplyOrderedTextEdits")));
-
-    private delegate int FixValidateOrderedTextEdits(
-        string source,
-        int hasSource,
-        int[] startLines,
-        int[] startColumns,
-        int[] endLines,
-        int[] endColumns,
-        string[] newTexts,
-        int count,
-        int[] errorInfo);
-
-    private delegate int FixApplyOrderedTextEdits(
-        string source,
-        int[] startLines,
-        int[] startColumns,
-        int[] endLines,
-        int[] endColumns,
-        string[] newTexts,
-        int count,
-        string[] output);
-
-    private sealed record Bindings(
-        FixValidateOrderedTextEdits ValidateOrderedTextEdits,
-        FixApplyOrderedTextEdits ApplyOrderedTextEdits);
 
     private readonly record struct EditInputs(
         int[] StartLines,
