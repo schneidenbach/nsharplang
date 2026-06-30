@@ -1630,7 +1630,7 @@ internal class LintVisitor
             {
                 // File import: resolve the imported file and check if any of its
                 // exported symbols are used in this file's code identifiers.
-                used = IsFileImportUsed(ns, filePath);
+                used = LinterFileImportUsage.IsUsed(ns, filePath, _filePath, _allCodeIdentifiers);
             }
             else
             {
@@ -1669,53 +1669,6 @@ internal class LintVisitor
                     length);
             }
         }
-    }
-
-    private bool IsFileImportUsed(string importSymbol, string? importPath)
-    {
-        // If the import name itself is used as an identifier, it's used
-        if (_allCodeIdentifiers.Contains(importSymbol))
-            return true;
-
-        // Try to resolve the file and check if any of its exported symbols are used
-        if (importPath != null && _filePath != null)
-        {
-            var resolvedPath = ResolveFileImportPath(importPath);
-            if (resolvedPath != null)
-            {
-                var exportedSymbols = LinterExportedSymbolExtractor.Extract(resolvedPath);
-                if (exportedSymbols.Count > 0)
-                    return exportedSymbols.Any(s => _allCodeIdentifiers.Contains(s));
-            }
-        }
-
-        // Can't resolve file — be conservative, don't flag
-        return true;
-    }
-
-    private string? ResolveFileImportPath(string importPath)
-    {
-        if (_filePath == null)
-            return null;
-
-        var fileDir = Path.GetDirectoryName(_filePath);
-        if (fileDir == null)
-            return null;
-
-        // Try with and without .nl extension
-        var candidates = new[]
-        {
-            Path.GetFullPath(Path.Combine(fileDir, importPath)),
-            Path.GetFullPath(Path.Combine(fileDir, importPath + ".nl")),
-        };
-
-        foreach (var candidate in candidates)
-        {
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
     }
 
     // -------------------------------------------------------------------------
