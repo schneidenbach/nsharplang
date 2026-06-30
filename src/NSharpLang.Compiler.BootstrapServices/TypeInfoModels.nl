@@ -330,3 +330,40 @@ public class ReflectionMethodGroupInfo: TypeInfo {
         return displayValue
     }
 }
+
+public class ReflectionEventInfo: TypeInfo {
+    Name: string
+    AddMethod: MethodInfo?
+    RemoveMethod: MethodInfo?
+    HandlerDelegateType: Type?
+    DeclaringType: Type?
+    displayValue: string
+
+    constructor(
+        name: string,
+        addMethod: MethodInfo?,
+        removeMethod: MethodInfo?,
+        handlerDelegateType: Type?,
+        declaringType: Type?,
+        displayText: string) {
+        Name = name
+        AddMethod = addMethod
+        RemoveMethod = removeMethod
+        HandlerDelegateType = handlerDelegateType
+        DeclaringType = declaringType
+        displayValue = displayText
+    }
+
+    constructor(name: string) {
+        Name = name
+        AddMethod = null
+        RemoveMethod = null
+        HandlerDelegateType = null
+        DeclaringType = null
+        displayValue = "event"
+    }
+
+    override func ToString(): string {
+        return displayValue
+    }
+}

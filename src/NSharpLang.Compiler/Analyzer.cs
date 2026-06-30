@@ -9653,7 +9653,13 @@ public class Analyzer : IDisposable
         var evt = type.GetEvent(memberName, memberFlags);
         if (evt != null)
         {
-            memberType = new ReflectionEventInfo(evt);
+            memberType = new ReflectionEventInfo(
+                evt.Name,
+                evt.GetAddMethod(nonPublic: true),
+                evt.GetRemoveMethod(nonPublic: true),
+                evt.EventHandlerType,
+                evt.DeclaringType,
+                $"event {evt.Name}");
             return true;
         }
 
@@ -14480,9 +14486,9 @@ public class Analyzer : IDisposable
             return subscriptionType;
         }
 
-        var addMethod = eventInfo.Event.GetAddMethod(nonPublic: true);
-        var removeMethod = eventInfo.Event.GetRemoveMethod(nonPublic: true);
-        var handlerDelegateType = eventInfo.Event.EventHandlerType;
+        var addMethod = eventInfo.AddMethod;
+        var removeMethod = eventInfo.RemoveMethod;
+        var handlerDelegateType = eventInfo.HandlerDelegateType;
 
         // Prove the event is actually subscribable now, with a clear diagnostic, rather than
         // letting the IL backend throw on a missing accessor or value-type receiver.
@@ -14491,7 +14497,7 @@ public class Analyzer : IDisposable
             var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
             Error(
                 ErrorCode.InvalidEventSubscription,
-                $"'{eventInfo.Event.Name}' can't be subscribed to — it has no accessible add/remove accessors",
+                $"'{eventInfo.Name}' can't be subscribed to — it has no accessible add/remove accessors",
                 line,
                 column,
                 "This usually means the event is compiler-generated or inaccessible from N#.",
@@ -14500,12 +14506,12 @@ public class Analyzer : IDisposable
             return subscriptionType;
         }
 
-        if (!addMethod.IsStatic && (eventInfo.Event.DeclaringType?.IsValueType ?? false))
+        if (!addMethod.IsStatic && (eventInfo.DeclaringType?.IsValueType ?? false))
         {
             var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
             Error(
                 ErrorCode.InvalidEventSubscription,
-                $"subscribing to '{eventInfo.Event.Name}' isn't supported — it's an instance event on a value type (struct)",
+                $"subscribing to '{eventInfo.Name}' isn't supported — it's an instance event on a value type (struct)",
                 line,
                 column,
                 "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.",
@@ -14556,7 +14562,7 @@ public class Analyzer : IDisposable
     {
         var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
         var target = RenderEventTarget(assignment.Target);
-        var name = eventTarget.Event.Name;
+        var name = eventTarget.Name;
 
         string message;
         string hint;
@@ -14585,7 +14591,7 @@ public class Analyzer : IDisposable
         var target = RenderEventTarget(expr);
         Error(
             ErrorCode.EventRequiresOnOff,
-            $"'{eventRef.Event.Name}' is a .NET event and can only be used with `on`/`off`",
+            $"'{eventRef.Name}' is a .NET event and can only be used with `on`/`off`",
             line,
             column,
             $"Subscribe with `on {target} (sender, args) => {{ ... }}`; the result is a subscription you can later pass to `off`.",
@@ -23219,21 +23225,6 @@ public class EnumTypeInfo : TypeInfo
     public override string ToString() => Declaration.Name;
 }
 
-/// <summary>
-/// Represents a .NET event resolved via reflection. N# does not model events as fields;
-/// they are subscribed/unsubscribed exclusively through the <c>on</c>/<c>off</c> keywords.
-/// </summary>
-public class ReflectionEventInfo : TypeInfo
-{
-    public ReflectionEventInfo(System.Reflection.EventInfo @event)
-    {
-        Event = @event;
-    }
-
-    public System.Reflection.EventInfo Event { get; }
-
-    public override string ToString() => $"event {Event.Name}";
-}
 
 /// <summary>
 /// Represents a group of overloaded N#-declared methods
