@@ -190,6 +190,31 @@ public class TupleTypeInfo: TypeInfo {
     }
 }
 
+public class AnonymousUnionTypeInfo: TypeInfo {
+    Arms: List<TypeInfo>
+
+    constructor(arms: List<TypeInfo>) {
+        Arms = arms
+    }
+
+    override func ToString(): string {
+        builder := new StringBuilder()
+
+        index := 0
+        while index < Arms.Count {
+            if index > 0 {
+                builder.Append(" | ")
+            }
+
+            armObject := Arms[index] as object
+            builder.Append(armObject.ToString())
+            index = index + 1
+        }
+
+        return builder.ToString()
+    }
+}
+
 public class AliasTypeInfo: TypeInfo {
     aliasedTypeValue: TypeReference
 

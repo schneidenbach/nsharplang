@@ -4984,7 +4984,7 @@ public class Analyzer : IDisposable
                 thenNarrowings.Add(new FlowNarrowing(isExpr.VariableName, narrowedType, NullState.NotNull));
                 if (TryGetStableNullPath(isExpr.Expression) is { } path
                     && !path.Contains('.', StringComparison.Ordinal)
-                    && LookupSymbol(path) is UnionTypeInfo { IsAnonymous: true } sourceUnion
+                    && LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
                     && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
                 {
                     elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
@@ -4995,7 +4995,7 @@ public class Analyzer : IDisposable
                 // `x is Dog` — narrow x to Dog in then-branch
                 thenNarrowings.Add(new FlowNarrowing(path, narrowedType, NullState.NotNull));
                 if (!path.Contains('.', StringComparison.Ordinal)
-                    && LookupSymbol(path) is UnionTypeInfo { IsAnonymous: true } sourceUnion
+                    && LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
                     && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
                 {
                     elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
@@ -5014,7 +5014,7 @@ public class Analyzer : IDisposable
         return (thenNarrowings, elseNarrowings);
     }
 
-    private TypeInfo? TryRemoveAnonymousUnionArm(UnionTypeInfo sourceUnion, TypeInfo matchedType)
+    private TypeInfo? TryRemoveAnonymousUnionArm(AnonymousUnionTypeInfo sourceUnion, TypeInfo matchedType)
     {
         var remaining = sourceUnion.Arms
             .Where(arm => !IsAssignable(matchedType, arm))
@@ -5027,7 +5027,7 @@ public class Analyzer : IDisposable
         {
             0 => BuiltInTypes.Never,
             1 => remaining[0],
-            _ => new UnionTypeInfo(remaining)
+            _ => new AnonymousUnionTypeInfo(remaining)
         };
     }
 
@@ -8838,9 +8838,9 @@ public class Analyzer : IDisposable
                 }
                 return false;
 
-            case UnionTypeInfo { IsAnonymous: false } unionType:
+            case UnionTypeInfo unionType:
                 filePath = GetDeclarationFileForType(unionType);
-                if (unionType.Declaration!.Cases.Any(unionCase => unionCase.Name == memberName))
+                if (unionType.Declaration.Cases.Any(unionCase => unionCase.Name == memberName))
                 {
                     isExported = VisibilityConventions.IsExportedIdentifier(memberName);
                     return true;
@@ -8921,8 +8921,8 @@ public class Analyzer : IDisposable
                 }
                 return false;
 
-            case UnionTypeInfo { IsAnonymous: false } unionType:
-                var unionCase = unionType.Declaration!.Cases.FirstOrDefault(unionCase => unionCase.Name == memberName);
+            case UnionTypeInfo unionType:
+                var unionCase = unionType.Declaration.Cases.FirstOrDefault(unionCase => unionCase.Name == memberName);
                 if (unionCase != null)
                 {
                     declaration = new SymbolDeclaration(memberName, GetDeclarationFileForType(unionType), unionCase.Line, unionCase.Column, "unionCase");
@@ -9177,11 +9177,11 @@ public class Analyzer : IDisposable
             return members;
         }
 
-        if (receiverType is UnionTypeInfo { IsAnonymous: true })
+        if (receiverType is AnonymousUnionTypeInfo)
             return new List<string> { "Index", "Value" };
 
-        if (receiverType is UnionTypeInfo { IsAnonymous: false } unionType)
-            return unionType.Declaration!.Cases.Select(unionCase => unionCase.Name).ToList();
+        if (receiverType is UnionTypeInfo unionType)
+            return unionType.Declaration.Cases.Select(unionCase => unionCase.Name).ToList();
 
         if (receiverType is NewtypeInfo)
             return new List<string> { "Value", "ToString", "Equals", "GetHashCode" };
@@ -9246,7 +9246,7 @@ public class Analyzer : IDisposable
         RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name, recordType.Declaration),
         InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name, interfaceType.Declaration),
         EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name, enumType.Declaration),
-        UnionTypeInfo { IsAnonymous: false } unionType => GetDeclarationFilePath(unionType.Declaration!.Name, unionType.Declaration),
+        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name, unionType.Declaration),
         _ => _currentFilePath
     };
 
@@ -9552,7 +9552,7 @@ public class Analyzer : IDisposable
                 return objectMember;
         }
 
-        if (objectType is UnionTypeInfo { IsAnonymous: true })
+        if (objectType is AnonymousUnionTypeInfo)
         {
             return memberName switch
             {
@@ -9562,7 +9562,7 @@ public class Analyzer : IDisposable
             };
         }
 
-        if (objectType is UnionTypeInfo { IsAnonymous: false })
+        if (objectType is UnionTypeInfo)
         {
             return objectType;
         }
@@ -10483,7 +10483,7 @@ public class Analyzer : IDisposable
             ObliviousTypeInfo oblivious => TryConvertTypeInfoToClrType(oblivious.InnerType),
             GenericTypeInfo generic => TryConstructKnownGenericType(generic),
             FunctionTypeInfo function => TryConstructDelegateType(function),
-            UnionTypeInfo { IsAnonymous: true } anonymousUnion => TryConstructRuntimeUnionType(anonymousUnion),
+            AnonymousUnionTypeInfo anonymousUnion => TryConstructRuntimeUnionType(anonymousUnion),
             _ => null
         };
     }
@@ -10517,7 +10517,7 @@ public class Analyzer : IDisposable
         };
     }
 
-    private Type? TryConstructRuntimeUnionType(UnionTypeInfo unionType)
+    private Type? TryConstructRuntimeUnionType(AnonymousUnionTypeInfo unionType)
     {
         if (_wellKnownTypes?.RuntimeUnionOpen == null || unionType.Arms.Count != 2)
             return null;
@@ -16901,7 +16901,7 @@ public class Analyzer : IDisposable
             {
                 var parts = qualifiedCaseName.Split('.');
                 if (parts.Length == 2
-                    && LookupType(parts[0]) is UnionTypeInfo { IsAnonymous: false } unionBaseType)
+                    && LookupType(parts[0]) is UnionTypeInfo unionBaseType)
                 {
                     if (TryGetUnionCaseForPattern(unionBaseType, qualifiedCaseName, out _))
                     {
@@ -16913,7 +16913,7 @@ public class Analyzer : IDisposable
                     {
                         // Constructing a case the union doesn't declare used to surface as
                         // an internal emit failure; report it like the pattern path does.
-                        var caseNames = unionBaseType.Declaration!.Cases.Select(unionCase => unionCase.Name).ToList();
+                        var caseNames = unionBaseType.Declaration.Cases.Select(unionCase => unionCase.Name).ToList();
                         var similarCases = caseNames.Count > 0
                             ? new SmartSuggester(caseNames).SuggestSimilarNames(parts[1])
                             : new List<string>();
@@ -17563,7 +17563,7 @@ public class Analyzer : IDisposable
         string qualifiedCaseName,
         List<TypeReference>? typeArguments)
     {
-        var typeParameters = unionType.Declaration!.TypeParameters;
+        var typeParameters = unionType.Declaration.TypeParameters;
         var arity = typeParameters?.Count ?? 0;
         var typeRefSpan = GetTypeReferenceStartSpan(newExpr.Type!);
 
@@ -17628,15 +17628,15 @@ public class Analyzer : IDisposable
     {
         substitution = null;
 
-        if (valueType is UnionTypeInfo { IsAnonymous: false } direct)
+        if (valueType is UnionTypeInfo direct)
         {
             unionType = direct;
             return true;
         }
 
         if (valueType is GenericTypeInfo generic
-            && LookupType(generic.Name) is UnionTypeInfo { IsAnonymous: false } declared
-            && declared.Declaration!.TypeParameters is { Count: > 0 } typeParameters
+            && LookupType(generic.Name) is UnionTypeInfo declared
+            && declared.Declaration.TypeParameters is { Count: > 0 } typeParameters
             && typeParameters.Count == generic.TypeArguments.Count)
         {
             substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
@@ -18040,11 +18040,11 @@ public class Analyzer : IDisposable
         // Check exhaustiveness for union types and enum types
         // Guarded arms only partially cover their pattern, so unguarded arms (or a wildcard) are
         // still required for full coverage.
-        if (valueType is UnionTypeInfo { IsAnonymous: true } anonymousUnionType)
+        if (valueType is AnonymousUnionTypeInfo anonymousUnionType)
         {
             CheckAnonymousUnionMatchExhaustiveness(match, anonymousUnionType);
         }
-        else if (valueType is UnionTypeInfo { IsAnonymous: false } unionType)
+        else if (valueType is UnionTypeInfo unionType)
         {
             CheckMatchExhaustiveness(match, unionType);
         }
@@ -18140,7 +18140,7 @@ public class Analyzer : IDisposable
             length: MatchKeywordLength);
     }
 
-    private void CheckAnonymousUnionMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
+    private void CheckAnonymousUnionMatchExhaustiveness(MatchExpression match, AnonymousUnionTypeInfo unionType)
     {
         var covered = new bool[unionType.Arms.Count];
 
@@ -18191,13 +18191,7 @@ public class Analyzer : IDisposable
         UnionTypeInfo unionType,
         Dictionary<string, TypeInfo>? substitution = null)
     {
-        if (unionType.IsAnonymous)
-        {
-            CheckAnonymousUnionMatchExhaustiveness(match, unionType);
-            return;
-        }
-
-        var unionDeclaration = unionType.Declaration!;
+        var unionDeclaration = unionType.Declaration;
         var unionCases = unionDeclaration.Cases;
         var caseCount = unionCases.Count;
         var coveredFlags = ArrayPool<int>.Shared.Rent(caseCount);
@@ -18424,7 +18418,7 @@ public class Analyzer : IDisposable
             if (!nestedCoverage.TryGetValue(constrainedProperty.Name, out var coverage))
             {
                 coverage = (
-                    nestedUnionType.Declaration!.Name,
+                    nestedUnionType.Declaration.Name,
                     nestedUnionType.Declaration.Cases.Select(c => c.Name).ToHashSet(),
                     new HashSet<string>(),
                     new HashSet<string>());
@@ -18481,9 +18475,6 @@ public class Analyzer : IDisposable
     private static bool TryGetUnionCaseForPattern(UnionTypeInfo unionType, string patternName, out UnionCase unionCase)
     {
         unionCase = null!;
-        if (unionType.IsAnonymous || unionType.Declaration is null)
-            return false;
-
         if (!IsUnionCaseQualifierCompatible(unionType, patternName))
             return false;
 
@@ -18498,9 +18489,6 @@ public class Analyzer : IDisposable
 
     private static bool IsUnionCaseQualifierCompatible(UnionTypeInfo unionType, string patternName)
     {
-        if (unionType.IsAnonymous || unionType.Declaration is null)
-            return false;
-
         var lastDot = patternName.LastIndexOf('.');
         if (lastDot < 0)
             return true;
@@ -18854,7 +18842,7 @@ public class Analyzer : IDisposable
             RecordTypeInfo recordInfo => recordInfo.Declaration.TypeParameters?.Count ?? 0,
             SoaRecordTypeInfo => 0,
             InterfaceTypeInfo interfaceInfo => interfaceInfo.Declaration.TypeParameters?.Count ?? 0,
-            UnionTypeInfo { IsAnonymous: false } unionInfo => unionInfo.Declaration!.TypeParameters?.Count ?? 0,
+            UnionTypeInfo unionInfo => unionInfo.Declaration.TypeParameters?.Count ?? 0,
             EnumTypeInfo => 0,
             AliasTypeInfo => 0,
             NewtypeInfo => 0,
@@ -18887,7 +18875,7 @@ public class Analyzer : IDisposable
         foreach (var armRef in union.Arms)
         {
             var arm = ResolveType(armRef);
-            if (arm is UnionTypeInfo { IsAnonymous: true } nested)
+            if (arm is AnonymousUnionTypeInfo nested)
             {
                 resolvedArms.AddRange(nested.Arms);
             }
@@ -18928,7 +18916,7 @@ public class Analyzer : IDisposable
                 Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
         }
 
-        return new UnionTypeInfo(uniqueArms);
+        return new AnonymousUnionTypeInfo(uniqueArms);
     }
 
     private void RecordResolvedTypeReference(TypeReference typeRef, TypeInfo resolved)
@@ -19558,17 +19546,17 @@ public class Analyzer : IDisposable
                 && TypesEqual(targetByRef.InnerType, sourceByRef.InnerType);
         }
 
-        if (resolvedSource is UnionTypeInfo { IsAnonymous: true } sourceUnion
-            && resolvedTarget is UnionTypeInfo { IsAnonymous: true } targetUnion)
+        if (resolvedSource is AnonymousUnionTypeInfo sourceUnion
+            && resolvedTarget is AnonymousUnionTypeInfo targetUnion)
         {
             return sourceUnion.Arms.All(sourceArm =>
                 targetUnion.Arms.Any(targetArm => IsAssignable(targetArm, sourceArm)));
         }
 
-        if (resolvedTarget is UnionTypeInfo { IsAnonymous: true } unionTarget)
+        if (resolvedTarget is AnonymousUnionTypeInfo unionTarget)
             return unionTarget.Arms.Any(targetArm => IsAssignable(targetArm, resolvedSource));
 
-        if (resolvedSource is UnionTypeInfo { IsAnonymous: true } unionSource)
+        if (resolvedSource is AnonymousUnionTypeInfo unionSource)
             return unionSource.Arms.All(sourceArm => IsAssignable(resolvedTarget, sourceArm));
 
         if (resolvedSource is FunctionTypeInfo { Declaration: not null } sourceFunction)
@@ -20545,7 +20533,7 @@ public class Analyzer : IDisposable
         }
         // Classes, interfaces, arrays, delegates, unions are reference types
         if (type is ClassTypeInfo or InterfaceTypeInfo or ArrayTypeInfo
-            or FunctionTypeInfo or UnionTypeInfo)
+            or FunctionTypeInfo or UnionTypeInfo or AnonymousUnionTypeInfo)
             return true;
         // Records: reference types by default, but record struct is a value type
         if (type is RecordTypeInfo recordType)
@@ -20590,7 +20578,9 @@ public class Analyzer : IDisposable
         if (resolvedSource is NullableTypeInfo || resolvedTarget is NullableTypeInfo) return true;
 
         // Union types — pattern matching on union cases is always valid
-        if (resolvedSource is UnionTypeInfo || resolvedTarget is UnionTypeInfo) return true;
+        if (resolvedSource is UnionTypeInfo or AnonymousUnionTypeInfo
+            || resolvedTarget is UnionTypeInfo or AnonymousUnionTypeInfo)
+            return true;
 
         // Both are value types and different — impossible
         // The `is` operator is a CLR runtime type-identity test (isinst), NOT a conversion.
@@ -21435,6 +21425,7 @@ public class Analyzer : IDisposable
         SoaRecordTypeInfo => "soaRecord",
         InterfaceTypeInfo => "interface",
         EnumTypeInfo => "enum",
+        AnonymousUnionTypeInfo => "union",
         UnionTypeInfo => "union",
         FunctionTypeInfo => "function",
         NSharpMethodGroupInfo => "function",
@@ -23193,24 +23184,14 @@ public class InterfaceTypeInfo : TypeInfo
 
 public class UnionTypeInfo : TypeInfo
 {
-    public UnionDeclaration? Declaration { get; }
-    public IReadOnlyList<TypeInfo> Arms { get; }
-    public bool IsAnonymous => Declaration is null;
+    public UnionDeclaration Declaration { get; }
 
     public UnionTypeInfo(UnionDeclaration declaration)
     {
         Declaration = declaration;
-        Arms = Array.Empty<TypeInfo>();
     }
 
-    public UnionTypeInfo(IReadOnlyList<TypeInfo> arms)
-    {
-        Declaration = null;
-        Arms = arms;
-    }
-
-    public override string ToString()
-        => IsAnonymous ? string.Join(" | ", Arms.Select(a => a.ToString())) : Declaration!.Name;
+    public override string ToString() => Declaration.Name;
 }
 
 public class EnumTypeInfo : TypeInfo

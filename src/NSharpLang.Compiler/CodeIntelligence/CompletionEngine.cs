@@ -265,7 +265,7 @@ public class CompletionEngine
                 g.TypeArguments.Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
-            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
+            UnionTypeReference u => new AnonymousUnionTypeInfo(FlattenUnionTypeReference(u).Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
             _ => new SimpleTypeInfo("unknown")
         };
     }

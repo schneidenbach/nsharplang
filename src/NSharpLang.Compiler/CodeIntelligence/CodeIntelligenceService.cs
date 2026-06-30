@@ -1325,6 +1325,7 @@ public class CodeIntelligenceService
             RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.Declaration, memberName),
             InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.Declaration, memberName),
             EnumTypeInfo => receiverType,
+            AnonymousUnionTypeInfo => receiverType,
             UnionTypeInfo => receiverType,
             AliasTypeInfo aliasType => FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
             NullableTypeInfo nullableType => FindMemberTypeInfo(snapshot, nullableType.InnerType, memberName),
@@ -1442,7 +1443,7 @@ public class CodeIntelligenceService
                 g.TypeArguments.Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
-            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
+            UnionTypeReference u => new AnonymousUnionTypeInfo(FlattenUnionTypeReference(u).Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
             _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
         };
     }
@@ -1530,8 +1531,8 @@ public class CodeIntelligenceService
             SoaRecordTypeInfo soa => soa.Declaration.Name,
             InterfaceTypeInfo i => i.Declaration.Name,
             EnumTypeInfo e => e.Declaration.Name,
-            UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
-            UnionTypeInfo u => u.Declaration!.Name,
+            AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
+            UnionTypeInfo u => u.Declaration.Name,
             ReflectionTypeInfo r => r.Type.Name,
             _ => fallback
         };
@@ -1599,6 +1600,7 @@ public class CodeIntelligenceService
         SoaRecordTypeInfo => "soaRecord",
         InterfaceTypeInfo => "interface",
         EnumTypeInfo => "enum",
+        AnonymousUnionTypeInfo => "union",
         UnionTypeInfo => "union",
         FunctionTypeInfo => "function",
         GenericTypeInfo => "generic",
