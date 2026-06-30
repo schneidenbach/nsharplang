@@ -9,17 +9,6 @@ using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
-internal readonly record struct BuildOptionSummary(
-    string? OutputDir,
-    string? BackendOption,
-    string? ProjectOption,
-    bool Release,
-    bool Verbose,
-    bool Timings,
-    bool PerfReport,
-    bool Aot,
-    bool ShowHelp);
-
 partial class Program
 {
     static int Main(string[] args)
