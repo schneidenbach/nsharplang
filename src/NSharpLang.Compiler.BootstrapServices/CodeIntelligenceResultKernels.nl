@@ -67,10 +67,14 @@ public class CodeIntelligenceResultKernels {
     public static func DeduplicateReferences(
         references: IReadOnlyList<ReferenceResult>): ValueTuple<int[], int> {
         items := ReferenceList(references)
-        result := UniqueReferenceIndices(items)
-        values := result.ToArray()
-        SortReferenceIndices(values, values.Length, items)
-        return new ValueTuple<int[], int>(values, values.Length)
+        return DeduplicateReferenceSelection(items)
+    }
+
+    public static func DeduplicateReferenceResults(
+        references: IReadOnlyList<ReferenceResult>): List<ReferenceResult> {
+        items := ReferenceList(references)
+        selection := DeduplicateReferenceSelection(items)
+        return MaterializeReferenceResults(items, selection.Item1, selection.Item2)
     }
 
     public static func MatchesFilePath(fullPath: string, queryPath: string): bool {
@@ -99,6 +103,21 @@ public class CodeIntelligenceResultKernels {
         while i < count {
             diagnosticIndex := indices[i]
             results.Add(diagnostics[diagnosticIndex])
+            i = i + 1
+        }
+
+        return results
+    }
+
+    static func MaterializeReferenceResults(
+        references: List<ReferenceResult>,
+        indices: int[],
+        count: int): List<ReferenceResult> {
+        results := new List<ReferenceResult>(count)
+        i := 0
+        while i < count {
+            referenceIndex := indices[i]
+            results.Add(references[referenceIndex])
             i = i + 1
         }
 
@@ -155,6 +174,13 @@ public class CodeIntelligenceResultKernels {
         }
 
         return result
+    }
+
+    static func DeduplicateReferenceSelection(items: List<ReferenceResult>): ValueTuple<int[], int> {
+        result := UniqueReferenceIndices(items)
+        values := result.ToArray()
+        SortReferenceIndices(values, values.Length, items)
+        return new ValueTuple<int[], int>(values, values.Length)
     }
 
     static func DiagnosticKey(diagnostic: DiagnosticResult): string {

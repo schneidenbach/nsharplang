@@ -207,6 +207,27 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void CodeIntelligenceResultKernels_DeduplicateReferenceResultsMaterializesSortedResults()
+    {
+        var references = new List<ReferenceResult>
+        {
+            new("Program.nl", 10, 5, 6, "p := Person{}", false),
+            new("Models.nl", 1, 0, 6, "class Person {", true),
+            new("Program.nl", 10, 5, 6, "duplicate", false),
+            new("Program.nl", 2, 8, 6, "let p: Person", false)
+        };
+
+        var deduplicated = CodeIntelligenceResultKernels.DeduplicateReferenceResults(references);
+
+        Assert.Equal(3, deduplicated.Count);
+        Assert.Equal("Models.nl", deduplicated[0].File);
+        Assert.True(deduplicated[0].IsDefinition);
+        Assert.Equal(2, deduplicated[1].Line);
+        Assert.Equal(10, deduplicated[2].Line);
+        Assert.Equal("p := Person{}", deduplicated[2].Context);
+    }
+
+    [Fact]
     public void ErrorToJson_FormatsCorrectly()
     {
         var json = OutputFormatter.ErrorToJson(

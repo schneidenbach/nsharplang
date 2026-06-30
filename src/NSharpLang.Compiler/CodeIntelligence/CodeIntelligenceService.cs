@@ -447,15 +447,7 @@ public class CodeIntelligenceService
 
     private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
     {
-        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateReferences(results);
-        var deduplicated = new List<ReferenceResult>(resultCount);
-        for (var i = 0; i < resultCount; i++)
-        {
-            var referenceIndex = resultIndices[i];
-            deduplicated.Add(results[referenceIndex]);
-        }
-
-        return deduplicated;
+        return CodeIntelligenceResultKernels.DeduplicateReferenceResults(results);
     }
 
     // ── Hover Query ─────────────────────────────────────────────────────
