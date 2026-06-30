@@ -625,21 +625,7 @@ public static class OutputFormatter
 
     public static string HoverToText(HoverResult result, string file, int line, int col)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetHoverHeaderText(file, line, col));
-        sb.AppendLine();
-        sb.AppendLine(OutputFormatterTextKernels.GetHoverSignatureLineText(result.Signature));
-        sb.AppendLine(OutputFormatterTextKernels.GetHoverKindLineText(result.Kind));
-        if (result.DefinedIn != null)
-            sb.AppendLine(OutputFormatterTextKernels.GetHoverDefinedInLineText(result.DefinedIn));
-        if (!string.IsNullOrWhiteSpace(result.Documentation))
-        {
-            sb.AppendLine();
-            sb.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationHeaderText());
-            foreach (var docLine in result.Documentation.Split('\n'))
-                sb.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationLineText(docLine));
-        }
-        return sb.ToString();
+        return OutputFormatterTextBuilders.HoverToText(result, file, line, col);
     }
 
     // ── Call Graph ─────────────────────────────────────────────────────────
@@ -673,26 +659,7 @@ public static class OutputFormatter
 
     public static string CallGraphToText(CallGraphResult result)
     {
-        var sb = new StringBuilder();
-        if (result.Function != null)
-            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphFunctionHeaderText(result.Function));
-        else
-            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphFullHeaderText());
-        sb.AppendLine();
-
-        sb.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callers", result.Callers.Count));
-        foreach (var c in result.Callers)
-            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(c));
-
-        sb.AppendLine();
-        sb.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callees", result.Callees.Count));
-        foreach (var c in result.Callees)
-            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(c));
-
-        if (result.Truncated)
-            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphTruncatedLineText());
-
-        return sb.ToString();
+        return OutputFormatterTextBuilders.CallGraphToText(result);
     }
 
     // ── Implementors ───────────────────────────────────────────────────────
@@ -719,14 +686,7 @@ public static class OutputFormatter
 
     public static string ImplementorsToText(ImplementorsResult result)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetImplementorsHeaderText(
-            result.Interface,
-            result.Results.Count));
-        sb.AppendLine();
-        foreach (var r in result.Results)
-            sb.AppendLine(OutputFormatterTextKernels.GetImplementorLineText(r));
-        return sb.ToString();
+        return OutputFormatterTextBuilders.ImplementorsToText(result);
     }
 
     // ── Error ──────────────────────────────────────────────────────────────
@@ -883,35 +843,17 @@ public static class OutputFormatter
 
     public static string TypeToText(TypeResult result, string file, int line, int col)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetTypeLocationHeaderText(file, line, col));
-        sb.AppendLine(OutputFormatterTextKernels.GetTypeResultLineText(result));
-        if (!string.IsNullOrWhiteSpace(result.Nullability))
-            sb.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(result.Nullability));
-        if (result.Definition != null)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(result.Definition));
-        }
-        return sb.ToString();
+        return OutputFormatterTextBuilders.TypeToText(result, file, line, col);
     }
 
     public static string DefinitionToText(DefinitionResult result)
     {
-        return OutputFormatterTextKernels.GetDefinitionLineText(result);
+        return OutputFormatterTextBuilders.DefinitionToText(result);
     }
 
     public static string ReferencesToText(string symbolName, List<ReferenceResult> results)
     {
-        if (results.Count == 0)
-            return OutputFormatterTextKernels.GetNoReferencesText(symbolName);
-
-        var sb = new StringBuilder();
-        sb.AppendLine(OutputFormatterTextKernels.GetReferencesHeaderText(symbolName, results.Count));
-        foreach (var r in results)
-        {
-            sb.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(r));
-        }
-        return sb.ToString();
+        return OutputFormatterTextBuilders.ReferencesToText(symbolName, results);
     }
 
     public static string DocToText(DocResult result)

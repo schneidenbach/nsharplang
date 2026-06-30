@@ -37,6 +37,42 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
+    public static func TypeToText(result: TypeResult, fileName: string, line: int, column: int): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetTypeLocationHeaderText(fileName, line, column))
+        builder.AppendLine(OutputFormatterTextKernels.GetTypeResultLineText(result))
+
+        nullability := result.Nullability ?? ""
+        if !String.IsNullOrWhiteSpace(nullability) {
+            builder.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(nullability))
+        }
+
+        if result.Definition != null {
+            definition := (LocationResult)result.Definition
+            builder.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(definition))
+        }
+
+        return builder.ToString()
+    }
+
+    public static func DefinitionToText(result: DefinitionResult): string {
+        return OutputFormatterTextKernels.GetDefinitionLineText(result)
+    }
+
+    public static func ReferencesToText(symbolName: string, results: List<ReferenceResult>): string {
+        if results.Count == 0 {
+            return OutputFormatterTextKernels.GetNoReferencesText(symbolName)
+        }
+
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetReferencesHeaderText(symbolName, results.Count))
+        foreach reference in results {
+            builder.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(reference))
+        }
+
+        return builder.ToString()
+    }
+
     public static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
@@ -73,6 +109,75 @@ public class OutputFormatterTextBuilders {
             if items.Count > 50 {
                 builder.AppendLine(OutputFormatterTextKernels.GetCompletionOverflowLineText(items.Count - 50))
             }
+        }
+
+        return builder.ToString()
+    }
+
+    public static func HoverToText(result: HoverResult, fileName: string, line: int, column: int): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetHoverHeaderText(fileName, line, column))
+        builder.AppendLine()
+        builder.AppendLine(OutputFormatterTextKernels.GetHoverSignatureLineText(result.Signature))
+        builder.AppendLine(OutputFormatterTextKernels.GetHoverKindLineText(result.Kind))
+
+        if result.DefinedIn != null {
+            definedIn := result.DefinedIn ?? ""
+            builder.AppendLine(OutputFormatterTextKernels.GetHoverDefinedInLineText(definedIn))
+        }
+
+        documentation := result.Documentation ?? ""
+        if !String.IsNullOrWhiteSpace(documentation) {
+            builder.AppendLine()
+            builder.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationHeaderText())
+            lines := documentation.Split('\n')
+            index := 0
+            while index < lines.Length {
+                builder.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationLineText(lines[index]))
+                index = index + 1
+            }
+        }
+
+        return builder.ToString()
+    }
+
+    public static func CallGraphToText(result: CallGraphResult): string {
+        builder := new StringBuilder()
+        if result.Function != null {
+            functionName := result.Function ?? ""
+            builder.AppendLine(OutputFormatterTextKernels.GetCallGraphFunctionHeaderText(functionName))
+        } else {
+            builder.AppendLine(OutputFormatterTextKernels.GetCallGraphFullHeaderText())
+        }
+
+        builder.AppendLine()
+        builder.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callers", result.Callers.Count))
+        foreach caller in result.Callers {
+            builder.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(caller))
+        }
+
+        builder.AppendLine()
+        builder.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callees", result.Callees.Count))
+        foreach callee in result.Callees {
+            builder.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(callee))
+        }
+
+        if result.Truncated {
+            builder.AppendLine(OutputFormatterTextKernels.GetCallGraphTruncatedLineText())
+        }
+
+        return builder.ToString()
+    }
+
+    public static func ImplementorsToText(result: ImplementorsResult): string {
+        builder := new StringBuilder()
+        builder.AppendLine(OutputFormatterTextKernels.GetImplementorsHeaderText(
+            result.Interface,
+            result.Results.Count))
+        builder.AppendLine()
+
+        foreach implementor in result.Results {
+            builder.AppendLine(OutputFormatterTextKernels.GetImplementorLineText(implementor))
         }
 
         return builder.ToString()
