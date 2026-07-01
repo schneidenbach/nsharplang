@@ -19,7 +19,8 @@ internal static class QuerySymbolNameFilter
         if (limit <= 0)
             return new List<SymbolResult>();
 
-        if (!IsAscii(pattern))
+        var bindings = RequiredBindings;
+        if (!bindings.CliSymbolNameIsAscii(pattern))
             throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
 
         var useGlob = pattern.Contains('*');
@@ -31,7 +32,7 @@ internal static class QuerySymbolNameFilter
         for (var i = 0; i < symbolCount; i++)
         {
             var name = symbols[i].Name;
-            if (!IsAscii(name))
+            if (!bindings.CliSymbolNameIsAscii(name))
             {
                 throw new InvalidOperationException("N# query symbol-name filter kernel rejected the pattern.");
             }
@@ -39,7 +40,6 @@ internal static class QuerySymbolNameFilter
             scratch.Names[i] = name;
         }
 
-        var bindings = RequiredBindings;
         var filteredCount = useGlob
             ? bindings.CliSymbolNameGlobFilterIndices(
                 scratch.Names,
@@ -71,18 +71,8 @@ internal static class QuerySymbolNameFilter
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
-            DogfoodKernelLoader.CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto")));
-
-    private static bool IsAscii(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] > 0x7f)
-                return false;
-        }
-
-        return true;
-    }
+            DogfoodKernelLoader.CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliSymbolNameIsAscii>(programType, "CliSymbolNameIsAscii")));
 
     private delegate int CliSymbolNameGlobFilterIndicesInto(
         string[] names,
@@ -96,9 +86,12 @@ internal static class QuerySymbolNameFilter
         int limit,
         int[] resultIndices);
 
+    private delegate bool CliSymbolNameIsAscii(string value);
+
     private sealed record Bindings(
         CliSymbolNameGlobFilterIndicesInto CliSymbolNameGlobFilterIndices,
-        CliSymbolNameSubstringFilterIndicesInto CliSymbolNameSubstringFilterIndices);
+        CliSymbolNameSubstringFilterIndicesInto CliSymbolNameSubstringFilterIndices,
+        CliSymbolNameIsAscii CliSymbolNameIsAscii);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# query symbol-name filter kernels are unavailable.");

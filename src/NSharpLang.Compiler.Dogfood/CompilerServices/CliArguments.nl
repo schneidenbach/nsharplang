@@ -5398,6 +5398,19 @@ func CliSymbolNameGlobFilterIndicesInto(
     return CliSymbolNameGlobFilterIndicesCore(ref symbolNames, pattern, limit, ref results)
 }
 
+func CliSymbolNameIsAscii(value: string): bool {
+    i := 0
+    while i < value.Length {
+        if (int)value[i] > 127 {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
 func CliSymbolNameGlobFilterIndicesCore(
     names: &CliSymbolNameTable,
     pattern: string,

@@ -3443,6 +3443,12 @@ dependencies:
                 "caf*",
                 200));
 
+        Assert.Throws<InvalidOperationException>(() =>
+            QuerySymbolNameFilter.Filter(
+                symbols,
+                "usér",
+                200));
+
         static SymbolResult NewSymbol(string name) =>
             new(
                 name,
