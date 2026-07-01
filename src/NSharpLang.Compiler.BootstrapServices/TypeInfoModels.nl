@@ -669,7 +669,6 @@ public class NullableTypeInfo: TypeInfo {
 }
 
 public class FunctionTypeInfo: TypeInfo {
-    Declaration: object?
     SyntheticName: string?
     SourceName: string?
     SourceContainingType: string?
@@ -680,6 +679,7 @@ public class FunctionTypeInfo: TypeInfo {
     ParameterNames: List<string>?
     ParameterTypes: List<TypeInfo>?
     SourceParameterTypes: List<TypeReference>?
+    SourceReturnType: TypeReference?
     ParameterModifiers: List<ParameterModifier>?
     RequiredParameterCount: int?
     HasParamsParameter: bool
@@ -688,8 +688,7 @@ public class FunctionTypeInfo: TypeInfo {
     HasMustUseAttribute: bool
     ReturnType: TypeInfo?
 
-    constructor(declaration: object?) {
-        Declaration = declaration
+    constructor() {
         HasParamsParameter = false
         HasMustUseAttribute = false
         SourceLine = 0

@@ -1924,8 +1924,8 @@ public class Analyzer : IDisposable
 
         ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
 
-        // Record function return type in semantic model for IDE features (scoped)
-        RecordFunctionInCurrentScope(func.Name, functionReturnType);
+        // Record full function facts in the semantic model for IDE/tooling features.
+        RecordFunctionInCurrentScope(func.Name, funcType);
 
         // Analyze body
         if (func.Body != null)
@@ -9390,7 +9390,7 @@ public class Analyzer : IDisposable
                     .Select(column => (Name: column.Name, Type: new ArrayTypeInfo(ResolveType(column.Type)) as TypeInfo))
                     .Concat(new[] { (Name: "length", Type: BuiltInTypes.Int as TypeInfo) })
                     .ToList();
-                return new FunctionTypeInfo(null)
+                return new FunctionTypeInfo()
                 {
                     SyntheticName = "wrap",
                     ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
@@ -9717,7 +9717,7 @@ public class Analyzer : IDisposable
         TypeInfo returnType,
         params (string Name, TypeInfo Type)[] parameters)
     {
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo()
         {
             SyntheticName = syntheticName,
             ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
@@ -10347,7 +10347,7 @@ public class Analyzer : IDisposable
 
             if (genDefName is "System.Action`1" or "System.Action`2" or "System.Action`3" or "System.Action`4")
             {
-                return new FunctionTypeInfo(null)
+                return new FunctionTypeInfo()
                 {
                     ParameterTypes = typeArgs,
                     ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, typeArgs.Count).ToList(),
@@ -10356,7 +10356,7 @@ public class Analyzer : IDisposable
             }
             if (genDefName is "System.Func`1" or "System.Func`2" or "System.Func`3" or "System.Func`4" or "System.Func`5")
             {
-                return new FunctionTypeInfo(null)
+                return new FunctionTypeInfo()
                 {
                     ParameterTypes = typeArgs.Take(typeArgs.Count - 1).ToList(),
                     ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, Math.Max(0, typeArgs.Count - 1)).ToList(),
@@ -10368,9 +10368,9 @@ public class Analyzer : IDisposable
         // Fallback: use the Invoke method on the resolved delegate type
         var invokeMethod = resolvedType.GetMethod("Invoke");
         if (invokeMethod == null)
-            return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
+            return new FunctionTypeInfo() { ReturnType = BuiltInTypes.Unknown };
 
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo()
         {
             ParameterTypes = invokeMethod.GetParameters()
                 .Select(p => NullabilityMetadata.ConvertParameter(
@@ -10435,7 +10435,7 @@ public class Analyzer : IDisposable
 
             if (genDefName is "System.Action`1" or "System.Action`2" or "System.Action`3" or "System.Action`4")
             {
-                return new FunctionTypeInfo(null)
+                return new FunctionTypeInfo()
                 {
                     ParameterTypes = typeArguments,
                     ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, typeArguments.Count).ToList(),
@@ -10445,7 +10445,7 @@ public class Analyzer : IDisposable
 
             if (genDefName is "System.Func`1" or "System.Func`2" or "System.Func`3" or "System.Func`4" or "System.Func`5")
             {
-                return new FunctionTypeInfo(null)
+                return new FunctionTypeInfo()
                 {
                     ParameterTypes = typeArguments.Take(typeArguments.Count - 1).ToList(),
                     ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, Math.Max(0, typeArguments.Count - 1)).ToList(),
@@ -10456,11 +10456,11 @@ public class Analyzer : IDisposable
 
         var invokeMethod = delegateType.GetMethod("Invoke");
         if (invokeMethod == null)
-            return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
+            return new FunctionTypeInfo() { ReturnType = BuiltInTypes.Unknown };
 
         var invokeParameters = invokeMethod.GetParameters();
 
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo()
         {
             ParameterTypes = invokeParameters
                 .Select(parameter => NullabilityMetadata.ConvertParameter(parameter))
@@ -10475,7 +10475,7 @@ public class Analyzer : IDisposable
     private FunctionTypeInfo CreateFunctionTypeInfo(FunctionDeclaration func, string? containingType = null)
     {
         var sourceContainingType = containingType ?? _currentTypeName;
-        return new FunctionTypeInfo(func)
+        return new FunctionTypeInfo()
         {
             SyntheticName = func.Name,
             SourceName = func.Name,
@@ -10487,6 +10487,7 @@ public class Analyzer : IDisposable
             ParameterNames = func.Parameters.Select(parameter => parameter.Name).ToList(),
             ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
             SourceParameterTypes = func.Parameters.Select(parameter => parameter.Type).ToList(),
+            SourceReturnType = func.ReturnType,
             ParameterModifiers = func.Parameters.Select(parameter => parameter.Modifier).ToList(),
             RequiredParameterCount = func.Parameters.Count(parameter =>
                 parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null),
@@ -10501,7 +10502,7 @@ public class Analyzer : IDisposable
 
     private FunctionTypeInfo CreateFunctionTypeInfo(DeclaredMemberInfo member)
     {
-        return new FunctionTypeInfo(member)
+        return new FunctionTypeInfo()
         {
             SyntheticName = member.Name,
             SourceName = member.Name,
@@ -10513,6 +10514,7 @@ public class Analyzer : IDisposable
             ParameterNames = member.ParameterNames.ToList(),
             ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
             SourceParameterTypes = member.ParameterTypes.ToList(),
+            SourceReturnType = member.ReturnType,
             ParameterModifiers = member.ParameterModifiers.ToList(),
             RequiredParameterCount = member.RequiredParameterCount,
             HasParamsParameter = member.HasParamsParameter,
@@ -13861,7 +13863,7 @@ public class Analyzer : IDisposable
                 ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
                 : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
 
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo()
         {
             ParameterTypes = parameterTypes,
             ReturnType = returnType
@@ -13908,7 +13910,7 @@ public class Analyzer : IDisposable
                 supplied.OpenParameterType,
                 workingTypeInfoBindings,
                 workingBindings);
-            parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown });
+            parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo() { ReturnType = BuiltInTypes.Unknown });
 
             if (expectedSignature == null)
                 return false;
@@ -16185,7 +16187,7 @@ public class Analyzer : IDisposable
 
         PopScope();
 
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo()
         {
             ParameterTypes = parameterTypes,
             ReturnType = returnType
@@ -18713,7 +18715,7 @@ public class Analyzer : IDisposable
             UnionTypeReference union => ResolveAnonymousUnionType(union),
             TupleTypeReference tuple => new TupleTypeInfo(
                 tuple.Elements.Select(e => new TupleTypeElementInfo(e.Name, ResolveType(e.Type))).ToList()),
-            FunctionTypeReference function => new FunctionTypeInfo(null)
+            FunctionTypeReference function => new FunctionTypeInfo()
             {
                 ParameterTypes = function.ParameterTypes.Select(ResolveType).ToList(),
                 ReturnType = ResolveType(function.ReturnType)
@@ -20424,7 +20426,7 @@ public class Analyzer : IDisposable
         GenericTypeInfo delegateType,
         out FunctionTypeInfo signature)
     {
-        signature = new FunctionTypeInfo(null)
+        signature = new FunctionTypeInfo()
         {
             ParameterTypes = new List<TypeInfo>(),
             ParameterModifiers = new List<Ast.ParameterModifier>(),

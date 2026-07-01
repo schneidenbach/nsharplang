@@ -308,6 +308,7 @@ func main() {
             Assert.Equal("function", addFunc!.Kind);
             Assert.NotNull(addFunc.Type); // return type should be populated
             Assert.Equal("int", addFunc.Type);
+            Assert.Equal("(a int, b int)", addFunc.Parameters);
             Assert.False(addFunc.IsStatic);
 
             // The function also appears via declarations with full parameter metadata

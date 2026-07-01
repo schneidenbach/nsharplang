@@ -133,8 +133,8 @@ public class SemanticModel {
         variablesValue[name] = typeInfo
     }
 
-    public func RecordFunction(name: string, returnType: TypeInfo) {
-        functionsValue[name] = returnType
+    public func RecordFunction(name: string, typeInfo: TypeInfo) {
+        functionsValue[name] = typeInfo
     }
 
     public func RecordProperty(name: string, typeInfo: TypeInfo) {
@@ -202,7 +202,7 @@ public class SemanticModel {
         }
 
         if functionsValue.TryGetValue(name, out value) {
-            return value
+            return GetFunctionLookupType(value)
         }
 
         if typesValue.TryGetValue(name, out value) {
@@ -227,7 +227,7 @@ public class SemanticModel {
                         best = value
                         bestDepth = depth
                     } else if scope.Functions.TryGetValue(name, out value) {
-                        best = value
+                        best = GetFunctionLookupType(value)
                         bestDepth = depth
                     }
                 }
@@ -237,6 +237,15 @@ public class SemanticModel {
         }
 
         return best
+    }
+
+    static func GetFunctionLookupType(typeInfo: TypeInfo): TypeInfo {
+        function := typeInfo as FunctionTypeInfo
+        if function != null && function.ReturnType != null {
+            return function.ReturnType
+        }
+
+        return typeInfo
     }
 
     public func GetVisibleVariablesAtPosition(line: int, column: int): Dictionary<string, TypeInfo> {

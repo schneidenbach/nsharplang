@@ -195,8 +195,8 @@ public class CompletionEngine
             var functions = new List<CompletionItem>();
             foreach (var (name, typeInfo) in semanticModel.Functions)
             {
-                var paramStr = typeInfo is FunctionTypeInfo { Declaration: FunctionDeclaration declaration }
-                    ? FormatParameters(declaration.Parameters)
+                var paramStr = typeInfo is FunctionTypeInfo functionType
+                    ? FormatParameters(functionType)
                     : null;
                 functions.Add(new CompletionItem(name, "function", FormatTypeInfo(typeInfo), paramStr, null, false));
             }
@@ -463,9 +463,50 @@ public class CompletionEngine
         return $"({string.Join(", ", parts)})";
     }
 
+    private static string? FormatParameters(FunctionTypeInfo function)
+    {
+        if (function.ParameterNames == null)
+            return null;
+
+        var parts = new List<string>(function.ParameterNames.Count);
+        for (var index = 0; index < function.ParameterNames.Count; index++)
+        {
+            var typeStr = GetFunctionParameterTypeText(function, index);
+            var hasDefaultValue = function.RequiredParameterCount.HasValue
+                && index >= function.RequiredParameterCount.Value
+                && GetFunctionParameterModifier(function, index) != ParameterModifier.Params;
+            parts.Add(hasDefaultValue
+                ? $"{function.ParameterNames[index]} {typeStr} = ..."
+                : $"{function.ParameterNames[index]} {typeStr}");
+        }
+
+        return $"({string.Join(", ", parts)})";
+    }
+
+    private static string GetFunctionParameterTypeText(FunctionTypeInfo function, int index)
+    {
+        if (function.SourceParameterTypes != null && index < function.SourceParameterTypes.Count)
+            return CodeIntelligenceService.FormatTypeReferencePublic(function.SourceParameterTypes[index]);
+
+        if (function.ParameterTypes != null && index < function.ParameterTypes.Count)
+            return NullabilityMetadata.FormatTypeInfo(function.ParameterTypes[index]);
+
+        return "unknown";
+    }
+
+    private static ParameterModifier GetFunctionParameterModifier(FunctionTypeInfo function, int index)
+    {
+        if (function.ParameterModifiers == null || index < 0 || index >= function.ParameterModifiers.Count)
+            return ParameterModifier.None;
+
+        return function.ParameterModifiers[index];
+    }
+
     private static string FormatTypeInfo(TypeInfo typeInfo)
-        => typeInfo is FunctionTypeInfo { Declaration: FunctionDeclaration { ReturnType: not null } declaration }
-            ? CodeIntelligenceService.FormatTypeReferencePublic(declaration.ReturnType)
+        => typeInfo is FunctionTypeInfo { SourceReturnType: not null } functionType
+            ? CodeIntelligenceService.FormatTypeReferencePublic(functionType.SourceReturnType)
+            : typeInfo is FunctionTypeInfo { ReturnType: not null } resolvedFunctionType
+                ? NullabilityMetadata.FormatTypeInfo(resolvedFunctionType.ReturnType)
             : NullabilityMetadata.FormatTypeInfo(typeInfo);
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
