@@ -9695,10 +9695,10 @@ internal sealed class ColumnarIlEmitter
             }
             case 32: // RelationalPattern `<op> <constant>` -> ordered comparison (the pattern-test emitter mirror).
             {
-                if (_nodes.ChildCount(patternNode) != 1 || !IsOrderedMatchType(matchValueType))
+                if (_nodes.ChildCount(patternNode) != 1 || !ColumnarPatternFacts.IsOrderedMatchType(matchValueType))
                     return false;
                 var operandNode = Child(patternNode, 0);
-                if (!IsLiteralPatternKind(_nodes.Kind(operandNode)))
+                if (!ColumnarPatternFacts.IsLiteralPatternKind(_nodes.Kind(operandNode)))
                     return false;
                 _il.Emit(OpCodes.Ldloc, matchLocal);
                 if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
@@ -9774,7 +9774,7 @@ internal sealed class ColumnarIlEmitter
             }
             default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/call/index/…) declines.
             {
-                if (!IsLiteralPatternKind(_nodes.Kind(patternNode)))
+                if (!ColumnarPatternFacts.IsLiteralPatternKind(_nodes.Kind(patternNode)))
                     return false;
                 _il.Emit(OpCodes.Ldloc, matchLocal);
                 if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
@@ -9993,18 +9993,6 @@ internal sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Br, successLabel);
         return true;
     }
-
-    // Node kinds that are LITERAL match patterns (constant-equality): int(0)/float(1)/char(2)/string(3)/bool(4).
-    // A non-literal primary in pattern position (null/parenthesized/member/call/index/…) is not a constant pattern,
-    // so the match declines to the N# backend path rather than emitting a misleading equality test. Identifier patterns
-    // (kind 6 — `_` discard / binding) are handled separately, before this is consulted.
-    private static bool IsLiteralPatternKind(int kind) => kind >= 0 && kind <= 4;
-
-    // Ordered scalar types a RELATIONAL match pattern (`< c`, `>= c`, …) may test — numeric + char. bool and string
-    // have no `<`/`>` ordering in the modelled set, so a relational pattern over them declines to the N# backend path.
-    private static bool IsOrderedMatchType(Type t) =>
-        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
-        || t == typeof(double) || t == typeof(float);
 
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
     // (op_Equality), a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case), and a
