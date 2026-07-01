@@ -440,7 +440,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(TextWriter)
         || t == typeof(System.Text.StringBuilder)
         || t == typeof(TimeSpan)
-        || IsSupportedProcessInteropType(t)
+        || ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(t)
         || IsSupportedTaskType(t)
         || t == typeof(IList)
         || t == typeof(Type)
@@ -500,11 +500,6 @@ internal sealed class ColumnarIlEmitter
 
     private static bool IsSupportedExternalType(Type t) =>
         t.Assembly == typeof(IYamlTypeConverter).Assembly;
-
-    private static bool IsSupportedProcessInteropType(Type t) =>
-        t == typeof(Process)
-        || t == typeof(ProcessStartInfo)
-        || t == typeof(StreamReader);
 
     private static bool IsSupportedTaskType(Type t) =>
         t == typeof(System.Threading.Tasks.Task)
