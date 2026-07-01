@@ -724,6 +724,53 @@ func Main() {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_StaticRefFieldUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+func Bump(ref value: int) {
+    value += 1
+}
+
+class Counter {
+    static Value: int
+}
+
+func Main() {
+    Bump(ref Counter.Value)
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_StaticRefPropertyUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+func Bump(ref value: int) {
+    value += 1
+}
+
+class Counter {
+    static Current: int {
+        get {
+            return 1
+        }
+    }
+}
+
+func Main() {
+    Bump(ref Counter.Current)
+}";
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("The 'ref' argument needs an assignable target", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
     {
         var source = @"

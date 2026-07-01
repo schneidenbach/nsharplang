@@ -11188,11 +11188,11 @@ public class Analyzer : IDisposable
 
     private bool? ClassifyStaticFieldMember(TypeInfo owner, string memberName)
     {
-        List<Declaration>? members = owner switch
+        DeclaredMemberInfo[]? members = owner switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
             _ => null,
         };
 
@@ -11200,11 +11200,11 @@ public class Analyzer : IDisposable
         {
             foreach (var declaredMember in members)
             {
-                if (GetDeclarationName(declaredMember) != memberName)
+                if (declaredMember.Name != memberName)
                     continue;
 
-                return declaredMember is FieldDeclaration field
-                    && field.Modifiers.HasFlag(Modifiers.Static);
+                return declaredMember.Kind == DeclaredMemberKind.Field
+                    && declaredMember.IsStatic;
             }
 
             if (owner is ClassTypeInfo classTypeWithBase)
