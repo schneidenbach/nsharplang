@@ -772,7 +772,12 @@ public sealed class SystemsAnalyzer
         if (_functionEntries.TryGetValue(declaration, out entry!))
             return true;
 
-        if (_functionEntriesBySite.TryGetValue(DeclarationSite.For(declaration), out var siteEntries)
+        return TryGetEntryForDeclarationSite(DeclarationSite.For(declaration), context, out entry);
+    }
+
+    private bool TryGetEntryForDeclarationSite(DeclarationSite site, WalkContext context, out FunctionEntry entry)
+    {
+        if (_functionEntriesBySite.TryGetValue(site, out var siteEntries)
             && siteEntries.Count == 1)
         {
             entry = siteEntries[0];
@@ -872,10 +877,11 @@ public sealed class SystemsAnalyzer
                 if (constraintType is not InterfaceTypeInfo iface)
                     continue;
 
-                var declared = iface.GetDeclaration().Members
-                    .OfType<FunctionDeclaration>()
-                    .FirstOrDefault(candidate => candidate.Name == member.MemberName);
-                if (declared != null && TryGetEntryForDeclaration(declared, context, out entry))
+                var declared = iface.DeclaredMembers
+                    .FirstOrDefault(candidate =>
+                        candidate.Kind == DeclaredMemberKind.Function
+                        && candidate.Name == member.MemberName);
+                if (declared != null && TryGetEntryForDeclarationSite(DeclarationSite.For(declared), context, out entry))
                     return true;
             }
         }
@@ -2273,6 +2279,9 @@ public sealed class SystemsAnalyzer
     {
         public static DeclarationSite For(FunctionDeclaration function)
             => new(function.Name, function.Line, function.Column, function.Parameters.Count);
+
+        public static DeclarationSite For(DeclaredMemberInfo member)
+            => new(member.Name, member.Line, member.Column, member.ParameterCount);
     }
 
     private sealed record CallSite(FunctionEntry Callee, int Line, int Column, int Length);
