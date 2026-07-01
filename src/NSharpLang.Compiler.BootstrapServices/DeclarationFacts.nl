@@ -7,7 +7,20 @@ public class DeclarationFacts {
     public static func GetDeclarationName(declaration: object): string? {
         value := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Name")
         text := value as string
-        return text
+        if text != null {
+            return text
+        }
+
+        typeName := declaration.GetType().Name
+        if typeName == "TestDeclaration" {
+            description := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Description")
+            return description as string
+        }
+        if typeName == "SetupDeclaration" {
+            return "setup"
+        }
+
+        return null
     }
 
     public static func GetDeclarationKind(declaration: object): string {
@@ -40,5 +53,14 @@ public class DeclarationFacts {
 
     public static func IsExportedDeclaration(declaration: object, name: string): bool {
         return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration))
+    }
+
+    public static func IsPublicSurfaceDeclaration(declaration: object): bool {
+        name := GetDeclarationName(declaration)
+        if name == null {
+            return false
+        }
+
+        return IsExportedDeclaration(declaration, name)
     }
 }

@@ -888,7 +888,7 @@ public class CodeIntelligenceService
     {
         foreach (var decl in declarations)
         {
-            if (!IsPublicSurfaceDeclaration(decl))
+            if (!DeclarationFacts.IsPublicSurfaceDeclaration(decl))
             {
                 continue;
             }
@@ -921,21 +921,21 @@ public class CodeIntelligenceService
                 c.Name, SymbolKind.Class, file, c.Line, c.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(c.Modifiers),
-                Members: c.Members.Where(IsPublicSurfaceDeclaration).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: c.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
                 Parameters: null),
 
             StructDeclaration s => new SymbolResult(
                 s.Name, SymbolKind.Struct, file, s.Line, s.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(s.Modifiers),
-                Members: s.Members.Where(IsPublicSurfaceDeclaration).Select(m => DeclarationToSymbol(m, file)).Where(s2 => s2 != null).Cast<SymbolResult>().ToArray(),
+                Members: s.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s2 => s2 != null).Cast<SymbolResult>().ToArray(),
                 Parameters: null),
 
             RecordDeclaration r => new SymbolResult(
                 r.Name, SymbolKind.Record, file, r.Line, r.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(r.Modifiers),
-                Members: r.Members.Where(IsPublicSurfaceDeclaration).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: r.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
                 Parameters: null),
 
             SoaRecordDeclaration soa => new SymbolResult(
@@ -958,7 +958,7 @@ public class CodeIntelligenceService
                 i.Name, SymbolKind.Interface, file, i.Line, i.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(i.Modifiers),
-                Members: i.Members.Where(IsPublicSurfaceDeclaration).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: i.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
                 Parameters: null),
 
             EnumDeclaration e => new SymbolResult(
@@ -973,7 +973,7 @@ public class CodeIntelligenceService
                 u.Name, SymbolKind.Union, file, u.Line, u.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(u.Modifiers),
-                Members: u.Cases.Where(c => IsPublicSurfaceName(c.Name, Modifiers.None)).Select(c => new SymbolResult(
+                Members: u.Cases.Where(c => VisibilityConventions.IsExportedIdentifier(c.Name, Modifiers.None)).Select(c => new SymbolResult(
                     c.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
                 Parameters: null),
 
@@ -1122,57 +1122,6 @@ public class CodeIntelligenceService
             return (fullPath, found);
 
         return (file, null);
-    }
-
-    private static string? GetDeclarationName(Declaration decl) => decl switch
-    {
-        FunctionDeclaration f => f.Name,
-        ClassDeclaration c => c.Name,
-        StructDeclaration s => s.Name,
-        RecordDeclaration r => r.Name,
-        SoaRecordDeclaration soa => soa.Name,
-        InterfaceDeclaration i => i.Name,
-        EnumDeclaration e => e.Name,
-        UnionDeclaration u => u.Name,
-        FieldDeclaration fd => fd.Name,
-        PropertyDeclaration pd => pd.Name,
-        TypeAliasDeclaration ta => ta.Name,
-        NewtypeDeclaration nt => nt.Name,
-        TestDeclaration td => td.Description,
-        SetupDeclaration => "setup",
-        _ => null
-    };
-
-    private static Ast.Modifiers GetDeclarationModifiers(Declaration decl) => decl switch
-    {
-        FunctionDeclaration f => f.Modifiers,
-        ClassDeclaration c => c.Modifiers,
-        StructDeclaration s => s.Modifiers,
-        RecordDeclaration r => r.Modifiers,
-        SoaRecordDeclaration soa => soa.Modifiers,
-        InterfaceDeclaration i => i.Modifiers,
-        EnumDeclaration e => e.Modifiers,
-        UnionDeclaration u => u.Modifiers,
-        FieldDeclaration fd => fd.Modifiers,
-        PropertyDeclaration pd => pd.Modifiers,
-        ConstructorDeclaration cd => cd.Modifiers,
-        _ => Ast.Modifiers.None
-    };
-
-    private static bool IsPublicSurfaceDeclaration(Declaration decl)
-    {
-        var name = GetDeclarationName(decl);
-        if (name == null)
-        {
-            return false;
-        }
-
-        return IsPublicSurfaceName(name, GetDeclarationModifiers(decl));
-    }
-
-    private static bool IsPublicSurfaceName(string name, Ast.Modifiers modifiers)
-    {
-        return VisibilityConventions.IsExportedIdentifier(name, modifiers);
     }
 
     private static bool IsTypeDeclarationKind(string kind)
@@ -1635,7 +1584,7 @@ public class CodeIntelligenceService
 
     private LocationResult? FindDefinitionLocationInDeclaration(ProjectSnapshot snapshot, string filePath, Declaration decl, string name)
     {
-        if (GetDeclarationName(decl) == name)
+        if (DeclarationFacts.GetDeclarationName(decl) == name)
             return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), decl.Line, decl.Column);
 
         foreach (var member in GetDeclarationMembers(decl) ?? Enumerable.Empty<Declaration>())
