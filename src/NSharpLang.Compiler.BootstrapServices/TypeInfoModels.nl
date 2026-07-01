@@ -25,6 +25,7 @@ public enum DeclaredMemberKind {
 public class DeclaredMemberInfo {
     nameValue: string
     kindValue: DeclaredMemberKind
+    kindNameValue: string
     typeValue: TypeReference?
     isStaticValue: bool
     isReadonlyValue: bool
@@ -39,6 +40,7 @@ public class DeclaredMemberInfo {
 
     Name: string => nameValue
     Kind: DeclaredMemberKind => kindValue
+    KindName: string => kindNameValue
     Type: TypeReference? => typeValue
     IsStatic: bool => isStaticValue
     IsReadonly: bool => isReadonlyValue
@@ -54,6 +56,7 @@ public class DeclaredMemberInfo {
     constructor(
         name: string,
         kind: DeclaredMemberKind,
+        kindName: string,
         typeReference: TypeReference?,
         isStatic: bool,
         isReadonly: bool,
@@ -67,6 +70,7 @@ public class DeclaredMemberInfo {
         column: int) {
         nameValue = name
         kindValue = kind
+        kindNameValue = kindName
         typeValue = typeReference
         isStaticValue = isStatic
         isReadonlyValue = isReadonly

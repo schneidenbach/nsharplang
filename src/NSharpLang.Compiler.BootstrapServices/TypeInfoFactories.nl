@@ -180,9 +180,11 @@ public class NominalTypeInfoFactory {
     static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
         typeName := member.GetType().Name
         name := GetOptionalString(member, "Name")
+        kind := GetDeclaredMemberKind(typeName)
         return new DeclaredMemberInfo(
             name,
-            GetDeclaredMemberKind(typeName),
+            kind,
+            GetDeclaredMemberKindName(kind),
             GetOptionalTypeReference(member, "Type"),
             HasOptionalModifier(member, 16),
             HasOptionalModifier(member, 512),
@@ -323,6 +325,47 @@ public class NominalTypeInfoFactory {
         }
 
         return DeclaredMemberKind.Unknown
+    }
+
+    static func GetDeclaredMemberKindName(kind: DeclaredMemberKind): string {
+        if kind == DeclaredMemberKind.Field {
+            return "field"
+        }
+        if kind == DeclaredMemberKind.Property {
+            return "property"
+        }
+        if kind == DeclaredMemberKind.Function {
+            return "function"
+        }
+        if kind == DeclaredMemberKind.Class {
+            return "class"
+        }
+        if kind == DeclaredMemberKind.Struct {
+            return "struct"
+        }
+        if kind == DeclaredMemberKind.Record {
+            return "record"
+        }
+        if kind == DeclaredMemberKind.SoaRecord {
+            return "soaRecord"
+        }
+        if kind == DeclaredMemberKind.Interface {
+            return "interface"
+        }
+        if kind == DeclaredMemberKind.Enum {
+            return "enum"
+        }
+        if kind == DeclaredMemberKind.Union {
+            return "union"
+        }
+        if kind == DeclaredMemberKind.TypeAlias {
+            return "typeAlias"
+        }
+        if kind == DeclaredMemberKind.Newtype {
+            return "newtype"
+        }
+
+        return "variable"
     }
 }
 

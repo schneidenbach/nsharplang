@@ -189,6 +189,7 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
     private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
     private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
+    private readonly Dictionary<string, CompilationUnit?> _projectCompilationUnitCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _projectSourceTexts = new(StringComparer.OrdinalIgnoreCase);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
@@ -232,6 +233,7 @@ public class Analyzer : IDisposable
     public void SetProjectSourceTexts(IReadOnlyDictionary<string, string> sourceTexts)
     {
         _projectSourceTexts.Clear();
+        _projectCompilationUnitCache.Clear();
         foreach (var (path, text) in sourceTexts)
         {
             _projectSourceTexts[Path.GetFullPath(path)] = text;
@@ -8887,21 +8889,20 @@ public class Analyzer : IDisposable
         switch (objectType)
         {
             case ClassTypeInfo classType:
-                var classDeclaration = classType.GetDeclaration();
-                if (TryFindDeclarationMember(classDeclaration.Members, memberName, GetDeclarationFileForType(classType), out declaration))
+                if (TryFindDeclaredMemberDeclaration(classType.DeclaredMembers, memberName, GetDeclarationFileForType(classType), out declaration))
                     return true;
                 if (classType.BaseClass != null)
                     return TryFindMemberDeclaration(ResolveType(classType.BaseClass), memberName, out declaration);
                 return false;
 
             case StructTypeInfo structType:
-                return TryFindDeclarationMember(structType.GetDeclaration().Members, memberName, GetDeclarationFileForType(structType), out declaration);
+                return TryFindDeclaredMemberDeclaration(structType.DeclaredMembers, memberName, GetDeclarationFileForType(structType), out declaration);
 
             case RecordTypeInfo recordType:
-                return TryFindDeclarationMember(recordType.GetDeclaration().Members, memberName, GetDeclarationFileForType(recordType), out declaration);
+                return TryFindDeclaredMemberDeclaration(recordType.DeclaredMembers, memberName, GetDeclarationFileForType(recordType), out declaration);
 
             case InterfaceTypeInfo interfaceType:
-                return TryFindDeclarationMember(interfaceType.GetDeclaration().Members, memberName, GetDeclarationFileForType(interfaceType), out declaration);
+                return TryFindDeclaredMemberDeclaration(interfaceType.DeclaredMembers, memberName, GetDeclarationFileForType(interfaceType), out declaration);
 
             case EnumTypeInfo enumType:
                 var enumMember = enumType.Declaration.Members.FirstOrDefault(member => member.Name == memberName);
@@ -9247,11 +9248,15 @@ public class Analyzer : IDisposable
             : _currentFilePath;
     }
 
-    private bool TryFindDeclarationMember(IEnumerable<Declaration> members, string memberName, string? filePath, out SymbolDeclaration declaration)
+    private bool TryFindDeclaredMemberDeclaration(
+        IEnumerable<DeclaredMemberInfo> members,
+        string memberName,
+        string? filePath,
+        out SymbolDeclaration declaration)
     {
         foreach (var member in members)
         {
-            if (GetDeclarationName(member) != memberName)
+            if (member.Name != memberName)
                 continue;
 
             declaration = CreateSymbolDeclaration(member, filePath);
@@ -9262,16 +9267,15 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private SymbolDeclaration CreateSymbolDeclaration(Declaration declaration, string? filePath)
+    private SymbolDeclaration CreateSymbolDeclaration(DeclaredMemberInfo member, string? filePath)
     {
-        var name = GetDeclarationName(declaration) ?? string.Empty;
         var sourceText = TryGetProjectSourceText(filePath);
         return new SymbolDeclaration(
-            name,
+            member.Name,
             filePath,
-            declaration.Line,
-            FindIdentifierNameColumn(sourceText, name, declaration.Line, declaration.Column),
-            GetDeclarationKind(declaration));
+            member.Line,
+            FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column),
+            member.KindName);
     }
 
     private static string? GetDeclarationName(Declaration declaration) => declaration switch
@@ -19048,6 +19052,17 @@ public class Analyzer : IDisposable
             return nestedType;
         }
 
+        if (TryResolveVisibleProjectType(name, out var projectType, out var projectDeclaration))
+        {
+            if (line > 0)
+            {
+                _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
+            }
+
+            _semanticModel.RecordType(name, projectType);
+            return projectType;
+        }
+
         // Check using aliases
         if (_usingAliases.TryGetValue(name, out var fullName))
         {
@@ -19079,6 +19094,158 @@ public class Analyzer : IDisposable
         }
 
         return new ExternalTypeInfo(name);
+    }
+
+    private bool TryResolveVisibleProjectType(string name, out TypeInfo type, out SymbolDeclaration declaration)
+    {
+        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        {
+            if (TryResolveProjectTypeInNamespace(name, visibleNamespace, out type, out declaration))
+            {
+                if (!string.IsNullOrWhiteSpace(declaration.File))
+                {
+                    _typeDeclarationFiles[name] = declaration.File!;
+                }
+
+                return true;
+            }
+        }
+
+        type = BuiltInTypes.Unknown;
+        declaration = null!;
+        return false;
+    }
+
+    private IEnumerable<string?> GetVisibleProjectTypeNamespaces()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var currentNamespace = GetUnitNamespace(_compilationUnit);
+        if (currentNamespace == null)
+        {
+            yield return null;
+        }
+        else if (seen.Add(currentNamespace))
+        {
+            yield return currentNamespace;
+        }
+
+        foreach (var namespaceName in _usingNamespaces)
+        {
+            if (seen.Add(namespaceName))
+            {
+                yield return namespaceName;
+            }
+        }
+    }
+
+    private bool TryResolveProjectTypeInNamespace(
+        string name,
+        string? namespaceName,
+        out TypeInfo type,
+        out SymbolDeclaration declaration)
+    {
+        var currentNamespace = GetUnitNamespace(_compilationUnit);
+        var isCurrentNamespace = string.Equals(namespaceName, currentNamespace, StringComparison.Ordinal);
+
+        foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
+        {
+            var unit = GetProjectCompilationUnit(filePath, sourceText);
+            if (unit == null)
+                continue;
+
+            if (!string.Equals(GetUnitNamespace(unit), namespaceName, StringComparison.Ordinal))
+                continue;
+
+            foreach (var topLevelDeclaration in unit.Declarations)
+            {
+                if (!TryCreateTopLevelTypeInfo(topLevelDeclaration, name, out type))
+                    continue;
+
+                if (!isCurrentNamespace && !IsExportedDeclaration(topLevelDeclaration, name))
+                    continue;
+
+                declaration = new SymbolDeclaration(
+                    name,
+                    filePath,
+                    topLevelDeclaration.Line,
+                    FindIdentifierNameColumn(sourceText, name, topLevelDeclaration.Line, topLevelDeclaration.Column),
+                    GetDeclarationKind(topLevelDeclaration));
+                return true;
+            }
+        }
+
+        type = BuiltInTypes.Unknown;
+        declaration = null!;
+        return false;
+    }
+
+    private IEnumerable<(string FilePath, string SourceText)> EnumerateProjectSourceTexts()
+    {
+        if (_projectSourceTexts.Count > 0)
+        {
+            foreach (var (filePath, sourceText) in _projectSourceTexts)
+            {
+                yield return (filePath, sourceText);
+            }
+
+            yield break;
+        }
+
+        if (string.IsNullOrWhiteSpace(_projectRoot) || !Directory.Exists(_projectRoot))
+        {
+            yield break;
+        }
+
+        foreach (var filePath in ProjectConfig.EnumerateSourceFiles(_projectRoot))
+        {
+            var fullPath = Path.GetFullPath(filePath);
+            if (File.Exists(fullPath))
+            {
+                yield return (fullPath, File.ReadAllText(fullPath));
+            }
+        }
+    }
+
+    private CompilationUnit? GetProjectCompilationUnit(string filePath, string sourceText)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        if (_projectCompilationUnitCache.TryGetValue(fullPath, out var cachedUnit))
+        {
+            return cachedUnit;
+        }
+
+        try
+        {
+            var lexer = new Lexer(sourceText, fullPath);
+            var parser = new Parser(lexer.Tokenize(), fullPath, sourceText);
+            var parseResult = parser.ParseCompilationUnit();
+            _projectCompilationUnitCache[fullPath] = parseResult.CompilationUnit;
+            return parseResult.CompilationUnit;
+        }
+        catch
+        {
+            _projectCompilationUnitCache[fullPath] = null;
+            return null;
+        }
+    }
+
+    private static bool TryCreateTopLevelTypeInfo(Declaration declaration, string name, out TypeInfo type)
+    {
+        type = declaration switch
+        {
+            ClassDeclaration classDecl when classDecl.Name == name => NominalTypeInfoFactory.FromClassDeclaration(classDecl),
+            StructDeclaration structDecl when structDecl.Name == name => NominalTypeInfoFactory.FromStructDeclaration(structDecl),
+            RecordDeclaration recordDecl when recordDecl.Name == name => NominalTypeInfoFactory.FromRecordDeclaration(recordDecl),
+            SoaRecordDeclaration soaRecordDecl when soaRecordDecl.Name == name => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
+            InterfaceDeclaration interfaceDecl when interfaceDecl.Name == name => NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl),
+            UnionDeclaration unionDecl when unionDecl.Name == name => UnionTypeInfoFactory.FromDeclaration(unionDecl),
+            EnumDeclaration enumDecl when enumDecl.Name == name => EnumTypeInfoFactory.FromDeclaration(enumDecl),
+            TypeAliasDeclaration aliasDecl when aliasDecl.Name == name => new AliasTypeInfo(aliasDecl.Type),
+            NewtypeDeclaration newtypeDecl when newtypeDecl.Name == name => new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType),
+            _ => BuiltInTypes.Unknown
+        };
+
+        return !BuiltInTypes.IsUnknown(type);
     }
 
     private bool TryResolveDottedNestedType(string name, out TypeInfo type)
