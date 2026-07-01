@@ -35,6 +35,16 @@ public class ProjectFileParser {
         return Parse(projectPath)
     }
 
+    public static func ParseFromDirectoryOrDefault(directory: string): ProjectConfig {
+        config := ParseFromDirectory(directory)
+        if config != null {
+            return config
+        }
+
+        projectName := Path.GetFileName(Path.GetFullPath(directory))
+        return CreateDefault(projectName)
+    }
+
     public static func CreateDefault(projectName: string? = null): ProjectConfig {
         config := new ProjectConfig()
         config.Name = projectName

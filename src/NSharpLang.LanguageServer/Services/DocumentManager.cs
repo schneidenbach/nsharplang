@@ -256,7 +256,8 @@ public class DocumentManager
 
             // Try to find and load project configuration
             var projectDir = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
-            var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
+            var projectConfig = ProjectFileParser.ParseFromDirectoryOrDefault(projectDir);
+            var analysisProjectRoot = ResolveAnalysisProjectRoot(projectDir);
 
             // Load assemblies from project configuration ONCE per project directory
             // Use lock to ensure thread-safe access to shared analyzer and loaded projects cache
@@ -274,7 +275,7 @@ public class DocumentManager
             if (state.CompilationUnit != null)
             {
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
-                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, projectDir, text);
+                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, analysisProjectRoot, text);
                 diagnostics.AddRange(analysisResult.Errors);
 
                 // Store semantic model and binding map for IDE features
@@ -578,6 +579,27 @@ public class DocumentManager
         }
 
         return Path.GetFullPath(directory);
+    }
+
+    private static string? ResolveAnalysisProjectRoot(string projectDir)
+    {
+        var fullProjectDir = Path.GetFullPath(projectDir);
+        if (File.Exists(Path.Combine(fullProjectDir, "project.yml")))
+        {
+            return fullProjectDir;
+        }
+
+        return IsFilesystemRoot(fullProjectDir) ? null : fullProjectDir;
+    }
+
+    private static bool IsFilesystemRoot(string directory)
+    {
+        var fullPath = Path.GetFullPath(directory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootPath = (Path.GetPathRoot(directory) ?? string.Empty)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return string.Equals(fullPath, rootPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private string ResolveSemanticProjectRoot(string filePath)

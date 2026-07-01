@@ -370,6 +370,28 @@ version: 2.0.0
     }
 
     [Fact]
+    public void TestParseFromDirectoryOrDefault_NotExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            var config = ProjectFileParser.ParseFromDirectoryOrDefault(tempDir);
+
+            Assert.NotNull(config);
+            Assert.Equal(Path.GetFileName(tempDir), config.Name);
+            Assert.Equal("il", config.Backend);
+            Assert.Equal("net10.0", config.TargetFramework);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCreateDefault()
     {
         var config = ProjectFileParser.CreateDefault("TestProject");

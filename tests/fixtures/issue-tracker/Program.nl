@@ -1,5 +1,3 @@
-
-
 namespace IssueTracker
 
 import Microsoft.AspNetCore.Builder

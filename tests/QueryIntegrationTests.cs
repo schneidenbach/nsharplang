@@ -1134,7 +1134,7 @@ func Main() {
     public void HoverCommand_AtCallSite_ReturnsHoverInfo()
     {
         var programFile = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
-        var hiLine = FindLineInFile(programFile, "Hi()", occurrence: 2);
+        var hiLine = FindLineInFile(programFile, "i := Hi()");
         var hiCol = FindColumnInFile(programFile, hiLine, "Hi");
         var result = _service.GetHoverInfo(HelloWorld, "Program.nl", hiLine, hiCol);
 

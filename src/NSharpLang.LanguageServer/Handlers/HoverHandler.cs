@@ -61,9 +61,10 @@ public class HoverHandler : HoverHandlerBase
         }
 
         // Try AST-based resolution first (most precise)
+        Expression? expression = null;
         if (doc.CompilationUnit != null && doc.SemanticModel != null)
         {
-            var expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit, line, character);
+            expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit, line, character);
             if (expression != null)
             {
                 var hover = TryResolveExpression(expression, word, doc);
@@ -80,6 +81,26 @@ public class HoverHandler : HoverHandlerBase
                     }
                     return Task.FromResult<Hover?>(hover);
                 }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(word)
+            && doc.SemanticModel != null
+            && (expression == null || expression is IdentifierExpression))
+        {
+            var hover = ResolveIdentifier(word, doc);
+            if (hover != null)
+            {
+                if (hover.Range == null)
+                {
+                    hover = new Hover
+                    {
+                        Contents = hover.Contents,
+                        Range = GetWordRange(doc.Text, line, character, word)
+                    };
+                }
+
+                return Task.FromResult<Hover?>(hover);
             }
         }
 
