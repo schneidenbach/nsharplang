@@ -20889,33 +20889,32 @@ public class Analyzer : IDisposable
 
     private bool ImplementsDuckInterface(TypeInfo source, InterfaceTypeInfo duckInterface)
     {
-        // Get the source type's members
-        List<Declaration>? sourceMembers = null;
+        var sourceMembers = source switch
+        {
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
+            _ => null
+        };
 
-        if (source is ClassTypeInfo classType)
-            sourceMembers = classType.GetDeclaration().Members;
-        else if (source is StructTypeInfo structType)
-            sourceMembers = structType.GetDeclaration().Members;
-        else if (source is RecordTypeInfo recordType)
-            sourceMembers = recordType.GetDeclaration().Members;
-        else
-            return false; // Can't check structural compatibility for other types
+        if (sourceMembers == null)
+            return false;
 
         // For each method in the duck interface, check if source has a matching method
-        foreach (var interfaceMember in duckInterface.GetDeclaration().Members)
+        foreach (var interfaceMember in duckInterface.DeclaredMembers)
         {
-            if (interfaceMember is not FunctionDeclaration interfaceMethod)
+            if (interfaceMember.Kind != DeclaredMemberKind.Function)
                 continue; // Skip non-method members
 
             // Look for a matching method in the source type
             var found = false;
             foreach (var sourceMember in sourceMembers)
             {
-                if (sourceMember is not FunctionDeclaration sourceMethod)
+                if (sourceMember.Kind != DeclaredMemberKind.Function)
                     continue;
 
                 // Check if method signatures match
-                if (MethodSignaturesMatch(sourceMethod, interfaceMethod))
+                if (MethodSignaturesMatch(sourceMember, interfaceMember))
                 {
                     found = true;
                     break;
@@ -20929,21 +20928,21 @@ public class Analyzer : IDisposable
         return true; // Source implements all interface methods
     }
 
-    private bool MethodSignaturesMatch(FunctionDeclaration method1, FunctionDeclaration method2)
+    private bool MethodSignaturesMatch(DeclaredMemberInfo method1, DeclaredMemberInfo method2)
     {
         // Must have same name
         if (method1.Name != method2.Name)
             return false;
 
         // Must have same number of parameters
-        if (method1.Parameters.Count != method2.Parameters.Count)
+        if (method1.ParameterCount != method2.ParameterCount)
             return false;
 
         // Check parameter types match
-        for (int i = 0; i < method1.Parameters.Count; i++)
+        for (int i = 0; i < method1.ParameterCount; i++)
         {
-            var type1 = ResolveType(method1.Parameters[i].Type);
-            var type2 = ResolveType(method2.Parameters[i].Type);
+            var type1 = ResolveType(method1.ParameterTypes[i]);
+            var type2 = ResolveType(method2.ParameterTypes[i]);
 
             // Simple type name comparison (could be more sophisticated)
             if (type1.ToString() != type2.ToString())
