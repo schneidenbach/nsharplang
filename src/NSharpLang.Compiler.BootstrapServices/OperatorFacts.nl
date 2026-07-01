@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import NSharpLang.Compiler.Ast
 
 public class OperatorFacts {
@@ -50,6 +51,33 @@ public class OperatorFacts {
         if op == AssignmentOperator.NullCoalesceAssign { return "??=" }
 
         return "operator"
+    }
+
+    public static func GetRequiredBinaryText(op: BinaryOperator): string {
+        text := GetBinaryText(op)
+        if text != "operator" {
+            return text
+        }
+
+        throw new InvalidOperationException("Formatter does not handle binary operator.")
+    }
+
+    public static func GetRequiredUnaryText(op: UnaryOperator): string {
+        text := GetUnaryText(op)
+        if text != "operator" {
+            return text
+        }
+
+        throw new InvalidOperationException("Formatter does not handle unary operator.")
+    }
+
+    public static func GetRequiredAssignmentText(op: AssignmentOperator): string {
+        text := GetAssignmentText(op)
+        if text != "operator" {
+            return text
+        }
+
+        throw new InvalidOperationException("Formatter does not handle assignment operator.")
     }
 
     public static func GetBinaryClrName(op: BinaryOperator): string? {
@@ -145,6 +173,33 @@ public class OperatorFacts {
         if op == UnaryOperator.Not { return true }
         if op == UnaryOperator.Negate { return true }
 
+        return false
+    }
+
+    public static func TryGetCompoundAssignmentBinaryOperator(
+        op: AssignmentOperator,
+        out binaryOperator: BinaryOperator): bool {
+        if op == AssignmentOperator.AddAssign {
+            binaryOperator = BinaryOperator.Add
+            return true
+        }
+
+        if op == AssignmentOperator.SubtractAssign {
+            binaryOperator = BinaryOperator.Subtract
+            return true
+        }
+
+        if op == AssignmentOperator.MultiplyAssign {
+            binaryOperator = BinaryOperator.Multiply
+            return true
+        }
+
+        if op == AssignmentOperator.DivideAssign {
+            binaryOperator = BinaryOperator.Divide
+            return true
+        }
+
+        binaryOperator = BinaryOperator.Add
         return false
     }
 }

@@ -1581,7 +1581,7 @@ public class Formatter
             case BinaryExpression bin:
                 FormatExpression(bin.Left, sb);
                 sb.Append(" ");
-                sb.Append(FormatBinaryOperator(bin.Operator));
+                sb.Append(OperatorFacts.GetRequiredBinaryText(bin.Operator));
                 sb.Append(" ");
                 FormatExpression(bin.Right, sb);
                 break;
@@ -1589,11 +1589,11 @@ public class Formatter
                 if (unary.Operator == UnaryOperator.PostIncrement || unary.Operator == UnaryOperator.PostDecrement)
                 {
                     FormatExpression(unary.Operand, sb);
-                    sb.Append(FormatUnaryOperator(unary.Operator));
+                    sb.Append(OperatorFacts.GetRequiredUnaryText(unary.Operator));
                 }
                 else
                 {
-                    sb.Append(FormatUnaryOperator(unary.Operator));
+                    sb.Append(OperatorFacts.GetRequiredUnaryText(unary.Operator));
                     FormatExpression(unary.Operand, sb);
                 }
                 break;
@@ -1648,7 +1648,7 @@ public class Formatter
             case AssignmentExpression assign:
                 FormatExpression(assign.Target, sb);
                 sb.Append(" ");
-                sb.Append(FormatAssignmentOperator(assign.Operator));
+                sb.Append(OperatorFacts.GetRequiredAssignmentText(assign.Operator));
                 sb.Append(" ");
                 FormatExpression(assign.Value, sb);
                 break;
@@ -2185,64 +2185,6 @@ public class Formatter
         var withoutPublicPrivate = modifiers & ~Modifiers.Public & ~Modifiers.Private;
         return VisibilityConventions.IsExportedIdentifier(identifierName, modifiers)
             != VisibilityConventions.IsExportedIdentifier(identifierName, withoutPublicPrivate);
-    }
-
-    private string FormatBinaryOperator(BinaryOperator op)
-    {
-        return op switch
-        {
-            BinaryOperator.Add => "+",
-            BinaryOperator.Subtract => "-",
-            BinaryOperator.Multiply => "*",
-            BinaryOperator.Divide => "/",
-            BinaryOperator.Modulo => "%",
-            BinaryOperator.Equal => "==",
-            BinaryOperator.NotEqual => "!=",
-            BinaryOperator.Less => "<",
-            BinaryOperator.LessOrEqual => "<=",
-            BinaryOperator.Greater => ">",
-            BinaryOperator.GreaterOrEqual => ">=",
-            BinaryOperator.And => "&&",
-            BinaryOperator.Or => "||",
-            BinaryOperator.BitwiseAnd => "&",
-            BinaryOperator.BitwiseOr => "|",
-            BinaryOperator.BitwiseXor => "^",
-            BinaryOperator.LeftShift => "<<",
-            BinaryOperator.RightShift => ">>",
-            BinaryOperator.NullCoalesce => "??",
-            BinaryOperator.Range => "..",
-            _ => throw new InvalidOperationException($"Formatter does not handle binary operator: {op}")
-        };
-    }
-
-    private string FormatUnaryOperator(UnaryOperator op)
-    {
-        return op switch
-        {
-            UnaryOperator.Negate => "-",
-            UnaryOperator.Not => "!",
-            UnaryOperator.BitwiseNot => "~",
-            UnaryOperator.PreIncrement => "++",
-            UnaryOperator.PreDecrement => "--",
-            UnaryOperator.PostIncrement => "++",
-            UnaryOperator.PostDecrement => "--",
-            UnaryOperator.IndexFromEnd => "^",
-            _ => throw new InvalidOperationException($"Formatter does not handle unary operator: {op}")
-        };
-    }
-
-    private string FormatAssignmentOperator(AssignmentOperator op)
-    {
-        return op switch
-        {
-            AssignmentOperator.Assign => "=",
-            AssignmentOperator.AddAssign => "+=",
-            AssignmentOperator.SubtractAssign => "-=",
-            AssignmentOperator.MultiplyAssign => "*=",
-            AssignmentOperator.DivideAssign => "/=",
-            AssignmentOperator.NullCoalesceAssign => "??=",
-            _ => throw new InvalidOperationException($"Formatter does not handle assignment operator: {op}")
-        };
     }
 
     private void Indent(StringBuilder sb)

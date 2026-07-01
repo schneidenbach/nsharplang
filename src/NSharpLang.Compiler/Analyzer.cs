@@ -14179,7 +14179,7 @@ public class Analyzer : IDisposable
         TypeInfo targetType,
         TypeInfo valueType)
     {
-        if (!TryGetCompoundAssignmentBinaryOperator(assignment.Operator, out var binaryOperator))
+        if (!OperatorFacts.TryGetCompoundAssignmentBinaryOperator(assignment.Operator, out var binaryOperator))
         {
             return false;
         }
@@ -14235,28 +14235,6 @@ public class Analyzer : IDisposable
                 => AnalyzeArithmeticOp(targetType, valueType, operatorExpression),
             _ => BuiltInTypes.Unknown
         };
-    }
-
-    private static bool TryGetCompoundAssignmentBinaryOperator(AssignmentOperator assignmentOperator, out BinaryOperator binaryOperator)
-    {
-        switch (assignmentOperator)
-        {
-            case AssignmentOperator.AddAssign:
-                binaryOperator = BinaryOperator.Add;
-                return true;
-            case AssignmentOperator.SubtractAssign:
-                binaryOperator = BinaryOperator.Subtract;
-                return true;
-            case AssignmentOperator.MultiplyAssign:
-                binaryOperator = BinaryOperator.Multiply;
-                return true;
-            case AssignmentOperator.DivideAssign:
-                binaryOperator = BinaryOperator.Divide;
-                return true;
-            default:
-                binaryOperator = default;
-                return false;
-        }
     }
 
     private bool IsDelegateLikeAssignmentType(TypeInfo type)
@@ -20958,17 +20936,7 @@ public class Analyzer : IDisposable
 
     private void ReportUnaryOperatorOperandMismatch(UnaryExpression unary, TypeInfo operandType, string requirement)
     {
-        var opText = unary.Operator switch
-        {
-            UnaryOperator.Negate => "-",
-            UnaryOperator.Not => "!",
-            UnaryOperator.BitwiseNot => "~",
-            UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "++",
-            UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "--",
-            UnaryOperator.IndexFromEnd => "^",
-            _ => "operator"
-        };
-
+        var opText = OperatorFacts.GetUnaryText(unary.Operator);
         Error(
             ErrorCode.TypeMismatch,
             $"The '{opText}' operator doesn't work with '{operandType}' — {requirement}",
