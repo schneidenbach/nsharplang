@@ -7508,6 +7508,25 @@ func Main() {
     }
 
     [Fact]
+    public void ParamsFunctionMemberCall_ResolvesThroughTypeInfoDeclaredMembers()
+    {
+        AssertNoErrors(@"
+            class Accumulator {
+                func Sum(params values: int[]): int {
+                    return 0
+                }
+            }
+
+            func Main() {
+                accumulator := new Accumulator()
+                none := accumulator.Sum()
+                expanded := accumulator.Sum(1, 2, 3)
+                direct := accumulator.Sum([1, 2, 3])
+            }
+        ");
+    }
+
+    [Fact]
     public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
     {
         var result = AnalyzeWithSource(@"

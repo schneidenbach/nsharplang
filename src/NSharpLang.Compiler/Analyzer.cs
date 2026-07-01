@@ -9790,7 +9790,6 @@ public class Analyzer : IDisposable
 
     private static bool CanResolveFunctionMemberFromTypeInfo(DeclaredMemberInfo member)
         => member.TypeParameterCount == 0
-           && !member.HasParamsParameter
            && member.RequiredParameterCount >= 0
            && member.RequiredParameterCount <= member.ParameterCount
            && member.ParameterNames.Length == member.ParameterCount
@@ -10473,6 +10472,7 @@ public class Analyzer : IDisposable
             ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
             ParameterModifiers = member.ParameterModifiers.ToList(),
             RequiredParameterCount = member.RequiredParameterCount,
+            HasParamsParameter = member.HasParamsParameter,
             HasMustUseAttribute = member.HasMustUseAttribute,
             ReturnType = ResolveDeclaredFunctionCallReturnType(member)
         };
@@ -10696,7 +10696,6 @@ public class Analyzer : IDisposable
             var functionDeclaration = functionType.Declaration as FunctionDeclaration;
             int[]? syntheticParameterIndexByArgument = null;
             if (functionDeclaration == null
-                && call.Arguments.Count == functionType.ParameterTypes.Count
                 && TryBindSyntheticFunctionArguments(
                     functionType,
                     functionType.SyntheticName ?? GetCallTargetName(call) ?? "function",
@@ -10736,10 +10735,7 @@ public class Analyzer : IDisposable
                     var expectedIndex = syntheticParameterIndexByArgument != null
                         ? syntheticParameterIndexByArgument[i]
                         : i + expectedParamOffset;
-                    expectedType = expectedIndex < functionType.ParameterTypes.Count
-                        && expectedIndex >= 0
-                        ? functionType.ParameterTypes[expectedIndex]
-                        : null;
+                    expectedType = GetExpectedSyntheticCallArgumentType(functionType, call, i, expectedIndex);
                 }
 
                 argTypes.Add(AnalyzeRefOutArgumentExpression(argument, expectedType, out refOutTargetExpressionTypes));
@@ -11323,6 +11319,36 @@ public class Analyzer : IDisposable
         return ApplyNSharpGenericBindings(expectedType, genericBindings);
     }
 
+    private TypeInfo? GetExpectedSyntheticCallArgumentType(
+        FunctionTypeInfo functionType,
+        CallExpression call,
+        int argumentIndex,
+        int parameterIndex)
+    {
+        var parameterTypes = functionType.ParameterTypes;
+        if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
+            return null;
+
+        var parameterType = parameterTypes[parameterIndex];
+        var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, parameterTypes.Count);
+        if (paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex)
+        {
+            var paramsElementType = GetNSharpParamsElementType(parameterType);
+
+            // Match the declaration-backed path: a single array literal can be the params array
+            // itself or an expanded element, so leave it untyped until validation sees the value.
+            if (call.Arguments.Count == paramsParameterIndex + 1
+                && call.Arguments[argumentIndex].Value is ArrayLiteralExpression)
+            {
+                return null;
+            }
+
+            return paramsElementType ?? parameterType;
+        }
+
+        return parameterType;
+    }
+
     private TypeInfo? GetNSharpParamsElementType(TypeInfo paramsType)
     {
         return ResolveTypeAlias(paramsType) switch
@@ -11352,7 +11378,9 @@ public class Analyzer : IDisposable
         var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
         var expectedCount = functionType.ParameterTypes.Count;
         var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
-        if (argTypes.Count < requiredCount || argTypes.Count > expectedCount)
+        var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
+        var hasParamsParameter = paramsParameterIndex >= 0;
+        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedCount))
         {
             var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
             var expectedDescription = requiredCount == expectedCount
@@ -11379,6 +11407,39 @@ public class Analyzer : IDisposable
 
             var expectedType = ResolveTypeAlias(functionType.ParameterTypes[parameterIndex]);
             var argType = ResolveTypeAlias(argTypes[argumentIndex]);
+            if (hasParamsParameter && parameterIndex == paramsParameterIndex)
+            {
+                var paramsType = ResolveTypeAlias(functionType.ParameterTypes[paramsParameterIndex]);
+                if (paramsType is not ArrayTypeInfo paramsArrayType)
+                    continue;
+
+                var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
+                    paramsParameterIndex,
+                    call.Arguments,
+                    argTypes,
+                    paramsArrayType);
+
+                if (!isDirectParamsArrayArgument)
+                {
+                    if (call.Arguments[argumentIndex].Value is SpreadExpression)
+                    {
+                        if (argType is ArrayTypeInfo spreadArrayType)
+                        {
+                            expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+                            argType = ResolveTypeAlias(spreadArrayType.ElementType);
+                        }
+                        else if (BuiltInTypes.IsUnknown(argType))
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+                    }
+                }
+            }
+
             if (BuiltInTypes.IsUnknown(expectedType)
                 || BuiltInTypes.IsUnknown(argType)
                 || argType is SoaRowTypeInfo
@@ -11415,6 +11476,7 @@ public class Analyzer : IDisposable
         parameterIndexByArgument = Enumerable.Repeat(-1, call.Arguments.Count).ToArray();
 
         var parameterNames = functionType.ParameterNames;
+        var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
         var boundArgumentIndexByParameter = Enumerable.Repeat(-1, expectedCount).ToArray();
         var nextPositionalParameter = 0;
         var success = true;
@@ -11468,6 +11530,15 @@ public class Analyzer : IDisposable
 
             if (nextPositionalParameter >= expectedCount)
             {
+                if (paramsParameterIndex >= 0)
+                {
+                    if (boundArgumentIndexByParameter[paramsParameterIndex] < 0)
+                        boundArgumentIndexByParameter[paramsParameterIndex] = argumentIndex;
+
+                    parameterIndexByArgument[argumentIndex] = paramsParameterIndex;
+                    continue;
+                }
+
                 if (reportErrors)
                 {
                     ReportSyntheticArgumentBindingError(
@@ -11504,6 +11575,22 @@ public class Analyzer : IDisposable
         }
 
         return success;
+    }
+
+    private static int GetSyntheticParamsParameterIndex(FunctionTypeInfo functionType, int expectedCount)
+    {
+        if (!functionType.HasParamsParameter || expectedCount == 0)
+            return -1;
+
+        var parameterModifiers = functionType.ParameterModifiers;
+        if (parameterModifiers == null
+            || parameterModifiers.Count != expectedCount
+            || parameterModifiers[expectedCount - 1] != Ast.ParameterModifier.Params)
+        {
+            return -1;
+        }
+
+        return expectedCount - 1;
     }
 
     private static int GetSyntheticRequiredParameterCount(FunctionTypeInfo functionType, int expectedCount)

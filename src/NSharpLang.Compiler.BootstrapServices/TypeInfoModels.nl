@@ -659,11 +659,13 @@ public class FunctionTypeInfo: TypeInfo {
     ParameterTypes: List<TypeInfo>?
     ParameterModifiers: List<ParameterModifier>?
     RequiredParameterCount: int?
+    HasParamsParameter: bool
     HasMustUseAttribute: bool
     ReturnType: TypeInfo?
 
     constructor(declaration: object?) {
         Declaration = declaration
+        HasParamsParameter = false
         HasMustUseAttribute = false
     }
 }

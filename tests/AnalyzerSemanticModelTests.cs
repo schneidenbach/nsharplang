@@ -443,6 +443,10 @@ class FunctionMemberBox {
     func BuildToken(): int {
         return 1
     }
+
+    func Sum(params values: int[]): int {
+        return 0
+    }
 }
 
 struct MarkedStruct: Marker {
@@ -567,6 +571,12 @@ interface Named {
         Assert.Equal(DeclaredMemberKind.Function, buildTokenMember.Kind);
         Assert.Equal(1, buildTokenMember.AttributeCount);
         Assert.True(buildTokenMember.HasMustUseAttribute);
+        var sumMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "Sum");
+        Assert.Equal(DeclaredMemberKind.Function, sumMember.Kind);
+        Assert.Equal(1, sumMember.ParameterCount);
+        Assert.Equal(new[] { "values" }, sumMember.ParameterNames);
+        Assert.Equal(0, sumMember.RequiredParameterCount);
+        Assert.True(sumMember.HasParamsParameter);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,
