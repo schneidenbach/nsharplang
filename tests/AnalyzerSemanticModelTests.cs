@@ -447,6 +447,14 @@ class FunctionMemberBox {
     func Sum(params values: int[]): int {
         return 0
     }
+
+    func Convert(value: int): string {
+        return ""int""
+    }
+
+    func Convert(value: string): string {
+        return value
+    }
 }
 
 struct MarkedStruct: Marker {
@@ -577,6 +585,21 @@ interface Named {
         Assert.Equal(new[] { "values" }, sumMember.ParameterNames);
         Assert.Equal(0, sumMember.RequiredParameterCount);
         Assert.True(sumMember.HasParamsParameter);
+        var convertMembers = functionMemberBoxType.DeclaredMembers
+            .Where(member => member.Name == "Convert")
+            .OrderBy(member => Assert.IsType<SimpleTypeReference>(Assert.Single(member.ParameterTypes)).Name)
+            .ToList();
+        Assert.Equal(2, convertMembers.Count);
+        Assert.All(convertMembers, member =>
+        {
+            Assert.Equal(DeclaredMemberKind.Function, member.Kind);
+            Assert.Equal(1, member.ParameterCount);
+            Assert.Equal(new[] { "value" }, member.ParameterNames);
+            Assert.Equal(1, member.RequiredParameterCount);
+            Assert.False(member.HasParamsParameter);
+        });
+        Assert.Equal("int", Assert.IsType<SimpleTypeReference>(Assert.Single(convertMembers[0].ParameterTypes)).Name);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(Assert.Single(convertMembers[1].ParameterTypes)).Name);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,

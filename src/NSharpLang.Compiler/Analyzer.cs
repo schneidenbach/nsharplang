@@ -134,6 +134,11 @@ public class Analyzer : IDisposable
             .OfType<FunctionDeclaration>()
             .ToList();
 
+    private static List<FunctionTypeInfo> GetSyntheticNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
+        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
+            .OfType<FunctionTypeInfo>()
+            .ToList();
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -9782,8 +9787,15 @@ public class Analyzer : IDisposable
         if (matchingMembers.Count == 0)
             return null;
 
-        if (matchingMembers.Count == 1 && CanResolveFunctionMemberFromTypeInfo(matchingMembers[0]))
-            return CreateFunctionTypeInfo(matchingMembers[0]);
+        if (matchingMembers.All(CanResolveFunctionMemberFromTypeInfo))
+        {
+            var functionTypes = matchingMembers
+                .Select(CreateFunctionTypeInfo)
+                .ToList();
+            return functionTypes.Count == 1
+                ? functionTypes[0]
+                : NSharpMethodGroupInfoFactory.FromDeclarations(functionTypes);
+        }
 
         return ResolveDeclaredFunctionMemberFromDeclarations(fallbackMembers(), memberName);
     }
@@ -11031,6 +11043,21 @@ public class Analyzer : IDisposable
         // Handle N#-declared method group (overloaded N# methods)
         if (calleeType is NSharpMethodGroupInfo nsharpGroup)
         {
+            var syntheticFunctions = GetSyntheticNSharpMethodGroupFunctions(nsharpGroup);
+            if (syntheticFunctions.Count > 0)
+            {
+                var boundFunction = BindSyntheticNSharpCall(syntheticFunctions, call, argTypes);
+                if (boundFunction != null)
+                {
+                    _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, boundFunction);
+                    ValidateSyntheticFunctionCall(boundFunction, call, argTypes);
+                    return boundFunction.ReturnType ?? BuiltInTypes.Unknown;
+                }
+
+                ReportNoMatchingSyntheticNSharpOverload(syntheticFunctions, call, argTypes);
+                return BuiltInTypes.Unknown;
+            }
+
             var boundDecl = BindNSharpCall(nsharpGroup, call, argTypes);
             if (boundDecl != null)
             {
@@ -11909,6 +11936,48 @@ public class Analyzer : IDisposable
             length);
     }
 
+    private void ReportNoMatchingSyntheticNSharpOverload(
+        IReadOnlyList<FunctionTypeInfo> candidates,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes)
+    {
+        if (candidates.Count == 0)
+            return;
+
+        var functionName = GetCallTargetName(call) ?? candidates[0].SyntheticName ?? "function";
+        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
+        var candidateSignatures = candidates
+            .Select(candidate => FormatSyntheticFunctionSignature(candidate, candidate.SyntheticName ?? functionName))
+            .Distinct(StringComparer.Ordinal)
+            .Take(8)
+            .ToList();
+
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
+                _currentFilePath,
+                line,
+                column,
+                sourceSnippet,
+                length,
+                functionName,
+                call.Arguments.Count,
+                argumentTypes,
+                candidateSignatures));
+            return;
+        }
+
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
+            line,
+            column,
+            "Check the argument count and types against the available overloads.",
+            length);
+    }
+
     private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
     {
         if (TryGetNSharpMethodGroupArgumentName(call, out var methodGroupArgumentName))
@@ -12191,6 +12260,196 @@ public class Analyzer : IDisposable
     /// Uses a scoring system analogous to BindReflectionCall.
     /// Reports an ambiguity error when two overloads score equally.
     /// </summary>
+    private FunctionTypeInfo? BindSyntheticNSharpCall(
+        IReadOnlyList<FunctionTypeInfo> candidates,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes)
+    {
+        FunctionTypeInfo? bestFunction = null;
+        var bestScore = -1;
+        var ambiguous = false;
+
+        foreach (var candidate in candidates)
+        {
+            if (!TryGetSyntheticCallMatchScore(candidate, call, argTypes, out var score))
+                continue;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestFunction = candidate;
+                ambiguous = false;
+                continue;
+            }
+
+            if (score != bestScore || bestFunction == null)
+                continue;
+
+            var currentParameterCount = candidate.ParameterTypes?.Count ?? 0;
+            var bestParameterCount = bestFunction.ParameterTypes?.Count ?? 0;
+            var currentHasParams = GetSyntheticParamsParameterIndex(candidate, currentParameterCount) >= 0;
+            var bestHasParams = GetSyntheticParamsParameterIndex(bestFunction, bestParameterCount) >= 0;
+
+            if (bestHasParams && !currentHasParams)
+            {
+                bestFunction = candidate;
+                ambiguous = false;
+            }
+            else if (!bestHasParams && currentHasParams)
+            {
+                // Best non-params overload remains more specific.
+            }
+            else if (currentParameterCount > bestParameterCount)
+            {
+                bestFunction = candidate;
+                ambiguous = false;
+            }
+            else if (currentParameterCount < bestParameterCount)
+            {
+                // Best overload uses fewer defaults.
+            }
+            else
+            {
+                ambiguous = true;
+            }
+        }
+
+        if (ambiguous && bestFunction != null)
+        {
+            var functionName = bestFunction.SyntheticName ?? GetCallTargetName(call) ?? "function";
+            Error($"Ambiguous call to '{functionName}': multiple overloads match with equal specificity",
+                call.Line, call.Column);
+        }
+
+        return bestFunction;
+    }
+
+    private bool TryGetSyntheticCallMatchScore(
+        FunctionTypeInfo functionType,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes,
+        out int score)
+    {
+        score = 0;
+        var parameterTypes = functionType.ParameterTypes;
+        if (parameterTypes == null)
+            return false;
+
+        var expectedCount = parameterTypes.Count;
+        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
+        var hasParamsParameter = paramsParameterIndex >= 0;
+        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedCount))
+            return false;
+
+        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        if (!TryBindSyntheticFunctionArguments(
+                functionType,
+                functionName,
+                call,
+                out var parameterIndexByArgument,
+                reportErrors: false))
+        {
+            return false;
+        }
+
+        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
+        {
+            var parameterIndex = parameterIndexByArgument[argumentIndex];
+            if (parameterIndex < 0 || parameterIndex >= expectedCount)
+                continue;
+
+            if (!TryGetSyntheticArgumentComparisonTypes(
+                    functionType,
+                    call,
+                    argTypes,
+                    argumentIndex,
+                    parameterIndex,
+                    paramsParameterIndex,
+                    out var expectedType,
+                    out var argumentType))
+            {
+                return false;
+            }
+
+            if (expectedType == null
+                || argumentType == null
+                || BuiltInTypes.IsUnknown(expectedType)
+                || BuiltInTypes.IsUnknown(argumentType)
+                || argumentType is SoaRowTypeInfo)
+            {
+                continue;
+            }
+
+            if (!IsAssignable(expectedType, argumentType))
+                return false;
+
+            score += GetNSharpMatchScore(expectedType, argumentType);
+        }
+
+        return true;
+    }
+
+    private bool TryGetSyntheticArgumentComparisonTypes(
+        FunctionTypeInfo functionType,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes,
+        int argumentIndex,
+        int parameterIndex,
+        int paramsParameterIndex,
+        out TypeInfo? expectedType,
+        out TypeInfo? argumentType)
+    {
+        expectedType = null;
+        argumentType = null;
+
+        var parameterTypes = functionType.ParameterTypes;
+        if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
+            return false;
+
+        expectedType = ResolveTypeAlias(parameterTypes[parameterIndex]);
+        argumentType = ResolveTypeAlias(argTypes[argumentIndex]);
+        if (paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex)
+            return true;
+
+        var paramsType = ResolveTypeAlias(parameterTypes[paramsParameterIndex]);
+        if (paramsType is not ArrayTypeInfo paramsArrayType)
+        {
+            expectedType = null;
+            argumentType = null;
+            return true;
+        }
+
+        var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
+            paramsParameterIndex,
+            call.Arguments,
+            argTypes,
+            paramsArrayType);
+
+        if (isDirectParamsArrayArgument)
+            return true;
+
+        if (call.Arguments[argumentIndex].Value is SpreadExpression)
+        {
+            if (argumentType is ArrayTypeInfo spreadArrayType)
+            {
+                expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+                argumentType = ResolveTypeAlias(spreadArrayType.ElementType);
+            }
+            else if (BuiltInTypes.IsUnknown(argumentType))
+            {
+                expectedType = null;
+                argumentType = null;
+            }
+        }
+        else
+        {
+            expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+        }
+
+        return true;
+    }
+
     private FunctionDeclaration? BindNSharpCall(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
     {
         FunctionDeclaration? bestDecl = null;

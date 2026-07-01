@@ -7527,6 +7527,28 @@ func Main() {
     }
 
     [Fact]
+    public void OverloadedFunctionMemberCall_ResolvesThroughTypeInfoDeclaredMembers()
+    {
+        AssertNoErrors(@"
+            class Formatter {
+                func Format(value: int): string {
+                    return ""int""
+                }
+
+                func Format(value: string): string {
+                    return value
+                }
+            }
+
+            func Main() {
+                formatter := new Formatter()
+                number := formatter.Format(1)
+                text := formatter.Format(""one"")
+            }
+        ");
+    }
+
+    [Fact]
     public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
     {
         var result = AnalyzeWithSource(@"
