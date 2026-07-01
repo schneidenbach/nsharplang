@@ -387,9 +387,9 @@ func Main() {
     }
 
     [Fact]
-    public void TreeDependencyDeduplicator_DeduplicatesAndOrdersDependencies()
+    public void TreeCommandKernels_DeduplicateDependencies_DeduplicatesAndOrdersDependencies()
     {
-        var emptyDependencies = Array.Empty<TreeCommand.TreeDependency>();
+        var emptyDependencies = Array.Empty<TreeDependency>();
         var dependencies = new[]
         {
             NewDependency("Serilog", "nuget", "3.1.1"),
@@ -400,7 +400,7 @@ func Main() {
             NewDependency("microsoft.aspnetcore.app", "framework", null)
         };
 
-        var helperActual = TreeDependencyDeduplicator.Deduplicate(dependencies);
+        var helperActual = TreeCommandKernels.DeduplicateDependencies(dependencies);
         var expected = new[]
         {
             "framework:Microsoft.AspNetCore.App:",
@@ -410,15 +410,15 @@ func Main() {
         };
         Assert.Equal(expected, helperActual.Select(FormatDependency));
 
-        TreeCommand.TreeDependency NewDependency(string name, string kind, string? version) =>
+        TreeDependency NewDependency(string name, string kind, string? version) =>
             new(name, kind, version, "runtime", false, emptyDependencies);
 
-        static string FormatDependency(TreeCommand.TreeDependency dependency) =>
+        static string FormatDependency(TreeDependency dependency) =>
             $"{dependency.Kind}:{dependency.Name}:{dependency.Version}";
     }
 
     [Fact]
-    public void TreeDependencyDeduplicator_DeduplicatesTargetFrameworks()
+    public void TreeCommandKernels_DeduplicateTargetFrameworks_DeduplicatesTargetFrameworks()
     {
         var frameworks = new[]
         {
@@ -429,7 +429,7 @@ func Main() {
             "NET9.0"
         };
 
-        var dogfoodFrameworks = TreeDependencyDeduplicator.DeduplicateTargetFrameworks(frameworks);
+        var dogfoodFrameworks = TreeCommandKernels.DeduplicateTargetFrameworks(frameworks);
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0" }, dogfoodFrameworks);
     }
 

@@ -1,5 +1,39 @@
 namespace NSharpLang.Cli.Commands
 
+import System
+import System.Collections.Generic
+
+public class TreeDependency {
+    nameValue: string
+    kindValue: string
+    versionValue: string?
+    scopeValue: string
+    transitiveValue: bool
+    dependenciesValue: IReadOnlyList<TreeDependency>
+
+    Name: string => nameValue
+    Kind: string => kindValue
+    Version: string? => versionValue
+    Scope: string => scopeValue
+    Transitive: bool => transitiveValue
+    Dependencies: IReadOnlyList<TreeDependency> => dependenciesValue
+
+    constructor(
+        Name: string,
+        Kind: string,
+        Version: string?,
+        Scope: string,
+        Transitive: bool,
+        Dependencies: IReadOnlyList<TreeDependency>) {
+        nameValue = Name
+        kindValue = Kind
+        versionValue = Version
+        scopeValue = Scope
+        transitiveValue = Transitive
+        dependenciesValue = Dependencies
+    }
+}
+
 public class TreeOptionSummary {
     ProjectOption: string?
     DepthOption: string?
@@ -15,6 +49,30 @@ public class TreeOptionSummary {
 }
 
 public class TreeCommandKernels {
+    public static func DeduplicateDependencies(dependencies: IReadOnlyList<TreeDependency>): TreeDependency[] {
+        selected := new List<TreeDependency>()
+
+        foreach dependency in dependencies {
+            if !ContainsDependency(selected, dependency) {
+                InsertDependencySorted(selected, dependency)
+            }
+        }
+
+        return selected.ToArray()
+    }
+
+    public static func DeduplicateTargetFrameworks(targetFrameworks: IReadOnlyList<string>): string[] {
+        selected := new List<string>()
+
+        foreach targetFramework in targetFrameworks {
+            if !ContainsTargetFramework(selected, targetFramework) {
+                selected.Add(targetFramework)
+            }
+        }
+
+        return selected.ToArray()
+    }
+
     public static func GetOptionSummary(args: string[]): TreeOptionSummary {
         projectOption: string? = null
         depthOption: string? = null
@@ -240,5 +298,51 @@ public class TreeCommandKernels {
         }
 
         return true
+    }
+
+    static func ContainsDependency(dependencies: List<TreeDependency>, dependency: TreeDependency): bool {
+        i := 0
+        while i < dependencies.Count {
+            current := dependencies[i]
+            if String.Compare(current.Kind, dependency.Kind, StringComparison.Ordinal) == 0
+                && String.Compare(current.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) == 0 {
+                return true
+            }
+
+            i = i + 1
+        }
+
+        return false
+    }
+
+    static func InsertDependencySorted(dependencies: List<TreeDependency>, dependency: TreeDependency) {
+        index := 0
+        while index < dependencies.Count && CompareDependencies(dependencies[index], dependency) <= 0 {
+            index = index + 1
+        }
+
+        dependencies.Insert(index, dependency)
+    }
+
+    static func CompareDependencies(left: TreeDependency, right: TreeDependency): int {
+        kindCompare := String.Compare(left.Kind, right.Kind, StringComparison.Ordinal)
+        if kindCompare != 0 {
+            return kindCompare
+        }
+
+        return String.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)
+    }
+
+    static func ContainsTargetFramework(targetFrameworks: List<string>, targetFramework: string): bool {
+        i := 0
+        while i < targetFrameworks.Count {
+            if String.Compare(targetFrameworks[i], targetFramework, StringComparison.OrdinalIgnoreCase) == 0 {
+                return true
+            }
+
+            i = i + 1
+        }
+
+        return false
     }
 }

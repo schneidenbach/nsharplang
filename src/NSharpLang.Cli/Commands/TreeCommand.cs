@@ -82,7 +82,7 @@ public static class TreeCommand
     {
         var config = ProjectFileParser.Parse(projectYml);
         var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-        var allDirect = TreeDependencyDeduplicator.Deduplicate(config.Dependencies.Select(ToProjectYmlDependency).ToArray());
+        var allDirect = TreeCommandKernels.DeduplicateDependencies(config.Dependencies.Select(ToProjectYmlDependency).ToArray());
 
         var direct = maxDepth >= 1 ? allDirect : Array.Empty<TreeDependency>();
         var limitations = new List<string>
@@ -158,11 +158,11 @@ public static class TreeCommand
             }
         }
 
-        var visibleDirect = maxDepth >= 1 ? TreeDependencyDeduplicator.Deduplicate(direct.ToArray()) : Array.Empty<TreeDependency>();
-        var visibleTransitive = maxDepth >= 2 ? TreeDependencyDeduplicator.Deduplicate(transitive.ToArray()) : Array.Empty<TreeDependency>();
+        var visibleDirect = maxDepth >= 1 ? TreeCommandKernels.DeduplicateDependencies(direct.ToArray()) : Array.Empty<TreeDependency>();
+        var visibleTransitive = maxDepth >= 2 ? TreeCommandKernels.DeduplicateDependencies(transitive.ToArray()) : Array.Empty<TreeDependency>();
         var frameworkName = targetFrameworks.Count == 0
             ? "unknown"
-            : string.Join(",", TreeDependencyDeduplicator.DeduplicateTargetFrameworks(targetFrameworks));
+            : string.Join(",", TreeCommandKernels.DeduplicateTargetFrameworks(targetFrameworks));
 
         return new TreeReport(
             SchemaVersion: 2,
@@ -309,14 +309,6 @@ public static class TreeCommand
     private sealed record TreeProject(string Name, string TargetFramework, string Source);
 
     private sealed record TreeCapabilities(bool DirectDependencies, bool TransitiveNuGetDependencies);
-
-    internal sealed record TreeDependency(
-        string Name,
-        string Kind,
-        string? Version,
-        string Scope,
-        bool Transitive,
-        IReadOnlyList<TreeDependency> Dependencies);
 
     private sealed record TreeSummary(int Direct, int Transitive, int Total);
 
