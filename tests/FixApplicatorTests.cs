@@ -22,10 +22,10 @@ public class FixApplicatorTests
     }
 
     [Fact]
-    public void DogfoodTextEditOrdering_MatchesCSharpBaseline_AcrossRandomizedEdits()
+    public void DogfoodTextEditOrdering_MatchesBaseline_AcrossRandomizedEdits()
     {
         // M12: differential test of the dogfood text-edit ordering (TextEditOrderIndices) against
-        // the C# baseline, across randomized edit sets including overlapping ranges, zero-width
+        // the baseline, across randomized edit sets including overlapping ranges, zero-width
         // inserts, and same-position ties (the same-start tiebreak is ThenByDescending(inputIndex)).
         for (var seed = 0; seed < 200; seed++)
         {
@@ -75,7 +75,7 @@ public class FixApplicatorTests
             new(2, 5, 2, 8, "TWO")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("line one\nline TWO\nline three", result);
     }
@@ -89,7 +89,7 @@ public class FixApplicatorTests
             new(1, 5, 1, 5, " beautiful")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("hello beautiful world", result);
     }
@@ -104,7 +104,7 @@ public class FixApplicatorTests
             new(2, 0, 3, 0, "")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("line one\nline three\nline four", result);
     }
@@ -117,7 +117,7 @@ public class FixApplicatorTests
         var source = "unchanged source";
         var edits = new List<TextEdit>();
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal(source, result);
     }
@@ -132,7 +132,7 @@ public class FixApplicatorTests
             new(1, 3, 1, 3, "")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal(source, result);
     }
@@ -151,7 +151,7 @@ public class FixApplicatorTests
             new(3, 0, 3, 3, "CCC")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("AAA\nbbb\nCCC", result);
     }
@@ -167,7 +167,7 @@ public class FixApplicatorTests
             new(1, 0, 1, 3, "AAA")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("AAA\nbbb\nCCC", result);
     }
@@ -185,7 +185,7 @@ public class FixApplicatorTests
             new(3, 0, 3, 3, "CCC-1\nCCC-2")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("AAA\nbbb\nCCC-1\nCCC-2\nddd", result);
     }
@@ -200,7 +200,7 @@ public class FixApplicatorTests
             new(1, 12, 1, 15, "FOO")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("HELLO world FOO", result);
     }
@@ -216,7 +216,7 @@ public class FixApplicatorTests
             new(1, 6, 1, 7, "\n")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("before\nafter", result);
     }
@@ -231,7 +231,7 @@ public class FixApplicatorTests
             new(2, 0, 2, 0, "line two\n")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("line one\nline two\nline three", result);
     }
@@ -246,7 +246,7 @@ public class FixApplicatorTests
             new(2, 0, 4, 0, "")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("line one\nline four", result);
     }
@@ -260,7 +260,7 @@ public class FixApplicatorTests
             new(2, 0, 3, 0, "")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("line one", result);
     }
@@ -275,7 +275,7 @@ public class FixApplicatorTests
             new(2, 0, 2, 3, "TWO-A\nTWO-B")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("one\nTWO-A\nTWO-B\nthree", result);
     }
@@ -290,7 +290,7 @@ public class FixApplicatorTests
             new(2, 0, 3, 5, "MERGED")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("one\nMERGED\nfour", result);
     }
@@ -307,7 +307,7 @@ public class FixApplicatorTests
             new(2, 0, 2, 0, "appended")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("only line\nappended", result);
     }
@@ -322,7 +322,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("outside the document", ex.Message);
     }
 
@@ -335,7 +335,7 @@ public class FixApplicatorTests
             new(1, 0, 1, 0, ">> ")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal(">> hello", result);
     }
@@ -349,7 +349,7 @@ public class FixApplicatorTests
             new(1, 5, 1, 5, " world")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("hello world", result);
     }
@@ -363,7 +363,7 @@ public class FixApplicatorTests
             new(2, 4, 2, 4, "!")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("alpha\nbeta!\ngamma", result);
     }
@@ -378,7 +378,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ValidateAndSortEdits(source, edits));
+            () => FixApplicatorCore.ValidateAndSortEdits(source, edits));
         Assert.Contains("outside the document", ex.Message);
     }
 
@@ -391,7 +391,7 @@ public class FixApplicatorTests
             new(1, 0, 1, 11, "new content")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("new content", result);
     }
@@ -405,7 +405,7 @@ public class FixApplicatorTests
             new(1, 0, 1, 0, "new line")
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("new line", result);
     }
@@ -423,7 +423,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Overlapping edits detected", ex.Message);
     }
 
@@ -438,7 +438,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Overlapping edits detected", ex.Message);
     }
 
@@ -452,7 +452,7 @@ public class FixApplicatorTests
             new(1, 5, 1, 10, "FGHIJ")  // cols 5-10 (adjacent, not overlapping)
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("ABCDEFGHIJ", result);
     }
@@ -468,7 +468,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Overlapping edits detected", ex.Message);
     }
 
@@ -483,7 +483,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Overlapping edits detected", ex.Message);
     }
 
@@ -498,7 +498,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Overlapping edits detected", ex.Message);
     }
 
@@ -512,7 +512,7 @@ public class FixApplicatorTests
             new(1, 3, 1, 3, "Y")   // insert at col 3 (same position, both zero-width)
         };
 
-        var result = FixApplicator.ApplyEdits(source, edits);
+        var result = FixApplicatorCore.ApplyEdits(source, edits);
 
         Assert.Equal("abcXYdef", result);
     }
@@ -527,7 +527,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Invalid edit range", ex.Message);
     }
 
@@ -541,7 +541,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("Invalid edit position", ex.Message);
     }
 
@@ -555,7 +555,7 @@ public class FixApplicatorTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => FixApplicator.ApplyEdits(source, edits));
+            () => FixApplicatorCore.ApplyEdits(source, edits));
         Assert.Contains("outside the document", ex.Message);
     }
 }

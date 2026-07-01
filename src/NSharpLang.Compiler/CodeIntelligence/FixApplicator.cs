@@ -16,35 +16,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 public static class FixApplicator
 {
     /// <summary>
-    /// Apply a list of TextEdits to source text.
-    /// Edits are applied in reverse order (bottom-to-top) so that line numbers
-    /// from earlier edits remain valid.
-    /// </summary>
-    public static string ApplyEdits(string source, List<TextEdit> edits)
-    {
-        return FixApplicatorCore.ApplyEdits(source, edits);
-    }
-
-    /// <summary>
-    /// Validate a set of edits, detect overlaps, and return them in the only safe application order:
-    /// bottom-to-top and right-to-left. This is intentionally public so callers such as nlc fix can
-    /// preflight a whole fix plan before writing any files.
-    /// </summary>
-    public static List<TextEdit> ValidateAndSortEdits(IReadOnlyCollection<TextEdit> edits)
-    {
-        return FixApplicatorCore.ValidateAndSortEdits(edits);
-    }
-
-    /// <summary>
-    /// Source-aware validation for automated writes. Rejects coordinates outside the document instead
-    /// of silently clamping them, while preserving the single intentional EOF insertion shape.
-    /// </summary>
-    public static List<TextEdit> ValidateAndSortEdits(string source, IReadOnlyCollection<TextEdit> edits)
-    {
-        return FixApplicatorCore.ValidateAndSortEdits(source, edits);
-    }
-
-    /// <summary>
     /// Collect all fixable diagnostics for a file and return the code actions.
     /// </summary>
     public static List<CodeAction> GetFixesForFile(string filePath, string source)

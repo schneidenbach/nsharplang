@@ -204,7 +204,7 @@ func main() {
         var edit = Assert.Single(fix.Edits);
 
         Assert.Equal(new TextEdit(3, 7, 3, 16, "true"), edit);
-        var fixedSource = NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits);
+        var fixedSource = NSharpLang.Compiler.CodeIntelligence.FixApplicatorCore.ApplyEdits(sourceCode, fix.Edits);
         Assert.Equal(@"func main() {
     let x = 42
     if true {
@@ -244,7 +244,7 @@ func main() {
     } catch {
         // TODO: handle exception
     }
-}", NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+}", NSharpLang.Compiler.CodeIntelligence.FixApplicatorCore.ApplyEdits(sourceCode, fix.Edits));
     }
 
     [Fact]
@@ -266,7 +266,7 @@ func main() {
         Assert.Equal(3, edit.EndLine);
         Assert.Equal(13, edit.EndColumn);
         Assert.Equal("func main() {\n    try {\n    } catch {\n        // TODO: handle exception\n    }\n}",
-            NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+            NSharpLang.Compiler.CodeIntelligence.FixApplicatorCore.ApplyEdits(sourceCode, fix.Edits));
     }
 
     [Fact]
@@ -366,7 +366,7 @@ func main() {
     }
 
     [Fact]
-    public void FixApplicator_ValidateAndSortEdits_UsesApplicationOrder()
+    public void FixApplicatorCore_ValidateAndSortEdits_UsesApplicationOrder()
     {
         var edits = new[]
         {
@@ -377,7 +377,7 @@ func main() {
             new TextEdit(3, 3, 3, 4, "line3-col3")
         };
 
-        var sorted = NSharpLang.Compiler.CodeIntelligence.FixApplicator.ValidateAndSortEdits(edits);
+        var sorted = NSharpLang.Compiler.CodeIntelligence.FixApplicatorCore.ValidateAndSortEdits(edits);
 
         Assert.Equal(new[]
         {
