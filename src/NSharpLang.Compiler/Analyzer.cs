@@ -11097,7 +11097,12 @@ public class Analyzer : IDisposable
             var actualType = FormatArgumentTypeDiagnosticPhrase(call.Arguments[argumentIndex], argType);
             Error(
                 ErrorCode.TypeMismatch,
-                $"{argumentDescription} to '{functionName}' is {actualType}, but this parameter expects '{expectedType}'",
+                ErrorMessageBuilder.WrongArgumentTypeMessage(
+                    argumentDescription,
+                    functionName,
+                    actualType,
+                    parameterName,
+                    expectedType.ToString() ?? "unknown"),
                 line,
                 column,
                 "Pass a value with the expected type, or update the function signature.",

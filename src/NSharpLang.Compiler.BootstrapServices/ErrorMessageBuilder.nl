@@ -472,6 +472,21 @@ public class ErrorMessageBuilder {
         }
     }
 
+    public static func WrongArgumentTypeMessage(
+        argumentDescription: string,
+        functionName: string,
+        actualTypePhrase: string,
+        parameterName: string?,
+        expectedType: string): string {
+        if parameterName != null {
+            return argumentDescription + " to '" + functionName + "' is " + actualTypePhrase
+                + ", but parameter '" + parameterName + "' expects '" + expectedType + "'"
+        }
+
+        return argumentDescription + " to '" + functionName + "' is " + actualTypePhrase
+            + ", but this parameter expects '" + expectedType + "'"
+    }
+
     public static func WrongArgumentType(
         fileName: string,
         line: int,
