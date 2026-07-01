@@ -822,7 +822,7 @@ public class CodeIntelligenceService
         SemanticModel? semanticModel, int line, int col)
     {
         var declaration = TryResolveDefinitionViaBindings(snapshot, filePath, line, col);
-        if (declaration == null || !IsTypeDeclarationKind(declaration.Kind))
+        if (declaration == null || !AnalyzerBindingFacts.IsTypeDeclarationKind(declaration.Kind))
             return null;
 
         var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
@@ -921,21 +921,36 @@ public class CodeIntelligenceService
                 c.Name, SymbolKind.Class, file, c.Line, c.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(c.Modifiers),
-                Members: c.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: (DeclarationFacts.GetDeclarationMembers(c)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
+                    .Select(m => DeclarationToSymbol(m, file))
+                    .Where(s => s != null)
+                    .Cast<SymbolResult>()
+                    .ToArray(),
                 Parameters: null),
 
             StructDeclaration s => new SymbolResult(
                 s.Name, SymbolKind.Struct, file, s.Line, s.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(s.Modifiers),
-                Members: s.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s2 => s2 != null).Cast<SymbolResult>().ToArray(),
+                Members: (DeclarationFacts.GetDeclarationMembers(s)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
+                    .Select(m => DeclarationToSymbol(m, file))
+                    .Where(s2 => s2 != null)
+                    .Cast<SymbolResult>()
+                    .ToArray(),
                 Parameters: null),
 
             RecordDeclaration r => new SymbolResult(
                 r.Name, SymbolKind.Record, file, r.Line, r.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(r.Modifiers),
-                Members: r.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: (DeclarationFacts.GetDeclarationMembers(r)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
+                    .Select(m => DeclarationToSymbol(m, file))
+                    .Where(s => s != null)
+                    .Cast<SymbolResult>()
+                    .ToArray(),
                 Parameters: null),
 
             SoaRecordDeclaration soa => new SymbolResult(
@@ -958,7 +973,12 @@ public class CodeIntelligenceService
                 i.Name, SymbolKind.Interface, file, i.Line, i.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(i.Modifiers),
-                Members: i.Members.Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member)).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
+                Members: (DeclarationFacts.GetDeclarationMembers(i)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
+                    .Select(m => DeclarationToSymbol(m, file))
+                    .Where(s => s != null)
+                    .Cast<SymbolResult>()
+                    .ToArray(),
                 Parameters: null),
 
             EnumDeclaration e => new SymbolResult(
@@ -1031,31 +1051,43 @@ public class CodeIntelligenceService
         return decl switch
         {
             FunctionDeclaration f => new OutlineEntry(
-                f.Name, SymbolKind.Function, f.Line, EstimateEndLine(f),
+                f.Name, SymbolKind.Function, f.Line, DeclarationFacts.EstimateDeclarationEndLine(f),
                 ReturnType: FormatTypeReference(f.ReturnType),
                 TypeName: null,
                 Children: null),
 
             ClassDeclaration c => new OutlineEntry(
-                c.Name, SymbolKind.Class, c.Line, EstimateEndLine(c),
+                c.Name, SymbolKind.Class, c.Line, DeclarationFacts.EstimateDeclarationEndLine(c),
                 ReturnType: null,
                 TypeName: null,
-                Children: c.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: (DeclarationFacts.GetDeclarationMembers(c)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Select(m => DeclarationToOutlineEntry(m))
+                    .Where(e => e != null)
+                    .Cast<OutlineEntry>()
+                    .ToArray()),
 
             StructDeclaration s => new OutlineEntry(
-                s.Name, SymbolKind.Struct, s.Line, EstimateEndLine(s),
+                s.Name, SymbolKind.Struct, s.Line, DeclarationFacts.EstimateDeclarationEndLine(s),
                 ReturnType: null,
                 TypeName: null,
-                Children: s.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: (DeclarationFacts.GetDeclarationMembers(s)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Select(m => DeclarationToOutlineEntry(m))
+                    .Where(e => e != null)
+                    .Cast<OutlineEntry>()
+                    .ToArray()),
 
             RecordDeclaration r => new OutlineEntry(
-                r.Name, SymbolKind.Record, r.Line, EstimateEndLine(r),
+                r.Name, SymbolKind.Record, r.Line, DeclarationFacts.EstimateDeclarationEndLine(r),
                 ReturnType: null,
                 TypeName: null,
-                Children: r.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: (DeclarationFacts.GetDeclarationMembers(r)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Select(m => DeclarationToOutlineEntry(m))
+                    .Where(e => e != null)
+                    .Cast<OutlineEntry>()
+                    .ToArray()),
 
             SoaRecordDeclaration soa => new OutlineEntry(
-                soa.Name, SymbolKind.Record, soa.Line, EstimateEndLine(soa),
+                soa.Name, SymbolKind.Record, soa.Line, DeclarationFacts.EstimateDeclarationEndLine(soa),
                 ReturnType: null,
                 TypeName: "soa",
                 Children: soa.Columns.Select(c => new OutlineEntry(
@@ -1068,10 +1100,14 @@ public class CodeIntelligenceService
                     Children: null)).ToArray()),
 
             InterfaceDeclaration i => new OutlineEntry(
-                i.Name, SymbolKind.Interface, i.Line, EstimateEndLine(i),
+                i.Name, SymbolKind.Interface, i.Line, DeclarationFacts.EstimateDeclarationEndLine(i),
                 ReturnType: null,
                 TypeName: null,
-                Children: i.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: (DeclarationFacts.GetDeclarationMembers(i)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+                    .Select(m => DeclarationToOutlineEntry(m))
+                    .Where(e => e != null)
+                    .Cast<OutlineEntry>()
+                    .ToArray()),
 
             EnumDeclaration e => new OutlineEntry(
                 e.Name, SymbolKind.Enum, e.Line, e.Line,
@@ -1122,40 +1158,6 @@ public class CodeIntelligenceService
             return (fullPath, found);
 
         return (file, null);
-    }
-
-    private static bool IsTypeDeclarationKind(string kind)
-        => kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
-
-    private static List<Declaration>? GetDeclarationMembers(Declaration decl) => decl switch
-    {
-        ClassDeclaration c => c.Members,
-        StructDeclaration s => s.Members,
-        RecordDeclaration r => r.Members,
-        InterfaceDeclaration i => i.Members,
-        _ => null
-    };
-
-    private static int EstimateEndLine(Declaration decl)
-    {
-        // Estimate end line based on member/body positions
-        var members = GetDeclarationMembers(decl);
-        if (members is { Count: > 0 })
-        {
-            return members.Max(m => m.Line) + 1;
-        }
-
-        if (decl is FunctionDeclaration f && f.Body?.Statements.Count > 0)
-        {
-            return f.Body.Statements.Max(s => s.Line) + 1;
-        }
-
-        if (decl is SoaRecordDeclaration soa && soa.Columns.Count > 0)
-        {
-            return soa.Columns.Max(c => c.Line) + 1;
-        }
-
-        return decl.Line;
     }
 
     private static Expression? FindExpressionAtPositionRobust(CompilationUnit cu, int line, int col)
@@ -1349,7 +1351,7 @@ public class CodeIntelligenceService
         if (directMatch != null)
             return directMatch;
 
-        foreach (var member in GetDeclarationMembers(decl) ?? Enumerable.Empty<Declaration>())
+        foreach (var member in DeclarationFacts.GetDeclarationMembers(decl)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
         {
             var memberMatch = FindTypeInfoInDeclaration(member, name, snapshot);
             if (memberMatch != null)
@@ -1587,7 +1589,7 @@ public class CodeIntelligenceService
         if (DeclarationFacts.GetDeclarationName(decl) == name)
             return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), decl.Line, decl.Column);
 
-        foreach (var member in GetDeclarationMembers(decl) ?? Enumerable.Empty<Declaration>())
+        foreach (var member in DeclarationFacts.GetDeclarationMembers(decl)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
         {
             var location = FindDefinitionLocationInDeclaration(snapshot, filePath, member, name);
             if (location != null)

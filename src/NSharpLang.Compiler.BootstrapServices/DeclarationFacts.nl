@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections
 import NSharpLang.Compiler.Ast
 
 public class DeclarationFacts {
@@ -62,5 +63,68 @@ public class DeclarationFacts {
         }
 
         return IsExportedDeclaration(declaration, name)
+    }
+
+    public static func GetDeclarationMembers(declaration: object): IList? {
+        typeName := declaration.GetType().Name
+        if typeName != "ClassDeclaration"
+            && typeName != "StructDeclaration"
+            && typeName != "RecordDeclaration"
+            && typeName != "InterfaceDeclaration" {
+            return null
+        }
+
+        value := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Members")
+        return value as IList
+    }
+
+    public static func EstimateDeclarationEndLine(declaration: object): int {
+        members := GetDeclarationMembers(declaration)
+        if members != null && members.Count > 0 {
+            return MaxItemLine(members) + 1
+        }
+
+        typeName := declaration.GetType().Name
+        if typeName == "FunctionDeclaration" {
+            body := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Body")
+            if body != null {
+                statementsValue := TypeInfoFactoryReflection.GetOptionalProperty(body, "Statements")
+                statements := statementsValue as IList
+                if statements != null && statements.Count > 0 {
+                    return MaxItemLine(statements) + 1
+                }
+            }
+        }
+
+        if typeName == "SoaRecordDeclaration" {
+            columnsValue := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Columns")
+            columns := columnsValue as IList
+            if columns != null && columns.Count > 0 {
+                return MaxItemLine(columns) + 1
+            }
+        }
+
+        return TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line")
+    }
+
+    static func MaxItemLine(items: IList): int {
+        maxLine := 0
+        index := 0
+        while index < items.Count {
+            item := items[index]
+            if item != null {
+                lineValue := TypeInfoFactoryReflection.GetOptionalProperty(item, "Line")
+                if lineValue != null {
+                    line := Convert.ToInt32(lineValue)
+                    if line > maxLine {
+                        maxLine = line
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        return maxLine
     }
 }
