@@ -2050,7 +2050,7 @@ internal sealed class ColumnarIlEmitter
                 return true;
             if (genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
-                var tupleArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
                 var openTuple = OpenValueTupleType(tupleArgCanons.Count);
                 if (openTuple == null)
                 {
@@ -2076,7 +2076,7 @@ internal sealed class ColumnarIlEmitter
             // rules as TryResolveType's collection branches apply — keys must be baked (no T keys).
             if (genericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
-                var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (listArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(listArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var listElement)
                     && (listElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(listElement)))
@@ -2089,7 +2089,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (genericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal))
             {
-                var hashArgCanons = SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
+                var hashArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
                 if (hashArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(hashArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var hashElement)
                     && (hashElement is GenericTypeParameterBuilder || IsAdmissibleHashSetElement(hashElement)))
@@ -2102,7 +2102,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal))
             {
-                var stackArgCanons = SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
+                var stackArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
                 if (stackArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(stackArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var stackElement)
                     && (stackElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(stackElement)))
@@ -2115,7 +2115,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal))
             {
-                var dictArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var dictArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
                 if (dictArgCanons.Count == 2
                     && TryResolveTypeWithTypeParams(dictArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveTypeWithTypeParams(dictArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictValue)
@@ -2237,7 +2237,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         }
 
-        var argCanons = SplitTopLevelCommas(canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2));
+        var argCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2));
         if (argCanons.Count != openBuilder.GetGenericArguments().Length)
         {
             return false;
@@ -2434,8 +2434,8 @@ internal sealed class ColumnarIlEmitter
         // MakeGenericType the matching open ValueTuple. (Only Tuple type nodes produce a `(...)` canonical.)
         if (canonical.Length >= 2 && canonical[0] == '(' && canonical[^1] == ')')
         {
-            var tupleCanonical = StripTupleElementNames(canonical, out _);
-            var elements = SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2));
+            var tupleCanonical = ColumnarTypeCanonicalizer.StripTupleElementNames(canonical).Canonical;
+            var elements = ColumnarTypeCanonicalizer.SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2));
             Type? openTuple = elements.Count switch
             {
                 2 => typeof(ValueTuple<,>),
@@ -2500,7 +2500,7 @@ internal sealed class ColumnarIlEmitter
                 return true;
             if (closedGenericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
-                var tupleArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
                 var openTuple = OpenValueTupleType(tupleArgCanons.Count);
                 if (openTuple == null)
                 {
@@ -2535,7 +2535,7 @@ internal sealed class ColumnarIlEmitter
             // (builder-typed-field records get none) would diverge from the legacy emitter — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
-                var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (listArgCanons.Count == 1
                     && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
                     && IsAdmissibleCollectionElement(listElement))
@@ -2548,7 +2548,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal))
             {
-                var hashArgCanons = SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
+                var hashArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
                 if (hashArgCanons.Count == 1
                     && TryResolveType(hashArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var hashElement)
                     && IsAdmissibleHashSetElement(hashElement))
@@ -2561,7 +2561,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal))
             {
-                var stackArgCanons = SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
+                var stackArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
                 if (stackArgCanons.Count == 1
                     && TryResolveType(stackArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var stackElement)
                     && IsAdmissibleCollectionElement(stackElement))
@@ -2574,7 +2574,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 13 && canonical.StartsWith("IReadOnlyList<", StringComparison.Ordinal))
             {
-                var listArgCanons = SplitTopLevelCommas(canonical.Substring(14, canonical.Length - 15));
+                var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(14, canonical.Length - 15));
                 if (listArgCanons.Count == 1
                     && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
                     && IsAdmissibleCollectionElement(listElement))
@@ -2587,7 +2587,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 19 && canonical.StartsWith("IReadOnlyCollection<", StringComparison.Ordinal))
             {
-                var collectionArgCanons = SplitTopLevelCommas(canonical.Substring(20, canonical.Length - 21));
+                var collectionArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(20, canonical.Length - 21));
                 if (collectionArgCanons.Count == 1
                     && TryResolveType(collectionArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var collectionElement)
                     && IsAdmissibleCollectionElement(collectionElement))
@@ -2600,7 +2600,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 12 && canonical.StartsWith("IReadOnlySet<", StringComparison.Ordinal))
             {
-                var setArgCanons = SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
+                var setArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
                 if (setArgCanons.Count == 1
                     && TryResolveType(setArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var setElement)
                     && IsAdmissibleHashSetElement(setElement))
@@ -2613,7 +2613,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal))
             {
-                var enumerableArgCanons = SplitTopLevelCommas(canonical.Substring(12, canonical.Length - 13));
+                var enumerableArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(12, canonical.Length - 13));
                 if (enumerableArgCanons.Count == 1
                     && TryResolveType(enumerableArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var enumerableElement)
                     && IsAdmissibleCollectionElement(enumerableElement))
@@ -2626,7 +2626,7 @@ internal sealed class ColumnarIlEmitter
             }
             if (closedGenericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal))
             {
-                var dictArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                var dictArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
                 if (dictArgCanons.Count == 2
                     && TryResolveType(dictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveType(dictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var dictValue)
@@ -2693,7 +2693,7 @@ internal sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
     {
         type = null!;
-        var parts = SplitTopLevelCommas(argList);
+        var parts = ColumnarTypeCanonicalizer.SplitTopLevelCommas(argList);
         if (parts.Count == 0)
             return false;
         var paramCount = parts.Count;
@@ -2754,30 +2754,6 @@ internal sealed class ColumnarIlEmitter
                 sb.Append(c);
         }
         return sb.ToString();
-    }
-
-    // Split `s` on commas at bracket depth 0 (parens, angle brackets, and square brackets all nest), so a tuple
-    // canonical `(int,int),string` splits into its top-level element canons without breaking nested tuples/generics.
-    private static List<string> SplitTopLevelCommas(string s)
-    {
-        var parts = new List<string>();
-        var depth = 0;
-        var start = 0;
-        for (var i = 0; i < s.Length; i++)
-        {
-            switch (s[i])
-            {
-                case '(': case '<': case '[': depth++; break;
-                case ')': case '>': case ']': depth--; break;
-                case ',' when depth == 0:
-                    parts.Add(s.Substring(start, i - start));
-                    start = i + 1;
-                    break;
-            }
-        }
-
-        parts.Add(s.Substring(start));
-        return parts;
     }
 
     // Parse a floating-point literal's body (type suffix already stripped by the caller) to its double value,
@@ -4676,7 +4652,9 @@ internal sealed class ColumnarIlEmitter
                 // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
                 // canonical for resolution; the names are recorded for member access below. (The BARE
                 // form with a tuple type is a production-grammar parse error — the kernel refuses it.)
-                typeCanonical = StripTupleElementNames(typeCanonical, out var declaredTupleNames);
+                var tupleStrip = ColumnarTypeCanonicalizer.StripTupleElementNames(typeCanonical);
+                typeCanonical = tupleStrip.Canonical;
+                var declaredTupleNames = tupleStrip.Names;
                 if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
                     || !IsSupportedType(declaredType))
                     return false;
@@ -11523,53 +11501,6 @@ internal sealed class ColumnarIlEmitter
                 return "Item" + (i + 1);
         }
         return member;
-    }
-
-    // Splits a TOP-LEVEL named-tuple canonical span (`(x:int,y:int)` from a typed-local annotation) into
-    // the name-erased canonical (`(int,int)`) and the element names; a positional canonical returns names
-    // null with the input unchanged. Only the top level is interpreted — a nested NAMED tuple stays in its
-    // element canonical and fails resolution (decline; the canonical contract is name-free).
-    private static string StripTupleElementNames(string canonical, out string?[]? names)
-    {
-        names = null;
-        if (canonical.Length < 2 || canonical[0] != '(' || canonical[^1] != ')')
-            return canonical;
-        var elements = SplitTopLevelCommas(canonical.Substring(1, canonical.Length - 2));
-        var stripped = new string[elements.Count];
-        string?[]? collected = null;
-        for (var i = 0; i < elements.Count; i++)
-        {
-            var element = elements[i];
-            var colon = element.IndexOf(':');
-            // A name prefix is a bare identifier before the FIRST ':' — generics/arrays cannot precede a
-            // ':' in a type canonical, so a simple scan suffices.
-            if (colon > 0 && IsBareIdentifier(element.Substring(0, colon)))
-            {
-                (collected ??= new string?[elements.Count])[i] = element.Substring(0, colon);
-                stripped[i] = element.Substring(colon + 1);
-            }
-            else
-            {
-                stripped[i] = element;
-            }
-        }
-        if (collected == null)
-            return canonical;
-        names = collected;
-        return "(" + string.Join(",", stripped) + ")";
-    }
-
-    private static bool IsBareIdentifier(string text)
-    {
-        if (text.Length == 0)
-            return false;
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (!char.IsLetterOrDigit(c) && c != '_')
-                return false;
-        }
-        return !char.IsDigit(text[0]);
     }
 
     // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table
