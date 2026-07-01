@@ -7597,7 +7597,7 @@ internal sealed class ColumnarIlEmitter
                 Type opType;
                 if (leftType == rightType)
                     opType = leftType;
-                else if (IsIntPromotable(leftType) && IsIntPromotable(rightType))
+                else if (ColumnarNumericFacts.IsIntPromotable(leftType) && ColumnarNumericFacts.IsIntPromotable(rightType))
                     opType = typeof(int);
                 else
                 {
@@ -7641,7 +7641,7 @@ internal sealed class ColumnarIlEmitter
                         // throw, matching the N# backend path), so double is NOT unsignedDivRem. Integer divide-by-zero /
                         // INT_MIN÷-1 still throw exactly as the N# backend path does. A CHAR result promotes to INT (a char
                         // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
                         var unsignedDivRem = opType == typeof(ulong) || opType == typeof(uint);
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
@@ -7651,14 +7651,14 @@ internal sealed class ColumnarIlEmitter
                             (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
                         // char and the small ints never survive an arithmetic op — the result is INT (N#'s
                         // promoted result, matching Analyzer.cs GetWiderType); uint stays uint (u4 native).
-                        type = IsIntPromotable(opType) ? typeof(int) : opType;
+                        type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "&": case "|": case "^":
                         // Bitwise on the int-promotable set (result INT — N# promotes), long, ulong, or uint
                         // (And/Or/Xor work on i4 and i8 alike).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
-                        type = IsIntPromotable(opType) ? typeof(int) : opType;
+                        type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
                         // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
@@ -7668,7 +7668,7 @@ internal sealed class ColumnarIlEmitter
                         // The int-promotable set compares SIGNED on i4 (the load's sign/zero extension makes
                         // every small-int value its true integer — ushort 60000 is a positive i4); uint joins
                         // ulong on the UNSIGNED compares (4000000000 must order as large-positive).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
                         EmitComparison(op, opType == typeof(ulong) || opType == typeof(uint), opType == typeof(double) || opType == typeof(float));
                         type = typeof(bool);
                         return true;
@@ -7704,7 +7704,7 @@ internal sealed class ColumnarIlEmitter
                         // Equality on int, long, ulong, bool, char, double, float, or a baked i4 enum (Ceq is bit-identical
                         // signed/unsigned; on double/float it is the IEEE ordered equal — NaN == NaN is false and
                         // NaN != NaN is true, which the `!=` negation of Ceq produces correctly).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsKnownEnumType(opType))
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsKnownEnumType(opType))
                         {
                             return false;
                         }
@@ -8731,7 +8731,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (IsKnownEnumType(sourceType))
                         sourceType = typeof(int);
-                    if (!IsIntPromotable(sourceType))
+                    if (!ColumnarNumericFacts.IsIntPromotable(sourceType))
                         return false;
                     type = targetType;
                     return true;
@@ -8779,7 +8779,7 @@ internal sealed class ColumnarIlEmitter
                             && sourceType != typeof(double) && sourceType != typeof(float)
                             ? "op_Implicit" : "op_Explicit";
                         var fromType = targetType == typeof(decimal)
-                            ? (IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType)
+                            ? (ColumnarNumericFacts.IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType)
                             : typeof(decimal);
                         // (small-int sources are already extended i4 — fromType above maps them to the
                         // int operator; char keeps its own op_Implicit(char).)
@@ -10924,15 +10924,10 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    // The ECMA §12.4.7 int-promotion set: i4-slot scalars whose arithmetic/bitwise results are INT.
-    private static bool IsIntPromotable(Type t) =>
-        t == typeof(int) || t == typeof(char)
-        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort);
-
-	    private bool TryEmitStringConcatChain(int idx, out Type type)
-	    {
-	        type = null!;
-	        var terms = new List<int>();
+    private bool TryEmitStringConcatChain(int idx, out Type type)
+    {
+        type = null!;
+        var terms = new List<int>();
         var pending = new Stack<int>();
         var seen = new HashSet<int>();
         pending.Push(idx);
@@ -11085,7 +11080,7 @@ internal sealed class ColumnarIlEmitter
     // subtler — those mixes decline, pinned for a later rung).
     private bool TryEmitImplicitWidening(Type source, Type target)
     {
-        if (IsIntPromotable(source))
+        if (ColumnarNumericFacts.IsIntPromotable(source))
         {
             if (target == typeof(int))
                 return true; // already an extended i4.
