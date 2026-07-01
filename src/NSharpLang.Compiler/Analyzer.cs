@@ -8784,10 +8784,8 @@ public class Analyzer : IDisposable
         {
             case ClassTypeInfo classType:
                 filePath = GetDeclarationFileForType(classType);
-                var classDeclaration = classType.GetDeclaration();
-                if (TryFindDeclarationMemberNode(classDeclaration.Members, memberName, out var classMember))
+                if (TryFindDeclaredMemberExportVisibility(classType.DeclaredMembers, memberName, out isExported))
                 {
-                    isExported = IsExportedByCasingOrModifier(memberName, classMember);
                     return true;
                 }
                 if (classType.BaseClass != null)
@@ -8796,27 +8794,24 @@ public class Analyzer : IDisposable
 
             case StructTypeInfo structType:
                 filePath = GetDeclarationFileForType(structType);
-                if (TryFindDeclarationMemberNode(structType.GetDeclaration().Members, memberName, out var structMember))
+                if (TryFindDeclaredMemberExportVisibility(structType.DeclaredMembers, memberName, out isExported))
                 {
-                    isExported = IsExportedByCasingOrModifier(memberName, structMember);
                     return true;
                 }
                 return false;
 
             case RecordTypeInfo recordType:
                 filePath = GetDeclarationFileForType(recordType);
-                if (TryFindDeclarationMemberNode(recordType.GetDeclaration().Members, memberName, out var recordMember))
+                if (TryFindDeclaredMemberExportVisibility(recordType.DeclaredMembers, memberName, out isExported))
                 {
-                    isExported = IsExportedByCasingOrModifier(memberName, recordMember);
                     return true;
                 }
                 return false;
 
             case InterfaceTypeInfo interfaceType:
                 filePath = GetDeclarationFileForType(interfaceType);
-                if (TryFindDeclarationMemberNode(interfaceType.GetDeclaration().Members, memberName, out var interfaceMember))
+                if (TryFindDeclaredMemberExportVisibility(interfaceType.DeclaredMembers, memberName, out isExported))
                 {
-                    isExported = IsExportedByCasingOrModifier(memberName, interfaceMember);
                     return true;
                 }
                 return false;
@@ -8853,18 +8848,21 @@ public class Analyzer : IDisposable
         }
     }
 
-    private static bool TryFindDeclarationMemberNode(IEnumerable<Declaration> members, string memberName, out Declaration declaration)
+    private static bool TryFindDeclaredMemberExportVisibility(
+        IEnumerable<DeclaredMemberInfo> members,
+        string memberName,
+        out bool isExported)
     {
         foreach (var member in members)
         {
-            if (GetDeclarationName(member) == memberName)
+            if (member.Name == memberName)
             {
-                declaration = member;
+                isExported = member.IsExported;
                 return true;
             }
         }
 
-        declaration = null!;
+        isExported = false;
         return false;
     }
 
@@ -22284,11 +22282,6 @@ public class Analyzer : IDisposable
         var currentNamespace = GetUnitNamespace(_compilationUnit) ?? GetNamespaceForFile(currentPath);
         var declarationNamespace = GetNamespaceForFile(declarationPath);
         return !string.Equals(currentNamespace, declarationNamespace, StringComparison.Ordinal);
-    }
-
-    private static bool IsExportedByCasingOrModifier(string name, Declaration declaration)
-    {
-        return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration));
     }
 
     private bool ReportInaccessibleMember(string memberName, string? declarationFile, int line, int column)

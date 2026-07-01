@@ -4428,7 +4428,7 @@ class Widget {
 }
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import Models
+import "Models/Widget"
 
 package App
 

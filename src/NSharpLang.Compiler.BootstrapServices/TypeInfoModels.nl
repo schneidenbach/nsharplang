@@ -28,6 +28,7 @@ public class DeclaredMemberInfo {
     typeValue: TypeReference?
     isStaticValue: bool
     isReadonlyValue: bool
+    isExportedValue: bool
     parameterCountValue: int
     parameterTypesValue: TypeReference[]
     returnTypeValue: TypeReference?
@@ -41,6 +42,7 @@ public class DeclaredMemberInfo {
     Type: TypeReference? => typeValue
     IsStatic: bool => isStaticValue
     IsReadonly: bool => isReadonlyValue
+    IsExported: bool => isExportedValue
     ParameterCount: int => parameterCountValue
     ParameterTypes: TypeReference[] => parameterTypesValue
     ReturnType: TypeReference? => returnTypeValue
@@ -55,6 +57,7 @@ public class DeclaredMemberInfo {
         typeReference: TypeReference?,
         isStatic: bool,
         isReadonly: bool,
+        isExported: bool,
         parameterCount: int,
         parameterTypes: TypeReference[],
         returnType: TypeReference?,
@@ -67,6 +70,7 @@ public class DeclaredMemberInfo {
         typeValue = typeReference
         isStaticValue = isStatic
         isReadonlyValue = isReadonly
+        isExportedValue = isExported
         parameterCountValue = parameterCount
         parameterTypesValue = parameterTypes
         returnTypeValue = returnType

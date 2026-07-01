@@ -179,12 +179,14 @@ public class NominalTypeInfoFactory {
 
     static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
         typeName := member.GetType().Name
+        name := GetOptionalString(member, "Name")
         return new DeclaredMemberInfo(
-            GetOptionalString(member, "Name"),
+            name,
             GetDeclaredMemberKind(typeName),
             GetOptionalTypeReference(member, "Type"),
             HasOptionalModifier(member, 16),
             HasOptionalModifier(member, 512),
+            IsExportedMember(member, name),
             GetOptionalListCount(member, "Parameters"),
             GetParameterTypeArray(member),
             GetOptionalTypeReference(member, "ReturnType"),
@@ -202,6 +204,15 @@ public class NominalTypeInfoFactory {
 
         value := Convert.ToInt32(modifiers)
         return (value & flag) == flag
+    }
+
+    static func IsExportedMember(member: object, name: string): bool {
+        modifiers := TypeInfoFactoryReflection.GetOptionalProperty(member, "Modifiers")
+        if modifiers == null {
+            return VisibilityConventions.IsExportedIdentifier(name)
+        }
+
+        return VisibilityConventions.IsExportedIdentifier(name, modifiers)
     }
 
     static func GetOptionalListCount(owner: object, propertyName: string): int {
