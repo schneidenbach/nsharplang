@@ -9262,10 +9262,10 @@ public class Analyzer : IDisposable
 
     private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
     {
-        ClassTypeInfo classType => GetDeclarationFilePath(classType.GetDeclaration().Name, classType.GetDeclaration()),
-        StructTypeInfo structType => GetDeclarationFilePath(structType.GetDeclaration().Name, structType.GetDeclaration()),
-        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.GetDeclaration().Name, recordType.GetDeclaration()),
-        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.GetDeclaration().Name, interfaceType.GetDeclaration()),
+        ClassTypeInfo classType => GetDeclarationFilePath(classType.Name, classType.GetDeclaration()),
+        StructTypeInfo structType => GetDeclarationFilePath(structType.Name, structType.GetDeclaration()),
+        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Name, recordType.GetDeclaration()),
+        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Name, interfaceType.GetDeclaration()),
         EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
         UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
         _ => _currentFilePath

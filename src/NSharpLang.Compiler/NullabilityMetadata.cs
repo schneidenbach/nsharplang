@@ -61,12 +61,12 @@ public static class NullabilityMetadata
     public static string FormatTypeInfo(TypeInfo typeInfo) => typeInfo switch
     {
         SimpleTypeInfo s => s.Name,
-        ClassTypeInfo c => c.GetDeclaration().Name,
-        StructTypeInfo s => s.GetDeclaration().Name,
-        RecordTypeInfo r => r.GetDeclaration().Name,
+        ClassTypeInfo c => c.Name,
+        StructTypeInfo s => s.Name,
+        RecordTypeInfo r => r.Name,
         SoaRecordTypeInfo soa => soa.Declaration.Name,
         SoaRowTypeInfo row => $"{row.Declaration.Name}.Row",
-        InterfaceTypeInfo i => i.GetDeclaration().Name,
+        InterfaceTypeInfo i => i.Name,
         EnumTypeInfo e => e.Declaration.Name,
         AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),
         UnionTypeInfo u => u.Declaration.Name,
