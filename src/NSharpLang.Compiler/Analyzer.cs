@@ -2044,12 +2044,8 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var sequenceKind = isAsyncGenerator
-            ? "an async enumerable sequence type"
-            : "a synchronous enumerable sequence type";
-        var suggestion = isAsyncGenerator
-            ? "Use `IAsyncEnumerable<T>` for `async func*`."
-            : "Use `IEnumerable<T>`, `IReadOnlyList<T>`, or `List<T>` for `func*`.";
+        var sequenceKind = GeneratorSequenceTypeFacts.ExpectedSequenceKind(isAsyncGenerator);
+        var suggestion = GeneratorSequenceTypeFacts.ReturnTypeSuggestion(isAsyncGenerator);
         var (line, column, length) = func.ReturnType != null
             ? GetSourceSpanDiagnosticSpan(
                 GetTypeReferenceStartSpan(func.ReturnType),
@@ -2069,36 +2065,11 @@ public class Analyzer : IDisposable
 
     private bool IsGeneratorSequenceReturnType(TypeInfo type, bool isAsyncGenerator)
     {
-        return type switch
-        {
-            GenericTypeInfo generic => IsGeneratorSequenceGenericName(generic.Name, generic.TypeArguments.Count, isAsyncGenerator),
-            ReflectionTypeInfo reflection => IsGeneratorSequenceReflectionType(reflection.Type, isAsyncGenerator),
-            _ => false
-        };
-    }
+        if (GeneratorSequenceTypeFacts.IsSequenceReturnType(type, isAsyncGenerator))
+            return true;
 
-    private static bool IsGeneratorSequenceGenericName(string name, int arity, bool isAsyncGenerator)
-    {
-        if (arity != 1)
-        {
-            return false;
-        }
-
-        var unqualifiedName = GetUnqualifiedTypeName(name);
-        var tickIndex = unqualifiedName.IndexOf('`', StringComparison.Ordinal);
-        if (tickIndex >= 0)
-        {
-            unqualifiedName = unqualifiedName[..tickIndex];
-        }
-
-        if (isAsyncGenerator)
-        {
-            return unqualifiedName == "IAsyncEnumerable";
-        }
-
-        return unqualifiedName is
-            "List" or "IEnumerable" or "ICollection" or "IList" or
-            "IReadOnlyCollection" or "IReadOnlyList";
+        return type is ReflectionTypeInfo reflection
+            && IsGeneratorSequenceReflectionType(reflection.Type, isAsyncGenerator);
     }
 
     private static bool IsGeneratorSequenceReflectionType(Type type, bool isAsyncGenerator)
