@@ -4552,6 +4552,15 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ", "must be an array or collection type");
     }
 
+    [Fact]
+    public void ParamsParameter_InvalidGenericType_ReportsTypeReferenceDisplayName()
+    {
+        AssertHasError(@"
+            func Invalid(params value: Dictionary<string, int>) {
+            }
+        ", "'Dictionary<string, int>' is not a valid params type");
+    }
+
     // Extension Method Resolution Tests
 
     [Fact]

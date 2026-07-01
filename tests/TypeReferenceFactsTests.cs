@@ -79,4 +79,59 @@ public class TypeReferenceFactsTests
             SourceSpan.None,
             TypeReferenceFacts.GetStartSpan(new TupleTypeReference(new List<TupleTypeElement>())));
     }
+
+    [Fact]
+    public void TypeReferenceFacts_ValidatesParamsTypeReferences()
+    {
+        Assert.True(TypeReferenceFacts.IsValidParamsType(
+            new ArrayTypeReference(new SimpleTypeReference("int"))));
+
+        foreach (var validCollection in new[]
+        {
+            "Span",
+            "ReadOnlySpan",
+            "IEnumerable",
+            "IReadOnlyCollection",
+            "IReadOnlyList",
+            "ICollection",
+            "IList",
+            "List",
+            "HashSet",
+            "Queue",
+            "Stack",
+            "ArraySegment",
+            "Memory",
+            "ReadOnlyMemory"
+        })
+        {
+            Assert.True(TypeReferenceFacts.IsValidParamsType(
+                new GenericTypeReference(validCollection, new List<TypeReference>
+                {
+                    new SimpleTypeReference("string")
+                })));
+        }
+
+        Assert.False(TypeReferenceFacts.IsValidParamsType(new SimpleTypeReference("int")));
+        Assert.False(TypeReferenceFacts.IsValidParamsType(
+            new GenericTypeReference("Dictionary", new List<TypeReference>
+            {
+                new SimpleTypeReference("string"),
+                new SimpleTypeReference("int")
+            })));
+    }
+
+    [Fact]
+    public void TypeReferenceFacts_DisplaysNestedTypeReferences()
+    {
+        var displayType = new UnionTypeReference(new List<TypeReference>
+        {
+            new GenericTypeReference("List", new List<TypeReference>
+            {
+                new ArrayTypeReference(new NullableTypeReference(new SimpleTypeReference("int")))
+            }),
+            new ByRefTypeReference(new SimpleTypeReference("string"))
+        });
+
+        Assert.Equal("List<int?[]> | &string", TypeReferenceFacts.GetDisplayName(displayType));
+    }
 }

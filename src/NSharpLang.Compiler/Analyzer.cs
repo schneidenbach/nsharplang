@@ -11453,7 +11453,7 @@ public class Analyzer : IDisposable
         var sourceTypes = functionType.SourceParameterTypes;
         var resolvedTypes = functionType.ParameterTypes;
         var typeName = sourceTypes != null && index < sourceTypes.Count
-            ? TranspileTypeReference(sourceTypes[index])
+            ? TypeReferenceFacts.GetDisplayName(sourceTypes[index])
             : resolvedTypes != null && index < resolvedTypes.Count
                 ? resolvedTypes[index].ToString()
                 : "unknown";
@@ -21395,11 +21395,11 @@ public class Analyzer : IDisposable
                 }
 
                 // : params can be array, Span<T>, ReadOnlySpan<T>, or collection types
-                if (!IsValidParamsType(param.Type))
+                if (!TypeReferenceFacts.IsValidParamsType(param.Type))
                 {
                     Error(
                         ErrorCode.InvalidParameter,
-                        $"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type",
+                        $"A 'params' parameter must be an array or collection type — '{TypeReferenceFacts.GetDisplayName(param.Type)}' is not a valid params type",
                         paramLine,
                         paramColumn,
                         length: paramLength);
@@ -21514,47 +21514,6 @@ public class Analyzer : IDisposable
             ArrayLiteralExpression arrayLit => arrayLit.Elements.All(IsValidDefaultValue),
 
             _ => false
-        };
-    }
-
-    private bool IsValidParamsType(TypeReference typeRef)
-    {
-        // Arrays are always valid (original  behavior)
-        if (typeRef is ArrayTypeReference)
-            return true;
-
-        // Check for generic types (Span<T>, ReadOnlySpan<T>, List<T>, IEnumerable<T>, etc.)
-        if (typeRef is GenericTypeReference generic)
-        {
-            var typeName = generic.Name;
-
-            //  specifically allows these types
-            var validTypes = new HashSet<string>
-            {
-                "Span", "ReadOnlySpan",
-                "IEnumerable", "IReadOnlyCollection", "IReadOnlyList",
-                "ICollection", "IList",
-                "List", "HashSet", "Queue", "Stack",
-                "ArraySegment", "Memory", "ReadOnlyMemory"
-            };
-
-            return validTypes.Contains(typeName);
-        }
-
-        return false;
-    }
-
-    private string TranspileTypeReference(TypeReference typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            ArrayTypeReference array => TranspileTypeReference(array.ElementType) + "[]",
-            GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
-            NullableTypeReference nullable => TranspileTypeReference(nullable.InnerType) + "?",
-            UnionTypeReference union => string.Join(" | ", union.Arms.Select(TranspileTypeReference)),
-            ByRefTypeReference byRef => $"&{TranspileTypeReference(byRef.InnerType)}",
-            _ => typeRef.ToString() ?? "unknown"
         };
     }
 

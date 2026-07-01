@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import System.Collections.Generic
+import System.Text
 import NSharpLang.Compiler.Ast
 
 public class TypeReferenceFacts {
@@ -57,5 +59,89 @@ public class TypeReferenceFacts {
         }
 
         return SourceSpan.None
+    }
+
+    public static func IsValidParamsType(typeRef: TypeReference): bool {
+        array := typeRef as ArrayTypeReference
+        if array != null {
+            return true
+        }
+
+        generic := typeRef as GenericTypeReference
+        if generic == null {
+            return false
+        }
+
+        typeName := generic.Name
+        if typeName == "Span" { return true }
+        if typeName == "ReadOnlySpan" { return true }
+        if typeName == "IEnumerable" { return true }
+        if typeName == "IReadOnlyCollection" { return true }
+        if typeName == "IReadOnlyList" { return true }
+        if typeName == "ICollection" { return true }
+        if typeName == "IList" { return true }
+        if typeName == "List" { return true }
+        if typeName == "HashSet" { return true }
+        if typeName == "Queue" { return true }
+        if typeName == "Stack" { return true }
+        if typeName == "ArraySegment" { return true }
+        if typeName == "Memory" { return true }
+        if typeName == "ReadOnlyMemory" { return true }
+
+        return false
+    }
+
+    public static func GetDisplayName(typeRef: TypeReference): string {
+        simple := typeRef as SimpleTypeReference
+        if simple != null {
+            return simple.Name
+        }
+
+        array := typeRef as ArrayTypeReference
+        if array != null {
+            return GetDisplayName(array.ElementType) + "[]"
+        }
+
+        generic := typeRef as GenericTypeReference
+        if generic != null {
+            builder := new StringBuilder()
+            builder.Append(generic.Name)
+            builder.Append("<")
+            AppendDisplayNameList(builder, generic.TypeArguments, ", ")
+            builder.Append(">")
+            return builder.ToString()
+        }
+
+        nullable := typeRef as NullableTypeReference
+        if nullable != null {
+            return GetDisplayName(nullable.InnerType) + "?"
+        }
+
+        unionReference := typeRef as UnionTypeReference
+        if unionReference != null {
+            builder := new StringBuilder()
+            AppendDisplayNameList(builder, unionReference.Arms, " | ")
+            return builder.ToString()
+        }
+
+        byRef := typeRef as ByRefTypeReference
+        if byRef != null {
+            return "&" + GetDisplayName(byRef.InnerType)
+        }
+
+        typeObject := typeRef as object
+        return typeObject.ToString()
+    }
+
+    static func AppendDisplayNameList(builder: StringBuilder, types: List<TypeReference>, separator: string) {
+        index := 0
+        while index < types.Count {
+            if index > 0 {
+                builder.Append(separator)
+            }
+
+            builder.Append(GetDisplayName(types[index]))
+            index = index + 1
+        }
     }
 }
