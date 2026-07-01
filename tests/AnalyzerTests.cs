@@ -7219,6 +7219,26 @@ func Main() {
         ", "No overload of 'Format' accepts");
     }
 
+    [Fact]
+    public void OverloadResolution_ExtensionOverload_NoMatch_FormatsFactBackedCandidatesWithoutReceiver()
+    {
+        const string source = """
+func Format(this x: int, prefix: string): string { return prefix }
+func Format(this x: int, decimals: int): int { return decimals }
+func Main() {
+    5.Format(true)
+}
+""";
+
+        var result = AnalyzeWithSource(source);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("Format(prefix: string): string", diagnostic.ContextualHint);
+        Assert.Contains("Format(decimals: int): int", diagnostic.ContextualHint);
+        Assert.DoesNotContain("this x", diagnostic.ContextualHint);
+    }
+
     // ================================================================
     // Extension methods on literal receivers — type safety
     // ================================================================

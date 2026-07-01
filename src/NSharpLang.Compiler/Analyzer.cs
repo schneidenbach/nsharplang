@@ -8967,8 +8967,7 @@ public class Analyzer : IDisposable
             default:
                 var extension = _extensionMethods.FirstOrDefault(ext =>
                     ext.Name == memberName
-                    && ext.Parameters.Count > 0
-                    && IsAssignable(ResolveType(ext.Parameters[0].Type), objectType));
+                    && IsExtensionReceiverApplicable(ext, objectType));
                 if (extension != null)
                 {
                     declaration = new SymbolDeclaration(extension.Name, _currentFilePath, extension.Line, extension.Column, "function");
@@ -9358,6 +9357,7 @@ public class Analyzer : IDisposable
         }
 
         objectType = ResolveTypeAlias(objectType);
+        var extensionReceiverType = objectType;
 
         if (objectType is NullableTypeInfo nullableType)
         {
@@ -9465,8 +9465,8 @@ public class Analyzer : IDisposable
                 return new ReflectionMethodGroupInfo(methods, $"{methods[0].Name}(...)");
             }
 
-            // No member found on reflection type, try extension methods
-            return TryResolveExtensionMethod(objectType, memberName);
+            // No member found on reflection type, try extension methods against the source receiver shape.
+            return TryResolveExtensionMethod(extensionReceiverType, memberName);
         }
 
         // Handle declared types
@@ -9635,7 +9635,7 @@ public class Analyzer : IDisposable
         }
 
         // Member not found on type, try extension methods
-        return TryResolveExtensionMethod(objectType, memberName);
+        return TryResolveExtensionMethod(extensionReceiverType, memberName);
     }
 
     private static bool TryResolveKnownGenericStructuralMember(
@@ -9956,10 +9956,7 @@ public class Analyzer : IDisposable
             if (ext.Parameters.Count == 0)
                 continue;
 
-            var thisParamType = ResolveType(ext.Parameters[0].Type);
-
-            // Check if targetType is assignable to the extension method's this parameter type
-            if (IsAssignable(thisParamType, targetType))
+            if (IsExtensionReceiverApplicable(ext, targetType))
             {
                 applicableExtensions.Add(ext);
             }
@@ -9981,9 +9978,29 @@ public class Analyzer : IDisposable
         if (applicableExtensions.Count == 1)
             return CreateFunctionTypeInfo(applicableExtensions[0]);
 
-        // Multiple matches - return method group for overload resolution
-        return NSharpMethodGroupInfoFactory.FromDeclarations(applicableExtensions);
+        // Multiple matches - return fact-backed method group for overload resolution
+        return NSharpMethodGroupInfoFactory.FromDeclarations(
+            applicableExtensions.Select(CreateFunctionTypeInfo).ToList());
     }
+
+    private bool IsExtensionReceiverApplicable(FunctionDeclaration extension, TypeInfo targetType)
+    {
+        if (extension.Parameters.Count == 0)
+            return false;
+
+        var receiverTypeReference = extension.Parameters[0].Type;
+        if (receiverTypeReference is SimpleTypeReference simple
+            && IsFunctionTypeParameter(extension, simple.Name))
+        {
+            return true;
+        }
+
+        var receiverType = ResolveType(receiverTypeReference);
+        return TypesEqual(receiverType, targetType) || IsAssignable(receiverType, targetType);
+    }
+
+    private static bool IsFunctionTypeParameter(FunctionDeclaration function, string name)
+        => function.TypeParameters?.Any(typeParameter => typeParameter.Name == name) == true;
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
     {
@@ -11428,17 +11445,19 @@ public class Analyzer : IDisposable
 
         var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
         var expectedCount = functionType.ParameterTypes.Count;
-        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        var parameterStartIndex = GetSyntheticParameterStartIndex(functionType, call);
+        var requiredCount = GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex);
+        var expectedArgumentCount = Math.Max(0, expectedCount - parameterStartIndex);
         var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
         var hasParamsParameter = paramsParameterIndex >= 0;
         var genericBindings = TryInferSyntheticGenericBindings(functionType, call, argTypes);
         ValidateSyntheticGenericConstraints(functionType, call, genericBindings);
-        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedCount))
+        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
         {
             var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
-            var expectedDescription = requiredCount == expectedCount
-                ? expectedCount.ToString(CultureInfo.InvariantCulture)
-                : $"{requiredCount.ToString(CultureInfo.InvariantCulture)} to {expectedCount.ToString(CultureInfo.InvariantCulture)}";
+            var expectedDescription = requiredCount == expectedArgumentCount
+                ? expectedArgumentCount.ToString(CultureInfo.InvariantCulture)
+                : $"{requiredCount.ToString(CultureInfo.InvariantCulture)} to {expectedArgumentCount.ToString(CultureInfo.InvariantCulture)}";
             Error(
                 ErrorCode.WrongArgumentCount,
                 $"'{functionName}' takes {expectedDescription} argument(s), but you passed {argTypes.Count}",
@@ -11449,8 +11468,15 @@ public class Analyzer : IDisposable
             return;
         }
 
-        if (!TryBindSyntheticFunctionArguments(functionType, functionName, call, out var parameterIndexByArgument))
+        if (!TryBindSyntheticFunctionArguments(
+                functionType,
+                functionName,
+                call,
+                out var parameterIndexByArgument,
+                parameterStartIndex))
+        {
             return;
+        }
 
         for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
         {
@@ -11466,8 +11492,9 @@ public class Analyzer : IDisposable
                 if (paramsType is not ArrayTypeInfo paramsArrayType)
                     continue;
 
+                var paramsArgumentIndex = paramsParameterIndex - parameterStartIndex;
                 var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
-                    paramsParameterIndex,
+                    paramsArgumentIndex,
                     call.Arguments,
                     argTypes,
                     paramsArrayType);
@@ -11524,15 +11551,17 @@ public class Analyzer : IDisposable
         string functionName,
         CallExpression call,
         out int[] parameterIndexByArgument,
+        int parameterStartIndex = 0,
         bool reportErrors = true)
     {
         var expectedCount = functionType.ParameterTypes?.Count ?? 0;
         parameterIndexByArgument = Enumerable.Repeat(-1, call.Arguments.Count).ToArray();
 
+        parameterStartIndex = Math.Clamp(parameterStartIndex, 0, expectedCount);
         var parameterNames = functionType.ParameterNames;
         var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
         var boundArgumentIndexByParameter = Enumerable.Repeat(-1, expectedCount).ToArray();
-        var nextPositionalParameter = 0;
+        var nextPositionalParameter = parameterStartIndex;
         var success = true;
 
         for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
@@ -11543,7 +11572,7 @@ public class Analyzer : IDisposable
                 var parameterIndex = parameterNames != null
                     ? parameterNames.FindIndex(parameterName => parameterName == argumentName)
                     : -1;
-                if (parameterIndex < 0 || parameterIndex >= expectedCount)
+                if (parameterIndex < parameterStartIndex || parameterIndex >= expectedCount)
                 {
                     if (reportErrors)
                     {
@@ -11551,7 +11580,8 @@ public class Analyzer : IDisposable
                             functionType,
                             functionName,
                             argument,
-                            $"'{functionName}' has no parameter named '{argumentName}'");
+                            $"'{functionName}' has no parameter named '{argumentName}'",
+                            parameterStartIndex);
                     }
                     success = false;
                     continue;
@@ -11565,7 +11595,8 @@ public class Analyzer : IDisposable
                             functionType,
                             functionName,
                             argument,
-                            $"'{functionName}' got multiple values for parameter '{argumentName}'");
+                            $"'{functionName}' got multiple values for parameter '{argumentName}'",
+                            parameterStartIndex);
                     }
                     success = false;
                     continue;
@@ -11599,7 +11630,8 @@ public class Analyzer : IDisposable
                         functionType,
                         functionName,
                         argument,
-                        $"'{functionName}' got more positional arguments than its signature accepts");
+                        $"'{functionName}' got more positional arguments than its signature accepts",
+                        parameterStartIndex);
                 }
                 success = false;
                 continue;
@@ -11611,7 +11643,7 @@ public class Analyzer : IDisposable
         }
 
         var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
-        for (var parameterIndex = 0; parameterIndex < requiredCount; parameterIndex++)
+        for (var parameterIndex = parameterStartIndex; parameterIndex < requiredCount; parameterIndex++)
         {
             if (boundArgumentIndexByParameter[parameterIndex] >= 0)
                 continue;
@@ -11622,7 +11654,8 @@ public class Analyzer : IDisposable
                     functionType,
                     functionName,
                     call,
-                    parameterIndex);
+                    parameterIndex,
+                    parameterStartIndex);
             }
 
             success = false;
@@ -11656,11 +11689,21 @@ public class Analyzer : IDisposable
         return requiredCount;
     }
 
+    private static int GetSyntheticRequiredArgumentCount(
+        FunctionTypeInfo functionType,
+        int expectedCount,
+        int parameterStartIndex)
+    {
+        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        return Math.Max(0, requiredCount - Math.Clamp(parameterStartIndex, 0, expectedCount));
+    }
+
     private void ReportSyntheticMissingArgumentBindingError(
         FunctionTypeInfo functionType,
         string functionName,
         CallExpression call,
-        int parameterIndex)
+        int parameterIndex,
+        int parameterStartIndex)
     {
         var parameterName = functionType.ParameterNames != null
                             && parameterIndex >= 0
@@ -11673,7 +11716,7 @@ public class Analyzer : IDisposable
             $"'{functionName}' needs an argument for parameter '{parameterName}'",
             line,
             column,
-            $"Use {FormatSyntheticFunctionSignature(functionType, functionName)}.",
+            $"Use {FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)}.",
             length);
     }
 
@@ -11681,7 +11724,8 @@ public class Analyzer : IDisposable
         FunctionTypeInfo functionType,
         string functionName,
         Argument argument,
-        string message)
+        string message,
+        int parameterStartIndex)
     {
         var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
         Error(
@@ -11689,13 +11733,17 @@ public class Analyzer : IDisposable
             message,
             line,
             column,
-            $"Use {FormatSyntheticFunctionSignature(functionType, functionName)}, or remove the argument name.",
+            $"Use {FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)}, or remove the argument name.",
             length);
     }
 
-    private string FormatSyntheticFunctionSignature(FunctionTypeInfo functionType, string functionName)
+    private string FormatSyntheticFunctionSignature(
+        FunctionTypeInfo functionType,
+        string functionName,
+        int parameterStartIndex = 0)
     {
         var parameterCount = functionType.ParameterTypes?.Count ?? 0;
+        parameterStartIndex = Math.Clamp(parameterStartIndex, 0, parameterCount);
         var typeParameters = functionType.TypeParameters is { Count: > 0 }
             ? $"<{string.Join(", ", functionType.TypeParameters.Select(parameter => parameter.Name))}>"
             : string.Empty;
@@ -11703,10 +11751,10 @@ public class Analyzer : IDisposable
             ? $": {functionType.ReturnType}"
             : string.Empty;
 
-        if (parameterCount == 0)
+        if (parameterCount == parameterStartIndex)
             return $"{functionName}{typeParameters}(){returnType}";
 
-        var parameters = Enumerable.Range(0, parameterCount)
+        var parameters = Enumerable.Range(parameterStartIndex, parameterCount - parameterStartIndex)
             .Select(index => FormatSyntheticParameterSignature(functionType, index));
         return $"{functionName}{typeParameters}({string.Join(", ", parameters)}){returnType}";
     }
@@ -12012,7 +12060,10 @@ public class Analyzer : IDisposable
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
         var candidateSignatures = candidates
-            .Select(candidate => FormatSyntheticFunctionSignature(candidate, candidate.SyntheticName ?? functionName))
+            .Select(candidate => FormatSyntheticFunctionSignature(
+                candidate,
+                candidate.SyntheticName ?? functionName,
+                GetSyntheticParameterStartIndex(candidate, call)))
             .Distinct(StringComparer.Ordinal)
             .Take(8)
             .ToList();
@@ -12133,6 +12184,12 @@ public class Analyzer : IDisposable
         => declaration.Parameters.Count > 0
             && declaration.Parameters[0].IsThis
             && call.Callee is MemberAccessExpression;
+
+    private static int GetSyntheticParameterStartIndex(FunctionTypeInfo functionType, CallExpression call)
+        => functionType.Declaration is FunctionDeclaration declaration
+           && IsReceiverStyleExtensionCall(declaration, call)
+            ? 1
+            : 0;
 
     private string FormatNSharpMethodSignature(FunctionDeclaration declaration, CallExpression call)
     {
@@ -12351,6 +12408,10 @@ public class Analyzer : IDisposable
 
             var currentParameterCount = candidate.ParameterTypes?.Count ?? 0;
             var bestParameterCount = bestFunction.ParameterTypes?.Count ?? 0;
+            var currentStartIndex = GetSyntheticParameterStartIndex(candidate, call);
+            var bestStartIndex = GetSyntheticParameterStartIndex(bestFunction, call);
+            var currentArgumentCount = Math.Max(0, currentParameterCount - currentStartIndex);
+            var bestArgumentCount = Math.Max(0, bestParameterCount - bestStartIndex);
             var currentHasParams = GetSyntheticParamsParameterIndex(candidate, currentParameterCount) >= 0;
             var bestHasParams = GetSyntheticParamsParameterIndex(bestFunction, bestParameterCount) >= 0;
 
@@ -12363,12 +12424,12 @@ public class Analyzer : IDisposable
             {
                 // Best non-params overload remains more specific.
             }
-            else if (currentParameterCount > bestParameterCount)
+            else if (currentArgumentCount > bestArgumentCount)
             {
                 bestFunction = candidate;
                 ambiguous = false;
             }
-            else if (currentParameterCount < bestParameterCount)
+            else if (currentArgumentCount < bestArgumentCount)
             {
                 // Best overload uses fewer defaults.
             }
@@ -12400,10 +12461,12 @@ public class Analyzer : IDisposable
             return false;
 
         var expectedCount = parameterTypes.Count;
-        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        var parameterStartIndex = GetSyntheticParameterStartIndex(functionType, call);
+        var requiredCount = GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex);
+        var expectedArgumentCount = Math.Max(0, expectedCount - parameterStartIndex);
         var paramsParameterIndex = GetSyntheticParamsParameterIndex(functionType, expectedCount);
         var hasParamsParameter = paramsParameterIndex >= 0;
-        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedCount))
+        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
             return false;
 
         var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
@@ -12412,6 +12475,7 @@ public class Analyzer : IDisposable
                 functionName,
                 call,
                 out var parameterIndexByArgument,
+                parameterStartIndex,
                 reportErrors: false))
         {
             return false;
@@ -12439,6 +12503,7 @@ public class Analyzer : IDisposable
                     argumentIndex,
                     parameterIndex,
                     paramsParameterIndex,
+                    parameterStartIndex,
                     genericBindings,
                     out var expectedType,
                     out var argumentType))
@@ -12471,6 +12536,7 @@ public class Analyzer : IDisposable
         int argumentIndex,
         int parameterIndex,
         int paramsParameterIndex,
+        int parameterStartIndex,
         Dictionary<string, TypeInfo>? genericBindings,
         out TypeInfo? expectedType,
         out TypeInfo? argumentType)
@@ -12495,8 +12561,9 @@ public class Analyzer : IDisposable
             return true;
         }
 
+        var paramsArgumentIndex = paramsParameterIndex - parameterStartIndex;
         var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
-            paramsParameterIndex,
+            paramsArgumentIndex,
             call.Arguments,
             argTypes,
             paramsArrayType);
@@ -13059,11 +13126,13 @@ public class Analyzer : IDisposable
         if (sourceParameterTypes == null || sourceParameterTypes.Count == 0)
             return GetCallDiagnosticSpan(call, functionName);
 
+        var parameterStartIndex = GetSyntheticParameterStartIndex(functionType, call);
         if (!TryBindSyntheticFunctionArguments(
                 functionType,
                 functionName,
                 call,
                 out var parameterIndexByArgument,
+                parameterStartIndex,
                 reportErrors: false))
         {
             return GetCallDiagnosticSpan(call, functionName);
@@ -13242,11 +13311,21 @@ public class Analyzer : IDisposable
             return bindings;
 
         var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        var parameterStartIndex = GetSyntheticParameterStartIndex(functionType, call);
+        if (parameterStartIndex > 0
+            && call.Callee is MemberAccessExpression memberAccess
+            && sourceParameterTypes.Count > 0)
+        {
+            var receiverType = AnalyzeExpression(memberAccess.Object);
+            CollectNSharpTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds);
+        }
+
         if (!TryBindSyntheticFunctionArguments(
                 functionType,
                 functionName,
                 call,
                 out var parameterIndexByArgument,
+                parameterStartIndex,
                 reportErrors: false))
         {
             return bindings;
