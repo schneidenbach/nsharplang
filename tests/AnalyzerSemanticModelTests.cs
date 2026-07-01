@@ -370,6 +370,28 @@ record Point {
     }
 
     [Fact]
+    public void Analyzer_RecordTypes_RecordStructFlagInSemanticModel()
+    {
+        var source = @"
+record struct Point {
+    X: int
+}
+
+record Address {
+    City: string
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var pointType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["Point"]);
+        var addressType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["Address"]);
+
+        Assert.True(pointType.IsStruct);
+        Assert.False(addressType.IsStruct);
+    }
+
+    [Fact]
     public void Analyzer_ClassProperties_RecordedInSemanticModelTypeMembers()
     {
         var source = @"

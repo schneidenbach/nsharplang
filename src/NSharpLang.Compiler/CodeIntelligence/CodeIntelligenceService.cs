@@ -1426,7 +1426,7 @@ public class CodeIntelligenceService
                 : new SimpleTypeInfo("void"),
             ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name, c.Line, c.Column),
             StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name, s.Line, s.Column),
-            RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column),
+            RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column, r.IsStruct),
             SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
             InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
             EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
@@ -1479,7 +1479,7 @@ public class CodeIntelligenceService
                 {
                     ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name, c.Line, c.Column),
                     StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name, s.Line, s.Column),
-                    RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column),
+                    RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column, r.IsStruct),
                     SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
                     InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
                     EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),

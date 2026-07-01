@@ -788,7 +788,7 @@ public class DocumentManager
             }
             else if (decl is RecordDeclaration recordDecl)
             {
-                symbols[recordDecl.Name] = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column);
+                symbols[recordDecl.Name] = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct);
             }
             else if (decl is InterfaceDeclaration interfaceDecl)
             {

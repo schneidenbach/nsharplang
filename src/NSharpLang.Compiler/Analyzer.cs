@@ -321,7 +321,7 @@ public class Analyzer : IDisposable
             else if (decl is StructDeclaration structDecl)
                 DeclareType(structDecl.Name, new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column), decl.Line, decl.Column);
             else if (decl is RecordDeclaration recordDecl)
-                DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column), decl.Line, decl.Column);
+                DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct), decl.Line, decl.Column);
             else if (decl is SoaRecordDeclaration soaRecordDecl)
                 DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
@@ -2371,7 +2371,7 @@ public class Analyzer : IDisposable
 
         ResolveTypeReferences(recordDecl.Interfaces);
 
-        var recordType = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column);
+        var recordType = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope.
@@ -6103,7 +6103,7 @@ public class Analyzer : IDisposable
                 var isClassConstraint = constraintType switch
                 {
                     ClassTypeInfo => true,
-                    RecordTypeInfo record => !record.GetDeclaration().IsStruct,
+                    RecordTypeInfo record => !record.IsStruct,
                     ReflectionTypeInfo refl => refl.Type.IsClass,
                     _ => false
                 };
@@ -6145,7 +6145,7 @@ public class Analyzer : IDisposable
             case TupleTypeInfo: // ValueTuple
                 return true;
             case RecordTypeInfo record:
-                return record.GetDeclaration().IsStruct;
+                return record.IsStruct;
             case NullableTypeInfo nullable:
                 // `T?` over a value type is Nullable<T> — itself a struct. Over a reference type it
                 // is only a nullability annotation.
@@ -9911,7 +9911,7 @@ public class Analyzer : IDisposable
     {
         ClassDeclaration classDecl => new ClassTypeInfo(classDecl, classDecl.Name, classDecl.Line, classDecl.Column),
         StructDeclaration structDecl => new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column),
-        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column),
+        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct),
         SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
         InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name, interfaceDecl.Line, interfaceDecl.Column),
         EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
@@ -15532,7 +15532,7 @@ public class Analyzer : IDisposable
     private static bool IsProvenValueTypeReceiver(TypeInfo type) => type switch
     {
         StructTypeInfo => true,
-        RecordTypeInfo record => record.GetDeclaration().IsStruct,
+        RecordTypeInfo record => record.IsStruct,
         ReflectionTypeInfo reflected => reflected.Type.IsValueType,
         _ => false,
     };
@@ -20588,7 +20588,7 @@ public class Analyzer : IDisposable
             return true;
         // Records: reference types by default, but record struct is a value type
         if (type is RecordTypeInfo recordType)
-            return !recordType.GetDeclaration().IsStruct;
+            return !recordType.IsStruct;
         // Structs and enums are value types
         if (type is StructTypeInfo or EnumTypeInfo or ByRefTypeInfo)
             return false;
@@ -20946,10 +20946,10 @@ public class Analyzer : IDisposable
     private static bool IsSameRecordStructType(TypeInfo left, TypeInfo right)
     {
         return left is RecordTypeInfo leftRecord
-            && leftRecord.GetDeclaration().IsStruct
+            && leftRecord.IsStruct
             && right is RecordTypeInfo rightRecord
-            && rightRecord.GetDeclaration().IsStruct
-            && ReferenceEquals(leftRecord.GetDeclaration(), rightRecord.GetDeclaration());
+            && rightRecord.IsStruct
+            && ReferenceEquals(leftRecord.Declaration, rightRecord.Declaration);
     }
 
     private bool IsIntegralType(TypeInfo type)
@@ -22368,7 +22368,7 @@ public class Analyzer : IDisposable
                 {
                     ClassDeclaration c => new ClassTypeInfo(c, c.Name, c.Line, c.Column) as TypeInfo,
                     StructDeclaration s => new StructTypeInfo(s, s.Name, s.Line, s.Column),
-                    RecordDeclaration r => new RecordTypeInfo(r, r.Name, r.Line, r.Column),
+                    RecordDeclaration r => new RecordTypeInfo(r, r.Name, r.Line, r.Column, r.IsStruct),
                     SoaRecordDeclaration soa => SoaTypeInfoFactory.FromDeclaration(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
                     UnionDeclaration u => UnionTypeInfoFactory.FromDeclaration(u),

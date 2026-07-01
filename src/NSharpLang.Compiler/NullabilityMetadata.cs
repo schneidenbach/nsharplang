@@ -259,7 +259,7 @@ public static class NullabilityMetadata
         StructTypeInfo => false,
         EnumTypeInfo => false,
         SoaRecordTypeInfo => false,
-        RecordTypeInfo record => !record.GetDeclaration().IsStruct,
+        RecordTypeInfo record => !record.IsStruct,
         ReflectionTypeInfo reflection => !reflection.Type.IsValueType,
         UnknownTypeInfo => false,
         _ => true

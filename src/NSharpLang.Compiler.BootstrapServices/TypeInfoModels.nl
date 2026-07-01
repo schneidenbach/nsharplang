@@ -60,17 +60,20 @@ public class RecordTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
+    isStructValue: bool
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
+    IsStruct: bool => isStructValue
 
-    constructor(declaration: object, name: string, line: int, column: int) {
+    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
+        isStructValue = isStruct
     }
 
     override func ToString(): string {
