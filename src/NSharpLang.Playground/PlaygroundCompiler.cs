@@ -14,21 +14,6 @@ public sealed class PlaygroundCompiler
     public const int MaxSourceLength = 64 * 1024;
     public const int MaxProjectSourceLength = 128 * 1024;
     private const string DefaultFileName = "Program.nl";
-    private static readonly string[] KeywordCompletions =
-    [
-        "func", "class", "struct", "record", "interface", "enum", "union",
-        "if", "else", "for", "foreach", "while", "return", "break", "continue",
-        "match", "when", "yield", "await", "async", "throw", "try", "catch",
-        "finally", "new", "import", "package", "print", "test", "assert",
-        "true", "false", "null", "is", "as", "typeof", "nameof", "let", "const"
-    ];
-
-    private static readonly string[] PrimitiveCompletions =
-    [
-        "int", "long", "float", "double", "bool", "string", "void", "object",
-        "byte", "short", "char", "decimal"
-    ];
-
     public PlaygroundCatalogResponse GetCatalog()
         => new(
             SchemaVersion,
@@ -139,41 +124,18 @@ public sealed class PlaygroundCompiler
 
         if (analysis.Snapshot != null)
         {
-            try
-            {
-                var engine = new CompletionEngine();
-                var result = engine.GetCompletions(
-                    analysis.Snapshot,
-                    normalizedFileName,
-                    Math.Max(line, 1),
-                    Math.Max(column, 0),
-                    includeKeywords: true);
+            var engine = new CompletionEngine();
+            var result = engine.GetCompletions(
+                analysis.Snapshot,
+                normalizedFileName,
+                Math.Max(line, 1),
+                Math.Max(column, 0),
+                includeKeywords: true);
 
-                context = result.Context.ToString();
-                receiver = result.Receiver;
-                receiverType = result.ReceiverType;
-                items.AddRange(FlattenCompletions(result));
-            }
-            catch (Exception ex)
-            {
-                analysis.Diagnostics.Add(new PlaygroundDiagnostic(
-                    Code: "PG902",
-                    Severity: "warning",
-                    Message: $"Completion analysis was incomplete: {ex.Message}",
-                    File: normalizedFileName,
-                    Line: Math.Max(line, 1),
-                    Column: Math.Max(column, 1),
-                    Length: 1,
-                    SourceSnippet: null,
-                    Explanation: "The browser playground could not complete a semantic completion request.",
-                    Suggestion: "Keep editing; keyword and local identifier completions remain available.",
-                    Hint: null));
-            }
-        }
-
-        if (items.Count == 0)
-        {
-            items.AddRange(GetFallbackCompletions(normalizedFiles, normalizedFileName));
+            context = result.Context.ToString();
+            receiver = result.Receiver;
+            receiverType = result.ReceiverType;
+            items.AddRange(FlattenCompletions(result));
         }
 
         var diagnostics = Deduplicate(analysis.Diagnostics);
@@ -203,38 +165,18 @@ public sealed class PlaygroundCompiler
 
         if (analysis.Snapshot != null)
         {
-            try
-            {
-                var service = new CodeIntelligenceService();
-                var result = service.GetHoverInfo(
-                    analysis.Snapshot,
-                    normalizedFileName,
-                    Math.Max(line, 1),
-                    Math.Max(column, 0));
+            var service = new CodeIntelligenceService();
+            var result = service.GetHoverInfo(
+                analysis.Snapshot,
+                normalizedFileName,
+                Math.Max(line, 1),
+                Math.Max(column, 0));
 
-                if (result != null)
-                {
-                    hover = new PlaygroundHover(result.Signature, result.Documentation, result.DefinedIn, result.Kind);
-                }
-            }
-            catch (Exception ex)
+            if (result != null)
             {
-                analysis.Diagnostics.Add(new PlaygroundDiagnostic(
-                    Code: "PG903",
-                    Severity: "warning",
-                    Message: $"Hover analysis was incomplete: {ex.Message}",
-                    File: normalizedFileName,
-                    Line: Math.Max(line, 1),
-                    Column: Math.Max(column, 1),
-                    Length: 1,
-                    SourceSnippet: null,
-                    Explanation: "The browser playground could not complete a semantic hover request.",
-                    Suggestion: "Use completions or diagnostics while editing this sample.",
-                    Hint: null));
+                hover = new PlaygroundHover(result.Signature, result.Documentation, result.DefinedIn, result.Kind);
             }
         }
-
-        hover ??= GetKeywordOrPrimitiveHover(normalizedFiles, normalizedFileName, line, column);
 
         var diagnostics = Deduplicate(analysis.Diagnostics);
         var summary = Summarize(diagnostics);
@@ -394,15 +336,7 @@ public sealed class PlaygroundCompiler
 
         var filesToAnalyze = GetAnalyzableFiles(files);
 
-        try
-        {
-            return AnalyzeWithProjectCompiler(filesToAnalyze);
-        }
-        catch (Exception ex)
-        {
-            _ = ex;
-            return AnalyzeWithSingleFileFallback(filesToAnalyze);
-        }
+        return AnalyzeWithProjectCompiler(filesToAnalyze);
     }
 
     private static ProjectAnalysis AnalyzeWithProjectCompiler(IReadOnlyList<PlaygroundFile> files)
@@ -437,106 +371,6 @@ public sealed class PlaygroundCompiler
             .ToList();
 
         AddLintDiagnostics(snapshot, diagnostics);
-        return new ProjectAnalysis(snapshot, diagnostics);
-    }
-
-    private static ProjectAnalysis AnalyzeWithSingleFileFallback(IReadOnlyList<PlaygroundFile> files)
-    {
-        var root = GetVirtualProjectRoot();
-        var compilationUnits = new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase);
-        var semanticModels = new Dictionary<string, SemanticModel>(StringComparer.OrdinalIgnoreCase);
-        var allErrors = new List<CompilerError>();
-        var sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var fileNamesByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var diagnostics = new List<PlaygroundDiagnostic>();
-        var linter = new Linter();
-
-        foreach (var file in files)
-        {
-            var path = Path.GetFullPath(Path.Combine(root, file.Name));
-            sourceTexts[path] = file.Code;
-            fileNamesByPath[path] = file.Name;
-
-            try
-            {
-                var lexer = new Lexer(file.Code, path);
-                var parser = new Parser(lexer.Tokenize(), path, file.Code);
-                var parseResult = parser.ParseCompilationUnit();
-                allErrors.AddRange(parseResult.Errors);
-                diagnostics.AddRange(parseResult.Errors.Select(error => ToPlaygroundDiagnostic(error, file.Code, file.Name)));
-
-                if (parseResult.CompilationUnit == null)
-                {
-                    continue;
-                }
-
-                compilationUnits[path] = parseResult.CompilationUnit;
-                diagnostics.AddRange(linter
-                    .Lint(parseResult.CompilationUnit, file.Name, file.Code)
-                    .Select(ToPlaygroundDiagnostic));
-            }
-            catch (Exception ex)
-            {
-                diagnostics.Add(new PlaygroundDiagnostic(
-                    Code: "PG900",
-                    Severity: "error",
-                    Message: $"Compiler pipeline failed for {file.Name}: {ex.Message}",
-                    File: file.Name,
-                    Line: 1,
-                    Column: 1,
-                    Length: 1,
-                    SourceSnippet: null,
-                    Explanation: "The playground could not complete the parse step.",
-                    Suggestion: "Try reducing the sample. If this is reproducible, file an issue with the source text.",
-                    Hint: null));
-            }
-        }
-
-        foreach (var (path, compilationUnit) in compilationUnits)
-        {
-            var fileName = fileNamesByPath.TryGetValue(path, out var storedFileName)
-                ? storedFileName
-                : NormalizeFileName(path);
-            var source = sourceTexts.TryGetValue(path, out var storedSource)
-                ? storedSource
-                : string.Empty;
-
-            try
-            {
-                using var analyzer = new Analyzer();
-                analyzer.SetProjectSourceTexts(sourceTexts);
-                var analysis = analyzer.Analyze(compilationUnit, path, root, source);
-                allErrors.AddRange(analysis.Errors);
-                diagnostics.AddRange(analysis.Errors.Select(error => ToPlaygroundDiagnostic(error, source, fileName)));
-                semanticModels[path] = analysis.SemanticModel;
-            }
-            catch (Exception ex)
-            {
-                diagnostics.Add(new PlaygroundDiagnostic(
-                    Code: "PG904",
-                    Severity: "warning",
-                    Message: $"Semantic analysis was incomplete for {fileName}: {ex.Message}",
-                    File: fileName,
-                    Line: 1,
-                    Column: 1,
-                    Length: 1,
-                    SourceSnippet: null,
-                    Explanation: "The fallback analyzer could not fully process this file in the browser.",
-                    Suggestion: "Try simplifying the sample or use the local nlc toolchain for project-level analysis.",
-                    Hint: null));
-            }
-        }
-
-        var snapshot = new ProjectSnapshot(
-            root,
-            compilationUnits,
-            semanticModels,
-            allErrors,
-            new Analyzer(),
-            files.Select(file => Path.GetFullPath(Path.Combine(root, file.Name))).ToArray(),
-            index: null,
-            sourceTexts: sourceTexts);
-
         return new ProjectAnalysis(snapshot, diagnostics);
     }
 
@@ -582,134 +416,6 @@ public sealed class PlaygroundCompiler
             "class" or "record" or "struct" or "interface" or "enum" or "union" or "type" => 4,
             _ => 9
         };
-
-    private static IEnumerable<PlaygroundCompletionItem> GetFallbackCompletions(
-        IReadOnlyList<PlaygroundFile> files,
-        string fileName)
-    {
-        foreach (var keyword in KeywordCompletions)
-        {
-            yield return new PlaygroundCompletionItem(keyword, "keyword", null, null, keyword);
-        }
-
-        foreach (var primitive in PrimitiveCompletions)
-        {
-            yield return new PlaygroundCompletionItem(primitive, "type", null, null, primitive);
-        }
-
-        var source = files.FirstOrDefault(file => string.Equals(file.Name, fileName, StringComparison.OrdinalIgnoreCase))?.Code
-            ?? files[0].Code;
-        foreach (var identifier in ExtractIdentifiers(source))
-        {
-            yield return new PlaygroundCompletionItem(identifier, "identifier", null, null, identifier);
-        }
-    }
-
-    private static IEnumerable<string> ExtractIdentifiers(string source)
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < source.Length; i++)
-        {
-            if (!IsIdentifierStart(source[i]))
-            {
-                continue;
-            }
-
-            var start = i;
-            i++;
-            while (i < source.Length && IsIdentifierPart(source[i]))
-            {
-                i++;
-            }
-
-            var identifier = source[start..i];
-            i--;
-            if (identifier.Length > 1 && !KeywordCompletions.Contains(identifier, StringComparer.Ordinal))
-            {
-                if (seen.Add(identifier))
-                {
-                    yield return identifier;
-                }
-            }
-        }
-    }
-
-    private static PlaygroundHover? GetKeywordOrPrimitiveHover(
-        IReadOnlyList<PlaygroundFile> files,
-        string fileName,
-        int line,
-        int column)
-    {
-        var source = files.FirstOrDefault(file => string.Equals(file.Name, fileName, StringComparison.OrdinalIgnoreCase))?.Code;
-        if (source == null)
-        {
-            return null;
-        }
-
-        var word = GetWordAtPosition(source, Math.Max(line, 1), Math.Max(column, 0));
-        if (string.IsNullOrWhiteSpace(word))
-        {
-            return null;
-        }
-
-        if (KeywordCompletions.Contains(word, StringComparer.Ordinal))
-        {
-            return new PlaygroundHover(word, "N# language keyword.", null, "keyword");
-        }
-
-        if (PrimitiveCompletions.Contains(word, StringComparer.Ordinal))
-        {
-            return new PlaygroundHover($"{word} type", "Built-in CLR primitive type alias.", null, "type");
-        }
-
-        return null;
-    }
-
-    private static string? GetWordAtPosition(string source, int line, int column)
-    {
-        var lines = source.Split('\n');
-        if (line <= 0 || line > lines.Length)
-        {
-            return null;
-        }
-
-        var text = lines[line - 1];
-        if (text.Length == 0)
-        {
-            return null;
-        }
-
-        var index = Math.Clamp(column, 0, text.Length - 1);
-        if (!IsIdentifierPart(text[index]) && index > 0 && IsIdentifierPart(text[index - 1]))
-        {
-            index--;
-        }
-
-        if (!IsIdentifierPart(text[index]))
-        {
-            return null;
-        }
-
-        var start = index;
-        while (start > 0 && IsIdentifierPart(text[start - 1]))
-        {
-            start--;
-        }
-
-        var end = index;
-        while (end + 1 < text.Length && IsIdentifierPart(text[end + 1]))
-        {
-            end++;
-        }
-
-        return text[start..(end + 1)];
-    }
-
-    private static bool IsIdentifierStart(char value)
-        => char.IsLetter(value) || value == '_';
-
-    private static bool IsIdentifierPart(char value)
-        => char.IsLetterOrDigit(value) || value == '_';
 
     private static PlaygroundCheckResponse BuildCheckResponse(
         string fileName,

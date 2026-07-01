@@ -102,13 +102,12 @@ public class CollectibleAssemblyScopeTests
 
     // Matches the banned static loader call sites: the "Assembly" receiver, a dot, a Load-prefixed
     // member, and an opening argument list on the same line. AssemblyLoadContext members
-    // (LoadFromStream, LoadFromAssemblyPath, ...) do not match — oracle helpers may construct
-    // load contexts directly.
+    // (LoadFromStream, LoadFromAssemblyPath, ...) do not match.
     private static readonly Regex DirectAssemblyLoadCall =
         new(@"\bAssembly\s*\.\s*Load\w*\s*\(", RegexOptions.Compiled);
 
-    // Comments and XML docs legitimately mention the banned APIs (this file does, and so does
-    // CompilerDogfoodProjectTests); only code outside a //-comment tail counts as a call site.
+    // Comments and XML docs legitimately mention the banned APIs; only code outside a
+    // //-comment tail counts as a call site.
     private static string StripLineCommentTail(string line)
     {
         var commentStart = line.IndexOf("//", StringComparison.Ordinal);

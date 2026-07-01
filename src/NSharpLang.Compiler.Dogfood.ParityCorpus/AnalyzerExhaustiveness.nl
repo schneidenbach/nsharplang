@@ -1,4 +1,4 @@
-// PARITY CORPUS (Arc M1): checksum oracles extracted from
+// PARITY CORPUS (Arc M1): checksum fixtures extracted from
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/AnalyzerExhaustiveness.nl. These functions exist solely as
 // parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
 // their product file — most delegate to sibling kernels that stay in the product). They are
@@ -101,7 +101,7 @@ struct AnalyzerOverloadSignatureTable {
 //
 // Returns 1 when the candidate signature is distinct from every existing row (a new overload),
 // 0 when some existing row has the same arity and identical rank sequence (a duplicate), and -1 on
-// a malformed request. This replaces the C# GetParameterTypeSignature string build + string `!=`
+// a malformed request. This replaces the old string-signature build + string `!=`
 // comparison with a single integer-rank scan over caller-owned buffers.
 func AnalyzerOverloadSignatureDistinct(
     candidateRanks: int[],

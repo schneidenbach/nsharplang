@@ -105,7 +105,7 @@ func CelebrateBirthday(this p: Person) {
 }
 
 // ========================================
-// Static Class Extensions (Exposed to C#)
+// Static Class Extensions
 // ========================================
 
 static class StringExtensions {
@@ -184,5 +184,5 @@ func Main() {
     print ""
     print "=== Extension Methods Work! ==="
     print "Extension methods enable LINQ-style fluent APIs"
-    print "while maintaining perfect C# interoperability!"
+    print "while keeping CLR method calls straightforward!"
 }

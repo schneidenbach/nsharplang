@@ -1,4 +1,4 @@
-// PARITY CORPUS (Arc M1): checksum oracles and helper wrappers for the semantic-scope kernels.
+// PARITY CORPUS (Arc M1): checksum fixtures and helper wrappers for the semantic-scope kernels.
 // These functions exist solely as parity-test surfaces (tests + benchmarks bind them by NAME and
 // compile them together with SemanticScopesCore.nl). They are NOT part of the shipped dogfood assembly.
 

@@ -188,7 +188,6 @@ targetFramework: net10.0
         }
     }
 
-
     [Fact]
     public void TestParseWithTaskAsyncDefault()
     {
@@ -265,6 +264,27 @@ language:
     {
         var yaml = @"name: BadProject
 outputType: invalid
+";
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+
+            Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(tempFile));
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestInvalidBackend()
+    {
+        var yaml = @"name: BadProject
+backend: wasm
 ";
 
         var tempFile = Path.GetTempFileName();

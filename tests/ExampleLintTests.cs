@@ -25,6 +25,8 @@ public class ExampleLintTests
     [Fact]
     public void NL010_PrintStatement_SystemImportFlaggedAsUnused()
     {
+        // print is a language primitive (like int, string), so the user never
+        // needs import System just for print.
         var source = @"
 import System
 

@@ -824,32 +824,6 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_ObjectInitializerEquals_PreservesPropertyNameSpanForMarkers()
-    {
-        var result = new PlaygroundCompiler().Check("""
-            package Playground
-
-            class User {
-                Name: string
-            }
-
-            func main() {
-                user := new User { Name = "Ada" }
-            }
-            """);
-
-        var diagnostic = Assert.Single(result.Diagnostics,
-            diagnostic => diagnostic.Code == "NL103" &&
-                          diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
-
-        Assert.Equal(8, diagnostic.Line);
-        Assert.Equal(24, diagnostic.Column);
-        Assert.Equal("Name".Length, diagnostic.Length);
-        Assert.Contains("colon", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Check_ObjectInitializerMissingValue_PreservesPropertyNameSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
@@ -1888,27 +1862,6 @@ func main() {
         Assert.Equal(2, result.ExitCode);
         Assert.NotNull(result.UnsupportedReason);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code.StartsWith("PG2"));
-    }
-
-    [Fact]
-    public void Hover_ReturnsInformationForPrimitiveKeywordFallback()
-    {
-        var result = new PlaygroundCompiler().Hover(
-            [new PlaygroundFile("Program.nl", """
-                package Playground
-
-                func main() {
-                    name: string = "N#"
-                    print name
-                }
-                """)],
-            "Program.nl",
-            4,
-            11);
-
-        Assert.True(result.Ok);
-        Assert.NotNull(result.Hover);
-        Assert.Contains("string", result.Hover!.Signature);
     }
 
     [Fact]

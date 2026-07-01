@@ -1295,27 +1295,6 @@ func test() {
     }
 
     [Fact]
-    public void Parser_ObjectInitializerEquals_ReportsActionableDiagnosticAndContinues()
-    {
-        var source = @"
-func test() {
-    user := new User { Name = ""Ada"", Age: 42 }
-}";
-
-        var result = Parse(source);
-
-        var diagnostic = Assert.Single(result.Errors, error =>
-            error.Code == ErrorCode.InvalidSyntax &&
-            error.Message.Contains("Object initializer member 'Name' uses '='"));
-        Assert.Equal(3, diagnostic.Line);
-        Assert.Equal(24, diagnostic.Column);
-        Assert.Equal("Name".Length, diagnostic.Length);
-        Assert.Contains("N# uses ':'", diagnostic.Message);
-        Assert.Contains("Name: value", diagnostic.ContextualHint);
-        Assert.Contains("Name: ...", Assert.Single(diagnostic.Suggestions!));
-    }
-
-    [Fact]
     public void Parser_ObjectInitializerMissingValue_UsesPropertyNameSpanAndContinues()
     {
         var source = """
@@ -1838,17 +1817,6 @@ func Bar() int => 42
             e => e.Message.Contains("after parameter name"));
 
         AssertSpan(error, line: 3, column: 12, length: "name".Length, "name");
-    }
-
-    [Fact]
-    public void Span_NL103_InvalidSyntax_UnderlinesObjectInitializerMember()
-    {
-        var source = "package T\n\nfunc Make() {\n    let u = new User { Name = \"Ada\" }\n}\n";
-
-        var error = SingleSyntaxError(source, ErrorCode.InvalidSyntax,
-            e => e.Message.Contains("Object initializer member"));
-
-        AssertSpan(error, line: 4, column: 24, length: "Name".Length, "Name");
     }
 
     [Fact]

@@ -3,7 +3,7 @@
 // Mirrors ProjectConfig.GetSourceFiles' post-enumeration filtering: drop *.tests.nl when
 // !includeTests, then drop files whose project-relative path matches any exclude glob.
 //
-// The C# baseline allocates 2-3 intermediate arrays (two .Where(...).ToArray() passes) and
+// The baseline allocates 2-3 intermediate arrays (two .Where(...).ToArray() passes) and
 // recompiles a regex per (file, pattern) pair. This kernel classifies every relative path in a
 // single pass and writes kept indices into a caller-owned int[] (stable indexes, no string
 // materialization across the boundary).
@@ -72,7 +72,7 @@ func ProjectSourceFilterKeptIndicesCore(
     return resultCount
 }
 
-// Matches the C# `f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)` guard.
+// Matches the case-insensitive `.tests.nl` guard.
 func ProjectSourceFilterIsTestFile(path: string): bool {
     suffixLength := 9
     if path.Length < suffixLength {
@@ -104,13 +104,13 @@ func ProjectSourceFilterIsExcludedCore(path: string, patterns: &ProjectSourceExc
     return false
 }
 
-// Anchored glob match equivalent to the C# regex built in MatchesPattern. Both path and pattern are
-// slash-normalized. Supported metacharacters (in the C# replacement order):
+// Anchored glob match equivalent to the production pattern matcher. Both path and pattern are
+// slash-normalized. Supported metacharacters:
 //   "**/" => match any number of directories (lazy ".*?/")
 //   "**"  => match anything (".*")
 //   "*"   => match anything except '/' ("[^/]*")
 //   "?"   => match a single character (".")
-// Every other character is a case-sensitive literal (C# regex has no IgnoreCase flag here).
+// Every other character is a case-sensitive literal.
 func ProjectSourceFilterMatchesPattern(path: string, pattern: string): bool {
     return ProjectSourceFilterMatchFrom(path, 0, pattern, 0)
 }
@@ -136,7 +136,7 @@ func ProjectSourceFilterMatchFrom(
 
             if isDouble {
                 afterStars := qi + 2
-                // "**/" is lazy in the C# regex (".*?/"): ".*?" consumes any characters and the
+                // "**/" is lazy: ".*?" consumes any characters and the
                 // trailing '/' is literal, so the tail must resume immediately after some '/' at or
                 // after pi. Lazy order = nearest qualifying slash first. Scan forward; each time a
                 // '/' is crossed, retry the remaining pattern just past it.

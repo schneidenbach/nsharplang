@@ -1,4 +1,4 @@
-// PARITY CORPUS (Arc M1): linter import kernels and checksum oracles extracted from
+// PARITY CORPUS (Arc M1): linter import kernels and checksum fixtures extracted from
 // the former src/NSharpLang.Compiler.Dogfood/CompilerServices/LinterImports.nl product probe.
 // These functions exist solely as parity-test surfaces (tests + benchmarks bind them by NAME).
 // They are NOT part of the shipped dogfood assembly.

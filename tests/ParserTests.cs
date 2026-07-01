@@ -4573,7 +4573,7 @@ func Helper(): int {
         Assert.Equal(ParameterModifier.Params, func!.Parameters[1].Modifier);
     }
 
-    // C# 13 Params Collections Tests
+    // Params Collections Tests
     [Fact]
     public void TestParamsWithReadOnlySpan()
     {

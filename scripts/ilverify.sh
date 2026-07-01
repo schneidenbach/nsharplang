@@ -463,8 +463,8 @@ if [ -n "$NEW_ERRORS" ]; then
     printf '%s\n' "$NEW_ERRORS" | sed 's/^/    /'
     echo
     echo -e "${RED}These assemblies contain unverifiable IL.${NC} This is the class of bug"
-    echo "that crashed on Linux x64 in PR #160. Fix the IL emission in"
-    echo "src/NSharpLang.Compiler/ILCompiler/ so the assembly verifies, OR — only if"
+    echo "that crashed on Linux x64 in PR #160. Fix the active N# IL emission path"
+    echo "so the assembly verifies, OR — only if"
     echo "the finding is genuinely benign and expected — record it in the baseline:"
     echo
     echo "    scripts/ilverify.sh --update-baseline   # then review the diff carefully"

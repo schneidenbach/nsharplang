@@ -222,7 +222,13 @@ partial class Program
                 AotMode = aotMode
             });
 
-        return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests, aotMode);
+        return CompileProjectWithIlBackend(
+            projectRoot,
+            config,
+            resolvedOutputDir,
+            references,
+            includeTests,
+            aotMode);
     }
 
     private static string? CompileProjectWithIlBackend(
@@ -367,7 +373,7 @@ partial class Program
     /// <summary>
     /// Folds build-configuration and CLI conditional-compilation symbols into
     /// <see cref="ProjectConfig.Defines"/> (which already holds the project.yml-authored
-    /// symbols). Defines <c>DEBUG</c> for debug builds — matching C#/MSBuild — and adds
+    /// symbols). Defines <c>DEBUG</c> for debug builds — matching MSBuild conventions — and adds
     /// any <c>--define</c> values. Symbols are case-sensitive and de-duplicated.
     /// </summary>
     private static void ApplyEffectiveDefines(ProjectConfig config, bool debug, IReadOnlyList<string>? cliDefines)
@@ -429,5 +435,4 @@ partial class Program
                     site.BodyStatementCount))
                 .ToArray());
     }
-
 }

@@ -317,15 +317,15 @@ public class Analyzer : IDisposable
         foreach (var decl in unit.Declarations)
         {
             if (decl is ClassDeclaration classDecl)
-                DeclareType(classDecl.Name, new ClassTypeInfo(classDecl), decl.Line, decl.Column);
+                DeclareType(classDecl.Name, new ClassTypeInfo(classDecl, classDecl.Name), decl.Line, decl.Column);
             else if (decl is StructDeclaration structDecl)
-                DeclareType(structDecl.Name, new StructTypeInfo(structDecl), decl.Line, decl.Column);
+                DeclareType(structDecl.Name, new StructTypeInfo(structDecl, structDecl.Name), decl.Line, decl.Column);
             else if (decl is RecordDeclaration recordDecl)
-                DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl), decl.Line, decl.Column);
+                DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl, recordDecl.Name), decl.Line, decl.Column);
             else if (decl is SoaRecordDeclaration soaRecordDecl)
                 DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
-                DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl), decl.Line, decl.Column);
+                DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
                 DeclareType(unionDecl.Name, UnionTypeInfoFactory.FromDeclaration(unionDecl), decl.Line, decl.Column);
             else if (decl is EnumDeclaration enumDecl)
@@ -1178,6 +1178,7 @@ public class Analyzer : IDisposable
         {
             return false;
         }
+
         var baseType = ResolveTypeAlias(ResolveType(baseClass));
         return baseType is ReflectionTypeInfo { Type: var baseReflectionType } && IsClrAttributeType(baseReflectionType)
             || SourceTypeDerivesFromAttribute(baseType, seenClasses);
@@ -2255,10 +2256,10 @@ public class Analyzer : IDisposable
         ResolveTypeReferences(classDecl.Interfaces);
 
         // Add 'this' to scope
-        var classType = new ClassTypeInfo(classDecl);
+        var classType = new ClassTypeInfo(classDecl, classDecl.Name);
         DeclareSymbol("this", classType, classDecl.Line, classDecl.Column, recordBindingDeclaration: false);
 
-        // Add primary constructor parameters to scope (C# 12 feature)
+        // Add primary constructor parameters to scope.
         if (classDecl.PrimaryConstructorParameters != null)
         {
             ValidateParameterDeclarations(classDecl.PrimaryConstructorParameters, classDecl.Line, classDecl.Column);
@@ -2320,10 +2321,10 @@ public class Analyzer : IDisposable
 
         ResolveTypeReferences(structDecl.Interfaces);
 
-        var structType = new StructTypeInfo(structDecl);
+        var structType = new StructTypeInfo(structDecl, structDecl.Name);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column, recordBindingDeclaration: false);
 
-        // Add primary constructor parameters to scope (C# 12 feature)
+        // Add primary constructor parameters to scope.
         if (structDecl.PrimaryConstructorParameters != null)
         {
             ValidateParameterDeclarations(structDecl.PrimaryConstructorParameters, structDecl.Line, structDecl.Column);
@@ -2370,10 +2371,10 @@ public class Analyzer : IDisposable
 
         ResolveTypeReferences(recordDecl.Interfaces);
 
-        var recordType = new RecordTypeInfo(recordDecl);
+        var recordType = new RecordTypeInfo(recordDecl, recordDecl.Name);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column, recordBindingDeclaration: false);
 
-        // Add primary constructor parameters to scope (C# 12 feature)
+        // Add primary constructor parameters to scope.
         if (recordDecl.PrimaryConstructorParameters != null)
         {
             ValidateParameterDeclarations(recordDecl.PrimaryConstructorParameters, recordDecl.Line, recordDecl.Column);
@@ -4443,7 +4444,7 @@ public class Analyzer : IDisposable
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStmt.Message, "used as an assertion message");
         }
 
-        // We don't strictly require boolean type because we support various comparison patterns
+        // We don't strictly require boolean type because we support various comparison patterns.
     }
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
@@ -4462,7 +4463,7 @@ public class Analyzer : IDisposable
         var func = localFunc.Function;
 
         // Register the local function in the current scope
-        // This allows it to be called later in the same scope (forward references work in C#)
+        // This allows it to be called later in the same scope.
         var funcType = CreateFunctionTypeInfo(func);
         DeclareSymbol(func.Name, funcType, localFunc.Line, localFunc.Column);
 
@@ -6030,7 +6031,7 @@ public class Analyzer : IDisposable
                  && lockeeType is SimpleTypeInfo named
                  && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
         {
-            // Stricter than C# by design: Roslyn boxes an unconstrained T (a lock that can never
+            // Stricter by design: an unconstrained T would require boxing and could never
             // provide mutual exclusion); N# requires the type parameter to be provably a reference.
             if (!isReferenceConstrained)
             {
@@ -7129,9 +7130,8 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        // For spread in function calls, we expect the inner expression to be an array or enumerable
-        // The C# compiler will handle validation of whether the spread is valid
-        // For now, we just return the inner type (the collection type itself)
+        // For spread in function calls, we expect the inner expression to be an array or enumerable.
+        // Later validation reports invalid spread shapes; for now, return the inner collection type.
         return innerType;
     }
 
@@ -7275,14 +7275,14 @@ public class Analyzer : IDisposable
         CheckNullCoalesceLeftOperand(expr, leftType);
 
         // If right side is a throw expression, the result type is the left type
-        // e.g., string? ?? throw => string (C# infers this correctly)
+        // e.g., string? ?? throw => string
         if (expr.Right is ThrowExpression)
         {
             return GetNonNullableType(leftType);
         }
 
         // Otherwise, the result is the right type (the fallback value)
-        // In C#: T? ?? T returns T
+        // In N#: T? ?? T returns T
         return rightType;
     }
 
@@ -9909,11 +9909,11 @@ public class Analyzer : IDisposable
 
     private static TypeInfo CreateTypeInfoForDeclaration(Declaration declaration) => declaration switch
     {
-        ClassDeclaration classDecl => new ClassTypeInfo(classDecl),
-        StructDeclaration structDecl => new StructTypeInfo(structDecl),
-        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl),
+        ClassDeclaration classDecl => new ClassTypeInfo(classDecl, classDecl.Name),
+        StructDeclaration structDecl => new StructTypeInfo(structDecl, structDecl.Name),
+        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl, recordDecl.Name),
         SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
-        InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
+        InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name),
         EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
         UnionDeclaration unionDecl => UnionTypeInfoFactory.FromDeclaration(unionDecl),
         TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
@@ -12137,7 +12137,7 @@ public class Analyzer : IDisposable
             }
             else if (score == bestScore && bestDecl != null)
             {
-                // Tie-breaking rules (C# semantics):
+                // Tie-breaking rules (production semantics):
                 // 1. Non-generic preferred over generic
                 // 2. Non-params preferred over params
                 // 3. More parameters (fewer defaults used) preferred
@@ -12328,7 +12328,7 @@ public class Analyzer : IDisposable
     /// `where T: U where U: T`) — the CLR refuses such metadata at load, and the emitter's base-chain
     /// walks (a constrained parameter's BaseType is its constraint) would otherwise spin forever.
     /// Only BARE type-parameter constraints form edges: F-bounded shapes (`where T: IComparable&lt;T&gt;`)
-    /// are legal and untouched. Mirrors C#'s CS0454.
+    /// are legal and untouched. Mirrors N#'s CS0454.
     /// </summary>
     private void CheckCircularGenericConstraints(
         List<TypeParameter>? typeParameters, List<GenericConstraint>? constraints, string declName, int line, int column)
@@ -12501,14 +12501,14 @@ public class Analyzer : IDisposable
     /// </summary>
     private bool HasParameterlessConstructor(TypeInfo type)
     {
-        // Structs (and record structs) always have an implicit parameterless constructor in C#
+        // Structs (and record structs) always have an implicit parameterless constructor in
         if (type is StructTypeInfo)
             return true;
 
         if (type is ClassTypeInfo classType)
         {
             var classDeclaration = classType.GetDeclaration();
-            // A class with a primary constructor (C# 12-style `class Foo(int x)`) suppresses
+            // A class with a primary constructor (-style `class Foo(int x)`) suppresses
             // the implicit default constructor, so it does NOT satisfy new().
             if (classDeclaration.PrimaryConstructorParameters != null
                 && classDeclaration.PrimaryConstructorParameters.Count > 0)
@@ -12748,7 +12748,7 @@ public class Analyzer : IDisposable
             return numericLub;
 
         // No common type found — use object as the safe fallback
-        // (C# would fail best-common-type inference here; object is the conservative choice)
+        // ( would fail best-common-type inference here; object is the conservative choice)
         return BuiltInTypes.Object;
     }
 
@@ -13165,7 +13165,7 @@ public class Analyzer : IDisposable
         if (!HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count))
             return null;
 
-        // Extension methods get a small penalty so instance methods are preferred (matches C# semantics)
+        // Extension methods get a small penalty so instance methods are preferred (matches production semantics)
         var score = (parameterOffset == 1 ? -1 : 0) + receiverScore;
 
         if (!TryBindReflectionArguments(
@@ -13855,7 +13855,6 @@ public class Analyzer : IDisposable
             type => hasTypeInfoOverrides || type.ContainsGenericParameters
                 ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
                 : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
-
 
         return new FunctionTypeInfo(null)
         {
@@ -16894,7 +16893,7 @@ public class Analyzer : IDisposable
         // initializer members then live on the case, not the union type itself.
         string? unionCaseConstructionName = null;
 
-        // Target-typed new (C# 9): new() or new { ... }
+        // Target-typed new (): new() or new { ... }
         if (newExpr.Type == null)
         {
             // Try to infer type from context (expected type)
@@ -16915,7 +16914,7 @@ public class Analyzer : IDisposable
 
             // A locally-declared GENERIC type constructed without type arguments previously
             // emitted an open-type token (BadImageFormatException at runtime). N# does not
-            // infer class type arguments from constructor arguments (the C# rule) — they
+            // infer class type arguments from constructor arguments (the  rule) — they
             // must be explicit.
             if (newExpr.Type is SimpleTypeReference bareTypeReference
                 && !bareTypeReference.Name.Contains('.')
@@ -17520,7 +17519,7 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// A stackalloc length must implicitly widen to int (matching C#'s element-count rule):
+    /// A stackalloc length must implicitly widen to int (matching N#'s element-count rule):
     /// int itself plus the smaller integer types. long/uint/ulong, floating point, and
     /// non-numeric types require an explicit conversion.
     /// </summary>
@@ -18392,6 +18391,7 @@ public class Analyzer : IDisposable
             }
             else
             {
+                // All union cases covered by unguarded arms.
                 match.IsExhaustive = true;
             }
         }
@@ -18643,7 +18643,7 @@ public class Analyzer : IDisposable
         }
 
         // Check if all enum members are covered. The missing-member selection is owned by
-        // the N# analyzer exhaustiveness kernel; do not recover with a C# duplicate.
+        // the N# analyzer exhaustiveness kernel; do not recover with a duplicate.
         var missingMembers = AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
             enumType.Declaration.Members,
             coveredMembers);
@@ -18674,6 +18674,7 @@ public class Analyzer : IDisposable
         }
         else
         {
+            // All enum members covered by unguarded arms.
             match.IsExhaustive = true;
         }
     }
@@ -19086,7 +19087,7 @@ public class Analyzer : IDisposable
             return externalType;
 
         // No resolution channel recognized this name. Historically this always fell through
-        // silently ("might be from a C# library"), letting typos and missing references reach
+        // silently ("might be from an external library"), letting typos and missing references reach
         // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names
         // as NL201; dotted names stay lenient for now because namespace-qualified externals
         // and `new Union.Case` references legitimately resolve through other channels.
@@ -19549,6 +19550,7 @@ public class Analyzer : IDisposable
             if (baseClass != null)
                 return ResolveType(baseClass);
         }
+
         return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
     }
 
@@ -19657,7 +19659,6 @@ public class Analyzer : IDisposable
             var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
         }
-
         // Function type structural comparison (both sides are FunctionTypeInfo) — must come before
         // the ToString fallback because FunctionTypeInfo.ToString() is always "FunctionTypeInfo"
         if (resolvedSource is FunctionTypeInfo srcFunc && resolvedTarget is FunctionTypeInfo tgtFunc)
@@ -19693,7 +19694,7 @@ public class Analyzer : IDisposable
             return ImplementsDuckInterface(resolvedSource, iface);
         }
 
-        // Collection expressions (C# 12): Allow array literals to be assigned to collection types
+        // Collection expressions (): Allow array literals to be assigned to collection types
         // e.g., List<int> numbers = [1, 2, 3];
         if (resolvedSource is ArrayTypeInfo arrayType && IsCollectionType(resolvedTarget, out var collectionElementType))
         {
@@ -20999,14 +21000,14 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// C# binary numeric promotion rules (ECMA-334 §12.4.7).
+    /// N# binary numeric promotion rules.
     /// These determine the result type of arithmetic binary operations.
     /// NOTE: This is NOT the same as implicit numeric conversion (assignment context).
-    /// C# promotes small types (byte, sbyte, short, ushort) to int for arithmetic.
+    /// N# promotes small types (byte, sbyte, short, ushort) to int for arithmetic.
     /// </summary>
     /// <summary>
-    /// C# binary numeric promotion rules (ECMA-334 §12.4.7).
-    /// Returns null for combinations that are compile-time errors in C#
+    /// N# binary numeric promotion rules.
+    /// Returns null for combinations that are compile-time errors in
     /// (decimal+float/double, ulong+signed).
     /// </summary>
     private TypeInfo? GetWiderType(TypeInfo left, TypeInfo right)
@@ -21507,7 +21508,7 @@ public class Analyzer : IDisposable
                         length: paramLength);
                 }
 
-                // C# 13: params can be array, Span<T>, ReadOnlySpan<T>, or collection types
+                // : params can be array, Span<T>, ReadOnlySpan<T>, or collection types
                 if (!IsValidParamsType(param.Type))
                 {
                     Error(
@@ -21632,7 +21633,7 @@ public class Analyzer : IDisposable
 
     private bool IsValidParamsType(TypeReference typeRef)
     {
-        // Arrays are always valid (original C# behavior)
+        // Arrays are always valid (original  behavior)
         if (typeRef is ArrayTypeReference)
             return true;
 
@@ -21641,7 +21642,7 @@ public class Analyzer : IDisposable
         {
             var typeName = generic.Name;
 
-            // C# 13 specifically allows these types
+            //  specifically allows these types
             var validTypes = new HashSet<string>
             {
                 "Span", "ReadOnlySpan",
@@ -22365,11 +22366,11 @@ public class Analyzer : IDisposable
             {
                 var typeInfo = decl switch
                 {
-                    ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
-                    StructDeclaration s => new StructTypeInfo(s),
-                    RecordDeclaration r => new RecordTypeInfo(r),
+                    ClassDeclaration c => new ClassTypeInfo(c, c.Name) as TypeInfo,
+                    StructDeclaration s => new StructTypeInfo(s, s.Name),
+                    RecordDeclaration r => new RecordTypeInfo(r, r.Name),
                     SoaRecordDeclaration soa => SoaTypeInfoFactory.FromDeclaration(soa),
-                    InterfaceDeclaration i => new InterfaceTypeInfo(i),
+                    InterfaceDeclaration i => new InterfaceTypeInfo(i, i.Name),
                     UnionDeclaration u => UnionTypeInfoFactory.FromDeclaration(u),
                     EnumDeclaration e => EnumTypeInfoFactory.FromDeclaration(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
@@ -22774,6 +22775,7 @@ public class Analyzer : IDisposable
                 }
             }
         }
+
     }
 
     /// <summary>

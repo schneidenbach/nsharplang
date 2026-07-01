@@ -7280,6 +7280,46 @@ func CliNuGetVersionHasPrereleaseSuffix(version: string): bool {
     return false
 }
 
+func CliPathHasSegmentIgnoreCase(path: string, separator: char, segment: string): int {
+    segmentStart := 0
+    index := 0
+    while index <= path.Length {
+        if index == path.Length || path[index] == separator {
+            if CliPathSegmentEqualsIgnoreCase(path, segmentStart, index, segment) {
+                return 1
+            }
+
+            segmentStart = index + 1
+        }
+
+        index = index + 1
+    }
+
+    return 0
+}
+
+func CliPathSegmentEqualsIgnoreCase(path: string, start: int, end: int, segment: string): bool {
+    length := end - start
+    if length != segment.Length {
+        return false
+    }
+
+    index := 0
+    while index < segment.Length {
+        if !CliPathCharsEqualIgnoreCase(path[start + index], segment[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliPathCharsEqualIgnoreCase(left: char, right: char): bool {
+    return Char.ToLowerInvariant(left) == Char.ToLowerInvariant(right)
+}
+
 func CliNuGetVersionCompareInto(x: string, y: string, result: int[]): int {
     if result.Length < 9 {
         return -1

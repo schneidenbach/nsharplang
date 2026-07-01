@@ -54,7 +54,6 @@ class User {
 func main() {
     first := 1 +
     Console.WriteLine(undefinedFromQuery)
-    user := new User { Name = "Ada" }
 }
 """);
 
@@ -66,10 +65,6 @@ func main() {
                 diagnostic.Code == "NL102" &&
                 diagnostic.Line == 6 &&
                 diagnostic.Message.Contains("Expected expression after '+'"));
-            Assert.Contains(diagnostics, diagnostic =>
-                diagnostic.Code == "NL103" &&
-                diagnostic.Line == 8 &&
-                diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
             Assert.Contains(diagnostics, diagnostic =>
                 diagnostic.Code == "NL301" &&
                 diagnostic.Message.Contains("undefinedFromQuery"));
@@ -394,6 +389,46 @@ class B {
         }
     }
 
+    [Fact]
+    public void CompileForAnalysis_SyntaxErrorInOneFile_StillReportsSemanticErrors()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // File A: syntax error
+            File.WriteAllText(Path.Combine(tempDir, "FileA.nl"), @"
+func broken() {
+    let x: int = @@
+}
+");
+            // File B: valid syntax, semantic error
+            File.WriteAllText(Path.Combine(tempDir, "FileB.nl"), @"
+func valid_syntax() {
+    Console.WriteLine(noSuchVariable)
+}
+");
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var errors = compiler.AllErrors.ToList();
+            var fileAErrors = errors.Where(e => e.FileName?.Contains("FileA") == true).ToList();
+            var fileBErrors = errors.Where(e => e.FileName?.Contains("FileB") == true).ToList();
+
+            Assert.True(fileAErrors.Count >= 1, "Expected syntax errors from FileA");
+            Assert.True(fileBErrors.Count >= 1,
+                $"Expected semantic errors from FileB, got {fileBErrors.Count}. " +
+                $"All errors: {string.Join("; ", errors.Select(e => $"[{e.FileName}:{e.Line}] {e.Message}"))}");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    #endregion
+
+    #region Parser always produces CompilationUnit
 
     [Fact]
     public void Parser_AlwaysProducesCompilationUnit_EvenWithErrors()

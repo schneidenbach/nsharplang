@@ -259,7 +259,6 @@ public class LexerTests
             """;
         var tokens = Tokenize(source);
 
-        // Should have: newline, identifier, :=, number, newline, identifier, :=, number, newline, EOF
         // Comments are filtered out
         var nonNewlineTokens = tokens.Where(t => t.Type != TokenType.Newline && t.Type != TokenType.Eof).ToList();
         Assert.Equal(6, nonNewlineTokens.Count); // x, :=, 42, y, :=, 10

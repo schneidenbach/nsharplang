@@ -1,7 +1,7 @@
 import "CompilerServices/ParserDeclarations"
 
 // Product columnar union parser wrapper. It keeps declaration span scratch columns inside N# and exposes only
-// the text/count rows needed by the C# transition materializer.
+// the text/count rows needed by the columnar input builder.
 
 struct ColumnarUnionTokenTable {
     Kinds: int[]
@@ -190,12 +190,10 @@ func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: &ColumnarUnion
     return 1
 }
 
-// Mirrors UnionValueLayout.IsValueStructEmittable on the columnar union shape. The C# oracle emits a small,
-// closed, payload-free, non-generic union as its allocation-free PUBLIC readonly tag struct
-// (DeclareValueStructUnion; ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct pins IsValueType==true). The
-// columnar emitter only knows the class-hierarchy layout, so the columnar input builder consults this kernel and
-// DECLINES a value-struct-emittable union to the oracle rather than silently swap the public value-struct ABI for
-// heap case classes (the documented Stage-6 caveat in performance-compiler-refactor.md). Eligibility holds when the
+// Mirrors UnionValueLayout.IsValueStructEmittable on the columnar union shape. A small, closed,
+// payload-free, non-generic union emits as its allocation-free PUBLIC readonly tag struct. The
+// columnar input builder consults this kernel so it can select the value-struct ABI instead of
+// heap case classes. Eligibility holds when the
 // union is non-generic, has 1..MaxValueStructCases (16) cases, and every case is payload-free (caseFieldCounts[c]
 // is case c's field count; a non-zero count means the case carries a payload). Returns 1 when eligible, else 0.
 func ColumnarUnionIsValueStructEmittable(caseFieldCounts: int[], caseCount: int, typeParamCount: int): int {

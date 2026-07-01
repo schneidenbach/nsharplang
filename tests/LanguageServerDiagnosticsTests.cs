@@ -1781,7 +1781,6 @@ class User {
 func main() {
     first := 1 +
     Console.WriteLine(undefinedFromLsp)
-    user := new User { Name = "Ada" }
 }
 """;
 
@@ -1797,12 +1796,6 @@ func main() {
             diagnostic.Column == 14 &&
             diagnostic.Length == "1 +".Length &&
             diagnostic.Message.Contains("Expected expression after '+'"));
-        Assert.Contains(diagnostics, diagnostic =>
-            diagnostic.Code == ErrorCode.InvalidSyntax &&
-            diagnostic.Line == 8 &&
-            diagnostic.Column == 24 &&
-            diagnostic.Length == "Name".Length &&
-            diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.UndefinedVariable &&
             diagnostic.Message.Contains("undefinedFromLsp"));
@@ -1974,26 +1967,6 @@ class User {
                           diagnostic.Column == 12);
         AssertDiagnosticSpan(emptyGenericArgument, line: 5, column: 12, length: "List<>".Length);
         AssertLspRange(emptyGenericArgument, line0: 4, startCharacter: 11, endCharacter: 17);
-    }
-
-    [Fact]
-    public void LspCompilerDiagnostic_UsesExactCompilerSpan()
-    {
-        var error = CompilerError.WithSnippet(
-            ErrorCode.InvalidSyntax,
-            "Object initializer member 'Name' uses '='; N# uses ':'",
-            "Program.nl",
-            line: 8,
-            column: 24,
-            sourceSnippet: "    user := new User { Name = \"Ada\" }",
-            length: "Name".Length);
-
-        var diagnostic = LspDiagnosticConverter.FromCompilerError(error);
-
-        Assert.Equal(7, (int)diagnostic.Range.Start.Line);
-        Assert.Equal(23, (int)diagnostic.Range.Start.Character);
-        Assert.Equal(7, (int)diagnostic.Range.End.Line);
-        Assert.Equal(27, (int)diagnostic.Range.End.Character);
     }
 
     [Fact]

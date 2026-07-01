@@ -1,4 +1,4 @@
-// PARITY CORPUS (Arc M1): checksum oracles extracted from
+// PARITY CORPUS (Arc M1): checksum fixtures extracted from
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl. These functions exist solely as
 // parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
 // their product file — most delegate to sibling kernels that stay in the product). They are
@@ -407,10 +407,10 @@ func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], l
     return CommentsCore(source, ref comments)
 }
 
-// Collect comment trivia exactly as the C# production lexer does (Lexer.Tokenize fills Lexer.Comments
+// Collect comment trivia exactly as the production lexer does (Lexer.Tokenize fills Lexer.Comments
 // from the Comment/MultiLineComment/XmlDocComment tokens it excludes from the stream). For each comment
 // this records line, column, start offset, length, and isMultiLine (1 = block /* */, 0 = line // or
-// doc ///). The comment text C# stores is the full span including delimiters for line/doc comments and
+// doc ///). The stored comment text is the full span including delimiters for line/doc comments and
 // "/*" + inner + "*/" for block comments -- both equal (end - start), so `length` here = end - start.
 // The loop mirrors TokenizeMetadataCore's token dispatch (consuming strings/raw strings/char/lifetime/
 // number/identifier/operator runs as units) so a `//` or `/*` INSIDE a literal is never misread as a

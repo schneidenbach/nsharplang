@@ -1,11 +1,7 @@
-// Compact overload-candidate ranking for the IL compiler declared-method binder.
+// Compact overload-candidate ranking for declared-method binding.
 //
-// The C# baseline (ILCompiler.BindDeclaredMethodCall) materializes the overload set with
-// `.ToList()`, projects `GetParameters().Select(...).ToArray()` per candidate, and runs a
-// four-level tie-break (score > non-generic > non-params > fewer-defaults) while allocating a
-// BoundDeclaredMethodCall per improving candidate. This kernel represents the overload set as
-// compact primitive columns computed once by the host and selects the winning candidate index by
-// scanning those columns, with the EXACT same first-wins-on-tie order as the C# loop.
+// This kernel represents the overload set as compact primitive columns computed once by the host
+// and selects the winning candidate index by scanning those columns, with first-wins-on-tie order.
 //
 // Compact candidate columns (one entry per candidate, candidate order = source overload order):
 //   validFlags[i]    - 1 when the candidate bound successfully (predicate + parameter bind), else 0

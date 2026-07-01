@@ -2,7 +2,7 @@
 # Stable terminal rendering from OutputFormatter.DiagnosticsToText.
 # Docs URLs are category-qualified where parser/analyzer/linter docs are split.
 
-Diagnostic clusters (25 groups, 25 diagnostics)
+Diagnostic clusters (24 groups, 24 diagnostics)
   [1x] diagnostic-message-shape / variable-declaration / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/cannot-infer.nl:2:5
@@ -73,7 +73,7 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        example: [linter] Async function has no await
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
-  ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
+  ... 14 more clusters omitted; use --json for the full AI-consumable cluster list.
 
 ── [NL101] ERROR ──────────── parser/missing-argument.nl:3:17 ──
 
@@ -100,19 +100,6 @@ Function parameters use `name: Type`; without the colon, the type name is parsed
 Suggestion: Write `func greet(name: string) { ... }`.
 
 See: https://docs.n-sharp.dev/errors/parser/NL102
-
-── [NL103] ERROR ─── parser/object-initializer-equals.nl:2:23 ──
-
-    2 |     return new User { Name = "Ada" }
-      |                       ^^^^
-
-[parser] Invalid syntax in object initializer
-
-N# object initializers use colon fields; `=` is C# object-initializer syntax.
-
-Suggestion: Use `new User { Name: "Ada" }`.
-
-See: https://docs.n-sharp.dev/errors/parser/NL103
 
 ── [NL104] ERROR ──────── parser/missing-closing-brace.nl:5:1 ──
 

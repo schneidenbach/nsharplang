@@ -10,9 +10,8 @@ namespace NSharpLang.Tests;
 /// <c>using</c>. <see cref="Assembly.Load(byte[])"/> pins each assembly in a fresh NON-collectible
 /// context for the test host's lifetime — with hundreds of emitted parity assemblies per run (and
 /// the parity suite growing every slice) that is an unbounded leak that intermittently OOM-crashes
-/// the xUnit host. A pinned assembly also leaves its global types visible to the C# oracle's
-/// AppDomain-wide external-type scan forever (the failure mode behind the ROUTE-ONLY `Math` pin in
-/// CompilerDogfoodProjectTests); an unloaded context drops back out of that scan.
+/// the xUnit host. A pinned assembly also leaves its global types visible to later tests forever;
+/// an unloaded context drops back out of that scan.
 /// Keep every Type/MethodInfo/delegate obtained from <see cref="Assembly"/> inside the scope.
 /// </summary>
 internal sealed class CollectibleAssemblyScope : IDisposable

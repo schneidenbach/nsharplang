@@ -1,5 +1,5 @@
 // Interpolated Raw String Literals Example
-// Demonstrates C# 11 raw string interpolation feature in N#
+// Demonstrates raw string interpolation in N#
 class Person {
     readonly Name: string
     readonly Age: int

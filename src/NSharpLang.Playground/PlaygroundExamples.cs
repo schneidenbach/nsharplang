@@ -201,7 +201,7 @@ public static class PlaygroundExamples
             "Use array literals, foreach, and CLR collection members.",
             1,
             "Ask for completions after numbers. to see array members through N#.",
-            ["arrays", "foreach", "collection members", "C# interop"],
+            ["arrays", "foreach", "collection members", ".NET interop"],
             """
             package Tutorial
 

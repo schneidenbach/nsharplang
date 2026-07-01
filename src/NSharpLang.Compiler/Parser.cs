@@ -908,7 +908,7 @@ public class Parser
                 );
             }
 
-            // Validate: struct implies new(), so combining them is redundant and illegal in C#
+            // Validate: struct implies new(), so combining them is redundant and illegal in
             if (specialConstraints.HasFlag(SpecialConstraintKind.Struct) &&
                 specialConstraints.HasFlag(SpecialConstraintKind.New))
             {
@@ -917,7 +917,7 @@ public class Parser
                     "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
                     newConstraintStartToken?.Line ?? Current.Line,
                     newConstraintStartToken?.Column ?? Current.Column,
-                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#.",
+                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in .",
                     length: TokenSpanLengthOrFallback(newConstraintStartToken, newConstraintEndToken)
                 );
             }
@@ -942,7 +942,7 @@ public class Parser
             : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
-        // Parse optional primary constructor parameters (C# 12)
+        // Parse optional primary constructor parameters ()
         List<Parameter>? primaryCtorParams = null;
         if (Check(TokenType.LeftParen))
         {
@@ -987,7 +987,7 @@ public class Parser
             : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
-        // Parse optional primary constructor parameters (C# 12)
+        // Parse optional primary constructor parameters ()
         List<Parameter>? primaryCtorParams = null;
         if (Check(TokenType.LeftParen))
         {
@@ -1016,7 +1016,7 @@ public class Parser
         var column = Current.Column;
         var recordToken = Consume(TokenType.Record, "Expected 'record'");
 
-        // Check for 'struct' keyword after 'record' (C# 10: record struct)
+        // Check for 'struct' keyword after 'record' (: record struct)
         bool isStruct = false;
         if (Check(TokenType.Struct))
         {
@@ -1032,7 +1032,7 @@ public class Parser
             : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
-        // Parse optional primary constructor parameters (C# 12)
+        // Parse optional primary constructor parameters ()
         List<Parameter>? primaryCtorParams = null;
         if (Check(TokenType.LeftParen))
         {
@@ -2245,7 +2245,7 @@ public class Parser
             return ParseForStatement();
         if (Check(TokenType.Foreach))
             return ParseForeachStatement();
-        // Handle "await foreach" for async iteration (C# 8+)
+        // Handle "await foreach" for async iteration ()
         if (Check(TokenType.Await) && LookAhead(1).Type == TokenType.Foreach)
             return ParseAwaitForeachStatement();
         if (Check(TokenType.While))
@@ -2283,7 +2283,7 @@ public class Parser
         if (Check(TokenType.LeftBrace))
             return ParseBlock(blockOwnerSpan);
 
-        // Local function (C# 7): [static] [async] func Name(...) { }
+        // Local function ( 7): [static] [async] func Name(...) { }
         if ((Check(TokenType.Static) || Check(TokenType.Async)) && LookAhead(1).Type == TokenType.Func)
             return ParseLocalFunction();
         if (Check(TokenType.Static) && LookAhead(1).Type == TokenType.Async && LookAhead(2).Type == TokenType.Func)
@@ -5354,7 +5354,7 @@ public class Parser
         var column = Current.Column;
         var newToken = Consume(TokenType.New, "Expected 'new'");
 
-        // Target-typed new (C# 9): new() or new { ... }
+        // Target-typed new (): new() or new { ... }
         // Check if next token is '(' or '{' without a type
         TypeReference? type = null;
         var args = new List<Argument>();
@@ -6555,7 +6555,7 @@ public class Parser
             span.Column,
             humanExplanation: $"'{keyword}' is a reserved keyword in N#, so it can't be used as a name here.",
             hint: isDotAccess
-                ? $"After a member access, the name must not be a reserved keyword. To reach a C# member literally named '{keyword}', access it through a differently-named alias."
+                ? $"After a member access, the name must not be a reserved keyword. To reach a  member literally named '{keyword}', access it through a differently-named alias."
                 : $"Choose a name that isn't a reserved keyword (for example '{keyword}Value' or '_{keyword}').",
             suggestions: suggestions,
             length: span.Length);

@@ -424,7 +424,7 @@ func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): i
     return count
 }
 
-// Insert the virtual indentation braces that the C# production lexer's InsertIndentationBraces
+// Insert the virtual indentation braces that the production lexer's InsertIndentationBraces
 // post-pass produces, but write only the parser-consumed token metadata columns. The raw metadata
 // stream still carries line/column because indentation decisions require it; the product adapter no
 // longer pays for line/column output columns that the parser route never reads.
@@ -542,7 +542,7 @@ func InsertIndentationParserMetadataCore(
 }
 
 // Product columnar lexer entry: tokenize, insert indentation braces, and compact parser metadata before
-// crossing back to C#. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
+// returning to the host. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
 // compact parser-token count. This keeps the transition adapter from binding standalone lexer probe ABIs.
 func TokenizeColumnarSourceInto(source: string, rawKinds: int[], rawStarts: int[], rawValueLengths: int[], compactKinds: int[], compactStarts: int[], compactValueLengths: int[], resultCounts: int[]): int {
     if resultCounts.Length < 2 {
@@ -663,7 +663,7 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
 
     if source[position] == '\\' {
         position = position + 1
-        // Match C# ReadCharLiteral (Lexer.cs:882): do not consume the escaped char across a line
+        // Do not consume the escaped char across a line
         // break, so e.g. `'\<CR>` leaves the CR to become a separate Newline token.
         if position < length && source[position] != '\n' && source[position] != '\r' {
             position = position + 1
@@ -679,7 +679,7 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
     return position
 }
 
-// Lifetime token support, mirroring the C# production lexer (Lexer.cs:325-328, 903-960). At an
+// Lifetime token support, mirroring the production lexer (Lexer.cs:325-328, 903-960). At an
 // apostrophe, the lexer emits a single Lifetime token (ordinal 142) -- instead of a char literal --
 // when the apostrophe begins an identifier (next char letter/'_', and the char after that is not a
 // closing quote, distinguishing `'a` from the char literal `'a'`) AND it appears in a lifetime
@@ -687,8 +687,7 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
 // immediately before it is `scoped` or `returns`. These checks intentionally use the scanner's
 // existing ASCII character classification (consistent with IsDigit/IsIdentifierStart elsewhere);
 // the scanner-wide ASCII-vs-Unicode classification gap is tracked separately in self-host-progress.md.
-// Whitespace for the lifetime-context lookback. C# IsLifetimeContext (Lexer.cs:912) skips back over
-// char.IsWhiteSpace (Unicode, including newlines), so this matches it directly.
+// Whitespace for the lifetime-context lookback.
 func IsLifetimeLookbackWhitespace(ch: char): bool {
     return char.IsWhiteSpace(ch)
 }
@@ -759,11 +758,11 @@ func ScanLifetime(source: string, position: int, length: int): int {
 }
 
 // Returns ((exclusive end offset) << 2) | kind, where kind is 1 = IntLiteral, 2 = FloatLiteral, and
-// 3 = Unknown (the malformed-number error token C# ReadNumber emits). The 1/2 values double as the
+// 3 = Unknown (the malformed-number error token). The 1/2 values double as the
 // TokenType ordinals; callers map the sentinel 3 to Unknown (137). Each error branch returns the same
-// span C# consumes (so NumberValueLength, which counts non-'_' chars, reproduces C#'s token text):
+// span consumed by the production lexer (so NumberValueLength, which counts non-'_' chars, reproduces token text):
 //   - 0x / 0b with no valid digit immediately after the prefix (a leading '_' counts as "no digit",
-//     matching C# Lexer.cs:592/614) -> Unknown ending right after the prefix;
+//     matching the production lexer) -> Unknown ending right after the prefix;
 //   - a second decimal point (Lexer.cs:650-659) -> Unknown after consuming the remaining digits/dots;
 //   - an exponent e/E[+/-] with no digit after it (Lexer.cs:681-684) -> Unknown ending after the sign.
 func ScanNumberInfo(source: string, position: int, length: int): int {
@@ -1435,10 +1434,9 @@ func IsWhitespaceExceptNewline(ch: char): bool {
     return char.IsWhiteSpace(ch) && ch != '\n' && ch != '\r'
 }
 
-// Character classification mirrors the C# production lexer's use of the BCL Unicode predicates
+// Character classification mirrors the production lexer's use of the BCL Unicode predicates
 // (Lexer.cs: char.IsLetter at 342/905, char.IsLetterOrDigit at 567/922/926/942, char.IsDigit at
-// 336/631/647/653/681/686/757, char.IsWhiteSpace at 912/1084). The C# lexer has no ASCII fast path,
-// so calling the same BCL predicates here is both exact-parity AND the same cost as C#.
+// 336/631/647/653/681/686/757, char.IsWhiteSpace at 912/1084).
 func IsIdentifierStart(ch: char): bool {
     return ch == '_' || char.IsLetter(ch)
 }
@@ -1451,7 +1449,7 @@ func IsDigit(ch: char): bool {
     return char.IsDigit(ch)
 }
 
-// Hex digits are ASCII-only letters plus any Unicode decimal digit, matching C# IsHexDigit
+// Hex digits are ASCII-only letters plus any Unicode decimal digit, matching production IsHexDigit
 // (Lexer.cs:757 = char.IsDigit(c) || a-f || A-F).
 func IsHexDigit(ch: char): bool {
     return IsDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')

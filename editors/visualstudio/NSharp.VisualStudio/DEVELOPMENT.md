@@ -104,7 +104,7 @@ Replace the placeholder files in `Resources/` with actual PNG images:
 
 Create `ProjectSystem/NSharpProjectFactory.cs`:
 
-```csharp
+```text
 using Microsoft.VisualStudio.Shell.Flavor;
 using Microsoft.VisualStudio.Shell.Interop;
 

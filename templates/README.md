@@ -158,7 +158,7 @@ nlc new systems-cli PacketTool
 
 ### Systems Library
 
-Creates a systems-profile library with a public hot API and boundary adapter suitable for C# interop validation.
+Creates a systems-profile library with a public hot API and boundary adapter suitable for CLR validation.
 
 <!-- quickstart:systems-library -->
 ```bash

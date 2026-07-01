@@ -1,7 +1,7 @@
 // CLR assembly-version component parsing kernels.
 //
 // Mirrors int.TryParse(component, NumberStyles.None, InvariantCulture) for non-negative
-// version components after the C# caller has split the package-version numeric core.
+// version components after the caller has split the package-version numeric core.
 
 struct AssemblyVersionIntResultTable {
     Values: int[]
