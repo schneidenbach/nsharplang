@@ -2742,20 +2742,6 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Strip ALL whitespace from a declared-type source span (`Func<int, int>` -> `Func<int,int>`): canonicals
-    // never contain spaces, so this maps well-formed annotation text onto the canonical grammar; anything
-    // pathological (comments inside the annotation) produces an unresolvable string and declines.
-    private static string RemoveWhitespace(string s)
-    {
-        var sb = new System.Text.StringBuilder(s.Length);
-        foreach (var c in s)
-        {
-            if (!char.IsWhiteSpace(c))
-                sb.Append(c);
-        }
-        return sb.ToString();
-    }
-
     // Parse a floating-point literal's body (type suffix already stripped by the caller) to its double value,
     // mirroring the N# backend path's ParseFloatLiteralValue: drop `_` digit separators, then parse invariant-culture.
     // An f-literal narrows the result to float at the call site; a double-literal uses it directly.
@@ -4648,7 +4634,7 @@ internal sealed class ColumnarIlEmitter
                 var declaredName = Text(Child(idx, 0));
                 if (IsVisibleBindingName(declaredName))
                     return false; // shadowing/redeclaration (incl. enclosing-scope NL316) — decline.
-                var typeCanonical = RemoveWhitespace(Text(idx));
+                var typeCanonical = ColumnarTypeCanonicalizer.RemoveWhitespace(Text(idx));
                 // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
                 // canonical for resolution; the names are recorded for member access below. (The BARE
                 // form with a tuple type is a production-grammar parse error — the kernel refuses it.)

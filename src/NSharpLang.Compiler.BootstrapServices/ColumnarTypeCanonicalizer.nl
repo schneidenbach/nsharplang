@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
+import System.Text
 
 public class ColumnarTupleElementNameStripResult {
     public Canonical: string
@@ -13,6 +14,21 @@ public class ColumnarTupleElementNameStripResult {
 }
 
 public class ColumnarTypeCanonicalizer {
+    public static func RemoveWhitespace(s: string): string {
+        sb := new StringBuilder(s.Length)
+        i := 0
+        while i < s.Length {
+            c := s[i]
+            if !char.IsWhiteSpace(c) {
+                sb.Append(c)
+            }
+
+            i = i + 1
+        }
+
+        return sb.ToString()
+    }
+
     public static func StripTupleElementNames(canonical: string): ColumnarTupleElementNameStripResult {
         if canonical.Length < 2 || canonical[0] != '(' || canonical[canonical.Length - 1] != ')' {
             return new ColumnarTupleElementNameStripResult(canonical)

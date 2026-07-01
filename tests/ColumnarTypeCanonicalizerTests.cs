@@ -17,6 +17,14 @@ public class ColumnarTypeCanonicalizerTests
     }
 
     [Fact]
+    public void RemoveWhitespace_StripsDeclaredTypeSpan()
+    {
+        Assert.Equal(
+            "Func<int,(string,int[])>",
+            ColumnarTypeCanonicalizer.RemoveWhitespace("Func<int, (string, int[])>"));
+    }
+
+    [Fact]
     public void StripTupleElementNames_LeavesPositionalTupleUnchanged()
     {
         var result = ColumnarTypeCanonicalizer.StripTupleElementNames("(int,(string,int[]))");
@@ -31,7 +39,7 @@ public class ColumnarTypeCanonicalizerTests
         Assert.True(ColumnarCompiler.TryEmitProgram(
             """
 func Value(): int {
-    let pair: (x:int,y:int) = (1, 2)
+    let pair: (x: int, y: int) = (1, 2)
     return pair.x
 }
 """,
