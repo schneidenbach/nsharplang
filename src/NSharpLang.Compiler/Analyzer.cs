@@ -14848,10 +14848,10 @@ public class Analyzer : IDisposable
 
         var members = owner switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
-            InterfaceTypeInfo interfaceType => interfaceType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
+            InterfaceTypeInfo interfaceType => interfaceType.DeclaredMembers,
             _ => null,
         };
 
@@ -14859,13 +14859,13 @@ public class Analyzer : IDisposable
         {
             foreach (var member in members)
             {
-                if (GetDeclarationName(member) != memberName)
+                if (member.Name != memberName)
                 {
                     continue;
                 }
 
-                return member is PropertyDeclaration property
-                    && (property.SetBody == null || property.PropertyModifier.HasFlag(PropertyModifier.Readonly));
+                return member.Kind == DeclaredMemberKind.Property
+                    && (!member.HasSetter || member.IsReadonly);
             }
 
             if (owner is ClassTypeInfo classTypeWithBase)

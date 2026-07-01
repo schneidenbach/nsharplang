@@ -188,6 +188,7 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(member, "Type"),
             HasOptionalModifier(member, 16),
             HasOptionalModifier(member, 512),
+            HasOptionalPropertyValue(member, "SetBody"),
             IsExportedMember(member, name),
             GetOptionalListCount(member, "Parameters"),
             GetParameterTypeArray(member),
@@ -206,6 +207,11 @@ public class NominalTypeInfoFactory {
 
         value := Convert.ToInt32(modifiers)
         return (value & flag) == flag
+    }
+
+    static func HasOptionalPropertyValue(owner: object, propertyName: string): bool {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        return value != null
     }
 
     static func IsExportedMember(member: object, name: string): bool {

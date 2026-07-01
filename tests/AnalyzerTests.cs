@@ -1100,7 +1100,7 @@ func Main() {
     [Fact]
     public void Write_SettableSourcePropertyTarget_Valid()
     {
-        AssertNoErrors("""
+        var result = AnalyzeWithSource("""
             class Box {
                 backing: int
 
@@ -1124,6 +1124,11 @@ func Main() {
                 }
             }
         """);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
     }
 
     [Fact]
