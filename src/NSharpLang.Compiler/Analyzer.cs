@@ -5961,27 +5961,28 @@ public class Analyzer : IDisposable
         type = ResolveTypeAlias(type);
         return type switch
         {
-            ClassTypeInfo classType => HasDisposePatternMember(classType.GetDeclaration().Members),
-            StructTypeInfo structType => HasDisposePatternMember(structType.GetDeclaration().Members),
-            RecordTypeInfo recordType => HasDisposePatternMember(recordType.GetDeclaration().Members),
-            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.GetDeclaration().Members),
+            ClassTypeInfo classType => HasDisposePatternMember(classType.DeclaredMembers),
+            StructTypeInfo structType => HasDisposePatternMember(structType.DeclaredMembers),
+            RecordTypeInfo recordType => HasDisposePatternMember(recordType.DeclaredMembers),
+            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.DeclaredMembers),
             ReflectionTypeInfo reflectionType => HasReflectionDisposePattern(reflectionType.Type),
             _ => false
         };
     }
 
-    private bool HasDisposePatternMember(IEnumerable<Declaration> members)
+    private bool HasDisposePatternMember(IEnumerable<DeclaredMemberInfo> members)
     {
         foreach (var member in members)
         {
-            if (member is not FunctionDeclaration { Name: nameof(IDisposable.Dispose) } function
-                || function.Modifiers.HasFlag(Modifiers.Static)
-                || function.Parameters.Count != 0)
+            if (member.Kind != DeclaredMemberKind.Function
+                || member.Name != nameof(IDisposable.Dispose)
+                || member.IsStatic
+                || member.ParameterCount != 0)
             {
                 continue;
             }
 
-            if (function.ReturnType == null || BuiltInTypes.Is(ResolveType(function.ReturnType), BuiltInTypes.Void))
+            if (member.ReturnType == null || BuiltInTypes.Is(ResolveType(member.ReturnType), BuiltInTypes.Void))
             {
                 return true;
             }

@@ -657,6 +657,73 @@ func Main() {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_UsingDisposePatternUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Resource {
+    func Dispose(): void {
+    }
+}
+
+func Main() {
+    using resource := new Resource() {
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_InvalidUsingDisposePatternUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Resource {
+    static func Dispose(): void {
+    }
+
+    func Dispose(value: int): void {
+    }
+
+    func DisposeText(): string {
+        return ""no""
+    }
+}
+
+func Main() {
+    using resource := new Resource() {
+    }
+}";
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Using resource of type 'Resource' must implement IDisposable", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_NonVoidUsingDisposePatternUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Resource {
+    func Dispose(): int {
+        return 0
+    }
+}
+
+func Main() {
+    using resource := new Resource() {
+    }
+}";
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Using resource of type 'Resource' must implement IDisposable", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
     {
         var source = @"

@@ -26,19 +26,36 @@ public class DeclaredMemberInfo {
     nameValue: string
     kindValue: DeclaredMemberKind
     typeValue: TypeReference?
+    isStaticValue: bool
+    parameterCountValue: int
+    returnTypeValue: TypeReference?
     lineValue: int
     columnValue: int
 
     Name: string => nameValue
     Kind: DeclaredMemberKind => kindValue
     Type: TypeReference? => typeValue
+    IsStatic: bool => isStaticValue
+    ParameterCount: int => parameterCountValue
+    ReturnType: TypeReference? => returnTypeValue
     Line: int => lineValue
     Column: int => columnValue
 
-    constructor(name: string, kind: DeclaredMemberKind, typeReference: TypeReference?, line: int, column: int) {
+    constructor(
+        name: string,
+        kind: DeclaredMemberKind,
+        typeReference: TypeReference?,
+        isStatic: bool,
+        parameterCount: int,
+        returnType: TypeReference?,
+        line: int,
+        column: int) {
         nameValue = name
         kindValue = kind
         typeValue = typeReference
+        isStaticValue = isStatic
+        parameterCountValue = parameterCount
+        returnTypeValue = returnType
         lineValue = line
         columnValue = column
     }

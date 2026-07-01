@@ -178,12 +178,40 @@ public class NominalTypeInfoFactory {
     }
 
     static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
+        typeName := member.GetType().Name
         return new DeclaredMemberInfo(
             GetOptionalString(member, "Name"),
-            GetDeclaredMemberKind(member.GetType().Name),
+            GetDeclaredMemberKind(typeName),
             GetOptionalTypeReference(member, "Type"),
+            HasOptionalModifier(member, 16),
+            GetOptionalListCount(member, "Parameters"),
+            GetOptionalTypeReference(member, "ReturnType"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+    }
+
+    static func HasOptionalModifier(declaration: object, flag: int): bool {
+        modifiers := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Modifiers")
+        if modifiers == null {
+            return false
+        }
+
+        value := Convert.ToInt32(modifiers)
+        return (value & flag) == flag
+    }
+
+    static func GetOptionalListCount(owner: object, propertyName: string): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        if value == null {
+            return -1
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' to be a list.")
+        }
+
+        return source.Count
     }
 
     static func GetOptionalString(owner: object, propertyName: string): string {
