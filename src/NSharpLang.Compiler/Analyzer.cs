@@ -1860,7 +1860,7 @@ public class Analyzer : IDisposable
             // Already in a method group (registered by class first pass) — skip
         }
         else if (existingSymbol is FunctionTypeInfo existingFunction
-                 && ParameterSignaturesMatch(existingFunction, funcType))
+                 && AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(existingFunction, funcType))
         {
             // Same function already declared (by class first pass) — skip
         }
@@ -21337,11 +21337,11 @@ public class Analyzer : IDisposable
         {
             // Allow function overloading: merge into NSharpMethodGroupInfo
             // Only if parameter signatures differ (same name + same params = duplicate error)
-            if (type is FunctionTypeInfo newFunction && HasSourceParameterSignature(newFunction))
+            if (type is FunctionTypeInfo newFunction && AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(newFunction))
             {
-                if (existing is FunctionTypeInfo existingFunction && HasSourceParameterSignature(existingFunction))
+                if (existing is FunctionTypeInfo existingFunction && AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(existingFunction))
                 {
-                    if (HasDistinctParameterSignature(newFunction, new[] { existingFunction }))
+                    if (AnalyzerOverloadSignatureFacts.HasDistinctParameterSignature(newFunction, new[] { existingFunction }))
                     {
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromFunctions(
@@ -21359,8 +21359,8 @@ public class Analyzer : IDisposable
                 if (existing is NSharpMethodGroupInfo group)
                 {
                     var functions = GetNSharpMethodGroupFunctions(group);
-                    if (functions.All(HasSourceParameterSignature)
-                        && HasDistinctParameterSignature(newFunction, functions))
+                    if (functions.All(AnalyzerOverloadSignatureFacts.HasSourceParameterSignature)
+                        && AnalyzerOverloadSignatureFacts.HasDistinctParameterSignature(newFunction, functions))
                     {
                         // Add to existing method group
                         NSharpMethodGroupInfoFactory.AddFunction(group, newFunction);
@@ -21469,67 +21469,6 @@ public class Analyzer : IDisposable
         if (scope.Types.ContainsKey(name))
             return false; // type parameter
         return type is not (FunctionTypeInfo or NSharpMethodGroupInfo);
-    }
-
-    /// <summary>
-    /// True for source-declared function facts that can participate in N# overload sets.
-    /// </summary>
-    private static bool HasSourceParameterSignature(FunctionTypeInfo function)
-        => function.SourceParameterTypes != null;
-
-    /// <summary>
-    /// Checks if a new source function has a distinct parameter signature
-    /// from all existing source function facts (for overload validation).
-    /// </summary>
-    private static bool HasDistinctParameterSignature(
-        FunctionTypeInfo newFunction,
-        IEnumerable<FunctionTypeInfo> existingFunctions)
-    {
-        foreach (var existing in existingFunctions)
-        {
-            if (ParameterSignaturesMatch(newFunction, existing))
-                return false; // Duplicate signature found
-        }
-        return true;
-    }
-
-    /// <summary>
-    /// Compares two function fact parameter signatures (types only, not names).
-    /// Returns true if they have the same parameter types.
-    /// </summary>
-    private static bool ParameterSignaturesMatch(FunctionTypeInfo a, FunctionTypeInfo b)
-    {
-        var aParameters = a.SourceParameterTypes;
-        var bParameters = b.SourceParameterTypes;
-        if (aParameters == null || bParameters == null)
-            return false;
-
-        if (aParameters.Count != bParameters.Count)
-            return false;
-
-        for (int i = 0; i < aParameters.Count; i++)
-        {
-            if (GetParameterTypeSignature(aParameters[i]) != GetParameterTypeSignature(bParameters[i]))
-                return false;
-        }
-
-        return true;
-    }
-
-    private static string GetParameterTypeSignature(TypeReference typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            ArrayTypeReference array => $"{GetParameterTypeSignature(array.ElementType)}[]",
-            GenericTypeReference generic => $"{generic.Name}<{string.Join(",", generic.TypeArguments.Select(GetParameterTypeSignature))}>",
-            NullableTypeReference nullable => $"{GetParameterTypeSignature(nullable.InnerType)}?",
-            UnionTypeReference union => string.Join("|", union.Arms.Select(GetParameterTypeSignature)),
-            TupleTypeReference tuple => $"({string.Join(",", tuple.Elements.Select(element => GetParameterTypeSignature(element.Type)))})",
-            FunctionTypeReference function => $"({string.Join(",", function.ParameterTypes.Select(GetParameterTypeSignature))})->{GetParameterTypeSignature(function.ReturnType)}",
-            ByRefTypeReference byRef => $"&{GetParameterTypeSignature(byRef.InnerType)}",
-            _ => typeRef.ToString() ?? "unknown"
-        };
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)

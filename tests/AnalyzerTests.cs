@@ -6764,6 +6764,27 @@ func Main() {
         ");
     }
 
+    [Fact]
+    public void OverloadDeclaration_DuplicateNestedSourceSignature_ReportsDuplicateDeclaration()
+    {
+        const string source = """
+import System.Collections.Generic
+
+func Process(items: List<int[]>): int {
+    return 1
+}
+
+func Process(values: List<int[]>): int {
+    return 2
+}
+""";
+
+        var result = AnalyzeWithSource(source);
+
+        Assert.Contains(result.Errors,
+            error => error.Code == ErrorCode.DuplicateDeclaration && error.Message.Contains("'Process'"));
+    }
+
     // ================================================================
     // Generic type inference for N#-declared functions
     // ================================================================
