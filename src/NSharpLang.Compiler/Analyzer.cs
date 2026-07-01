@@ -2124,48 +2124,37 @@ public class Analyzer : IDisposable
 
     private static bool IsUnitTaskLikeType(TypeInfo type)
     {
-        return type switch
-        {
-            SimpleTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" } => true,
-            GenericTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask", TypeArguments.Count: 0 } => true,
-            ReflectionTypeInfo { Type: var reflectionType } => reflectionType == typeof(System.Threading.Tasks.Task) || reflectionType == typeof(System.Threading.Tasks.ValueTask),
-            _ when IsUnitTaskLikeName(type.ToString()) => true,
-            _ => false
-        };
-    }
+        if (TaskLikeTypeFacts.IsUnitTaskLikeType(type))
+            return true;
 
-    private static bool IsUnitTaskLikeName(string name)
-    {
-        return name is "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask"
-            || name.EndsWith(".Task", StringComparison.Ordinal)
-            || name.EndsWith(".ValueTask", StringComparison.Ordinal);
+        return type is ReflectionTypeInfo { Type: var reflectionType }
+            && (reflectionType == typeof(System.Threading.Tasks.Task)
+                || reflectionType == typeof(System.Threading.Tasks.ValueTask));
     }
 
     private static bool IsUnitTaskLikeTypeReference(TypeReference? typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => IsUnitTaskLikeName(simple.Name),
-            GenericTypeReference { TypeArguments.Count: 0 } generic => IsUnitTaskLikeName(generic.Name),
-            _ => false
-        };
-    }
+        => TaskLikeTypeFacts.IsUnitTaskLikeTypeReference(typeRef);
 
     private bool TryGetTaskLikeResultType(TypeInfo type, out TypeInfo resultType)
     {
-        switch (type)
+        var result = TaskLikeTypeFacts.GetTaskLikeResultType(type);
+        if (result.SourceResultType != null)
         {
-            case GenericTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask", TypeArguments.Count: 1 } generic:
-                resultType = generic.TypeArguments[0];
-                return true;
-            case ReflectionTypeInfo { Type: var reflectionType } when reflectionType.IsGenericType &&
-                (reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>) || reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>)):
-                resultType = ConvertReflectionType(reflectionType.GetGenericArguments()[0]);
-                return true;
-            default:
-                resultType = BuiltInTypes.Unknown;
-                return false;
+            resultType = result.SourceResultType;
+            return true;
         }
+
+        if (type is ReflectionTypeInfo { Type: var reflectionType }
+            && reflectionType.IsGenericType
+            && (reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>)
+                || reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>)))
+        {
+            resultType = ConvertReflectionType(reflectionType.GetGenericArguments()[0]);
+            return true;
+        }
+
+        resultType = BuiltInTypes.Unknown;
+        return false;
     }
 
     private static bool StatementAlwaysReturns(Statement statement)
