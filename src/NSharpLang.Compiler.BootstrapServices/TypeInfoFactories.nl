@@ -175,6 +175,7 @@ public class NominalTypeInfoFactory {
     static func GetDeclaredMemberArray(owner: object): DeclaredMemberInfo[] {
         source := TypeInfoFactoryReflection.GetRequiredList(owner, "Members")
         result := new DeclaredMemberInfo[](source.Count)
+        containingType := TypeInfoFactoryReflection.GetRequiredString(owner, "Name")
 
         index := 0
         while index < source.Count {
@@ -183,7 +184,7 @@ public class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Members' entries to be declarations.")
             }
 
-            result[index] = CreateDeclaredMemberInfo(item)
+            result[index] = CreateDeclaredMemberInfo(containingType, item)
             index = index + 1
         }
 
@@ -220,7 +221,7 @@ public class NominalTypeInfoFactory {
         return result
     }
 
-    static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
+    static func CreateDeclaredMemberInfo(containingType: string, member: object): DeclaredMemberInfo {
         typeName := member.GetType().Name
         name := GetOptionalString(member, "Name")
         kind := GetDeclaredMemberKind(typeName)
@@ -228,6 +229,7 @@ public class NominalTypeInfoFactory {
         genericConstraints := GetGenericConstraintArray(member)
         return new DeclaredMemberInfo(
             name,
+            containingType,
             kind,
             GetDeclaredMemberKindName(kind),
             GetDeclaredMemberTypeReference(member, kind),

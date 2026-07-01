@@ -25,6 +25,7 @@ public enum DeclaredMemberKind {
 
 public class DeclaredMemberInfo {
     nameValue: string
+    containingTypeValue: string
     kindValue: DeclaredMemberKind
     kindNameValue: string
     typeValue: TypeReference?
@@ -54,6 +55,7 @@ public class DeclaredMemberInfo {
     columnValue: int
 
     Name: string => nameValue
+    ContainingType: string => containingTypeValue
     Kind: DeclaredMemberKind => kindValue
     KindName: string => kindNameValue
     Type: TypeReference? => typeValue
@@ -84,6 +86,7 @@ public class DeclaredMemberInfo {
 
     constructor(
         name: string,
+        containingType: string,
         kind: DeclaredMemberKind,
         kindName: string,
         typeReference: TypeReference?,
@@ -112,6 +115,7 @@ public class DeclaredMemberInfo {
         line: int,
         column: int) {
         nameValue = name
+        containingTypeValue = containingType
         kindValue = kind
         kindNameValue = kindName
         typeValue = typeReference
@@ -663,6 +667,11 @@ public class NullableTypeInfo: TypeInfo {
 public class FunctionTypeInfo: TypeInfo {
     Declaration: object?
     SyntheticName: string?
+    SourceName: string?
+    SourceContainingType: string?
+    SourceLine: int
+    SourceColumn: int
+    SourceParameterCount: int
     ParameterNames: List<string>?
     ParameterTypes: List<TypeInfo>?
     SourceParameterTypes: List<TypeReference>?
@@ -678,6 +687,9 @@ public class FunctionTypeInfo: TypeInfo {
         Declaration = declaration
         HasParamsParameter = false
         HasMustUseAttribute = false
+        SourceLine = 0
+        SourceColumn = 0
+        SourceParameterCount = -1
     }
 }
 

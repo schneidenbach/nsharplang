@@ -2287,7 +2287,7 @@ public class Analyzer : IDisposable
             {
                 // Add function to scope so it can be referenced by other members.
                 // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
-                var funcTypeInfo = CreateFunctionTypeInfo(func);
+                var funcTypeInfo = CreateFunctionTypeInfo(func, classDecl.Name);
                 DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
             }
         }
@@ -2577,6 +2577,9 @@ public class Analyzer : IDisposable
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
     {
+        var previousTypeName = _currentTypeName;
+        _currentTypeName = interfaceDecl.Name;
+
         CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
 
         PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
@@ -2600,6 +2603,7 @@ public class Analyzer : IDisposable
         }
 
         PopScope();
+        _currentTypeName = previousTypeName;
     }
 
     private void AnalyzeUnionDeclaration(UnionDeclaration unionDecl)
@@ -9803,7 +9807,7 @@ public class Analyzer : IDisposable
         if (matchingMembers.All(CanResolveFunctionMemberFromTypeInfo))
         {
             var functionTypes = matchingMembers
-                .Select(CreateFunctionTypeInfo)
+                .Select(declaration => CreateFunctionTypeInfo(declaration))
                 .ToList();
             return functionTypes.Count == 1
                 ? functionTypes[0]
@@ -9973,7 +9977,7 @@ public class Analyzer : IDisposable
 
         // Multiple matches - return fact-backed method group for overload resolution
         return NSharpMethodGroupInfoFactory.FromFunctions(
-            applicableExtensions.Select(CreateFunctionTypeInfo).ToList());
+            applicableExtensions.Select(declaration => CreateFunctionTypeInfo(declaration)).ToList());
     }
 
     private bool IsExtensionReceiverApplicable(FunctionDeclaration extension, TypeInfo targetType)
@@ -10474,11 +10478,17 @@ public class Analyzer : IDisposable
         };
     }
 
-    private FunctionTypeInfo CreateFunctionTypeInfo(FunctionDeclaration func)
+    private FunctionTypeInfo CreateFunctionTypeInfo(FunctionDeclaration func, string? containingType = null)
     {
+        var sourceContainingType = containingType ?? _currentTypeName;
         return new FunctionTypeInfo(func)
         {
             SyntheticName = func.Name,
+            SourceName = func.Name,
+            SourceContainingType = sourceContainingType,
+            SourceLine = func.Line,
+            SourceColumn = func.Column,
+            SourceParameterCount = func.Parameters.Count,
             ParameterNames = func.Parameters.Select(parameter => parameter.Name).ToList(),
             ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
             SourceParameterTypes = func.Parameters.Select(parameter => parameter.Type).ToList(),
@@ -10499,6 +10509,11 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo(member)
         {
             SyntheticName = member.Name,
+            SourceName = member.Name,
+            SourceContainingType = member.ContainingType,
+            SourceLine = member.Line,
+            SourceColumn = member.Column,
+            SourceParameterCount = member.ParameterCount,
             ParameterNames = member.ParameterNames.ToList(),
             ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
             SourceParameterTypes = member.ParameterTypes.ToList(),

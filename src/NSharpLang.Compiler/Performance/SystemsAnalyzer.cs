@@ -10,7 +10,7 @@ namespace NSharpLang.Compiler.Performance;
 /// Systems N# policy/effect analyzer. This is deliberately conservative and source based:
 /// it gives the check/build/query surfaces deterministic facts without changing emitted IL.
 /// Calls to user-declared functions are resolved through the Analyzer's semantic models
-/// (the declaration bound at each call-site position), never by name matching; a hot-path
+/// (the function source site bound at each call-site position), never by name matching; a hot-path
 /// call that does not resolve semantically and matches no BCL/HotSummary fact is reported
 /// as an unknown external call instead of being assumed clean.
 /// </summary>
@@ -21,7 +21,6 @@ public sealed class SystemsAnalyzer
     private readonly List<SystemsFinding> _findings = new();
     private readonly List<SystemsFunctionSummary> _functions = new();
     private readonly List<SystemsTrustedSite> _trustedSites = new();
-    private readonly Dictionary<FunctionDeclaration, FunctionEntry> _functionEntries = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<DeclarationSite, List<FunctionEntry>> _functionEntriesBySite = new();
     private readonly Dictionary<string, HashSet<string>> _visibleDeclarationFilesByFile = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FunctionEntry> _orderedFunctionEntries = new();
@@ -54,7 +53,6 @@ public sealed class SystemsAnalyzer
         _findings.Clear();
         _functions.Clear();
         _trustedSites.Clear();
-        _functionEntries.Clear();
         _functionEntriesBySite.Clear();
         _visibleDeclarationFilesByFile.Clear();
         _orderedFunctionEntries.Clear();
@@ -171,12 +169,11 @@ public sealed class SystemsAnalyzer
     {
         var qualified = containingType == null ? function.Name : $"{containingType}.{function.Name}";
         var entry = new FunctionEntry(file, containingType, qualified, function);
-        _functionEntries[function] = entry;
 
-        // Secondary identity for declarations the Analyzer re-parsed (file imports produce a
-        // fresh AST per importer): a declaration is also identified by its source site. The
+        // Source-site identity also handles declarations the Analyzer re-parsed (file imports
+        // produce a fresh AST per importer). The
         // site must match EXACTLY ONE registered entry to resolve — ambiguity is conservative.
-        var site = DeclarationSite.For(function);
+        var site = DeclarationSite.For(function, containingType);
         if (!_functionEntriesBySite.TryGetValue(site, out var siteEntries))
         {
             siteEntries = new List<FunctionEntry>();
@@ -737,9 +734,8 @@ public sealed class SystemsAnalyzer
     /// <summary>
     /// Resolves a call to the user-declared function it semantically binds to. The Analyzer
     /// records the resolved declaration (including the overload selected for the call) at the
-    /// callee's source position; that declaration maps back to its registered entry by AST
-    /// reference, or — for declarations the Analyzer re-parsed via file imports — by its unique
-    /// declaration site. Returns false when the call does not bind to exactly one project
+    /// callee's source position; that function fact maps back to its registered entry by its
+    /// unique declaration site. Returns false when the call does not bind to exactly one project
     /// declaration; callers must treat that as unknown, never as clean.
     /// </summary>
     private bool TryResolveDeclaredCallee(CallExpression call, WalkContext context, out FunctionEntry entry)
@@ -769,16 +765,13 @@ public sealed class SystemsAnalyzer
 
     private bool TryGetEntryForFunctionType(FunctionTypeInfo functionType, WalkContext context, out FunctionEntry entry)
     {
-        switch (functionType.Declaration)
+        if (DeclarationSite.TryFor(functionType, out var site))
         {
-            case FunctionDeclaration declaration:
-                return TryGetEntryForDeclaration(declaration, context, out entry);
-            case DeclaredMemberInfo member:
-                return TryGetEntryForDeclarationSite(DeclarationSite.For(member), context, out entry);
-            default:
-                entry = null!;
-                return false;
+            return TryGetEntryForDeclarationSite(site, context, out entry);
         }
+
+        entry = null!;
+        return false;
     }
 
     private bool TryGetEntryForMethodGroup(NSharpMethodGroupInfo methodGroup, WalkContext context, out FunctionEntry entry)
@@ -793,14 +786,6 @@ public sealed class SystemsAnalyzer
 
     private static List<FunctionTypeInfo> GetMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
         => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
-
-    private bool TryGetEntryForDeclaration(FunctionDeclaration declaration, WalkContext context, out FunctionEntry entry)
-    {
-        if (_functionEntries.TryGetValue(declaration, out entry!))
-            return true;
-
-        return TryGetEntryForDeclarationSite(DeclarationSite.For(declaration), context, out entry);
-    }
 
     private bool TryGetEntryForDeclarationSite(DeclarationSite site, WalkContext context, out FunctionEntry entry)
     {
@@ -2297,18 +2282,38 @@ public sealed class SystemsAnalyzer
     private sealed record FunctionEntry(string File, string? ContainingType, string QualifiedName, FunctionDeclaration Function);
 
     /// <summary>
-    /// Source-site identity of a function declaration: name, position, and arity. File imports
+    /// Source-site identity of a function declaration: owner, name, position, and arity. File imports
     /// re-parse the imported unit, so a semantically resolved declaration can be a different AST
     /// object than the registered one — but it always shares the declaration site. The site is
     /// only trusted when it identifies exactly one registered entry.
     /// </summary>
-    private readonly record struct DeclarationSite(string Name, int Line, int Column, int ParameterCount)
+    private readonly record struct DeclarationSite(string Name, string? ContainingType, int Line, int Column, int ParameterCount)
     {
-        public static DeclarationSite For(FunctionDeclaration function)
-            => new(function.Name, function.Line, function.Column, function.Parameters.Count);
+        public static DeclarationSite For(FunctionDeclaration function, string? containingType)
+            => new(function.Name, containingType, function.Line, function.Column, function.Parameters.Count);
 
         public static DeclarationSite For(DeclaredMemberInfo member)
-            => new(member.Name, member.Line, member.Column, member.ParameterCount);
+            => new(member.Name, member.ContainingType, member.Line, member.Column, member.ParameterCount);
+
+        public static bool TryFor(FunctionTypeInfo functionType, out DeclarationSite site)
+        {
+            if (string.IsNullOrEmpty(functionType.SourceName)
+                || functionType.SourceLine <= 0
+                || functionType.SourceColumn <= 0
+                || functionType.SourceParameterCount < 0)
+            {
+                site = default;
+                return false;
+            }
+
+            site = new DeclarationSite(
+                functionType.SourceName,
+                functionType.SourceContainingType,
+                functionType.SourceLine,
+                functionType.SourceColumn,
+                functionType.SourceParameterCount);
+            return true;
+        }
     }
 
     private sealed record CallSite(FunctionEntry Callee, int Line, int Column, int Length);
