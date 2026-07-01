@@ -21108,7 +21108,9 @@ public class Analyzer : IDisposable
             && leftRecord.IsStruct
             && right is RecordTypeInfo rightRecord
             && rightRecord.IsStruct
-            && ReferenceEquals(leftRecord.Declaration, rightRecord.Declaration);
+            && leftRecord.Name == rightRecord.Name
+            && leftRecord.Line == rightRecord.Line
+            && leftRecord.Column == rightRecord.Column;
     }
 
     private bool IsIntegralType(TypeInfo type)

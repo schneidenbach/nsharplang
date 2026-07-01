@@ -364,74 +364,74 @@ public class CompletionEngine
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot, MemberFilter filter)
     {
         var items = new List<CompletionItem>();
-        var declaration = ResolveNSharpTypeDeclaration(typeInfo, snapshot);
-        List<Declaration>? members = declaration switch
-        {
-            ClassDeclaration c => c.Members,
-            StructDeclaration s => s.Members,
-            RecordDeclaration r => r.Members,
-            InterfaceDeclaration i => i.Members,
-            _ => null
-        };
+        var members = ResolveNSharpDeclaredMembers(typeInfo, snapshot);
 
         if (members == null) return items;
 
         foreach (var member in members)
         {
-            var item = DeclarationToCompletionItem(member, memberContext: true);
+            var item = DeclaredMemberToCompletionItem(member, memberContext: true);
             if (item != null) items.Add(item);
         }
 
         return items;
     }
 
-    private static Declaration? ResolveNSharpTypeDeclaration(TypeInfo typeInfo, ProjectSnapshot snapshot)
+    private static IReadOnlyList<DeclaredMemberInfo>? ResolveNSharpDeclaredMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)
     {
-        switch (typeInfo)
-        {
-            case ClassTypeInfo c:
-                return c.GetDeclaration();
-            case StructTypeInfo s:
-                return s.GetDeclaration();
-            case RecordTypeInfo r:
-                return r.GetDeclaration();
-            case InterfaceTypeInfo i:
-                return i.GetDeclaration();
-        }
+        var directMembers = GetDeclaredMembers(typeInfo);
+        if (directMembers != null)
+            return directMembers;
 
         var typeName = FormatTypeInfo(typeInfo);
         var simpleName = typeName.Contains('.', StringComparison.Ordinal)
             ? typeName.Split('.').Last()
             : typeName;
 
-        foreach (var declaration in snapshot.CompilationUnits.Values.SelectMany(unit => unit.Declarations))
+        foreach (var semanticModel in snapshot.SemanticModels.Values)
         {
-            var candidateName = declaration switch
-            {
-                ClassDeclaration c => c.Name,
-                StructDeclaration s => s.Name,
-                RecordDeclaration r => r.Name,
-                InterfaceDeclaration i => i.Name,
-                UnionDeclaration u => u.Name,
-                EnumDeclaration e => e.Name,
-                _ => null
-            };
-
-            if (candidateName == null)
-            {
-                continue;
-            }
-
-            if (string.Equals(candidateName, typeName, StringComparison.Ordinal) ||
-                string.Equals(candidateName, simpleName, StringComparison.Ordinal) ||
-                candidateName.EndsWith("." + simpleName, StringComparison.Ordinal))
-            {
-                return declaration;
-            }
+            if (TryResolveSemanticType(semanticModel, typeName, simpleName, out var semanticType))
+                return GetDeclaredMembers(semanticType);
         }
 
         return null;
     }
+
+    private static bool TryResolveSemanticType(
+        SemanticModel semanticModel,
+        string typeName,
+        string simpleName,
+        [NotNullWhen(true)] out TypeInfo? typeInfo)
+    {
+        if (semanticModel.Types.TryGetValue(typeName, out typeInfo) ||
+            semanticModel.Types.TryGetValue(simpleName, out typeInfo))
+        {
+            return true;
+        }
+
+        foreach (var (candidateName, candidateType) in semanticModel.Types)
+        {
+            if (string.Equals(candidateName, typeName, StringComparison.Ordinal) ||
+                string.Equals(candidateName, simpleName, StringComparison.Ordinal) ||
+                candidateName.EndsWith("." + simpleName, StringComparison.Ordinal))
+            {
+                typeInfo = candidateType;
+                return true;
+            }
+        }
+
+        typeInfo = null;
+        return false;
+    }
+
+    private static IReadOnlyList<DeclaredMemberInfo>? GetDeclaredMembers(TypeInfo typeInfo) => typeInfo switch
+    {
+        ClassTypeInfo c => c.DeclaredMembers,
+        StructTypeInfo s => s.DeclaredMembers,
+        RecordTypeInfo r => r.DeclaredMembers,
+        InterfaceTypeInfo i => i.DeclaredMembers,
+        _ => null
+    };
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -453,6 +453,24 @@ public class CompletionEngine
         _ => null
     };
 
+    private static CompletionItem? DeclaredMemberToCompletionItem(DeclaredMemberInfo member, bool memberContext = false) => member.Kind switch
+    {
+        DeclaredMemberKind.Function => new CompletionItem(member.Name, memberContext ? "method" : "function",
+            CodeIntelligenceService.FormatTypeReferencePublic(member.ReturnType),
+            FormatParameters(member), null, member.IsStatic),
+        DeclaredMemberKind.Class => new CompletionItem(member.Name, "class", null, null, null, false),
+        DeclaredMemberKind.Struct => new CompletionItem(member.Name, "struct", null, null, null, false),
+        DeclaredMemberKind.Record => new CompletionItem(member.Name, "record", null, null, null, false),
+        DeclaredMemberKind.Interface => new CompletionItem(member.Name, "interface", null, null, null, false),
+        DeclaredMemberKind.Enum => new CompletionItem(member.Name, "enum", null, null, null, false),
+        DeclaredMemberKind.Union => new CompletionItem(member.Name, "union", null, null, null, false),
+        DeclaredMemberKind.Field => new CompletionItem(member.Name, "property",
+            CodeIntelligenceService.FormatTypeReferencePublic(member.Type), null, null, member.IsStatic),
+        DeclaredMemberKind.Property => new CompletionItem(member.Name, "property",
+            CodeIntelligenceService.FormatTypeReferencePublic(member.Type), null, null, member.IsStatic),
+        _ => null
+    };
+
     private static string FormatParameters(List<Parameter> parameters)
     {
         var parts = parameters.Select(p =>
@@ -460,6 +478,24 @@ public class CompletionEngine
             var typeStr = CodeIntelligenceService.FormatTypeReferencePublic(p.Type);
             return p.DefaultValue != null ? $"{p.Name} {typeStr} = ..." : $"{p.Name} {typeStr}";
         });
+        return $"({string.Join(", ", parts)})";
+    }
+
+    private static string FormatParameters(DeclaredMemberInfo member)
+    {
+        var parts = new List<string>(member.ParameterNames.Length);
+        for (var index = 0; index < member.ParameterNames.Length; index++)
+        {
+            var typeStr = index < member.ParameterTypes.Length
+                ? CodeIntelligenceService.FormatTypeReferencePublic(member.ParameterTypes[index])
+                : "unknown";
+            var hasDefaultValue = index >= member.RequiredParameterCount
+                && GetDeclaredMemberParameterModifier(member, index) != ParameterModifier.Params;
+            parts.Add(hasDefaultValue
+                ? $"{member.ParameterNames[index]} {typeStr} = ..."
+                : $"{member.ParameterNames[index]} {typeStr}");
+        }
+
         return $"({string.Join(", ", parts)})";
     }
 
@@ -500,6 +536,14 @@ public class CompletionEngine
             return ParameterModifier.None;
 
         return function.ParameterModifiers[index];
+    }
+
+    private static ParameterModifier GetDeclaredMemberParameterModifier(DeclaredMemberInfo member, int index)
+    {
+        if (index < 0 || index >= member.ParameterModifiers.Length)
+            return ParameterModifier.None;
+
+        return member.ParameterModifiers[index];
     }
 
     private static string FormatTypeInfo(TypeInfo typeInfo)

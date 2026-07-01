@@ -186,7 +186,6 @@ public class TypeInfo {
 }
 
 public class ClassTypeInfo: TypeInfo {
-    declarationValue: object
     nameValue: string
     lineValue: int
     columnValue: int
@@ -199,7 +198,6 @@ public class ClassTypeInfo: TypeInfo {
     nestedTypesValue: NestedTypeInfo[]
     hasParameterlessConstructorValue: bool
 
-    Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
@@ -213,7 +211,6 @@ public class ClassTypeInfo: TypeInfo {
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
     constructor(
-        declaration: object,
         name: string,
         line: int,
         column: int,
@@ -225,7 +222,6 @@ public class ClassTypeInfo: TypeInfo {
         declaredMembers: DeclaredMemberInfo[],
         nestedTypes: NestedTypeInfo[],
         hasParameterlessConstructor: bool) {
-        declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
@@ -245,7 +241,6 @@ public class ClassTypeInfo: TypeInfo {
 }
 
 public class StructTypeInfo: TypeInfo {
-    declarationValue: object
     nameValue: string
     lineValue: int
     columnValue: int
@@ -255,7 +250,6 @@ public class StructTypeInfo: TypeInfo {
     declaredMembersValue: DeclaredMemberInfo[]
     nestedTypesValue: NestedTypeInfo[]
 
-    Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
@@ -266,7 +260,6 @@ public class StructTypeInfo: TypeInfo {
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
-        declaration: object,
         name: string,
         line: int,
         column: int,
@@ -275,7 +268,6 @@ public class StructTypeInfo: TypeInfo {
         primaryConstructorParameters: ParameterDeclarationInfo[],
         declaredMembers: DeclaredMemberInfo[],
         nestedTypes: NestedTypeInfo[]) {
-        declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
@@ -292,7 +284,6 @@ public class StructTypeInfo: TypeInfo {
 }
 
 public class RecordTypeInfo: TypeInfo {
-    declarationValue: object
     nameValue: string
     lineValue: int
     columnValue: int
@@ -303,7 +294,6 @@ public class RecordTypeInfo: TypeInfo {
     declaredMembersValue: DeclaredMemberInfo[]
     nestedTypesValue: NestedTypeInfo[]
 
-    Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
@@ -315,7 +305,6 @@ public class RecordTypeInfo: TypeInfo {
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
-        declaration: object,
         name: string,
         line: int,
         column: int,
@@ -325,7 +314,6 @@ public class RecordTypeInfo: TypeInfo {
         primaryConstructorParameters: ParameterDeclarationInfo[],
         declaredMembers: DeclaredMemberInfo[],
         nestedTypes: NestedTypeInfo[]) {
-        declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
@@ -343,7 +331,6 @@ public class RecordTypeInfo: TypeInfo {
 }
 
 public class InterfaceTypeInfo: TypeInfo {
-    declarationValue: object
     nameValue: string
     lineValue: int
     columnValue: int
@@ -353,7 +340,6 @@ public class InterfaceTypeInfo: TypeInfo {
     declaredMembersValue: DeclaredMemberInfo[]
     nestedTypesValue: NestedTypeInfo[]
 
-    Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
@@ -364,7 +350,6 @@ public class InterfaceTypeInfo: TypeInfo {
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
-        declaration: object,
         name: string,
         line: int,
         column: int,
@@ -373,7 +358,6 @@ public class InterfaceTypeInfo: TypeInfo {
         typeParameters: TypeParameter[],
         declaredMembers: DeclaredMemberInfo[],
         nestedTypes: NestedTypeInfo[]) {
-        declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column

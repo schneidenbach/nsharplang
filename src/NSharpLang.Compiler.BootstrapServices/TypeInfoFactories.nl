@@ -11,7 +11,6 @@ public class NominalTypeInfoFactory {
         declaredMembers := GetDeclaredMemberArray(declaration)
         nestedTypes := GetNestedTypeArray(declaration)
         return new ClassTypeInfo(
-            declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
@@ -29,7 +28,6 @@ public class NominalTypeInfoFactory {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         return new StructTypeInfo(
-            declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
@@ -44,7 +42,6 @@ public class NominalTypeInfoFactory {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         return new RecordTypeInfo(
-            declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
@@ -59,7 +56,6 @@ public class NominalTypeInfoFactory {
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
         declaredMembers := GetDeclaredMemberArray(declaration)
         return new InterfaceTypeInfo(
-            declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),

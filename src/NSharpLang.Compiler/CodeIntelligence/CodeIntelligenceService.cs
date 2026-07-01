@@ -1317,18 +1317,17 @@ public class CodeIntelligenceService
     {
         if (receiverType is ClassTypeInfo classType)
         {
-            var classDeclaration = classType.GetDeclaration();
-            return FindMemberTypeInfo(snapshot, classDeclaration, memberName)
-                ?? (classDeclaration.BaseClass != null
-                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classDeclaration.BaseClass, snapshot), memberName)
+            return FindMemberTypeInfo(snapshot, classType.DeclaredMembers, memberName)
+                ?? (classType.BaseClass != null
+                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classType.BaseClass, snapshot), memberName)
                     : null);
         }
 
         return receiverType switch
         {
-            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.GetDeclaration(), memberName),
-            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.GetDeclaration(), memberName),
-            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.GetDeclaration(), memberName),
+            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.DeclaredMembers, memberName),
+            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.DeclaredMembers, memberName),
+            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.DeclaredMembers, memberName),
             EnumTypeInfo => receiverType,
             AnonymousUnionTypeInfo => receiverType,
             UnionTypeInfo => receiverType,
@@ -1339,19 +1338,19 @@ public class CodeIntelligenceService
         };
     }
 
-    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, Declaration typeDeclaration, string memberName)
+    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, IReadOnlyList<DeclaredMemberInfo> members, string memberName)
     {
-        foreach (var member in GetDeclarationMembers(typeDeclaration) ?? Enumerable.Empty<Declaration>())
+        foreach (var member in members)
         {
-            if (GetDeclarationName(member) != memberName)
+            if (member.Name != memberName)
                 continue;
 
-            return member switch
+            return member.Kind switch
             {
-                FieldDeclaration field when field.Type != null => ResolveTypeReferenceToTypeInfo(field.Type, snapshot),
-                PropertyDeclaration property => ResolveTypeReferenceToTypeInfo(property.Type, snapshot),
-                FunctionDeclaration function => function.ReturnType != null
-                    ? ResolveTypeReferenceToTypeInfo(function.ReturnType, snapshot)
+                DeclaredMemberKind.Field when member.Type != null => ResolveTypeReferenceToTypeInfo(member.Type, snapshot),
+                DeclaredMemberKind.Property when member.Type != null => ResolveTypeReferenceToTypeInfo(member.Type, snapshot),
+                DeclaredMemberKind.Function => member.ReturnType != null
+                    ? ResolveTypeReferenceToTypeInfo(member.ReturnType, snapshot)
                     : new SimpleTypeInfo("void"),
                 _ => null
             };
