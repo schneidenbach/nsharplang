@@ -17,6 +17,7 @@ public class ClassTypeInfo: TypeInfo {
     isSealedValue: bool
     baseClassValue: TypeReference?
     interfacesValue: TypeReference[]
+    typeParametersValue: TypeParameter[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -25,6 +26,7 @@ public class ClassTypeInfo: TypeInfo {
     IsSealed: bool => isSealedValue
     BaseClass: TypeReference? => baseClassValue
     Interfaces: TypeReference[] => interfacesValue
+    TypeParameters: TypeParameter[] => typeParametersValue
 
     constructor(
         declaration: object,
@@ -33,7 +35,8 @@ public class ClassTypeInfo: TypeInfo {
         column: int,
         isSealed: bool,
         baseClass: TypeReference?,
-        interfaces: TypeReference[]) {
+        interfaces: TypeReference[],
+        typeParameters: TypeParameter[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -41,6 +44,7 @@ public class ClassTypeInfo: TypeInfo {
         isSealedValue = isSealed
         baseClassValue = baseClass
         interfacesValue = interfaces
+        typeParametersValue = typeParameters
     }
 
     override func ToString(): string {
@@ -54,19 +58,22 @@ public class StructTypeInfo: TypeInfo {
     lineValue: int
     columnValue: int
     interfacesValue: TypeReference[]
+    typeParametersValue: TypeParameter[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
     Interfaces: TypeReference[] => interfacesValue
+    TypeParameters: TypeParameter[] => typeParametersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, interfaces: TypeReference[]) {
+    constructor(declaration: object, name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         interfacesValue = interfaces
+        typeParametersValue = typeParameters
     }
 
     override func ToString(): string {
@@ -81,6 +88,7 @@ public class RecordTypeInfo: TypeInfo {
     columnValue: int
     isStructValue: bool
     interfacesValue: TypeReference[]
+    typeParametersValue: TypeParameter[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -88,14 +96,16 @@ public class RecordTypeInfo: TypeInfo {
     Column: int => columnValue
     IsStruct: bool => isStructValue
     Interfaces: TypeReference[] => interfacesValue
+    TypeParameters: TypeParameter[] => typeParametersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[]) {
+    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         isStructValue = isStruct
         interfacesValue = interfaces
+        typeParametersValue = typeParameters
     }
 
     override func ToString(): string {
@@ -110,6 +120,7 @@ public class InterfaceTypeInfo: TypeInfo {
     columnValue: int
     isDuckInterfaceValue: bool
     baseInterfacesValue: TypeReference[]
+    typeParametersValue: TypeParameter[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -117,14 +128,16 @@ public class InterfaceTypeInfo: TypeInfo {
     Column: int => columnValue
     IsDuckInterface: bool => isDuckInterfaceValue
     BaseInterfaces: TypeReference[] => baseInterfacesValue
+    TypeParameters: TypeParameter[] => typeParametersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[]) {
+    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         isDuckInterfaceValue = isDuckInterface
         baseInterfacesValue = baseInterfaces
+        typeParametersValue = typeParameters
     }
 
     override func ToString(): string {

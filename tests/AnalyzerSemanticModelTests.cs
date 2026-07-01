@@ -416,10 +416,22 @@ interface ChildMarker: Marker {
 class ImplementedDerived: Base, Marker {
 }
 
+class GenericBox<T> {
+}
+
 struct MarkedStruct: Marker {
 }
 
+struct GenericStruct<T> {
+}
+
 record MarkedRecord: Marker {
+}
+
+record GenericRecord<T> {
+}
+
+interface GenericInterface<T> {
 }
 
 func UseImplementedAsMarker() {
@@ -459,6 +471,10 @@ interface Named {
         var markedStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["MarkedStruct"]);
         var markedRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["MarkedRecord"]);
         var childMarkerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["ChildMarker"]);
+        var genericBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["GenericBox"]);
+        var genericStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["GenericStruct"]);
+        var genericRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["GenericRecord"]);
+        var genericInterfaceType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["GenericInterface"]);
         var readerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Reader"]);
         var namedType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Named"]);
 
@@ -466,15 +482,57 @@ interface Named {
         Assert.False(openType.IsSealed);
         Assert.Null(openType.BaseClass);
         Assert.Empty(openType.Interfaces);
+        Assert.Empty(openType.TypeParameters);
         var derivedBase = Assert.IsType<SimpleTypeReference>(derivedType.BaseClass);
         Assert.Equal("Base", derivedBase.Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(implementedDerivedType.Interfaces)).Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(markedStructType.Interfaces)).Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(markedRecordType.Interfaces)).Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(childMarkerType.BaseInterfaces)).Name);
+        Assert.Equal("T", Assert.Single(genericBoxType.TypeParameters).Name);
+        Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
+        Assert.Equal("T", Assert.Single(genericRecordType.TypeParameters).Name);
+        Assert.Equal("T", Assert.Single(genericInterfaceType.TypeParameters).Name);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.True(readerType.IsDuckInterface);
         Assert.False(namedType.IsDuckInterface);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_GenericArityUsesTypeInfoTypeParameters()
+    {
+        var source = @"
+class Box<T> {
+}
+
+func Handle(input: Box<int, bool>) {
+    _ = input
+}";
+
+        var result = Analyze(source);
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.InvalidTypeArgument &&
+            e.Message.Contains("takes 1 type argument(s), but 2 were provided"));
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_GenericMemberInitializerUsesTypeInfoTypeParameters()
+    {
+        var source = @"
+class Box<T> {
+    Value: T
+}
+
+func Main() {
+    box := new Box<int> { Value: 1 }
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
     }
 
     [Fact]

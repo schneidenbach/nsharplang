@@ -17283,15 +17283,15 @@ public class Analyzer : IDisposable
             }
 
             Dictionary<string, TypeInfo>? substitution = null;
-            if (typeParameters is { Count: > 0 })
+            if (typeParameters.Length > 0)
             {
-                if (typeParameters.Count != generic.TypeArguments.Count)
+                if (typeParameters.Length != generic.TypeArguments.Count)
                 {
                     return false;
                 }
 
                 substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
-                for (var i = 0; i < typeParameters.Count; i++)
+                for (var i = 0; i < typeParameters.Length; i++)
                 {
                     substitution[typeParameters[i].Name] = generic.TypeArguments[i];
                 }
@@ -17427,29 +17427,29 @@ public class Analyzer : IDisposable
     /// </summary>
     private static bool TryGetDeclaredTypeShape(
         TypeInfo type,
-        out List<TypeParameter>? typeParameters,
+        out TypeParameter[] typeParameters,
         out List<Declaration> members,
         out List<Parameter>? primaryConstructorParameters)
     {
         switch (type)
         {
             case ClassTypeInfo classInfo:
-                typeParameters = classInfo.GetDeclaration().TypeParameters;
+                typeParameters = classInfo.TypeParameters;
                 members = classInfo.GetDeclaration().Members;
                 primaryConstructorParameters = classInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             case StructTypeInfo structInfo:
-                typeParameters = structInfo.GetDeclaration().TypeParameters;
+                typeParameters = structInfo.TypeParameters;
                 members = structInfo.GetDeclaration().Members;
                 primaryConstructorParameters = structInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             case RecordTypeInfo recordInfo:
-                typeParameters = recordInfo.GetDeclaration().TypeParameters;
+                typeParameters = recordInfo.TypeParameters;
                 members = recordInfo.GetDeclaration().Members;
                 primaryConstructorParameters = recordInfo.GetDeclaration().PrimaryConstructorParameters;
                 return true;
             default:
-                typeParameters = null;
+                typeParameters = Array.Empty<TypeParameter>();
                 members = null!;
                 primaryConstructorParameters = null;
                 return false;
@@ -18884,11 +18884,11 @@ public class Analyzer : IDisposable
         => resolvedName switch
         {
             SimpleTypeInfo => 0,
-            ClassTypeInfo classInfo => classInfo.GetDeclaration().TypeParameters?.Count ?? 0,
-            StructTypeInfo structInfo => structInfo.GetDeclaration().TypeParameters?.Count ?? 0,
-            RecordTypeInfo recordInfo => recordInfo.GetDeclaration().TypeParameters?.Count ?? 0,
+            ClassTypeInfo classInfo => classInfo.TypeParameters.Length,
+            StructTypeInfo structInfo => structInfo.TypeParameters.Length,
+            RecordTypeInfo recordInfo => recordInfo.TypeParameters.Length,
             SoaRecordTypeInfo => 0,
-            InterfaceTypeInfo interfaceInfo => interfaceInfo.GetDeclaration().TypeParameters?.Count ?? 0,
+            InterfaceTypeInfo interfaceInfo => interfaceInfo.TypeParameters.Length,
             UnionTypeInfo unionInfo => unionInfo.Declaration.TypeParameters?.Count ?? 0,
             EnumTypeInfo => 0,
             AliasTypeInfo => 0,

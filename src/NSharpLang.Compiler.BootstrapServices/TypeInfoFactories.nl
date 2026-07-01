@@ -14,7 +14,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             HasModifier(declaration, 128),
             GetOptionalTypeReference(declaration, "BaseClass"),
-            GetTypeReferenceArray(declaration, "Interfaces"))
+            GetTypeReferenceArray(declaration, "Interfaces"),
+            GetTypeParameterArray(declaration))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -23,7 +24,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            GetTypeReferenceArray(declaration, "Interfaces"))
+            GetTypeReferenceArray(declaration, "Interfaces"),
+            GetTypeParameterArray(declaration))
     }
 
     public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
@@ -33,7 +35,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
-            GetTypeReferenceArray(declaration, "Interfaces"))
+            GetTypeReferenceArray(declaration, "Interfaces"),
+            GetTypeParameterArray(declaration))
     }
 
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
@@ -43,7 +46,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"),
-            GetTypeReferenceArray(declaration, "BaseInterfaces"))
+            GetTypeReferenceArray(declaration, "BaseInterfaces"),
+            GetTypeParameterArray(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -79,6 +83,33 @@ public class NominalTypeInfoFactory {
             }
 
             result[index] = typeReference
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func GetTypeParameterArray(owner: object): TypeParameter[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "TypeParameters")
+        if value == null {
+            return new TypeParameter[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".TypeParameters' to be a list.")
+        }
+
+        result := new TypeParameter[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            typeParameter := item as TypeParameter
+            if typeParameter == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".TypeParameters' entries to be type parameters.")
+            }
+
+            result[index] = typeParameter
             index = index + 1
         }
 
