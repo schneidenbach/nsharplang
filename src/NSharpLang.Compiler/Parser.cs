@@ -4900,27 +4900,7 @@ public class Parser
     }
 
     private static bool IsCompleteStringLiteral(string value)
-    {
-        if (value.StartsWith("$\"", StringComparison.Ordinal))
-            return HasUnescapedClosingQuote(value, openingQuoteIndex: 1);
-
-        if (value.StartsWith('"'))
-            return HasUnescapedClosingQuote(value, openingQuoteIndex: 0);
-
-        return true;
-    }
-
-    private static bool HasUnescapedClosingQuote(string value, int openingQuoteIndex)
-    {
-        if (value.Length <= openingQuoteIndex + 1 || value[^1] != '"')
-            return false;
-
-        var backslashCount = 0;
-        for (var i = value.Length - 2; i > openingQuoteIndex && value[i] == '\\'; i--)
-            backslashCount++;
-
-        return backslashCount % 2 == 0;
-    }
+        => ParserLiteralFacts.IsCompleteStringLiteral(value);
 
     private void ReportMalformedCharLiteralIfNeeded(Token token)
     {
@@ -4947,16 +4927,7 @@ public class Parser
     }
 
     private static bool IsCompleteCharLiteral(string value)
-    {
-        if (value.Length < 3 || value[0] != '\'' || value[^1] != '\'')
-            return false;
-
-        var bodyLength = value.Length - 2;
-        if (bodyLength == 1)
-            return true;
-
-        return bodyLength == 2 && value[1] == '\\';
-    }
+        => ParserLiteralFacts.IsCompleteCharLiteral(value);
 
     private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column, bool isRaw = false)
     {
@@ -5201,80 +5172,8 @@ public class Parser
         return new InterpolatedStringExpression(parts, line, column, isRaw);
     }
 
-    /// <summary>
-    /// Finds the position of a format specifier colon in an interpolation expression.
-    /// Returns -1 if no format specifier found.
-    /// A format colon is one at the top level (not inside parens, brackets, braces, or strings).
-    /// </summary>
     private static int FindFormatSpecifierColon(string expr)
-    {
-        int parenDepth = 0;
-        int bracketDepth = 0;
-        int braceDepth = 0;
-        int ternaryDepth = 0;
-        bool inString = false;
-
-        for (int i = 0; i < expr.Length; i++)
-        {
-            if (inString)
-            {
-                if (expr[i] == '\\' && i + 1 < expr.Length)
-                {
-                    i++;
-                    continue;
-                }
-                if (expr[i] == '"')
-                    inString = false;
-                continue;
-            }
-
-            switch (expr[i])
-            {
-                case '"':
-                    inString = true;
-                    break;
-                case '(':
-                    parenDepth++;
-                    break;
-                case ')':
-                    parenDepth--;
-                    break;
-                case '[':
-                    bracketDepth++;
-                    break;
-                case ']':
-                    bracketDepth--;
-                    break;
-                case '{':
-                    braceDepth++;
-                    break;
-                case '}':
-                    braceDepth--;
-                    break;
-                case '?':
-                    if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0)
-                    {
-                        var next = i + 1 < expr.Length ? expr[i + 1] : '\0';
-                        if (next == '?')
-                        {
-                            i++;
-                        }
-                        else if (next != '.' && next != '[')
-                        {
-                            ternaryDepth++;
-                        }
-                    }
-                    break;
-                case ':' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && ternaryDepth > 0:
-                    ternaryDepth--;
-                    break;
-                case ':' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0:
-                    return i;
-            }
-        }
-
-        return -1;
-    }
+        => ParserLiteralFacts.FindFormatSpecifierColon(expr);
 
     private Expression ParseAllocExpression()
     {
