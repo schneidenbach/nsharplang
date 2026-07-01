@@ -2056,7 +2056,7 @@ public class Analyzer : IDisposable
         var suggestion = GeneratorSequenceTypeFacts.ReturnTypeSuggestion(isAsyncGenerator);
         var (line, column, length) = func.ReturnType != null
             ? GetSourceSpanDiagnosticSpan(
-                GetTypeReferenceStartSpan(func.ReturnType),
+                TypeReferenceFacts.GetStartSpan(func.ReturnType),
                 func.Line,
                 func.Column,
                 Math.Max(1, returnType.ToString().Length))
@@ -2531,7 +2531,7 @@ public class Analyzer : IDisposable
 
     private static (int Line, int Column, int Length) GetSoaColumnTypeDiagnosticSpan(SoaColumnDeclaration column)
     {
-        var typeSpan = GetTypeReferenceStartSpan(column.Type);
+        var typeSpan = TypeReferenceFacts.GetStartSpan(column.Type);
         return GetSourceSpanDiagnosticSpan(
             typeSpan,
             column.Line,
@@ -5713,7 +5713,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var span = GetTypeReferenceStartSpan(typeReference);
+        var span = TypeReferenceFacts.GetStartSpan(typeReference);
         Error(
             ErrorCode.TypeMismatch,
             $"Catch type must be assignable to System.Exception, but this type is '{exceptionType}'",
@@ -5730,7 +5730,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var span = GetTypeReferenceStartSpan(typeReference);
+        var span = TypeReferenceFacts.GetStartSpan(typeReference);
         Error(
             ErrorCode.TypeMismatch,
             $"Assert throws type must be assignable to System.Exception, but this type is '{exceptionType}'",
@@ -16921,7 +16921,7 @@ public class Analyzer : IDisposable
                         var similarCases = caseNames.Count > 0
                             ? new SmartSuggester(caseNames).SuggestSimilarNames(parts[1])
                             : new List<string>();
-                        var caseSpan = GetTypeReferenceStartSpan(newExpr.Type!);
+                        var caseSpan = TypeReferenceFacts.GetStartSpan(newExpr.Type!);
                         Error(
                             ErrorCode.UndefinedMember,
                             $"'{parts[1]}' is not a case of union '{parts[0]}' — check the union definition for available cases",
@@ -17565,7 +17565,7 @@ public class Analyzer : IDisposable
     {
         var typeParameters = unionType.Declaration.TypeParameters;
         var arity = typeParameters?.Count ?? 0;
-        var typeRefSpan = GetTypeReferenceStartSpan(newExpr.Type!);
+        var typeRefSpan = TypeReferenceFacts.GetStartSpan(newExpr.Type!);
 
         if (typeArguments is { Count: > 0 })
         {
@@ -18892,7 +18892,7 @@ public class Analyzer : IDisposable
         {
             if (uniqueArms.Any(existing => TypesEqual(existing, arm)))
             {
-                var span = GetTypeReferenceStartSpan(union);
+                var span = TypeReferenceFacts.GetStartSpan(union);
                 Error(
                     ErrorCode.DuplicateDeclaration,
                     $"Anonymous union type repeats arm '{arm}'. Each arm must be unique.",
@@ -18908,7 +18908,7 @@ public class Analyzer : IDisposable
 
         if (uniqueArms.Count > 2)
         {
-            var span = GetTypeReferenceStartSpan(union);
+            var span = TypeReferenceFacts.GetStartSpan(union);
             Error(
                 ErrorCode.InvalidTypeArgument,
                 $"Anonymous union types support exactly two arms in v1; this union has {uniqueArms.Count} arms.",
@@ -18923,30 +18923,11 @@ public class Analyzer : IDisposable
 
     private void RecordResolvedTypeReference(TypeReference typeRef, TypeInfo resolved)
     {
-        var span = GetTypeReferenceStartSpan(typeRef);
+        var span = TypeReferenceFacts.GetStartSpan(typeRef);
         if (!span.IsValid)
             return;
 
         _semanticModel.RecordTypeReference(span.StartLine, span.StartColumn, resolved);
-    }
-
-    private static SourceSpan GetTypeReferenceStartSpan(TypeReference typeRef)
-    {
-        if (typeRef.Span.IsValid)
-            return typeRef.Span;
-
-        return typeRef switch
-        {
-            SimpleTypeReference simple => SourceSpan.FromStartAndLength(simple.Line, simple.Column, simple.Name.Length),
-            GenericTypeReference generic => SourceSpan.FromStartAndLength(generic.Line, generic.Column, generic.Name.Length),
-            ArrayTypeReference array => GetTypeReferenceStartSpan(array.ElementType),
-            NullableTypeReference nullable => GetTypeReferenceStartSpan(nullable.InnerType),
-            UnionTypeReference union when union.Arms.Count > 0 => GetTypeReferenceStartSpan(union.Arms[0]),
-            TupleTypeReference tuple when tuple.Elements.Count > 0 => GetTypeReferenceStartSpan(tuple.Elements[0].Type),
-            FunctionTypeReference function => GetTypeReferenceStartSpan(function.ReturnType),
-            ByRefTypeReference byRef => GetTypeReferenceStartSpan(byRef.InnerType),
-            _ => SourceSpan.None
-        };
     }
 
     private void ResolveTypeReferenceIfPresent(TypeReference? typeReference)

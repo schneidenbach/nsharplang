@@ -1344,4 +1344,20 @@ func use(box: Box<Person>) {
         Assert.NotNull(personType);
         Assert.Equal("Person", personType!.ToString());
     }
+
+    [Fact]
+    public void Analyzer_TypeReferencePositions_RecordWrappedResolvedTypeAtTypeStart()
+    {
+        var source = @"
+func use(items: int?[]) {
+}";
+
+        var result = Analyze(source);
+        var intColumn = FindColumn(source, 2, "int");
+
+        var itemsType = result.SemanticModel.LookupTypeReferenceAtPosition(2, intColumn);
+
+        Assert.NotNull(itemsType);
+        Assert.Equal("int?[]", itemsType!.ToString());
+    }
 }
