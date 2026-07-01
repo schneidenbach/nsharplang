@@ -16,7 +16,8 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(declaration, "BaseClass"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"))
+            GetParameterArray(declaration, "PrimaryConstructorParameters"),
+            GetDeclaredMemberArray(declaration))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -27,7 +28,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"))
+            GetParameterArray(declaration, "PrimaryConstructorParameters"),
+            GetDeclaredMemberArray(declaration))
     }
 
     public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
@@ -39,7 +41,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"))
+            GetParameterArray(declaration, "PrimaryConstructorParameters"),
+            GetDeclaredMemberArray(declaration))
     }
 
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
@@ -50,7 +53,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"),
             GetTypeReferenceArray(declaration, "BaseInterfaces"),
-            GetTypeParameterArray(declaration))
+            GetTypeParameterArray(declaration),
+            GetDeclaredMemberArray(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -153,6 +157,88 @@ public class NominalTypeInfoFactory {
         }
 
         return result
+    }
+
+    static func GetDeclaredMemberArray(owner: object): DeclaredMemberInfo[] {
+        source := TypeInfoFactoryReflection.GetRequiredList(owner, "Members")
+        result := new DeclaredMemberInfo[](source.Count)
+
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Members' entries to be declarations.")
+            }
+
+            result[index] = CreateDeclaredMemberInfo(item)
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
+        return new DeclaredMemberInfo(
+            GetOptionalString(member, "Name"),
+            GetDeclaredMemberKind(member.GetType().Name),
+            GetOptionalTypeReference(member, "Type"),
+            TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
+            TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+    }
+
+    static func GetOptionalString(owner: object, propertyName: string): string {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        if value == null {
+            return ""
+        }
+
+        text := value as string
+        if text == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' to be text.")
+        }
+
+        return text
+    }
+
+    static func GetDeclaredMemberKind(typeName: string): DeclaredMemberKind {
+        if typeName == "FieldDeclaration" {
+            return DeclaredMemberKind.Field
+        }
+        if typeName == "PropertyDeclaration" {
+            return DeclaredMemberKind.Property
+        }
+        if typeName == "FunctionDeclaration" {
+            return DeclaredMemberKind.Function
+        }
+        if typeName == "ClassDeclaration" {
+            return DeclaredMemberKind.Class
+        }
+        if typeName == "StructDeclaration" {
+            return DeclaredMemberKind.Struct
+        }
+        if typeName == "RecordDeclaration" {
+            return DeclaredMemberKind.Record
+        }
+        if typeName == "SoaRecordDeclaration" {
+            return DeclaredMemberKind.SoaRecord
+        }
+        if typeName == "InterfaceDeclaration" {
+            return DeclaredMemberKind.Interface
+        }
+        if typeName == "EnumDeclaration" {
+            return DeclaredMemberKind.Enum
+        }
+        if typeName == "UnionDeclaration" {
+            return DeclaredMemberKind.Union
+        }
+        if typeName == "TypeAliasDeclaration" {
+            return DeclaredMemberKind.TypeAlias
+        }
+        if typeName == "NewtypeDeclaration" {
+            return DeclaredMemberKind.Newtype
+        }
+
+        return DeclaredMemberKind.Unknown
     }
 }
 

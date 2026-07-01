@@ -9136,8 +9136,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is ClassTypeInfo classType)
         {
-            var classDeclaration = classType.GetDeclaration();
-            var members = GetDeclaredMemberNames(classDeclaration.Members);
+            var members = GetDeclaredMemberNames(classType.DeclaredMembers);
             members.AddRange(GetPrimaryConstructorParameterNames(classType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             if (classType.BaseClass != null)
@@ -9147,7 +9146,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is StructTypeInfo structType)
         {
-            var members = GetDeclaredMemberNames(structType.GetDeclaration().Members);
+            var members = GetDeclaredMemberNames(structType.DeclaredMembers);
             members.AddRange(GetPrimaryConstructorParameterNames(structType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
@@ -9155,7 +9154,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is RecordTypeInfo recordType)
         {
-            var members = GetDeclaredMemberNames(recordType.GetDeclaration().Members);
+            var members = GetDeclaredMemberNames(recordType.DeclaredMembers);
             members.AddRange(GetPrimaryConstructorParameterNames(recordType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
@@ -9178,7 +9177,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is InterfaceTypeInfo interfaceType)
         {
-            var members = GetDeclaredMemberNames(interfaceType.GetDeclaration().Members);
+            var members = GetDeclaredMemberNames(interfaceType.DeclaredMembers);
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
@@ -9209,11 +9208,10 @@ public class Analyzer : IDisposable
         return new List<string>();
     }
 
-    private static List<string> GetDeclaredMemberNames(IEnumerable<Declaration> members)
+    private static List<string> GetDeclaredMemberNames(IEnumerable<DeclaredMemberInfo> members)
         => members
-            .Select(GetDeclarationName)
+            .Select(member => member.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Cast<string>()
             .ToList();
 
     private static IEnumerable<string> GetPrimaryConstructorParameterNames(
@@ -9465,7 +9463,11 @@ public class Analyzer : IDisposable
         // Handle declared types
         if (objectType is ClassTypeInfo classType)
         {
-            var resolvedMember = ResolveDeclaredMember(classType.GetDeclaration().Members, memberName);
+            var resolvedMember = ResolveDeclaredValueMember(classType.DeclaredMembers, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
+
+            resolvedMember = ResolveDeclaredFunctionMember(classType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9482,7 +9484,6 @@ public class Analyzer : IDisposable
             }
 
             // If member not found, check base class
-            var classDeclaration = classType.GetDeclaration();
             if (classType.BaseClass != null)
             {
                 var baseType = ResolveType(classType.BaseClass);
@@ -9497,7 +9498,11 @@ public class Analyzer : IDisposable
 
         if (objectType is StructTypeInfo structType)
         {
-            var resolvedMember = ResolveDeclaredMember(structType.GetDeclaration().Members, memberName);
+            var resolvedMember = ResolveDeclaredValueMember(structType.DeclaredMembers, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
+
+            resolvedMember = ResolveDeclaredFunctionMember(structType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9519,7 +9524,11 @@ public class Analyzer : IDisposable
 
         if (objectType is RecordTypeInfo recordType)
         {
-            var resolvedMember = ResolveDeclaredMember(recordType.GetDeclaration().Members, memberName);
+            var resolvedMember = ResolveDeclaredValueMember(recordType.DeclaredMembers, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
+
+            resolvedMember = ResolveDeclaredFunctionMember(recordType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9541,7 +9550,11 @@ public class Analyzer : IDisposable
 
         if (objectType is InterfaceTypeInfo interfaceType)
         {
-            var resolvedMember = ResolveDeclaredMember(interfaceType.GetDeclaration().Members, memberName);
+            var resolvedMember = ResolveDeclaredValueMember(interfaceType.DeclaredMembers, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
+
+            resolvedMember = ResolveDeclaredFunctionMember(interfaceType.GetDeclaration().Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9752,15 +9765,28 @@ public class Analyzer : IDisposable
         return false;
     }
 
+    private TypeInfo? ResolveDeclaredValueMember(IEnumerable<DeclaredMemberInfo> members, string memberName)
+    {
+        foreach (var member in members)
+        {
+            if (member.Name != memberName)
+                continue;
+
+            if (member.Kind is DeclaredMemberKind.Field or DeclaredMemberKind.Property)
+                return member.Type != null ? ResolveType(member.Type) : BuiltInTypes.Unknown;
+        }
+
+        return null;
+    }
+
     /// <summary>
-    /// Resolves a member from a list of N#-declared members by name.
-    /// Returns NSharpMethodGroupInfo when multiple function overloads exist.
+    /// Resolves a function member from the remaining C# declaration owner. Field and
+    /// property facts are TypeInfo-owned; function signatures move in a later slice.
     /// </summary>
-    private TypeInfo? ResolveDeclaredMember(List<Declaration> members, string memberName)
+    private TypeInfo? ResolveDeclaredFunctionMember(IEnumerable<Declaration> members, string memberName)
     {
         // Collect all matching functions for overload resolution
         var matchingFunctions = new List<FunctionDeclaration>();
-        Declaration? firstNonFunction = null;
 
         foreach (var m in members)
         {
@@ -9768,19 +9794,7 @@ public class Analyzer : IDisposable
             {
                 matchingFunctions.Add(func);
             }
-            else if (firstNonFunction == null &&
-                     ((m is FieldDeclaration fd && fd.Name == memberName) ||
-                      (m is PropertyDeclaration pd && pd.Name == memberName)))
-            {
-                firstNonFunction = m;
-            }
         }
-
-        // Fields and properties take priority over functions with the same name
-        if (firstNonFunction is FieldDeclaration field)
-            return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-        if (firstNonFunction is PropertyDeclaration property)
-            return ResolveType(property.Type);
 
         if (matchingFunctions.Count == 1)
             return CreateFunctionTypeInfo(matchingFunctions[0]);
@@ -17416,35 +17430,35 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Extracts the declaration shape (type parameters, members, primary constructor
-    /// parameters) from a declared class/struct/record type info.
+    /// Extracts the declaration shape (type parameters, declared member facts, primary
+    /// constructor parameters) from a declared class/struct/record type info.
     /// </summary>
     private static bool TryGetDeclaredTypeShape(
         TypeInfo type,
         out TypeParameter[] typeParameters,
-        out List<Declaration> members,
+        out DeclaredMemberInfo[] members,
         out ParameterDeclarationInfo[] primaryConstructorParameters)
     {
         switch (type)
         {
             case ClassTypeInfo classInfo:
                 typeParameters = classInfo.TypeParameters;
-                members = classInfo.GetDeclaration().Members;
+                members = classInfo.DeclaredMembers;
                 primaryConstructorParameters = classInfo.PrimaryConstructorParameters;
                 return true;
             case StructTypeInfo structInfo:
                 typeParameters = structInfo.TypeParameters;
-                members = structInfo.GetDeclaration().Members;
+                members = structInfo.DeclaredMembers;
                 primaryConstructorParameters = structInfo.PrimaryConstructorParameters;
                 return true;
             case RecordTypeInfo recordInfo:
                 typeParameters = recordInfo.TypeParameters;
-                members = recordInfo.GetDeclaration().Members;
+                members = recordInfo.DeclaredMembers;
                 primaryConstructorParameters = recordInfo.PrimaryConstructorParameters;
                 return true;
             default:
                 typeParameters = Array.Empty<TypeParameter>();
-                members = null!;
+                members = Array.Empty<DeclaredMemberInfo>();
                 primaryConstructorParameters = Array.Empty<ParameterDeclarationInfo>();
                 return false;
         }
@@ -17456,20 +17470,16 @@ public class Analyzer : IDisposable
     /// members of a generic declaration would need their own substitution chain).
     /// </summary>
     private static TypeReference? FindDeclaredMemberTypeReference(
-        List<Declaration> members,
+        DeclaredMemberInfo[] members,
         ParameterDeclarationInfo[] primaryConstructorParameters,
         string memberName)
     {
         foreach (var member in members)
         {
-            if (member is FieldDeclaration field && field.Name == memberName)
+            if (member.Name == memberName
+                && member.Kind is DeclaredMemberKind.Field or DeclaredMemberKind.Property)
             {
-                return field.Type;
-            }
-
-            if (member is PropertyDeclaration property && property.Name == memberName)
-            {
-                return property.Type;
+                return member.Type;
             }
         }
 

@@ -6,6 +6,44 @@ import System.Reflection
 import System.Text
 import NSharpLang.Compiler.Ast
 
+public enum DeclaredMemberKind {
+    Unknown,
+    Field,
+    Property,
+    Function,
+    Class,
+    Struct,
+    Record,
+    SoaRecord,
+    Interface,
+    Enum,
+    Union,
+    TypeAlias,
+    Newtype
+}
+
+public class DeclaredMemberInfo {
+    nameValue: string
+    kindValue: DeclaredMemberKind
+    typeValue: TypeReference?
+    lineValue: int
+    columnValue: int
+
+    Name: string => nameValue
+    Kind: DeclaredMemberKind => kindValue
+    Type: TypeReference? => typeValue
+    Line: int => lineValue
+    Column: int => columnValue
+
+    constructor(name: string, kind: DeclaredMemberKind, typeReference: TypeReference?, line: int, column: int) {
+        nameValue = name
+        kindValue = kind
+        typeValue = typeReference
+        lineValue = line
+        columnValue = column
+    }
+}
+
 public class ParameterDeclarationInfo {
     nameValue: string
     typeValue: TypeReference
@@ -38,6 +76,7 @@ public class ClassTypeInfo: TypeInfo {
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
+    declaredMembersValue: DeclaredMemberInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -48,6 +87,7 @@ public class ClassTypeInfo: TypeInfo {
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
+    DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
 
     constructor(
         declaration: object,
@@ -58,7 +98,8 @@ public class ClassTypeInfo: TypeInfo {
         baseClass: TypeReference?,
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[]) {
+        primaryConstructorParameters: ParameterDeclarationInfo[],
+        declaredMembers: DeclaredMemberInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -68,6 +109,7 @@ public class ClassTypeInfo: TypeInfo {
         interfacesValue = interfaces
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
+        declaredMembersValue = declaredMembers
     }
 
     override func ToString(): string {
@@ -83,6 +125,7 @@ public class StructTypeInfo: TypeInfo {
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
+    declaredMembersValue: DeclaredMemberInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -91,6 +134,7 @@ public class StructTypeInfo: TypeInfo {
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
+    DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
 
     constructor(
         declaration: object,
@@ -99,7 +143,8 @@ public class StructTypeInfo: TypeInfo {
         column: int,
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[]) {
+        primaryConstructorParameters: ParameterDeclarationInfo[],
+        declaredMembers: DeclaredMemberInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -107,6 +152,7 @@ public class StructTypeInfo: TypeInfo {
         interfacesValue = interfaces
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
+        declaredMembersValue = declaredMembers
     }
 
     override func ToString(): string {
@@ -123,6 +169,7 @@ public class RecordTypeInfo: TypeInfo {
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
+    declaredMembersValue: DeclaredMemberInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -132,6 +179,7 @@ public class RecordTypeInfo: TypeInfo {
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
+    DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
 
     constructor(
         declaration: object,
@@ -141,7 +189,8 @@ public class RecordTypeInfo: TypeInfo {
         isStruct: bool,
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[]) {
+        primaryConstructorParameters: ParameterDeclarationInfo[],
+        declaredMembers: DeclaredMemberInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -150,6 +199,7 @@ public class RecordTypeInfo: TypeInfo {
         interfacesValue = interfaces
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
+        declaredMembersValue = declaredMembers
     }
 
     override func ToString(): string {
@@ -165,6 +215,7 @@ public class InterfaceTypeInfo: TypeInfo {
     isDuckInterfaceValue: bool
     baseInterfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
+    declaredMembersValue: DeclaredMemberInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -173,8 +224,17 @@ public class InterfaceTypeInfo: TypeInfo {
     IsDuckInterface: bool => isDuckInterfaceValue
     BaseInterfaces: TypeReference[] => baseInterfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
+    DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[]) {
+    constructor(
+        declaration: object,
+        name: string,
+        line: int,
+        column: int,
+        isDuckInterface: bool,
+        baseInterfaces: TypeReference[],
+        typeParameters: TypeParameter[],
+        declaredMembers: DeclaredMemberInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -182,6 +242,7 @@ public class InterfaceTypeInfo: TypeInfo {
         isDuckInterfaceValue = isDuckInterface
         baseInterfacesValue = baseInterfaces
         typeParametersValue = typeParameters
+        declaredMembersValue = declaredMembers
     }
 
     override func ToString(): string {

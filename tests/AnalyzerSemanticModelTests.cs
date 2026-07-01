@@ -422,6 +422,14 @@ class GenericBox<T> {
 class PrimaryBox(value: int) {
 }
 
+class MemberBox {
+    Value: int
+    Name: string => ""box""
+    func Compute(): int {
+        return 1
+    }
+}
+
 struct MarkedStruct: Marker {
 }
 
@@ -484,6 +492,7 @@ interface Named {
         var childMarkerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["ChildMarker"]);
         var genericBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["GenericBox"]);
         var primaryBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["PrimaryBox"]);
+        var memberBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["MemberBox"]);
         var genericStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["GenericStruct"]);
         var genericRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["GenericRecord"]);
         var genericInterfaceType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["GenericInterface"]);
@@ -506,6 +515,15 @@ interface Named {
         var primaryBoxParameter = Assert.Single(primaryBoxType.PrimaryConstructorParameters);
         Assert.Equal("value", primaryBoxParameter.Name);
         Assert.Equal("int", Assert.IsType<SimpleTypeReference>(primaryBoxParameter.Type).Name);
+        var valueMember = Assert.Single(memberBoxType.DeclaredMembers, member => member.Name == "Value");
+        Assert.Equal(DeclaredMemberKind.Field, valueMember.Kind);
+        Assert.Equal("int", Assert.IsType<SimpleTypeReference>(valueMember.Type).Name);
+        var nameMember = Assert.Single(memberBoxType.DeclaredMembers, member => member.Name == "Name");
+        Assert.Equal(DeclaredMemberKind.Property, nameMember.Kind);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(nameMember.Type).Name);
+        var computeMember = Assert.Single(memberBoxType.DeclaredMembers, member => member.Name == "Compute");
+        Assert.Equal(DeclaredMemberKind.Function, computeMember.Kind);
+        Assert.Null(computeMember.Type);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,
@@ -571,6 +589,25 @@ func Main() {
         var result = Analyze(source);
 
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_GenericMemberInitializerUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Box<T> {
+    Value: T
+}
+
+func Main(): Box<int> {
+    return new Box<int> { Value: ""wrong"" }
+}";
+
+        var result = Analyze(source);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
     }
