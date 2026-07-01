@@ -1615,7 +1615,11 @@ public class Analyzer : IDisposable
             {
                 var paramType = ResolveDeclaredType(param.Type);
                 tableParameterTypes.Add((param.Name, paramType));
-                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, test.Line, test.Column);
+                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                    param.Line,
+                    param.Column,
+                    test.Line,
+                    test.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
@@ -1905,7 +1909,11 @@ public class Analyzer : IDisposable
         foreach (var param in func.Parameters)
         {
             var paramType = ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, func.Line, func.Column);
+            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                param.Line,
+                param.Column,
+                func.Line,
+                func.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
 
             // Record parameter in semantic model for IDE features (scoped)
@@ -2226,7 +2234,11 @@ public class Analyzer : IDisposable
             foreach (var param in classDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, classDecl.Line, classDecl.Column);
+                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                    param.Line,
+                    param.Column,
+                    classDecl.Line,
+                    classDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
@@ -2291,7 +2303,11 @@ public class Analyzer : IDisposable
             foreach (var param in structDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, structDecl.Line, structDecl.Column);
+                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                    param.Line,
+                    param.Column,
+                    structDecl.Line,
+                    structDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
@@ -2341,7 +2357,11 @@ public class Analyzer : IDisposable
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, recordDecl.Line, recordDecl.Column);
+                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                    param.Line,
+                    param.Column,
+                    recordDecl.Line,
+                    recordDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
@@ -2877,8 +2897,9 @@ public class Analyzer : IDisposable
         foreach (var parameter in indexer.Parameters)
         {
             var parameterType = ResolveDeclaredType(parameter.Type);
-            var (parameterLine, parameterColumn) = GetParameterDeclarationPosition(
-                parameter,
+            var (parameterLine, parameterColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                parameter.Line,
+                parameter.Column,
                 indexer.Line,
                 indexer.Column);
             DeclareSymbol(parameter.Name, parameterType, parameterLine, parameterColumn);
@@ -2897,7 +2918,11 @@ public class Analyzer : IDisposable
         foreach (var param in ctor.Parameters)
         {
             var paramType = ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, ctor.Line, ctor.Column);
+            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                param.Line,
+                param.Column,
+                ctor.Line,
+                ctor.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
         }
@@ -4451,7 +4476,11 @@ public class Analyzer : IDisposable
         foreach (var param in func.Parameters)
         {
             var paramType = ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, localFunc.Line, localFunc.Column);
+            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                param.Line,
+                param.Column,
+                localFunc.Line,
+                localFunc.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
         }
@@ -16015,7 +16044,11 @@ public class Analyzer : IDisposable
                 : hasInferenceSource
                     ? expectedSignature!.ParameterTypes![paramIndex]
                     : BuiltInTypes.Unknown;
-            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, lambda.Line, lambda.Column);
+            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
+                param.Line,
+                param.Column,
+                lambda.Line,
+                lambda.Column);
 
             // An untyped parameter with NO inference source (`f := x => x + 1` — nothing names the
             // delegate type) must be a compile-time error: letting the Unknown type flow on emits a
@@ -21314,14 +21347,6 @@ public class Analyzer : IDisposable
         return fallbackColumn;
     }
 
-    private static (int Line, int Column) GetParameterDeclarationPosition(
-        Parameter parameter,
-        int fallbackLine,
-        int fallbackColumn)
-        => (
-            parameter.Line > 0 ? parameter.Line : fallbackLine,
-            parameter.Column > 0 ? parameter.Column : fallbackColumn);
-
     private void DeclareSymbol(
         string name,
         TypeInfo type,
@@ -21348,7 +21373,7 @@ public class Analyzer : IDisposable
                             new[] { existingFunction, newFunction });
                         if (shouldRecordBindingDeclaration)
                         {
-                            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
+                            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
                             var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
                             _bindingMap.RecordDeclaration(decl);
                         }
@@ -21366,7 +21391,7 @@ public class Analyzer : IDisposable
                         NSharpMethodGroupInfoFactory.AddFunction(group, newFunction);
                         if (shouldRecordBindingDeclaration)
                         {
-                            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
+                            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
                             var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
                             _bindingMap.RecordDeclaration(decl);
                         }
@@ -21389,7 +21414,7 @@ public class Analyzer : IDisposable
             currentScope.Symbols[name] = type;
             currentScope.NullStates[name] = GetDefaultNullState(type);
 
-            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
+            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
             if (shouldRecordBindingDeclaration)
             {
                 // Record declaration in binding map for semantic references
@@ -21423,7 +21448,7 @@ public class Analyzer : IDisposable
         // "this"/"value", and members declared in type scopes are out of scope.
         if (currentScope.Kind is not (ScopeKind.Function or ScopeKind.Block))
             return;
-        if (!IsValueBinding(currentScope, name, type))
+        if (!AnalyzerBindingFacts.IsValueBinding(name, type, currentScope.Types.ContainsKey(name)))
             return;
 
         // Walk enclosing scopes outward. Stop at the first non-local scope boundary
@@ -21441,7 +21466,8 @@ public class Analyzer : IDisposable
             if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
                 return; // reached a type/global boundary — no shadowing of an outer local
 
-            if (scope.Symbols.TryGetValue(name, out var outerType) && IsValueBinding(scope, name, outerType))
+            if (scope.Symbols.TryGetValue(name, out var outerType) &&
+                AnalyzerBindingFacts.IsValueBinding(name, outerType, scope.Types.ContainsKey(name)))
             {
                 Error(
                     ErrorCode.ShadowedDeclaration,
@@ -21453,22 +21479,6 @@ public class Analyzer : IDisposable
                 return;
             }
         }
-    }
-
-    /// <summary>
-    /// True when the named symbol in <paramref name="scope"/> is a local variable or
-    /// parameter binding (not a function, method group, type, or type parameter).
-    /// </summary>
-    private static bool IsValueBinding(Scope scope, string name, TypeInfo type)
-    {
-        // "this" is the receiver; "value" is the implicit property-setter parameter.
-        // Excluding "value" avoids false shadowing reports for locals named `value`
-        // inside setters (a common, harmless pattern).
-        if (name is "this" or "value")
-            return false;
-        if (scope.Types.ContainsKey(name))
-            return false; // type parameter
-        return type is not (FunctionTypeInfo or NSharpMethodGroupInfo);
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)
@@ -21494,27 +21504,12 @@ public class Analyzer : IDisposable
             }
 
             // Record type declaration in binding map
-            var kind = TypeInfoToDeclarationKind(type);
+            var kind = AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
             var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
             _bindingMap.RecordDeclaration(decl);
             currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
         }
     }
-
-    private static string TypeInfoToDeclarationKind(TypeInfo type) => type switch
-    {
-        ClassTypeInfo => "class",
-        StructTypeInfo => "struct",
-        RecordTypeInfo => "record",
-        SoaRecordTypeInfo => "soaRecord",
-        InterfaceTypeInfo => "interface",
-        EnumTypeInfo => "enum",
-        AnonymousUnionTypeInfo => "union",
-        UnionTypeInfo => "union",
-        FunctionTypeInfo => "function",
-        NSharpMethodGroupInfo => "function",
-        _ => "variable"
-    };
 
     // Operator overload validation
     private void ValidateParamsParameters(List<Parameter> parameters, int line, int column)
@@ -22060,7 +22055,7 @@ public class Analyzer : IDisposable
             {
                 _importedSymbolsByAlias[import.Alias][symbol.Name] = symbol.Type;
                 _importedDeclarationsByAlias[import.Alias][symbol.Name] = symbol.Declaration;
-                if (IsTypeDeclarationKind(symbol.Declaration.Kind))
+                if (AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
                 {
                     _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
                 }
@@ -22093,7 +22088,7 @@ public class Analyzer : IDisposable
                 {
                     globalScope.Types[symbol.Name] = symbol.Type;
                     _semanticModel.RecordType(symbol.Name, symbol.Type);
-                    if (IsTypeDeclarationKind(symbol.Declaration.Kind))
+                    if (AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
                     {
                         _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
                     }
@@ -22445,9 +22440,6 @@ public class Analyzer : IDisposable
 
         return symbols;
     }
-
-    private static bool IsTypeDeclarationKind(string kind) =>
-        kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
 
     private static bool IsExportedDeclaration(Declaration declaration, string name)
     {
