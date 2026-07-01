@@ -5257,7 +5257,7 @@ public class Analyzer : IDisposable
                 return true;
             case ReflectionTypeInfo reflectionType when TryGetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync, out elementType):
                 return true;
-            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.GetDeclaration().Interfaces, requireAsync, out elementType):
+            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.Interfaces, requireAsync, out elementType):
                 return true;
             case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.GetDeclaration().Interfaces, requireAsync, out elementType):
                 return true;
@@ -20334,14 +20334,13 @@ public class Analyzer : IDisposable
         if (source is ClassTypeInfo classSource)
         {
             // Walk base class chain
-            var classDeclaration = classSource.GetDeclaration();
             if (classSource.BaseClass != null)
             {
                 var baseType = ResolveType(classSource.BaseClass);
                 if (IsAssignable(target, baseType)) return true;
             }
             // Check implemented interfaces
-            foreach (var iface in classDeclaration.Interfaces)
+            foreach (var iface in classSource.Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;

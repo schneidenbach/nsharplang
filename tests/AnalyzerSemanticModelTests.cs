@@ -407,6 +407,17 @@ class Base {
 class Derived: Base {
 }
 
+interface Marker {
+}
+
+class ImplementedDerived: Base, Marker {
+}
+
+func UseImplementedAsMarker() {
+    implemented := new ImplementedDerived()
+    marker: Marker = implemented
+}
+
 duck interface Reader {
     func Read(): string
 }
@@ -421,14 +432,18 @@ interface Named {
         var closedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Closed"]);
         var openType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Open"]);
         var derivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Derived"]);
+        var implementedDerivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["ImplementedDerived"]);
         var readerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Reader"]);
         var namedType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Named"]);
 
         Assert.True(closedType.IsSealed);
         Assert.False(openType.IsSealed);
         Assert.Null(openType.BaseClass);
+        Assert.Empty(openType.Interfaces);
         var derivedBase = Assert.IsType<SimpleTypeReference>(derivedType.BaseClass);
         Assert.Equal("Base", derivedBase.Name);
+        Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(implementedDerivedType.Interfaces)).Name);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.True(readerType.IsDuckInterface);
         Assert.False(namedType.IsDuckInterface);
     }

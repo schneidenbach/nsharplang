@@ -13,7 +13,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             HasModifier(declaration, 128),
-            GetOptionalTypeReference(declaration, "BaseClass"))
+            GetOptionalTypeReference(declaration, "BaseClass"),
+            GetTypeReferenceArray(declaration, "Interfaces"))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -60,6 +61,25 @@ public class NominalTypeInfoFactory {
         }
 
         return typeReference
+    }
+
+    static func GetTypeReferenceArray(owner: object, propertyName: string): TypeReference[] {
+        source := TypeInfoFactoryReflection.GetRequiredList(owner, propertyName)
+        result := new TypeReference[](source.Count)
+
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            typeReference := item as TypeReference
+            if typeReference == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' entries to be type references.")
+            }
+
+            result[index] = typeReference
+            index = index + 1
+        }
+
+        return result
     }
 }
 
