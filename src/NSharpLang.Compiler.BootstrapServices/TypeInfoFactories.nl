@@ -234,8 +234,16 @@ public class NominalTypeInfoFactory {
             HasOptionalPropertyValue(member, "SetBody"),
             IsExportedMember(member, name),
             GetOptionalListCount(member, "Parameters"),
+            GetParameterNameArray(member),
             GetParameterTypeArray(member),
+            GetParameterModifierArray(member),
+            GetRequiredParameterCount(member),
+            HasParamsParameter(member),
             GetOptionalTypeReference(member, "ReturnType"),
+            GetTypeParameterArray(member).Length,
+            GetOptionalListCount(member, "Attributes"),
+            HasOptionalModifier(member, 2048),
+            HasOptionalModifier(member, 4096),
             GetOptionalBool(member, "IsOperatorOverload"),
             GetOptionalString(member, "OperatorSymbol"),
             GetOptionalBool(member, "IsConversionOperator"),
@@ -296,6 +304,32 @@ public class NominalTypeInfoFactory {
         return source.Count
     }
 
+    static func GetParameterNameArray(owner: object): string[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return new string[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        result := new string[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            result[index] = TypeInfoFactoryReflection.GetRequiredString(item, "Name")
+            index = index + 1
+        }
+
+        return result
+    }
+
     static func GetParameterTypeArray(owner: object): TypeReference[] {
         value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
         if value == null {
@@ -326,6 +360,106 @@ public class NominalTypeInfoFactory {
         }
 
         return result
+    }
+
+    static func GetParameterModifierArray(owner: object): ParameterModifier[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return new ParameterModifier[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        result := new ParameterModifier[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            result[index] = GetParameterModifier(item)
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func GetRequiredParameterCount(owner: object): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return -1
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        count := 0
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            if GetParameterModifier(item) != ParameterModifier.Params
+                && TypeInfoFactoryReflection.GetOptionalProperty(item, "DefaultValue") == null {
+                count = count + 1
+            }
+
+            index = index + 1
+        }
+
+        return count
+    }
+
+    static func HasParamsParameter(owner: object): bool {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return false
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            if GetParameterModifier(item) == ParameterModifier.Params {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func GetParameterModifier(parameter: object): ParameterModifier {
+        value := TypeInfoFactoryReflection.GetRequiredProperty(parameter, "Modifier")
+        modifier := Convert.ToInt32(value)
+        if modifier == 1 {
+            return ParameterModifier.Ref
+        }
+        if modifier == 2 {
+            return ParameterModifier.Out
+        }
+        if modifier == 3 {
+            return ParameterModifier.Params
+        }
+
+        return ParameterModifier.None
     }
 
     static func GetOptionalString(owner: object, propertyName: string): string {

@@ -9442,7 +9442,10 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
-            resolvedMember = ResolveDeclaredFunctionMember(classType.GetDeclaration().Members, memberName);
+            resolvedMember = ResolveDeclaredFunctionMember(
+                classType.DeclaredMembers,
+                () => classType.GetDeclaration().Members,
+                memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9477,7 +9480,10 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
-            resolvedMember = ResolveDeclaredFunctionMember(structType.GetDeclaration().Members, memberName);
+            resolvedMember = ResolveDeclaredFunctionMember(
+                structType.DeclaredMembers,
+                () => structType.GetDeclaration().Members,
+                memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9503,7 +9509,10 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
-            resolvedMember = ResolveDeclaredFunctionMember(recordType.GetDeclaration().Members, memberName);
+            resolvedMember = ResolveDeclaredFunctionMember(
+                recordType.DeclaredMembers,
+                () => recordType.GetDeclaration().Members,
+                memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9529,7 +9538,10 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
-            resolvedMember = ResolveDeclaredFunctionMember(interfaceType.GetDeclaration().Members, memberName);
+            resolvedMember = ResolveDeclaredFunctionMember(
+                interfaceType.DeclaredMembers,
+                () => interfaceType.GetDeclaration().Members,
+                memberName);
             if (resolvedMember != null)
                 return resolvedMember;
 
@@ -9754,11 +9766,34 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    /// <summary>
-    /// Resolves a function member from the remaining C# declaration owner. Field and
-    /// property facts are TypeInfo-owned; function signatures move in a later slice.
-    /// </summary>
-    private TypeInfo? ResolveDeclaredFunctionMember(IEnumerable<Declaration> members, string memberName)
+    private TypeInfo? ResolveDeclaredFunctionMember(
+        IEnumerable<DeclaredMemberInfo> members,
+        Func<IEnumerable<Declaration>> fallbackMembers,
+        string memberName)
+    {
+        var matchingMembers = members
+            .Where(member => member.Kind == DeclaredMemberKind.Function && member.Name == memberName)
+            .ToList();
+
+        if (matchingMembers.Count == 0)
+            return null;
+
+        if (matchingMembers.Count == 1 && CanResolveFunctionMemberFromTypeInfo(matchingMembers[0]))
+            return CreateFunctionTypeInfo(matchingMembers[0]);
+
+        return ResolveDeclaredFunctionMemberFromDeclarations(fallbackMembers(), memberName);
+    }
+
+    private static bool CanResolveFunctionMemberFromTypeInfo(DeclaredMemberInfo member)
+        => member.TypeParameterCount == 0
+           && member.AttributeCount == 0
+           && !member.HasParamsParameter
+           && member.RequiredParameterCount == member.ParameterCount
+           && member.ParameterNames.Length == member.ParameterCount
+           && member.ParameterTypes.Length == member.ParameterCount
+           && member.ParameterModifiers.Length == member.ParameterCount;
+
+    private TypeInfo? ResolveDeclaredFunctionMemberFromDeclarations(IEnumerable<Declaration> members, string memberName)
     {
         // Collect all matching functions for overload resolution
         var matchingFunctions = new List<FunctionDeclaration>();
@@ -10422,6 +10457,18 @@ public class Analyzer : IDisposable
             ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
             ParameterModifiers = func.Parameters.Select(parameter => parameter.Modifier).ToList(),
             ReturnType = ResolveDeclaredFunctionCallReturnType(func)
+        };
+    }
+
+    private FunctionTypeInfo CreateFunctionTypeInfo(DeclaredMemberInfo member)
+    {
+        return new FunctionTypeInfo(null)
+        {
+            SyntheticName = member.Name,
+            ParameterNames = member.ParameterNames.ToList(),
+            ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
+            ParameterModifiers = member.ParameterModifiers.ToList(),
+            ReturnType = ResolveDeclaredFunctionCallReturnType(member)
         };
     }
 
@@ -12514,10 +12561,27 @@ public class Analyzer : IDisposable
         return ResolveFunctionCallReturnType(decl, sourceReturnType);
     }
 
+    private TypeInfo ResolveDeclaredFunctionCallReturnType(DeclaredMemberInfo member)
+    {
+        var sourceReturnType = member.ReturnType != null
+            ? ResolveType(member.ReturnType)
+            : BuiltInTypes.Void;
+
+        return ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType);
+    }
+
     private TypeInfo ResolveFunctionCallReturnType(FunctionDeclaration decl, TypeInfo sourceReturnType)
     {
-        if (!decl.Modifiers.HasFlag(Modifiers.Async)
-            || decl.Modifiers.HasFlag(Modifiers.Generator))
+        return ResolveFunctionCallReturnType(
+            decl.Name,
+            decl.Modifiers.HasFlag(Modifiers.Async),
+            decl.Modifiers.HasFlag(Modifiers.Generator),
+            sourceReturnType);
+    }
+
+    private TypeInfo ResolveFunctionCallReturnType(string functionName, bool isAsync, bool isGenerator, TypeInfo sourceReturnType)
+    {
+        if (!isAsync || isGenerator)
         {
             return sourceReturnType;
         }
@@ -12528,7 +12592,7 @@ public class Analyzer : IDisposable
             return sourceReturnType;
         }
 
-        var usesTaskFamily = string.Equals(decl.Name, "main", StringComparison.OrdinalIgnoreCase);
+        var usesTaskFamily = string.Equals(functionName, "main", StringComparison.OrdinalIgnoreCase);
         if (BuiltInTypes.Is(sourceReturnType, BuiltInTypes.Void))
         {
             return usesTaskFamily

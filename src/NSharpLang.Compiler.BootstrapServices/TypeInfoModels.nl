@@ -33,8 +33,16 @@ public class DeclaredMemberInfo {
     hasSetterValue: bool
     isExportedValue: bool
     parameterCountValue: int
+    parameterNamesValue: string[]
     parameterTypesValue: TypeReference[]
+    parameterModifiersValue: ParameterModifier[]
+    requiredParameterCountValue: int
+    hasParamsParameterValue: bool
     returnTypeValue: TypeReference?
+    typeParameterCountValue: int
+    attributeCountValue: int
+    isAsyncValue: bool
+    isGeneratorValue: bool
     isOperatorOverloadValue: bool
     operatorSymbolValue: string
     isConversionOperatorValue: bool
@@ -51,8 +59,16 @@ public class DeclaredMemberInfo {
     HasSetter: bool => hasSetterValue
     IsExported: bool => isExportedValue
     ParameterCount: int => parameterCountValue
+    ParameterNames: string[] => parameterNamesValue
     ParameterTypes: TypeReference[] => parameterTypesValue
+    ParameterModifiers: ParameterModifier[] => parameterModifiersValue
+    RequiredParameterCount: int => requiredParameterCountValue
+    HasParamsParameter: bool => hasParamsParameterValue
     ReturnType: TypeReference? => returnTypeValue
+    TypeParameterCount: int => typeParameterCountValue
+    AttributeCount: int => attributeCountValue
+    IsAsync: bool => isAsyncValue
+    IsGenerator: bool => isGeneratorValue
     IsOperatorOverload: bool => isOperatorOverloadValue
     OperatorSymbol: string => operatorSymbolValue
     IsConversionOperator: bool => isConversionOperatorValue
@@ -70,8 +86,16 @@ public class DeclaredMemberInfo {
         hasSetter: bool,
         isExported: bool,
         parameterCount: int,
+        parameterNames: string[],
         parameterTypes: TypeReference[],
+        parameterModifiers: ParameterModifier[],
+        requiredParameterCount: int,
+        hasParamsParameter: bool,
         returnType: TypeReference?,
+        typeParameterCount: int,
+        attributeCount: int,
+        isAsync: bool,
+        isGenerator: bool,
         isOperatorOverload: bool,
         operatorSymbol: string,
         isConversionOperator: bool,
@@ -87,8 +111,16 @@ public class DeclaredMemberInfo {
         hasSetterValue = hasSetter
         isExportedValue = isExported
         parameterCountValue = parameterCount
+        parameterNamesValue = parameterNames
         parameterTypesValue = parameterTypes
+        parameterModifiersValue = parameterModifiers
+        requiredParameterCountValue = requiredParameterCount
+        hasParamsParameterValue = hasParamsParameter
         returnTypeValue = returnType
+        typeParameterCountValue = typeParameterCount
+        attributeCountValue = attributeCount
+        isAsyncValue = isAsync
+        isGeneratorValue = isGenerator
         isOperatorOverloadValue = isOperatorOverload
         operatorSymbolValue = operatorSymbol
         isConversionOperatorValue = isConversionOperator

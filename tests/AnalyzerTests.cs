@@ -7474,6 +7474,23 @@ func Main() {
     }
 
     [Fact]
+    public void SingleFunctionMemberCall_ResolvesThroughTypeInfoDeclaredMembers()
+    {
+        AssertNoErrors(@"
+            class Greeter {
+                func Join(left: string, right: string): string {
+                    return left + right
+                }
+            }
+
+            func Main() {
+                greeter := new Greeter()
+                message := greeter.Join(right: ""world"", left: ""hello "")
+            }
+        ");
+    }
+
+    [Fact]
     public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
     {
         var result = AnalyzeWithSource(@"

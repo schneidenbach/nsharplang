@@ -430,6 +430,12 @@ class MemberBox {
     }
 }
 
+class FunctionMemberBox {
+    func Format(label: string, ref value: int): string {
+        return label
+    }
+}
+
 struct MarkedStruct: Marker {
 }
 
@@ -493,6 +499,7 @@ interface Named {
         var genericBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["GenericBox"]);
         var primaryBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["PrimaryBox"]);
         var memberBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["MemberBox"]);
+        var functionMemberBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["FunctionMemberBox"]);
         var genericStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["GenericStruct"]);
         var genericRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["GenericRecord"]);
         var genericInterfaceType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["GenericInterface"]);
@@ -524,6 +531,21 @@ interface Named {
         var computeMember = Assert.Single(memberBoxType.DeclaredMembers, member => member.Name == "Compute");
         Assert.Equal(DeclaredMemberKind.Function, computeMember.Kind);
         Assert.Null(computeMember.Type);
+        var formatMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "Format");
+        Assert.Equal(DeclaredMemberKind.Function, formatMember.Kind);
+        Assert.Equal(2, formatMember.ParameterCount);
+        Assert.Equal(new[] { "label", "value" }, formatMember.ParameterNames);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(formatMember.ParameterTypes[0]).Name);
+        Assert.Equal("int", Assert.IsType<SimpleTypeReference>(formatMember.ParameterTypes[1]).Name);
+        Assert.Equal(ParameterModifier.None, formatMember.ParameterModifiers[0]);
+        Assert.Equal(ParameterModifier.Ref, formatMember.ParameterModifiers[1]);
+        Assert.Equal(2, formatMember.RequiredParameterCount);
+        Assert.False(formatMember.HasParamsParameter);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(formatMember.ReturnType).Name);
+        Assert.Equal(0, formatMember.TypeParameterCount);
+        Assert.Equal(0, formatMember.AttributeCount);
+        Assert.False(formatMember.IsAsync);
+        Assert.False(formatMember.IsGenerator);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,
