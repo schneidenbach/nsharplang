@@ -242,6 +242,7 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(member, "ReturnType"),
             GetTypeParameterArray(member).Length,
             GetOptionalListCount(member, "Attributes"),
+            HasMustUseAttribute(member),
             HasOptionalModifier(member, 2048),
             HasOptionalModifier(member, 4096),
             GetOptionalBool(member, "IsOperatorOverload"),
@@ -444,6 +445,59 @@ public class NominalTypeInfoFactory {
         }
 
         return false
+    }
+
+    static func HasMustUseAttribute(owner: object): bool {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Attributes")
+        if value == null {
+            return false
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
+        }
+
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' entries to be attributes.")
+            }
+
+            name := TypeInfoFactoryReflection.GetRequiredString(item, "Name")
+            if IsMustUseAttributeName(name) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func IsMustUseAttributeName(name: string): bool {
+        return AttributeNameEquals(name, "MustUse")
+            || AttributeNameEquals(name, "MustUseAttribute")
+            || AttributeNameEndsWith(name, ".MustUse")
+            || AttributeNameEndsWith(name, ".MustUseAttribute")
+    }
+
+    static func AttributeNameEquals(name: string, expected: string): bool {
+        if name.Length != expected.Length {
+            return false
+        }
+
+        return String.Compare(name, expected, StringComparison.Ordinal) == 0
+    }
+
+    static func AttributeNameEndsWith(name: string, suffix: string): bool {
+        if name.Length < suffix.Length {
+            return false
+        }
+
+        start := name.Length - suffix.Length
+        return String.Compare(name, start, suffix, 0, suffix.Length, StringComparison.Ordinal) == 0
     }
 
     static func GetParameterModifier(parameter: object): ParameterModifier {

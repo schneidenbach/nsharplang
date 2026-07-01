@@ -3834,6 +3834,9 @@ public class Analyzer : IDisposable
 
         switch (calleeType)
         {
+            case FunctionTypeInfo { HasMustUseAttribute: true } functionType:
+                reason = $"'{functionType.SyntheticName ?? GetCallTargetName(call) ?? "function"}' is marked [MustUse]";
+                return true;
             case FunctionTypeInfo { Declaration: FunctionDeclaration declaration } when HasMustUseAttribute(declaration.Attributes):
                 reason = $"'{declaration.Name}' is marked [MustUse]";
                 return true;
@@ -9787,7 +9790,6 @@ public class Analyzer : IDisposable
 
     private static bool CanResolveFunctionMemberFromTypeInfo(DeclaredMemberInfo member)
         => member.TypeParameterCount == 0
-           && member.AttributeCount == 0
            && !member.HasParamsParameter
            && member.RequiredParameterCount >= 0
            && member.RequiredParameterCount <= member.ParameterCount
@@ -10471,6 +10473,7 @@ public class Analyzer : IDisposable
             ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
             ParameterModifiers = member.ParameterModifiers.ToList(),
             RequiredParameterCount = member.RequiredParameterCount,
+            HasMustUseAttribute = member.HasMustUseAttribute,
             ReturnType = ResolveDeclaredFunctionCallReturnType(member)
         };
     }

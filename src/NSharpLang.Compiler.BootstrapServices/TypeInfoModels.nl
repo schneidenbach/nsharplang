@@ -41,6 +41,7 @@ public class DeclaredMemberInfo {
     returnTypeValue: TypeReference?
     typeParameterCountValue: int
     attributeCountValue: int
+    hasMustUseAttributeValue: bool
     isAsyncValue: bool
     isGeneratorValue: bool
     isOperatorOverloadValue: bool
@@ -67,6 +68,7 @@ public class DeclaredMemberInfo {
     ReturnType: TypeReference? => returnTypeValue
     TypeParameterCount: int => typeParameterCountValue
     AttributeCount: int => attributeCountValue
+    HasMustUseAttribute: bool => hasMustUseAttributeValue
     IsAsync: bool => isAsyncValue
     IsGenerator: bool => isGeneratorValue
     IsOperatorOverload: bool => isOperatorOverloadValue
@@ -94,6 +96,7 @@ public class DeclaredMemberInfo {
         returnType: TypeReference?,
         typeParameterCount: int,
         attributeCount: int,
+        hasMustUseAttribute: bool,
         isAsync: bool,
         isGenerator: bool,
         isOperatorOverload: bool,
@@ -119,6 +122,7 @@ public class DeclaredMemberInfo {
         returnTypeValue = returnType
         typeParameterCountValue = typeParameterCount
         attributeCountValue = attributeCount
+        hasMustUseAttributeValue = hasMustUseAttribute
         isAsyncValue = isAsync
         isGeneratorValue = isGenerator
         isOperatorOverloadValue = isOperatorOverload
@@ -655,10 +659,12 @@ public class FunctionTypeInfo: TypeInfo {
     ParameterTypes: List<TypeInfo>?
     ParameterModifiers: List<ParameterModifier>?
     RequiredParameterCount: int?
+    HasMustUseAttribute: bool
     ReturnType: TypeInfo?
 
     constructor(declaration: object?) {
         Declaration = declaration
+        HasMustUseAttribute = false
     }
 }
 

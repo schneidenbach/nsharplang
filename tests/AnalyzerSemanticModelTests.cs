@@ -438,6 +438,11 @@ class FunctionMemberBox {
     func FormatDefault(label: string, suffix: string = ""!""): string {
         return label + suffix
     }
+
+    [MustUse]
+    func BuildToken(): int {
+        return 1
+    }
 }
 
 struct MarkedStruct: Marker {
@@ -548,6 +553,7 @@ interface Named {
         Assert.Equal("string", Assert.IsType<SimpleTypeReference>(formatMember.ReturnType).Name);
         Assert.Equal(0, formatMember.TypeParameterCount);
         Assert.Equal(0, formatMember.AttributeCount);
+        Assert.False(formatMember.HasMustUseAttribute);
         Assert.False(formatMember.IsAsync);
         Assert.False(formatMember.IsGenerator);
         var formatDefaultMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "FormatDefault");
@@ -556,6 +562,11 @@ interface Named {
         Assert.Equal(new[] { "label", "suffix" }, formatDefaultMember.ParameterNames);
         Assert.Equal(1, formatDefaultMember.RequiredParameterCount);
         Assert.False(formatDefaultMember.HasParamsParameter);
+        Assert.False(formatDefaultMember.HasMustUseAttribute);
+        var buildTokenMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "BuildToken");
+        Assert.Equal(DeclaredMemberKind.Function, buildTokenMember.Kind);
+        Assert.Equal(1, buildTokenMember.AttributeCount);
+        Assert.True(buildTokenMember.HasMustUseAttribute);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,
