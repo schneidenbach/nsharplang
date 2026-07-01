@@ -208,7 +208,7 @@ public class CompletionEngine
         var types = new List<CompletionItem>();
         foreach (var decl in cu.Declarations)
         {
-            var item = DeclarationToCompletionItem(decl);
+            var item = CompletionDeclarationFacts.ToCompletionItem(decl);
             if (item != null)
                 types.Add(item);
         }
@@ -434,24 +434,6 @@ public class CompletionEngine
     };
 
     // ── Helpers ──────────────────────────────────────────────────────────
-
-    private static CompletionItem? DeclarationToCompletionItem(Declaration decl, bool memberContext = false) => decl switch
-    {
-        FunctionDeclaration f => new CompletionItem(f.Name, memberContext ? "method" : "function",
-            CodeIntelligenceService.FormatTypeReferencePublic(f.ReturnType),
-            FormatParameters(f.Parameters), null, f.Modifiers.HasFlag(Ast.Modifiers.Static)),
-        ClassDeclaration c => new CompletionItem(c.Name, "class", null, null, null, false),
-        StructDeclaration s => new CompletionItem(s.Name, "struct", null, null, null, false),
-        RecordDeclaration r => new CompletionItem(r.Name, "record", null, null, null, false),
-        InterfaceDeclaration i => new CompletionItem(i.Name, "interface", null, null, null, false),
-        EnumDeclaration e => new CompletionItem(e.Name, "enum", null, null, null, false),
-        UnionDeclaration u => new CompletionItem(u.Name, "union", null, null, null, false),
-        FieldDeclaration fd => new CompletionItem(fd.Name, "property",
-            CodeIntelligenceService.FormatTypeReferencePublic(fd.Type), null, null, false),
-        PropertyDeclaration pd => new CompletionItem(pd.Name, "property",
-            CodeIntelligenceService.FormatTypeReferencePublic(pd.Type), null, null, false),
-        _ => null
-    };
 
     private static CompletionItem? DeclaredMemberToCompletionItem(DeclaredMemberInfo member, bool memberContext = false) => member.Kind switch
     {
