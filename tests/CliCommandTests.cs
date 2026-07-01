@@ -86,6 +86,25 @@ public class CliCommandTests
     }
 
     [Fact]
+    public void DefineArgumentKernels_ExtractsDefinesAndRemainingArgs()
+    {
+        var extraction = DefineArgumentKernels.Extract(new[]
+        {
+            "--define",
+            " FEATURE_X , SECOND ; FEATURE_X ",
+            "--backend",
+            "il",
+            "-o",
+            "dist",
+            "-d=THIRD; SECOND",
+            "Program.nl",
+        });
+
+        Assert.Equal(new[] { "FEATURE_X", "SECOND", "THIRD" }, extraction.Defines);
+        Assert.Equal(new[] { "--backend", "il", "-o", "dist", "Program.nl" }, extraction.RemainingArgs);
+    }
+
+    [Fact]
     public void CheckCommand_Help_IsSideEffectFree()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => CheckCommand.Execute(new[] { "--help" }));
