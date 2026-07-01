@@ -10980,6 +10980,22 @@ public class Analyzer : IDisposable
         if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
         {
             var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+            var sourceSnippet = GetSourceSnippet(line);
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var expected = argTypes.Count < requiredCount ? requiredCount : expectedArgumentCount;
+                _errors.Add(ErrorMessageBuilder.WrongArgumentCount(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    length,
+                    functionName,
+                    expected,
+                    argTypes.Count));
+                return;
+            }
+
             var expectedDescription = requiredCount == expectedArgumentCount
                 ? expectedArgumentCount.ToString(CultureInfo.InvariantCulture)
                 : $"{requiredCount.ToString(CultureInfo.InvariantCulture)} to {expectedArgumentCount.ToString(CultureInfo.InvariantCulture)}";
@@ -11054,6 +11070,26 @@ public class Analyzer : IDisposable
             }
 
             var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
+            var parameterName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
+                ? functionType.ParameterNames[parameterIndex]
+                : null;
+            var sourceSnippet = GetSourceSnippet(line);
+            if (sourceSnippet != null && _currentFilePath != null && parameterName != null)
+            {
+                _errors.Add(ErrorMessageBuilder.WrongArgumentType(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    length,
+                    functionName,
+                    argumentIndex + 1,
+                    parameterName,
+                    GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType),
+                    expectedType.ToString() ?? "unknown"));
+                continue;
+            }
+
             var argumentName = call.Arguments[argumentIndex].Name;
             var argumentDescription = argumentName != null
                 ? $"Argument '{argumentName}'"
@@ -20989,7 +21025,7 @@ public class Analyzer : IDisposable
         if (sourceText == null)
             return fallbackColumn;
 
-        return fallbackColumn;
+        return CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
     }
 
     private void DeclareSymbol(
@@ -21419,27 +21455,7 @@ public class Analyzer : IDisposable
         if (string.IsNullOrEmpty(sourceText) || line <= 0)
             return null;
 
-        var currentLine = 1;
-        var start = 0;
-        for (var index = 0; index <= sourceText.Length; index++)
-        {
-            if (index < sourceText.Length && sourceText[index] != '\n')
-                continue;
-
-            if (currentLine == line)
-            {
-                var length = index - start;
-                if (length > 0 && sourceText[start + length - 1] == '\r')
-                    length--;
-
-                return sourceText.Substring(start, length);
-            }
-
-            currentLine++;
-            start = index + 1;
-        }
-
-        return null;
+        return CodeIntelligenceTextUtilities.GetSourceLine(sourceText, line);
     }
 
     // Package validation

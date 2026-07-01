@@ -45,6 +45,89 @@ public class CodeIntelligenceTextUtilities {
         return source.Substring(start, length)
     }
 
+    public static func FindIdentifierNameColumn(source: string, name: string, line: int, fallbackColumn: int): int {
+        if name.Length == 0 {
+            return fallbackColumn
+        }
+
+        lineStart := 0
+        lineLength := 0
+        if !TryGetSourceLineRange(source, line, out lineStart, out lineLength) {
+            return fallbackColumn
+        }
+
+        if lineLength == 0 {
+            return fallbackColumn
+        }
+
+        preferredStart := fallbackColumn - 1
+        if preferredStart < 0 {
+            preferredStart = 0
+        }
+        if preferredStart > lineLength {
+            preferredStart = lineLength
+        }
+
+        index := FindWholeIdentifier(source, lineStart, lineLength, name, preferredStart)
+        if index < 0 {
+            index = FindWholeIdentifier(source, lineStart, lineLength, name, 0)
+        }
+
+        if index >= 0 {
+            return index + 1
+        }
+
+        return fallbackColumn
+    }
+
+    static func FindWholeIdentifier(source: string, lineStart: int, lineLength: int, name: string, startIndex: int): int {
+        nameLength := name.Length
+        if nameLength == 0 || nameLength > lineLength {
+            return -1
+        }
+
+        candidate := startIndex
+        if candidate < 0 {
+            candidate = 0
+        }
+
+        while candidate + nameLength <= lineLength {
+            if MatchesNameAt(source, lineStart + candidate, name) {
+                beforeIsIdentifier := false
+                if candidate > 0 {
+                    beforeIsIdentifier = IsCodeIntelligenceIdentifierChar(source[lineStart + candidate - 1])
+                }
+
+                afterIsIdentifier := false
+                afterIndex := candidate + nameLength
+                if afterIndex < lineLength {
+                    afterIsIdentifier = IsCodeIntelligenceIdentifierChar(source[lineStart + afterIndex])
+                }
+
+                if !beforeIsIdentifier && !afterIsIdentifier {
+                    return candidate
+                }
+            }
+
+            candidate = candidate + 1
+        }
+
+        return -1
+    }
+
+    static func MatchesNameAt(source: string, position: int, name: string): bool {
+        index := 0
+        while index < name.Length {
+            if source[position + index] != name[index] {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
     static func TryGetEditorIdentifierSpanCore(
         source: string,
         line: int,
