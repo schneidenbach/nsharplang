@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
+import NSharpLang.Compiler
 
 public class TypeReference {
     Span: SourceSpan = SourceSpan.None
@@ -18,6 +19,10 @@ public class SimpleTypeReference: TypeReference {
         Line = line
         Column = column
     }
+
+    override func ToString(): string {
+        return Name
+    }
 }
 
 public class ArrayTypeReference: TypeReference {
@@ -26,6 +31,10 @@ public class ArrayTypeReference: TypeReference {
     constructor(elementType: TypeReference) {
         ElementType = elementType
     }
+
+    override func ToString(): string {
+        return TypeReferenceFacts.GetDisplayName(ElementType) + "[]"
+    }
 }
 
 public class NullableTypeReference: TypeReference {
@@ -33,6 +42,10 @@ public class NullableTypeReference: TypeReference {
 
     constructor(innerType: TypeReference) {
         InnerType = innerType
+    }
+
+    override func ToString(): string {
+        return TypeReferenceFacts.GetDisplayName(InnerType) + "?"
     }
 }
 
@@ -52,6 +65,10 @@ public class TupleTypeReference: TypeReference {
     constructor(elements: List<TupleTypeElement>) {
         Elements = elements
     }
+
+    override func ToString(): string {
+        return "(" + TypeReferenceFacts.JoinTupleElementDisplayNames(Elements) + ")"
+    }
 }
 
 public class GenericTypeReference: TypeReference {
@@ -68,6 +85,10 @@ public class GenericTypeReference: TypeReference {
         Line = line
         Column = column
     }
+
+    override func ToString(): string {
+        return Name + "<" + TypeReferenceFacts.JoinDisplayNames(TypeArguments, ", ") + ">"
+    }
 }
 
 public class FunctionTypeReference: TypeReference {
@@ -78,6 +99,10 @@ public class FunctionTypeReference: TypeReference {
         ParameterTypes = parameterTypes
         ReturnType = returnType
     }
+
+    override func ToString(): string {
+        return "(" + TypeReferenceFacts.JoinDisplayNames(ParameterTypes, ", ") + ") -> " + TypeReferenceFacts.GetDisplayName(ReturnType)
+    }
 }
 
 public class UnionTypeReference: TypeReference {
@@ -86,6 +111,10 @@ public class UnionTypeReference: TypeReference {
     constructor(arms: List<TypeReference>) {
         Arms = arms
     }
+
+    override func ToString(): string {
+        return TypeReferenceFacts.JoinDisplayNames(Arms, " | ")
+    }
 }
 
 public class ByRefTypeReference: TypeReference {
@@ -93,5 +122,9 @@ public class ByRefTypeReference: TypeReference {
 
     constructor(innerType: TypeReference) {
         InnerType = innerType
+    }
+
+    override func ToString(): string {
+        return "&" + TypeReferenceFacts.GetDisplayName(InnerType)
     }
 }

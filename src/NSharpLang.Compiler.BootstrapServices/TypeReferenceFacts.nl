@@ -157,7 +157,19 @@ public class TypeReferenceFacts {
         }
 
         typeObject := typeRef as object
-        return typeObject.ToString()
+        return typeObject.GetType().Name
+    }
+
+    public static func JoinDisplayNames(types: List<TypeReference>, separator: string): string {
+        builder := new StringBuilder()
+        AppendDisplayNameList(builder, types, separator)
+        return builder.ToString()
+    }
+
+    public static func JoinTupleElementDisplayNames(elements: List<TupleTypeElement>): string {
+        builder := new StringBuilder()
+        AppendTupleElementDisplayNameList(builder, elements)
+        return builder.ToString()
     }
 
     static func AppendDisplayNameList(builder: StringBuilder, types: List<TypeReference>, separator: string) {
