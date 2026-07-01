@@ -19,7 +19,8 @@ public enum DeclaredMemberKind {
     Enum,
     Union,
     TypeAlias,
-    Newtype
+    Newtype,
+    Constructor
 }
 
 public class DeclaredMemberInfo {
@@ -130,6 +131,7 @@ public class ClassTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    hasParameterlessConstructorValue: bool
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -141,6 +143,7 @@ public class ClassTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
     constructor(
         declaration: object,
@@ -152,7 +155,8 @@ public class ClassTypeInfo: TypeInfo {
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
         primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[]) {
+        declaredMembers: DeclaredMemberInfo[],
+        hasParameterlessConstructor: bool) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -163,6 +167,7 @@ public class ClassTypeInfo: TypeInfo {
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
         declaredMembersValue = declaredMembers
+        hasParameterlessConstructorValue = hasParameterlessConstructor
     }
 
     override func ToString(): string {

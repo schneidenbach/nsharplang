@@ -12492,16 +12492,7 @@ public class Analyzer : IDisposable
 
         if (type is ClassTypeInfo classType)
         {
-            var classDeclaration = classType.GetDeclaration();
-            // A class with a primary constructor (-style `class Foo(int x)`) suppresses
-            // the implicit default constructor, so it does NOT satisfy new().
-            if (classType.PrimaryConstructorParameters.Length > 0)
-                return false;
-
-            var constructors = classDeclaration.Members
-                .OfType<ConstructorDeclaration>();
-            // If no explicit constructors, the implicit default constructor is available
-            return !constructors.Any() || constructors.Any(c => c.Parameters.Count == 0);
+            return classType.HasParameterlessConstructor;
         }
 
         if (type is RecordTypeInfo recordType)

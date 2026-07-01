@@ -9665,6 +9665,42 @@ func Main() {
     }
 
     [Fact]
+    public void SpecialConstraint_New_WithExplicitParameterlessCtorClass_NoError()
+    {
+        AssertNoErrors(@"
+            class Widget {
+                constructor() {
+                }
+            }
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                w := new Widget()
+                result := Create<Widget>(w)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithParameterizedCtorOnlyClass_Error()
+    {
+        AssertHasError(@"
+            class Widget {
+                constructor(size: int) {
+                }
+            }
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                w := new Widget(1)
+                result := Create<Widget>(w)
+            }
+        ", "has no parameterless constructor");
+    }
+
+    [Fact]
     public void SpecialConstraint_New_WithParameterizedCtorOnly_Error()
     {
         // A record with primary constructor parameters has no parameterless constructor.

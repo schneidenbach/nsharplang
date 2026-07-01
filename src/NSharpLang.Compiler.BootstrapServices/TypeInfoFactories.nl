@@ -7,6 +7,8 @@ import NSharpLang.Compiler.Ast
 
 public class NominalTypeInfoFactory {
     public static func FromClassDeclaration(declaration: object): ClassTypeInfo {
+        primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
+        declaredMembers := GetDeclaredMemberArray(declaration)
         return new ClassTypeInfo(
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
@@ -16,8 +18,9 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(declaration, "BaseClass"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"),
-            GetDeclaredMemberArray(declaration))
+            primaryConstructorParameters,
+            declaredMembers,
+            HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -331,6 +334,9 @@ public class NominalTypeInfoFactory {
         if typeName == "NewtypeDeclaration" {
             return DeclaredMemberKind.Newtype
         }
+        if typeName == "ConstructorDeclaration" {
+            return DeclaredMemberKind.Constructor
+        }
 
         return DeclaredMemberKind.Unknown
     }
@@ -372,8 +378,35 @@ public class NominalTypeInfoFactory {
         if kind == DeclaredMemberKind.Newtype {
             return "newtype"
         }
+        if kind == DeclaredMemberKind.Constructor {
+            return "constructor"
+        }
 
         return "variable"
+    }
+
+    static func HasParameterlessClassConstructor(
+        primaryConstructorParameters: ParameterDeclarationInfo[],
+        members: DeclaredMemberInfo[]): bool {
+        if primaryConstructorParameters.Length > 0 {
+            return false
+        }
+
+        hasConstructor := false
+        index := 0
+        while index < members.Length {
+            member := members[index]
+            if member.Kind == DeclaredMemberKind.Constructor {
+                hasConstructor = true
+                if member.ParameterCount == 0 {
+                    return true
+                }
+            }
+
+            index = index + 1
+        }
+
+        return !hasConstructor
     }
 }
 
