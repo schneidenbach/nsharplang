@@ -91,6 +91,14 @@ public class TypeReferenceFacts {
         return false
     }
 
+    public static func GetDisplayNameOrVoid(typeRef: TypeReference?): string {
+        if typeRef == null {
+            return "void"
+        }
+
+        return GetDisplayName(typeRef)
+    }
+
     public static func GetDisplayName(typeRef: TypeReference): string {
         simple := typeRef as SimpleTypeReference
         if simple != null {
@@ -124,6 +132,25 @@ public class TypeReferenceFacts {
             return builder.ToString()
         }
 
+        tuple := typeRef as TupleTypeReference
+        if tuple != null {
+            builder := new StringBuilder()
+            builder.Append("(")
+            AppendTupleElementDisplayNameList(builder, tuple.Elements)
+            builder.Append(")")
+            return builder.ToString()
+        }
+
+        functionReference := typeRef as FunctionTypeReference
+        if functionReference != null {
+            builder := new StringBuilder()
+            builder.Append("(")
+            AppendDisplayNameList(builder, functionReference.ParameterTypes, ", ")
+            builder.Append(") -> ")
+            builder.Append(GetDisplayName(functionReference.ReturnType))
+            return builder.ToString()
+        }
+
         byRef := typeRef as ByRefTypeReference
         if byRef != null {
             return "&" + GetDisplayName(byRef.InnerType)
@@ -141,6 +168,24 @@ public class TypeReferenceFacts {
             }
 
             builder.Append(GetDisplayName(types[index]))
+            index = index + 1
+        }
+    }
+
+    static func AppendTupleElementDisplayNameList(builder: StringBuilder, elements: List<TupleTypeElement>) {
+        index := 0
+        while index < elements.Count {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            element := elements[index]
+            if element.Name != null {
+                builder.Append(element.Name)
+                builder.Append(": ")
+            }
+
+            builder.Append(GetDisplayName(element.Type))
             index = index + 1
         }
     }

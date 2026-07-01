@@ -1545,20 +1545,11 @@ public class CodeIntelligenceService
     /// <summary>
     /// Public accessor for type reference formatting (used by CompletionEngine).
     /// </summary>
-    public static string FormatTypeReferencePublic(TypeReference? typeRef) => FormatTypeReference(typeRef);
+    public static string FormatTypeReferencePublic(TypeReference? typeRef)
+        => TypeReferenceFacts.GetDisplayNameOrVoid(typeRef);
 
-    private static string FormatTypeReference(TypeReference? typeRef) => typeRef switch
-    {
-        null => "void",
-        SimpleTypeReference s => s.Name,
-        GenericTypeReference g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(t => FormatTypeReference(t)))}>",
-        ArrayTypeReference a => $"{FormatTypeReference(a.ElementType)}[]",
-        NullableTypeReference n => $"{FormatTypeReference(n.InnerType)}?",
-        UnionTypeReference u => string.Join(" | ", u.Arms.Select(FormatTypeReference)),
-        TupleTypeReference t => $"({string.Join(", ", t.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
-        FunctionTypeReference f => $"({string.Join(", ", f.ParameterTypes.Select(FormatTypeReference))}) -> {FormatTypeReference(f.ReturnType)}",
-        _ => typeRef.ToString() ?? "unknown"
-    };
+    private static string FormatTypeReference(TypeReference? typeRef)
+        => TypeReferenceFacts.GetDisplayNameOrVoid(typeRef);
 
     private static string GetNullabilityForExpression(SemanticModel? semanticModel, Expression? expression, TypeInfo typeInfo)
     {
