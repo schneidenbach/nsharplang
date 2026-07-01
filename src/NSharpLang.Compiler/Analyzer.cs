@@ -6604,46 +6604,15 @@ public class Analyzer : IDisposable
         foreach (var propPattern in propertyPatterns)
         {
             // Try to resolve the property on the value type
-            TypeInfo? propType = null;
-
-            // Handle different type kinds
-            if (valueType is ClassTypeInfo classType)
+            var propType = valueType switch
             {
-                // Check for both field and property declarations
-                var member = classType.GetDeclaration().Members.FirstOrDefault(m =>
-                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
-                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
+                ClassTypeInfo classType => ResolveDeclaredValueMember(classType.DeclaredMembers, propPattern.Name),
+                StructTypeInfo structType => ResolveDeclaredValueMember(structType.DeclaredMembers, propPattern.Name),
+                RecordTypeInfo recordType => ResolveDeclaredValueMember(recordType.DeclaredMembers, propPattern.Name),
+                _ => null
+            };
 
-                if (member is FieldDeclaration field)
-                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-                else if (member is PropertyDeclaration property)
-                    propType = ResolveType(property.Type);
-            }
-            else if (valueType is StructTypeInfo structType)
-            {
-                // Check for both field and property declarations
-                var member = structType.GetDeclaration().Members.FirstOrDefault(m =>
-                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
-                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
-
-                if (member is FieldDeclaration field)
-                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-                else if (member is PropertyDeclaration property)
-                    propType = ResolveType(property.Type);
-            }
-            else if (valueType is RecordTypeInfo recordType)
-            {
-                // Check for both field and property declarations
-                var member = recordType.GetDeclaration().Members.FirstOrDefault(m =>
-                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
-                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
-
-                if (member is FieldDeclaration field)
-                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-                else if (member is PropertyDeclaration property)
-                    propType = ResolveType(property.Type);
-            }
-            else if (valueType is ReflectionTypeInfo reflectionType)
+            if (propType == null && valueType is ReflectionTypeInfo reflectionType)
             {
                 // Use reflection to find the property
                 var prop = reflectionType.Type.GetProperty(propPattern.Name);
@@ -15565,21 +15534,21 @@ public class Analyzer : IDisposable
 
     private bool? ClassifyInstanceFieldMember(TypeInfo owner, string memberName)
     {
-        List<Declaration>? members = owner switch
+        DeclaredMemberInfo[]? members = owner switch
         {
-            StructTypeInfo s => s.GetDeclaration().Members,
-            ClassTypeInfo c => c.GetDeclaration().Members,
-            RecordTypeInfo r => r.GetDeclaration().Members,
+            StructTypeInfo s => s.DeclaredMembers,
+            ClassTypeInfo c => c.DeclaredMembers,
+            RecordTypeInfo r => r.DeclaredMembers,
             _ => null,
         };
         if (members != null)
         {
             foreach (var declaredMember in members)
             {
-                if (GetDeclarationName(declaredMember) != memberName)
+                if (declaredMember.Name != memberName)
                     continue;
 
-                return declaredMember is FieldDeclaration;
+                return declaredMember.Kind == DeclaredMemberKind.Field;
             }
 
             if (owner is ClassTypeInfo classTypeWithBase)

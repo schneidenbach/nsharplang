@@ -613,6 +613,50 @@ func Main(): Box<int> {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_PropertyPatternUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int => 42
+}
+
+func Main(person: Person): string {
+    return match person {
+        { Name: name, Age: 42 } => name,
+        _ => """"
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidPattern);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_ValueCopyMemberWriteUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+struct Cell {
+    Value: int
+}
+
+func MakeCell(): Cell {
+    return new Cell { Value: 1 }
+}
+
+func Main() {
+    MakeCell().Value = 2
+}";
+
+        var result = Analyze(source);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.MemberWriteThroughValueCopy);
+    }
+
+    [Fact]
     public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
     {
         var source = @"
