@@ -3838,9 +3838,6 @@ public class Analyzer : IDisposable
             case FunctionTypeInfo { HasMustUseAttribute: true } functionType:
                 reason = $"'{functionType.SyntheticName ?? GetCallTargetName(call) ?? "function"}' is marked [MustUse]";
                 return true;
-            case FunctionTypeInfo { Declaration: FunctionDeclaration declaration } when HasMustUseAttribute(declaration.Attributes):
-                reason = $"'{declaration.Name}' is marked [MustUse]";
-                return true;
             case NSharpMethodGroupInfo group:
                 {
                     var functions = GetNSharpMethodGroupFunctions(group);
@@ -6906,7 +6903,7 @@ public class Analyzer : IDisposable
                 ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
                 ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
                 NSharpMethodGroupInfo methodGroup when GetNSharpMethodGroupFunctions(methodGroup) is [var first, ..] => first.SyntheticName ?? "method",
-                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration.Name,
+                FunctionTypeInfo { SyntheticName: { Length: > 0 } functionName } => functionName,
                 _ => "method"
             }
         };
