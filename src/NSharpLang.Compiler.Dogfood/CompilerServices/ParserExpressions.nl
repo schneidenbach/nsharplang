@@ -1509,16 +1509,19 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
 //                                             a bare catch; children [nameIdent (kind 6)?, block] )
-//   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. Kind 52 is the
-//                                             expression kernel's WithExpression, 53 its AwaitExpression;
-//                                             54 is the next free kind. )
+//   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. Kinds 52-55
+//                                             belong to the expression kernel (With, Await, RefOut,
+//                                             TypeOf). )
+//   PrintStatement               -> kind 56  ( print <expr>; 1 child = the printed expression. Lowered as
+//                                             the legacy emitter did: evaluate, box a value type, call
+//                                             Console.WriteLine(object). 57 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. An
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
 // Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield/
-// print/assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
+// assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
 // statement-list gathers child node ids on the LIFO `argStack` (recursion is LIFO) and appends the
 // contiguous child run after `}`, exactly as calls/generics do.
 //
@@ -1922,6 +1925,24 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
         throwChildRun := st.ChildCursor
         AppendExpressionChild(ref st, ref children, throwValue)
         return EmitExpressionNode(ref st, ref nodes, 48, -1, 0, throwChildRun, 1, throwStart, throwEnd - throwStart)
+    }
+
+    // `print <expr>` (Print 52) -- PrintStatement kind 56, ONE child [the printed expression]. The value
+    // expression is REQUIRED (Parser.cs ParsePrintStatement demands one).
+    if kind == 52 {
+        printStart := tokens.Starts[start]
+        st.Pos = start + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
+            return -1
+        }
+        printValue := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
+        if printValue < 0 {
+            return -1
+        }
+        printEnd := nodes.SpanStarts[printValue] + nodes.SpanLengths[printValue]
+        printChildRun := st.ChildCursor
+        AppendExpressionChild(ref st, ref children, printValue)
+        return EmitExpressionNode(ref st, ref nodes, 56, -1, 0, printChildRun, 1, printStart, printEnd - printStart)
     }
 
     if kind == 35 {

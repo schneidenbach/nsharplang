@@ -4471,6 +4471,19 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 56: // Print [value] — `print <expr>`: evaluate the value, box a value type, and call
+            {        // Console.WriteLine(object) — the legacy emitter's single canonical lowering
+                     // (EmitPrint parity: no per-type overload selection).
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var printedType))
+                    return false;
+                if (printedType == typeof(void) || printedType.IsByRef || printedType.IsPointer)
+                    return false;
+                if (printedType.IsValueType)
+                    _il.Emit(OpCodes.Box, printedType);
+                _il.Emit(OpCodes.Call, typeof(Console).GetMethod(nameof(Console.WriteLine), new[] { typeof(object) })!);
+                return true;
+            }
+
             case 20: // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
             {        // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
                      // type must match the declared return type (TypesEquivalent — two closed instantiations of one
