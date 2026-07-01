@@ -62,16 +62,11 @@ public static class NullabilityMetadata
         if (typeInfo is ReflectionTypeInfo reflection)
             return FormatClrTypeName(reflection.Type);
 
-        if (typeInfo is NewtypeInfo newtype)
-            return newtype.Name;
-
-        return NullabilityTypeDisplay.TryFormatTypeInfo(typeInfo)
-            ?? typeInfo.ToString()
-            ?? "unknown";
+        return NullabilityMetadataCore.FormatTypeInfo(typeInfo);
     }
 
     public static TypeInfo StripMetadata(TypeInfo typeInfo)
-        => NullabilityTypeDisplay.StripMetadata(typeInfo);
+        => NullabilityMetadataCore.StripMetadata(typeInfo);
 
     private static TypeInfo ConvertType(
         Type type,
@@ -92,8 +87,8 @@ public static class NullabilityMetadata
 
         return GetReadState(nullabilityInfo) switch
         {
-            NullabilityState.Nullable => EnsureNullable(converted),
-            NullabilityState.Unknown => EnsureOblivious(converted),
+            NullabilityState.Nullable => NullabilityMetadataCore.EnsureNullable(converted),
+            NullabilityState.Unknown => NullabilityMetadataCore.EnsureOblivious(converted),
             _ => converted
         };
     }
@@ -146,59 +141,19 @@ public static class NullabilityMetadata
         if (overridden != null)
             return overridden;
 
-        return type.FullName switch
-        {
-            "System.Int32" => BuiltInTypes.Int,
-            "System.Int64" => BuiltInTypes.Long,
-            "System.Single" => BuiltInTypes.Float,
-            "System.Double" => BuiltInTypes.Double,
-            "System.Decimal" => BuiltInTypes.Decimal,
-            "System.Byte" => BuiltInTypes.Byte,
-            "System.SByte" => BuiltInTypes.SByte,
-            "System.Int16" => BuiltInTypes.Short,
-            "System.UInt16" => BuiltInTypes.UShort,
-            "System.UInt32" => BuiltInTypes.UInt,
-            "System.UInt64" => BuiltInTypes.ULong,
-            "System.Char" => BuiltInTypes.Char,
-            "System.Boolean" => BuiltInTypes.Bool,
-            "System.String" => BuiltInTypes.String,
-            "System.Void" => BuiltInTypes.Void,
-            "System.Object" => BuiltInTypes.Object,
-            _ => new ReflectionTypeInfo(type)
-        };
+        return NullabilityMetadataCore.ConvertBuiltInType(type.FullName) ?? new ReflectionTypeInfo(type);
     }
 
     private static TypeInfo ApplyFlowAttributes(TypeInfo type, IEnumerable<CustomAttributeData> attributes)
     {
         if (HasAttribute(attributes, MaybeNullAttributeName))
-            return EnsureNullable(type);
+            return NullabilityMetadataCore.EnsureNullable(type);
 
         if (HasAttribute(attributes, NotNullAttributeName))
-            return EnsureNotNull(type);
+            return NullabilityMetadataCore.EnsureNotNull(type);
 
         return type;
     }
-
-    private static TypeInfo EnsureNullable(TypeInfo type) => type switch
-    {
-        NullableTypeInfo => type,
-        ObliviousTypeInfo oblivious => new NullableTypeInfo(oblivious.InnerType),
-        _ => new NullableTypeInfo(type)
-    };
-
-    private static TypeInfo EnsureOblivious(TypeInfo type) => type switch
-    {
-        NullableTypeInfo => type,
-        ObliviousTypeInfo => type,
-        _ => new ObliviousTypeInfo(type)
-    };
-
-    private static TypeInfo EnsureNotNull(TypeInfo type) => type switch
-    {
-        NullableTypeInfo nullable => nullable.InnerType,
-        ObliviousTypeInfo oblivious => oblivious.InnerType,
-        _ => type
-    };
 
     private static NullabilityInfo? TryCreateNullabilityInfo(PropertyInfo property)
     {
@@ -229,37 +184,31 @@ public static class NullabilityMetadata
         return CanCarryReferenceNullability(converted);
     }
 
-    private static bool CanCarryReferenceNullability(TypeInfo typeInfo) => typeInfo switch
+    private static bool CanCarryReferenceNullability(TypeInfo typeInfo)
     {
-        SimpleTypeInfo simple => simple.Name switch
-        {
-            "int" or "long" or "float" or "double" or "decimal"
-                or "byte" or "sbyte" or "short" or "ushort"
-                or "uint" or "ulong" or "char" or "bool"
-                or "void" or "null" or "never" => false,
-            _ => true
-        },
-        NullableTypeInfo => false,
-        ObliviousTypeInfo oblivious => CanCarryReferenceNullability(oblivious.InnerType),
-        StructTypeInfo => false,
-        EnumTypeInfo => false,
-        SoaRecordTypeInfo => false,
-        RecordTypeInfo record => !record.IsStruct,
-        ReflectionTypeInfo reflection => !reflection.Type.IsValueType,
-        UnknownTypeInfo => false,
-        _ => true
-    };
+        if (typeInfo is ReflectionTypeInfo reflection)
+            return !reflection.Type.IsValueType;
+
+        return NullabilityMetadataCore.CanCarryReferenceNullability(typeInfo);
+    }
 
     private static bool IsNullableValueType(Type type)
         => Nullable.GetUnderlyingType(type) != null;
 
     private static bool HasAttribute(IEnumerable<CustomAttributeData> attributes, string attributeName)
-        => attributes.Any(attribute => string.Equals(attribute.AttributeType.FullName, attributeName, StringComparison.Ordinal));
+    {
+        foreach (var attribute in attributes)
+        {
+            if (string.Equals(attribute.AttributeType.FullName, attributeName, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-        return parameter.GetCustomAttributesData()
-            .Any(attribute => attribute.AttributeType.FullName == "System.ParamArrayAttribute");
+        return HasAttribute(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute");
     }
 
     private static string FormatFlowAttributes(IEnumerable<CustomAttributeData> attributes)
@@ -307,25 +256,6 @@ public static class NullabilityMetadata
             return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatClrTypeName))}>";
         }
 
-        return type.Name switch
-        {
-            "Boolean" => "bool",
-            "Byte" => "byte",
-            "SByte" => "sbyte",
-            "Int16" => "short",
-            "UInt16" => "ushort",
-            "Int32" => "int",
-            "UInt32" => "uint",
-            "Int64" => "long",
-            "UInt64" => "ulong",
-            "Single" => "float",
-            "Double" => "double",
-            "Decimal" => "decimal",
-            "Char" => "char",
-            "String" => "string",
-            "Object" => "object",
-            "Void" => "void",
-            _ => type.Name
-        };
+        return NullabilityMetadataCore.FormatSimpleClrTypeName(type.Name);
     }
 }
