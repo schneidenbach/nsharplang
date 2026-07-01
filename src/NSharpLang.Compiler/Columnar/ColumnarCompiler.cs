@@ -15,7 +15,8 @@ internal static class ColumnarCompiler
         string typeName,
         out byte[] assembly,
         out string emittedTypeName,
-        out string[] methodNames)
+        out string[] methodNames,
+        bool isExecutable = false)
     {
         assembly = Array.Empty<byte>();
         emittedTypeName = string.Empty;
@@ -26,7 +27,7 @@ internal static class ColumnarCompiler
 
         // A modeled program may still decline through TryEmitColumnarAssembly returning false. Unexpected
         // emitter faults must surface; converting them to a decline re-enables the C# codegen fallback.
-        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, out assembly))
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, isExecutable, out assembly))
             return false;
 
         emittedTypeName = typeName;
@@ -42,7 +43,8 @@ internal static class ColumnarCompiler
         string typeName,
         out byte[] assembly,
         out string emittedTypeName,
-        out string[] methodNames)
+        out string[] methodNames,
+        bool isExecutable = false)
     {
         assembly = Array.Empty<byte>();
         emittedTypeName = string.Empty;
@@ -52,6 +54,6 @@ internal static class ColumnarCompiler
             return false;
 
         var combined = string.Join("\n\n", sources);
-        return TryEmitProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames);
+        return TryEmitProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames, isExecutable);
     }
 }

@@ -2773,7 +2773,7 @@ internal sealed class ColumnarIlEmitter
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
     internal static bool TryEmitColumnarAssembly(
-        string assemblyName, string typeName, ColumnarProgramInput program, out byte[] assembly)
+        string assemblyName, string typeName, ColumnarProgramInput program, bool isExecutable, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         var source = program.Source;
@@ -4060,11 +4060,98 @@ internal sealed class ColumnarIlEmitter
 
         // Display classes (capturing lambdas) bake BEFORE the Program type — the legacy emitter's
         // closure-types-first order; their instance methods are referenced by ldftn from Program bodies.
+        // Executable finalization — the legacy emitter's SaveAssembly rule: an exe assembly must be
+        // serialized through ManagedPEBuilder with the entry-point token set (PersistedAssemblyBuilder.Save
+        // never writes one). An async `main` cannot BE the CLR entry point (its CLR signature returns
+        // Task/Task<T>), so a sync __NSharpEntryPoint wrapper calls it and blocks on
+        // GetAwaiter().GetResult() — the legacy EnsureRuntimeEntryPointWrapper verbatim. The wrapper is
+        // declared BEFORE type.CreateType() so it bakes with the Program type.
+        MethodBuilder? entryPointMethod = null;
+        if (isExecutable)
+        {
+            var mainIndex = -1;
+            for (var f = 0; f < funcs.Count && mainIndex < 0; f++)
+                if (string.Equals(funcs[f].Name, "main", StringComparison.Ordinal))
+                    mainIndex = f;
+            for (var f = 0; f < funcs.Count && mainIndex < 0; f++)
+                if (string.Equals(funcs[f].Name, "Main", StringComparison.Ordinal))
+                    mainIndex = f;
+
+            if (mainIndex >= 0)
+            {
+                entryPointMethod = methods[mainIndex];
+                var wrappedReturn = asyncWrappedByFunc[mainIndex];
+                if (wrappedReturn != null)
+                {
+                    if (paramTypesByFunc[mainIndex].Count != 0)
+                        return false; // an async main with parameters has no modeled wrapper — decline.
+
+                    var innerReturn = asyncInnerByFunc[mainIndex];
+                    var wrapperReturn = innerReturn == typeof(int) || innerReturn == typeof(uint)
+                        ? innerReturn
+                        : typeof(void);
+                    var wrapper = type.DefineMethod(
+                        "__NSharpEntryPoint",
+                        MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
+                        wrapperReturn,
+                        Type.EmptyTypes);
+                    var wrapperIl = wrapper.GetILGenerator();
+                    wrapperIl.Emit(OpCodes.Call, entryPointMethod);
+                    var getAwaiter = wrappedReturn.GetMethod("GetAwaiter", Type.EmptyTypes)!;
+                    wrapperIl.Emit(getAwaiter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, getAwaiter);
+                    var awaiterType = getAwaiter.ReturnType;
+                    var awaiterLocal = wrapperIl.DeclareLocal(awaiterType);
+                    wrapperIl.Emit(OpCodes.Stloc, awaiterLocal);
+                    wrapperIl.Emit(OpCodes.Ldloca_S, awaiterLocal);
+                    wrapperIl.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes)!);
+                    if (wrapperReturn == typeof(void) && innerReturn != typeof(void))
+                        wrapperIl.Emit(OpCodes.Pop);
+                    wrapperIl.Emit(OpCodes.Ret);
+                    entryPointMethod = wrapper;
+                }
+            }
+            else
+            {
+                // A static Main declared inside a user class (`class Program { static func Main() ... }`).
+                foreach (var def in structRegistry.Values)
+                {
+                    if (def.StaticMethods.TryGetValue("Main", out var mains)
+                        && mains.Count == 1
+                        && mains[0].ParamTypes.Length == 0)
+                    {
+                        entryPointMethod = mains[0].Builder;
+                        break;
+                    }
+                }
+            }
+
+            if (entryPointMethod == null)
+                return false; // an exe without a resolvable entry point would save as a non-runnable
+                              // assembly — decline so the pipeline's diagnostics own the failure.
+        }
+
         foreach (var displayTb in displayClasses)
             displayTb.CreateType();
         type.CreateType();
         using var stream = new MemoryStream();
-        builder.Save(stream);
+        if (entryPointMethod != null)
+        {
+            var metadataBuilder = builder.GenerateMetadata(out var ilStream, out var mappedFieldData);
+            var peBuilder = new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                header: System.Reflection.PortableExecutable.PEHeaderBuilder.CreateExecutableHeader(),
+                metadataRootBuilder: new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadataBuilder),
+                ilStream: ilStream,
+                mappedFieldData: mappedFieldData,
+                entryPoint: System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(entryPointMethod.MetadataToken));
+            var peBlob = new System.Reflection.Metadata.BlobBuilder();
+            peBuilder.Serialize(peBlob);
+            peBlob.WriteContentTo(stream);
+        }
+        else
+        {
+            builder.Save(stream);
+        }
+
         assembly = stream.ToArray();
         return true;
     }

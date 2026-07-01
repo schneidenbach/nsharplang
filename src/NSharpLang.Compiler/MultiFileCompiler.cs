@@ -494,9 +494,10 @@ public class MultiFileCompiler
         }
 
         byte[] assembly;
+        var isExecutable = string.Equals(_config?.OutputType, "exe", StringComparison.OrdinalIgnoreCase);
         bool emitted = sources.Count == 1
-            ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _)
-            : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _);
+            ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _, isExecutable)
+            : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _, isExecutable);
         if (!emitted)
             return false;
         File.WriteAllBytes(outputPath, assembly);
