@@ -177,6 +177,22 @@ public class LanguageServerTests
         return typeBuilder.CreateType()!;
     }
 
+    private static (int Line, int Character) FindSourcePosition(string source, string lineMarker, string token)
+    {
+        var lines = source.Replace("\r\n", "\n").Split('\n');
+        for (var line = 0; line < lines.Length; line++)
+        {
+            if (!lines[line].Contains(lineMarker, StringComparison.Ordinal))
+                continue;
+
+            var character = lines[line].IndexOf(token, StringComparison.Ordinal);
+            if (character >= 0)
+                return (line, character);
+        }
+
+        throw new InvalidOperationException($"No line containing '{lineMarker}' with token '{token}' found in source.");
+    }
+
     private static LspLocation ExtractSingleDefinitionLocation(LocationOrLocationLinks value)
     {
         static IEnumerable<System.Reflection.FieldInfo> GetAllFields(Type t)
@@ -1160,14 +1176,16 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
+        var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
+        var declPosition = FindSourcePosition(File.ReadAllText(servicePath), "class IssueService", "IssueService");
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
-        Assert.Equal(6, location.Range.Start.Character);
+        Assert.Equal(new Uri(servicePath).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(declPosition.Line, location.Range.Start.Line);
+        Assert.Equal(declPosition.Character, location.Range.Start.Character);
     }
 
     [Fact]
@@ -1180,14 +1198,16 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
+        var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
+        var declPosition = FindSourcePosition(File.ReadAllText(servicePath), "class IssueService", "IssueService");
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
-        Assert.Equal(6, location.Range.Start.Character);
+        Assert.Equal(new Uri(servicePath).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(declPosition.Line, location.Range.Start.Line);
+        Assert.Equal(declPosition.Character, location.Range.Start.Character);
     }
 
     [Fact]
@@ -1223,8 +1243,8 @@ func Foo(): void {
         // resolution should analyze that open-buffer snapshot, not reject it.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
-        // F12 on IssueService at line 26 col 20 (0-indexed: 25, 19)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1243,8 +1263,8 @@ func Foo(): void {
         // Make the buffer differ from disk; the open-buffer project snapshot should still resolve.
         harness.OpenDocument(uri, source + "\n// modified");
 
-        // F12 on IssueStore at line 25 col 18 (0-indexed: 24, 17)
-        var definition = await harness.GetDefinitionAsync(uri, 24, 17);
+        var usePosition = FindSourcePosition(source, "new IssueStore", "IssueStore");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1306,12 +1326,14 @@ func Read(widget: Widget): string {
             var programPath = Path.Combine(tempRoot, "Program.nl");
             var helperPath = Path.Combine(tempRoot, "Helper.nl");
             File.WriteAllText(programPath, """
+import "Helper"
+
 func main(): void {
-    beta()
+    Beta()
 }
 """);
             File.WriteAllText(helperPath, """
-func alpha(): void {
+func Alpha(): void {
     return
 }
 """);
@@ -1319,15 +1341,17 @@ func alpha(): void {
             harness.DocumentManager.ScanWorkspaceDirectory(tempRoot);
 
             File.WriteAllText(helperPath, """
-func beta(): void {
+func Beta(): void {
     return
 }
 """);
 
             var programUri = new Uri(programPath).AbsoluteUri;
-            harness.OpenDocument(programUri, File.ReadAllText(programPath));
+            var programSource = File.ReadAllText(programPath);
+            harness.OpenDocument(programUri, programSource);
 
-            var definition = await harness.GetDefinitionAsync(programUri, 1, 5);
+            var usePosition = FindSourcePosition(programSource, "Beta()", "Beta");
+            var definition = await harness.GetDefinitionAsync(programUri, usePosition.Line, usePosition.Character);
 
             Assert.NotNull(definition);
             var location = ExtractSingleDefinitionLocation(definition!);
@@ -1472,10 +1496,13 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // "IssueService" usage on line 26, col 20 (0-indexed: 25, 19)
-        var refs = await harness.GetReferencesAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var refs = await harness.GetReferencesAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(refs);
         Assert.NotEmpty(refs!);
+        // Cross-file usage collection is the point of this test: the usage in
+        // Program.nl must be present, not just the Service.nl definition entry.
+        Assert.Contains(refs!, reference => reference.Uri.ToString() == uri);
     }
 
     [Fact]

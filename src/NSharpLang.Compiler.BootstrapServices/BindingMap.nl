@@ -209,7 +209,7 @@ public class BindingEntryCollection {
         i := 0
         while i < sourceKeys.Count {
             keys.Add(sourceKeys[i])
-            values.Add(BindingMap.CreateLookupDeclaration(sourceValues[i]))
+            values.Add(sourceValues[i])
             i = i + 1
         }
     }
@@ -230,14 +230,7 @@ public class BindingDeclarationEntryCollection {
 
         i := 0
         while i < sourceValues.Count {
-            declaration := sourceValues[i]
-            values.Add(declaration)
-
-            lookupDeclaration := BindingMap.CreateLookupDeclaration(declaration)
-            if lookupDeclaration.Column != declaration.Column {
-                values.Add(lookupDeclaration)
-            }
-
+            values.Add(sourceValues[i])
             i = i + 1
         }
     }
@@ -438,15 +431,11 @@ public class BindingMap {
         i := 0
         while i < declarations.Count {
             candidate := declarations[i]
-            if candidate.Name == declaration.Name && candidate.Line == declaration.Line && FilesMatch(candidate.File, declaration.File) {
-                lookupCandidate := CreateLookupDeclaration(candidate)
-                if lookupCandidate.Column == declaration.Column {
-                    return candidate
-                }
-
-                if candidate.Column == declaration.Column {
-                    return candidate
-                }
+            if candidate.Name == declaration.Name
+                && candidate.Line == declaration.Line
+                && candidate.Column == declaration.Column
+                && FilesMatch(candidate.File, declaration.File) {
+                return candidate
             }
 
             i = i + 1
@@ -551,60 +540,6 @@ public class BindingMap {
 
     static func KeysEqual(left: BindingPositionKey, right: BindingPositionKey): bool {
         return left.File == right.File && left.Line == right.Line && left.Col == right.Col
-    }
-
-    public static func CreateLookupDeclaration(declaration: SymbolDeclaration): SymbolDeclaration {
-        lookupColumn := GetLookupDeclarationColumn(declaration)
-        if lookupColumn == declaration.Column {
-            return declaration
-        }
-
-        return new SymbolDeclaration(declaration.Name, declaration.File, declaration.Line, lookupColumn, declaration.Kind)
-    }
-
-    static func GetLookupDeclarationColumn(declaration: SymbolDeclaration): int {
-        keywordLength := GetDeclarationKeywordLength(declaration.Kind)
-        if keywordLength <= 0 {
-            return declaration.Column
-        }
-
-        return declaration.Column + keywordLength + 1
-    }
-
-    static func GetDeclarationKeywordLength(kind: string): int {
-        if kind == "function" {
-            return 4
-        }
-
-        if kind == "class" {
-            return 5
-        }
-
-        if kind == "struct" {
-            return 6
-        }
-
-        if kind == "record" {
-            return 6
-        }
-
-        if kind == "soaRecord" {
-            return 10
-        }
-
-        if kind == "interface" {
-            return 9
-        }
-
-        if kind == "enum" {
-            return 4
-        }
-
-        if kind == "union" {
-            return 5
-        }
-
-        return 0
     }
 
     static func FilesMatch(left: string?, right: string?): bool {

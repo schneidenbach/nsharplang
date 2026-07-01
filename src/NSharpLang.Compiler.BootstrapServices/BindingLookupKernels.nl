@@ -105,7 +105,7 @@ public class BindingLookupKernels {
             if usage.Line == line
                 && usage.Col == column
                 && FilesEqualExact(usage.File, filePathValue) {
-                return BindingMap.CreateLookupDeclaration(entry.Value)
+                return entry.Value
             }
         }
 
