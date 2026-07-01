@@ -1530,11 +1530,11 @@ public class CodeIntelligenceService
     {
         return typeInfo switch
         {
-            ClassTypeInfo c => c.GetDeclaration().Name,
-            StructTypeInfo s => s.GetDeclaration().Name,
-            RecordTypeInfo r => r.GetDeclaration().Name,
+            ClassTypeInfo c => c.Name,
+            StructTypeInfo s => s.Name,
+            RecordTypeInfo r => r.Name,
             SoaRecordTypeInfo soa => soa.Declaration.Name,
-            InterfaceTypeInfo i => i.GetDeclaration().Name,
+            InterfaceTypeInfo i => i.Name,
             EnumTypeInfo e => e.Declaration.Name,
             AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
             UnionTypeInfo u => u.Declaration.Name,
