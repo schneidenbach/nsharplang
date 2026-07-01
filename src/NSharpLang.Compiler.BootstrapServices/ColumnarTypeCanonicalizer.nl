@@ -14,6 +14,24 @@ public class ColumnarTupleElementNameStripResult {
 }
 
 public class ColumnarTypeCanonicalizer {
+    public static func UnqualifiedTypeName(name: string): string {
+        lastDot := -1
+        i := 0
+        while i < name.Length {
+            if name[i] == '.' {
+                lastDot = i
+            }
+
+            i = i + 1
+        }
+
+        if lastDot >= 0 && lastDot + 1 < name.Length {
+            return name.Substring(lastDot + 1)
+        }
+
+        return name
+    }
+
     public static func RemoveWhitespace(s: string): string {
         sb := new StringBuilder(s.Length)
         i := 0

@@ -514,22 +514,16 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(JsonElement.ObjectEnumerator)
         || t == typeof(JsonProperty);
 
-    private static string UnqualifiedTypeName(string name)
-    {
-        var lastDot = name.LastIndexOf('.');
-        return lastDot >= 0 && lastDot + 1 < name.Length ? name[(lastDot + 1)..] : name;
-    }
-
     private static void TryRegisterEnumAlias(Dictionary<string, ColumnarEnumDef> registry, string name, ColumnarEnumDef def)
     {
-        var shortName = UnqualifiedTypeName(name);
+        var shortName = ColumnarTypeCanonicalizer.UnqualifiedTypeName(name);
         if (!registry.ContainsKey(shortName))
             registry[shortName] = def;
     }
 
     private static void TryRegisterStructAlias(Dictionary<string, ColumnarStructDef> registry, string name, ColumnarStructDef def)
     {
-        var shortName = UnqualifiedTypeName(name);
+        var shortName = ColumnarTypeCanonicalizer.UnqualifiedTypeName(name);
         if (!registry.ContainsKey(shortName))
             registry[shortName] = def;
     }

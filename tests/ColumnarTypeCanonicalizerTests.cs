@@ -6,6 +6,17 @@ namespace NSharpLang.Tests;
 
 public class ColumnarTypeCanonicalizerTests
 {
+    [Theory]
+    [InlineData("Models.Point", "Point")]
+    [InlineData("QueryTypeUse.Foo.Widget", "Widget")]
+    [InlineData("Point", "Point")]
+    [InlineData("Models.", "Models.")]
+    [InlineData("", "")]
+    public void UnqualifiedTypeName_StripsNamespacePrefix(string name, string expected)
+    {
+        Assert.Equal(expected, ColumnarTypeCanonicalizer.UnqualifiedTypeName(name));
+    }
+
     [Fact]
     public void StripTupleElementNames_RemovesOnlyTopLevelNames()
     {
@@ -56,5 +67,36 @@ func Value(): int {
         Assert.NotNull(method);
 
         Assert.Equal(1, method.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ColumnarCompiler_NamespacedStructShortName_UsesNSharpCanonicalizer()
+    {
+        Assert.True(ColumnarCompiler.TryEmitProgram(
+            """
+namespace Models
+
+struct Point {
+    X: int
+}
+
+func Value(): int {
+    p := new Point { X: 7 }
+    return p.X
+}
+""",
+            "ColumnarNamespacedStructAlias",
+            "Program",
+            out var assembly,
+            out _,
+            out var methodNames));
+
+        using var scope = CollectibleAssemblyScope.Load(assembly);
+        var type = scope.Assembly.GetType("Program");
+        Assert.NotNull(type);
+        var method = type.GetMethod(Assert.Single(methodNames), BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        Assert.Equal(7, method.Invoke(null, null));
     }
 }
