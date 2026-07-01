@@ -780,19 +780,19 @@ public class DocumentManager
         {
             if (decl is ClassDeclaration classDecl)
             {
-                symbols[classDecl.Name] = new ClassTypeInfo(classDecl, classDecl.Name);
+                symbols[classDecl.Name] = new ClassTypeInfo(classDecl, classDecl.Name, classDecl.Line, classDecl.Column);
             }
             else if (decl is StructDeclaration structDecl)
             {
-                symbols[structDecl.Name] = new StructTypeInfo(structDecl, structDecl.Name);
+                symbols[structDecl.Name] = new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column);
             }
             else if (decl is RecordDeclaration recordDecl)
             {
-                symbols[recordDecl.Name] = new RecordTypeInfo(recordDecl, recordDecl.Name);
+                symbols[recordDecl.Name] = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column);
             }
             else if (decl is InterfaceDeclaration interfaceDecl)
             {
-                symbols[interfaceDecl.Name] = new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name);
+                symbols[interfaceDecl.Name] = new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name, interfaceDecl.Line, interfaceDecl.Column);
             }
             else if (decl is EnumDeclaration enumDecl)
             {

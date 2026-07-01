@@ -63,10 +63,10 @@ public class TypeHierarchyPrepareHandler : TypeHierarchyPrepareHandlerBase
             // Only type declarations produce hierarchy items
             var (name, kind, declLine, declColumn) = typeInfo switch
             {
-                ClassTypeInfo c => (c.GetDeclaration().Name, LspSymbolKind.Class, c.GetDeclaration().Line, c.GetDeclaration().Column),
-                InterfaceTypeInfo i => (i.GetDeclaration().Name, LspSymbolKind.Interface, i.GetDeclaration().Line, i.GetDeclaration().Column),
-                StructTypeInfo s => (s.GetDeclaration().Name, LspSymbolKind.Struct, s.GetDeclaration().Line, s.GetDeclaration().Column),
-                RecordTypeInfo r => (r.GetDeclaration().Name, LspSymbolKind.Class, r.GetDeclaration().Line, r.GetDeclaration().Column),
+                ClassTypeInfo c => (c.Name, LspSymbolKind.Class, c.Line, c.Column),
+                InterfaceTypeInfo i => (i.Name, LspSymbolKind.Interface, i.Line, i.Column),
+                StructTypeInfo s => (s.Name, LspSymbolKind.Struct, s.Line, s.Column),
+                RecordTypeInfo r => (r.Name, LspSymbolKind.Class, r.Line, r.Column),
                 EnumTypeInfo e => (e.Declaration.Name, LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
                 _ => (null, default(LspSymbolKind), 0, 0)
             };
@@ -223,10 +223,10 @@ public class TypeHierarchySupertypesHandler : TypeHierarchySupertypesHandlerBase
             {
                 var (kind, line, column) = typeInfo switch
                 {
-                    ClassTypeInfo c => (LspSymbolKind.Class, c.GetDeclaration().Line, c.GetDeclaration().Column),
-                    InterfaceTypeInfo i => (LspSymbolKind.Interface, i.GetDeclaration().Line, i.GetDeclaration().Column),
-                    StructTypeInfo s => (LspSymbolKind.Struct, s.GetDeclaration().Line, s.GetDeclaration().Column),
-                    RecordTypeInfo r => (LspSymbolKind.Class, r.GetDeclaration().Line, r.GetDeclaration().Column),
+                    ClassTypeInfo c => (LspSymbolKind.Class, c.Line, c.Column),
+                    InterfaceTypeInfo i => (LspSymbolKind.Interface, i.Line, i.Column),
+                    StructTypeInfo s => (LspSymbolKind.Struct, s.Line, s.Column),
+                    RecordTypeInfo r => (LspSymbolKind.Class, r.Line, r.Column),
                     EnumTypeInfo e => (LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
                     _ => (default(LspSymbolKind), 0, 0)
                 };

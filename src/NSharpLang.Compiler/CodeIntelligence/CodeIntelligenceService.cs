@@ -1424,11 +1424,11 @@ public class CodeIntelligenceService
             FunctionDeclaration f when f.Name == name => f.ReturnType != null
                 ? ResolveTypeReferenceToTypeInfo(f.ReturnType, snapshot)
                 : new SimpleTypeInfo("void"),
-            ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name),
-            StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name),
-            RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name),
+            ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name, c.Line, c.Column),
+            StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name, s.Line, s.Column),
+            RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column),
             SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
-            InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name),
+            InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
             EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
             UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
             FieldDeclaration fd when fd.Name == name && fd.Type != null => ResolveTypeReferenceToTypeInfo(fd.Type, snapshot),
@@ -1477,11 +1477,11 @@ public class CodeIntelligenceService
             {
                 var typeInfo = decl switch
                 {
-                    ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name),
-                    StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name),
-                    RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name),
+                    ClassDeclaration c when c.Name == name => new ClassTypeInfo(c, c.Name, c.Line, c.Column),
+                    StructDeclaration s when s.Name == name => new StructTypeInfo(s, s.Name, s.Line, s.Column),
+                    RecordDeclaration r when r.Name == name => new RecordTypeInfo(r, r.Name, r.Line, r.Column),
                     SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
-                    InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name),
+                    InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
                     EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
                     UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
                     TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),

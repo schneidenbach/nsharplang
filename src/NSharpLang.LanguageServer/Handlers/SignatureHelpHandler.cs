@@ -291,10 +291,10 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     {
         var typeName = typeInfo switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Name,
-            StructTypeInfo structType => structType.GetDeclaration().Name,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Name,
-            InterfaceTypeInfo interfaceType => interfaceType.GetDeclaration().Name,
+            ClassTypeInfo classType => classType.Name,
+            StructTypeInfo structType => structType.Name,
+            RecordTypeInfo recordType => recordType.Name,
+            InterfaceTypeInfo interfaceType => interfaceType.Name,
             _ => typeInfo.ToString()
         };
 

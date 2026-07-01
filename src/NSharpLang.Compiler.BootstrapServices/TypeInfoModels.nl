@@ -12,13 +12,19 @@ public class TypeInfo {
 public class ClassTypeInfo: TypeInfo {
     declarationValue: object
     nameValue: string
+    lineValue: int
+    columnValue: int
 
     Declaration: object => declarationValue
     Name: string => nameValue
+    Line: int => lineValue
+    Column: int => columnValue
 
-    constructor(declaration: object, name: string) {
+    constructor(declaration: object, name: string, line: int, column: int) {
         declarationValue = declaration
         nameValue = name
+        lineValue = line
+        columnValue = column
     }
 
     override func ToString(): string {
@@ -29,13 +35,19 @@ public class ClassTypeInfo: TypeInfo {
 public class StructTypeInfo: TypeInfo {
     declarationValue: object
     nameValue: string
+    lineValue: int
+    columnValue: int
 
     Declaration: object => declarationValue
     Name: string => nameValue
+    Line: int => lineValue
+    Column: int => columnValue
 
-    constructor(declaration: object, name: string) {
+    constructor(declaration: object, name: string, line: int, column: int) {
         declarationValue = declaration
         nameValue = name
+        lineValue = line
+        columnValue = column
     }
 
     override func ToString(): string {
@@ -46,13 +58,19 @@ public class StructTypeInfo: TypeInfo {
 public class RecordTypeInfo: TypeInfo {
     declarationValue: object
     nameValue: string
+    lineValue: int
+    columnValue: int
 
     Declaration: object => declarationValue
     Name: string => nameValue
+    Line: int => lineValue
+    Column: int => columnValue
 
-    constructor(declaration: object, name: string) {
+    constructor(declaration: object, name: string, line: int, column: int) {
         declarationValue = declaration
         nameValue = name
+        lineValue = line
+        columnValue = column
     }
 
     override func ToString(): string {
@@ -63,13 +81,19 @@ public class RecordTypeInfo: TypeInfo {
 public class InterfaceTypeInfo: TypeInfo {
     declarationValue: object
     nameValue: string
+    lineValue: int
+    columnValue: int
 
     Declaration: object => declarationValue
     Name: string => nameValue
+    Line: int => lineValue
+    Column: int => columnValue
 
-    constructor(declaration: object, name: string) {
+    constructor(declaration: object, name: string, line: int, column: int) {
         declarationValue = declaration
         nameValue = name
+        lineValue = line
+        columnValue = column
     }
 
     override func ToString(): string {
