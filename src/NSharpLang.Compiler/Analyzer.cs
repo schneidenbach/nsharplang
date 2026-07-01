@@ -5259,11 +5259,11 @@ public class Analyzer : IDisposable
                 return true;
             case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.Interfaces, requireAsync, out elementType):
                 return true;
-            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.GetDeclaration().Interfaces, requireAsync, out elementType):
+            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.Interfaces, requireAsync, out elementType):
                 return true;
-            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.GetDeclaration().Interfaces, requireAsync, out elementType):
+            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.Interfaces, requireAsync, out elementType):
                 return true;
-            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.GetDeclaration().BaseInterfaces, requireAsync, out elementType):
+            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.BaseInterfaces, requireAsync, out elementType):
                 return true;
             default:
                 return false;
@@ -20350,7 +20350,7 @@ public class Analyzer : IDisposable
         // Struct interface implementation
         if (source is StructTypeInfo structSource)
         {
-            foreach (var iface in structSource.GetDeclaration().Interfaces)
+            foreach (var iface in structSource.Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;
@@ -20360,7 +20360,7 @@ public class Analyzer : IDisposable
         // Record inheritance/interfaces
         if (source is RecordTypeInfo recordSource)
         {
-            foreach (var iface in recordSource.GetDeclaration().Interfaces)
+            foreach (var iface in recordSource.Interfaces)
             {
                 var ifaceType = ResolveType(iface);
                 if (IsAssignable(target, ifaceType)) return true;
@@ -20370,7 +20370,7 @@ public class Analyzer : IDisposable
         // Interface inheritance
         if (source is InterfaceTypeInfo ifaceSource)
         {
-            foreach (var baseIface in ifaceSource.GetDeclaration().BaseInterfaces)
+            foreach (var baseIface in ifaceSource.BaseInterfaces)
             {
                 var baseType = ResolveType(baseIface);
                 if (IsAssignable(target, baseType)) return true;

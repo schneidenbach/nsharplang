@@ -410,12 +410,35 @@ class Derived: Base {
 interface Marker {
 }
 
+interface ChildMarker: Marker {
+}
+
 class ImplementedDerived: Base, Marker {
+}
+
+struct MarkedStruct: Marker {
+}
+
+record MarkedRecord: Marker {
 }
 
 func UseImplementedAsMarker() {
     implemented := new ImplementedDerived()
     marker: Marker = implemented
+}
+
+func UseStructAsMarker() {
+    marked := new MarkedStruct()
+    marker: Marker = marked
+}
+
+func UseRecordAsMarker() {
+    marked := new MarkedRecord()
+    marker: Marker = marked
+}
+
+func UseChildMarkerAsMarker(child: ChildMarker) {
+    marker: Marker = child
 }
 
 duck interface Reader {
@@ -433,6 +456,9 @@ interface Named {
         var openType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Open"]);
         var derivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Derived"]);
         var implementedDerivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["ImplementedDerived"]);
+        var markedStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["MarkedStruct"]);
+        var markedRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["MarkedRecord"]);
+        var childMarkerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["ChildMarker"]);
         var readerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Reader"]);
         var namedType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Named"]);
 
@@ -443,6 +469,9 @@ interface Named {
         var derivedBase = Assert.IsType<SimpleTypeReference>(derivedType.BaseClass);
         Assert.Equal("Base", derivedBase.Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(implementedDerivedType.Interfaces)).Name);
+        Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(markedStructType.Interfaces)).Name);
+        Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(markedRecordType.Interfaces)).Name);
+        Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(childMarkerType.BaseInterfaces)).Name);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.True(readerType.IsDuckInterface);
         Assert.False(namedType.IsDuckInterface);

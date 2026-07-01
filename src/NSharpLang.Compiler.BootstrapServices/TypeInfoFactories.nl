@@ -22,7 +22,8 @@ public class NominalTypeInfoFactory {
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"))
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
+            GetTypeReferenceArray(declaration, "Interfaces"))
     }
 
     public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
@@ -31,7 +32,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"))
+            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
+            GetTypeReferenceArray(declaration, "Interfaces"))
     }
 
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
@@ -40,7 +42,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"))
+            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"),
+            GetTypeReferenceArray(declaration, "BaseInterfaces"))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {

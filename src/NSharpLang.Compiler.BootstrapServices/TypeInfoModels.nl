@@ -53,17 +53,20 @@ public class StructTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
+    interfacesValue: TypeReference[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
+    Interfaces: TypeReference[] => interfacesValue
 
-    constructor(declaration: object, name: string, line: int, column: int) {
+    constructor(declaration: object, name: string, line: int, column: int, interfaces: TypeReference[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
+        interfacesValue = interfaces
     }
 
     override func ToString(): string {
@@ -77,19 +80,22 @@ public class RecordTypeInfo: TypeInfo {
     lineValue: int
     columnValue: int
     isStructValue: bool
+    interfacesValue: TypeReference[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
     IsStruct: bool => isStructValue
+    Interfaces: TypeReference[] => interfacesValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool) {
+    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         isStructValue = isStruct
+        interfacesValue = interfaces
     }
 
     override func ToString(): string {
@@ -103,19 +109,22 @@ public class InterfaceTypeInfo: TypeInfo {
     lineValue: int
     columnValue: int
     isDuckInterfaceValue: bool
+    baseInterfacesValue: TypeReference[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
     IsDuckInterface: bool => isDuckInterfaceValue
+    BaseInterfaces: TypeReference[] => baseInterfacesValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool = false) {
+    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         isDuckInterfaceValue = isDuckInterface
+        baseInterfacesValue = baseInterfaces
     }
 
     override func ToString(): string {
