@@ -532,6 +532,45 @@ func Main() {
     }
 
     [Fact]
+    public void RunCommandKernels_SummarizesOptionsAndMessages()
+    {
+        var args = new[] { "--backend", "il", "Program.nl" };
+
+        var summary = RunCommandKernels.GetOptionSummary(args);
+        Assert.Equal("il", summary.BackendOption);
+        Assert.False(summary.ShowHelp);
+        Assert.Equal("Program.nl", RunCommandKernels.GetSourceOperand(args));
+
+        var helpSummary = RunCommandKernels.GetOptionSummary(new[] { "help" });
+        Assert.True(helpSummary.ShowHelp);
+        Assert.Null(RunCommandKernels.GetSourceOperand(Array.Empty<string>()));
+
+        var permissiveValue = RunCommandKernels.GetOptionSummary(new[] { "--backend", "--help" });
+        Assert.Equal("--help", permissiveValue.BackendOption);
+        Assert.True(permissiveValue.ShowHelp);
+        Assert.Null(RunCommandKernels.GetSourceOperand(new[] { "--backend", "--help" }));
+
+        Assert.True(RunCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        var helpText = RunCommandKernels.GetHelpText();
+        Assert.Contains("N# Run", helpText);
+        Assert.Contains("Usage: nlc run [file.nl]", helpText);
+        Assert.Contains("Program ran successfully", helpText);
+        Assert.Equal("File not found: missing.nl", RunCommandKernels.GetFileNotFoundMessage("missing.nl"));
+        Assert.Equal("Running Program.nl...", RunCommandKernels.GetSourceStartingMessage("Program.nl"));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
+            RunCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal("Cannot run a library project.", RunCommandKernels.GetLibraryProjectMessage());
+        Assert.Equal("Running...", RunCommandKernels.GetProjectStartingMessage());
+        Assert.Equal(
+            "Running Program.nl with the IL backend...",
+            RunCommandKernels.GetSingleFileBackendStartMessage("Program.nl"));
+        Assert.Equal("Cannot run a library source file.", RunCommandKernels.GetLibrarySourceFileMessage());
+        Assert.Equal("Run failed: denied", RunCommandKernels.GetFailedMessage("denied"));
+    }
+
+    [Fact]
     public void DaemonCommandKernels_SummarizesOptions()
     {
         var args = new[] { "status", "--project", "samples/demo" };
