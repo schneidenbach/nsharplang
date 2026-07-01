@@ -139,17 +139,17 @@ internal class LintVisitor
         foreach (var kvp in _declaredVariables)
         {
             var (varName, (line, column, used)) = (kvp.Key, kvp.Value);
-            if (!used
-                && !_usedVariables.Contains(varName)
-                && varName != "_"
-                && !varName.StartsWith("_", StringComparison.Ordinal))
+            if (LinterBindingUsageCore.ShouldReportUnusedVariable(
+                varName,
+                used,
+                _usedVariables.Contains(varName)))
             {
                 AddDiagnostic(
                     "NL001",
-                    $"Variable '{varName}' is declared but never read",
+                    LinterBindingUsageCore.UnusedVariableMessage(varName),
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL001"),
-                    $"If this is intentional, prefix it with '_' to indicate it's unused: '_{varName}'",
+                    LinterBindingUsageCore.UnusedVariableSuggestion(varName),
                     varName.Length);
             }
         }
@@ -364,20 +364,16 @@ internal class LintVisitor
 
         foreach (var (name, line, column) in _currentFunctionParams)
         {
-            // Underscore-prefixed parameters are an explicit "intentionally unused" signal
-            // (e.g. an interface/override that doesn't need the value). Honor it so this
-            // build-blocking error never fires for parameters the author already opted out of.
-            if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
-                continue;
-
-            if (!_currentFunctionParamUsages.Contains(name))
+            if (LinterBindingUsageCore.ShouldReportUnusedParameter(
+                name,
+                _currentFunctionParamUsages.Contains(name)))
             {
                 AddDiagnostic(
                     "NL012",
-                    $"Parameter '{name}' in '{functionName}' is never read — is it needed?",
+                    LinterBindingUsageCore.UnusedParameterMessage(name, functionName),
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL012"),
-                    $"If the parameter is required by an interface or override, prefix with '_' to suppress this: '_{name}'");
+                    LinterBindingUsageCore.UnusedParameterSuggestion(name));
             }
         }
     }

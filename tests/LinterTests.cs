@@ -65,6 +65,26 @@ public class LinterTests
     #region NL001: Unused Variable Tests
 
     [Fact]
+    public void LinterBindingUsageCore_OwnsUnusedBindingPolicyAndText()
+    {
+        Assert.True(LinterBindingUsageCore.ShouldReportUnusedVariable("value", false, false));
+        Assert.False(LinterBindingUsageCore.ShouldReportUnusedVariable("value", true, false));
+        Assert.False(LinterBindingUsageCore.ShouldReportUnusedVariable("value", false, true));
+        Assert.False(LinterBindingUsageCore.ShouldReportUnusedVariable("_value", false, false));
+
+        Assert.True(LinterBindingUsageCore.ShouldReportUnusedParameter("options", false));
+        Assert.False(LinterBindingUsageCore.ShouldReportUnusedParameter("_options", false));
+        Assert.False(LinterBindingUsageCore.ShouldReportUnusedParameter("options", true));
+
+        Assert.Equal("Variable 'value' is declared but never read", LinterBindingUsageCore.UnusedVariableMessage("value"));
+        Assert.Contains("'_value'", LinterBindingUsageCore.UnusedVariableSuggestion("value"));
+        Assert.Equal(
+            "Parameter 'options' in 'Run' is never read — is it needed?",
+            LinterBindingUsageCore.UnusedParameterMessage("options", "Run"));
+        Assert.Contains("'_options'", LinterBindingUsageCore.UnusedParameterSuggestion("options"));
+    }
+
+    [Fact]
     public void NL001_DetectsUnusedVariable()
     {
         var source = "func main() { x := 5 }";
