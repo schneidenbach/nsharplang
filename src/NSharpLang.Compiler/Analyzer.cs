@@ -7440,53 +7440,6 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Maps an overloadable N# binary operator to its CLR special-method name (e.g. <c>+</c> →
-    /// <c>op_Addition</c>). Operators that the analyzer does not resolve through this path return
-    /// <c>null</c> so the caller leaves diagnostics unchanged.
-    /// </summary>
-    private static string? GetBinaryOperatorClrName(BinaryOperator op) => op switch
-    {
-        BinaryOperator.Add => "op_Addition",
-        BinaryOperator.Subtract => "op_Subtraction",
-        BinaryOperator.Multiply => "op_Multiply",
-        BinaryOperator.Divide => "op_Division",
-        BinaryOperator.Modulo => "op_Modulus",
-        BinaryOperator.Equal => "op_Equality",
-        BinaryOperator.NotEqual => "op_Inequality",
-        BinaryOperator.BitwiseAnd => "op_BitwiseAnd",
-        BinaryOperator.BitwiseOr => "op_BitwiseOr",
-        BinaryOperator.BitwiseXor => "op_ExclusiveOr",
-        BinaryOperator.LeftShift => "op_LeftShift",
-        BinaryOperator.RightShift => "op_RightShift",
-        BinaryOperator.Less => "op_LessThan",
-        BinaryOperator.Greater => "op_GreaterThan",
-        BinaryOperator.LessOrEqual => "op_LessThanOrEqual",
-        BinaryOperator.GreaterOrEqual => "op_GreaterThanOrEqual",
-        _ => null
-    };
-
-    private static string? GetBinaryOperatorSymbol(BinaryOperator op) => op switch
-    {
-        BinaryOperator.Add => "+",
-        BinaryOperator.Subtract => "-",
-        BinaryOperator.Multiply => "*",
-        BinaryOperator.Divide => "/",
-        BinaryOperator.Modulo => "%",
-        BinaryOperator.Equal => "==",
-        BinaryOperator.NotEqual => "!=",
-        BinaryOperator.BitwiseAnd => "&",
-        BinaryOperator.BitwiseOr => "|",
-        BinaryOperator.BitwiseXor => "^",
-        BinaryOperator.LeftShift => "<<",
-        BinaryOperator.RightShift => ">>",
-        BinaryOperator.Less => "<",
-        BinaryOperator.Greater => ">",
-        BinaryOperator.LessOrEqual => "<=",
-        BinaryOperator.GreaterOrEqual => ">=",
-        _ => null
-    };
-
-    /// <summary>
     /// Attempts to resolve a binary operator to a user-declared or runtime operator overload
     /// (<c>op_Addition</c>, <c>op_BitwiseAnd</c>, and friends). On success, <paramref name="result"/>
     /// is the operator's result type. This keeps the analyzer in step with the IL backend, which binds
@@ -7501,8 +7454,8 @@ public class Analyzer : IDisposable
     {
         result = BuiltInTypes.Unknown;
 
-        var clrName = GetBinaryOperatorClrName(op);
-        var symbol = GetBinaryOperatorSymbol(op);
+        var clrName = OperatorFacts.GetBinaryClrName(op);
+        var symbol = OperatorFacts.GetBinarySymbol(op);
         if (clrName == null || symbol == null)
         {
             return false;
@@ -7683,32 +7636,12 @@ public class Analyzer : IDisposable
                 || (parameterType.IsByRef && parameterType.GetElementType() == argumentType);
     }
 
-    private static string? GetUnaryOperatorClrName(UnaryOperator op) => op switch
-    {
-        UnaryOperator.Negate => "op_UnaryNegation",
-        UnaryOperator.Not => "op_LogicalNot",
-        UnaryOperator.BitwiseNot => "op_OnesComplement",
-        UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "op_Increment",
-        UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "op_Decrement",
-        _ => null
-    };
-
-    private static string? GetUnaryOperatorSymbol(UnaryOperator op) => op switch
-    {
-        UnaryOperator.Negate => "-",
-        UnaryOperator.Not => "!",
-        UnaryOperator.BitwiseNot => "~",
-        UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "++",
-        UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "--",
-        _ => null
-    };
-
     private bool TryResolveUnaryOperatorOverloadResult(UnaryOperator op, TypeInfo operand, out TypeInfo result)
     {
         result = BuiltInTypes.Unknown;
 
-        var clrName = GetUnaryOperatorClrName(op);
-        var symbol = GetUnaryOperatorSymbol(op);
+        var clrName = OperatorFacts.GetUnaryClrName(op);
+        var symbol = OperatorFacts.GetUnarySymbol(op);
         if (clrName == null || symbol == null)
         {
             return false;
@@ -7833,7 +7766,7 @@ public class Analyzer : IDisposable
         if (isIncrementOrDecrement
             && ReportNullConditionalWriteTargetIfNeeded(
                 unary.Operand,
-                $"changed with '{GetUnaryOperatorSymbol(unary.Operator) ?? "operator"}'"))
+                $"changed with '{OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator"}'"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -7894,7 +7827,7 @@ public class Analyzer : IDisposable
         if (isIncrementOrDecrement
             && ReportReadOnlyPropertyWriteTargetIfNeeded(
                 unary.Operand,
-                GetUnaryOperatorSymbol(unary.Operator) ?? "operator",
+                OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator",
                 targetExpressionTypes))
         {
             return BuiltInTypes.Unknown;
@@ -7959,7 +7892,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var opText = GetUnaryOperatorSymbol(unary.Operator) ?? "operator";
+        var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
         var (line, column, length) = GetExpressionDiagnosticSpan(unary.Operand);
         Error(
             ErrorCode.InvalidSyntax,
@@ -15614,7 +15547,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var opText = GetUnaryOperatorSymbol(unary.Operator) ?? "operator";
+        var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
         var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column);
         var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
         var suggestion = readonlyTarget.IsStatic
@@ -16200,7 +16133,7 @@ public class Analyzer : IDisposable
                 return null;
 
             case BinaryExpression binary:
-                if (!IsSupportedExpressionTreeBinaryOperator(binary.Operator))
+                if (!OperatorFacts.IsSupportedExpressionTreeBinaryOperator(binary.Operator))
                 {
                     return (binary, $"binary operator '{OperatorFacts.GetBinaryText(binary.Operator)}'");
                 }
@@ -16209,7 +16142,7 @@ public class Analyzer : IDisposable
                     ?? FindUnsupportedExpressionTreeExpression(binary.Right, parameterNames);
 
             case UnaryExpression unary:
-                if (!IsSupportedExpressionTreeUnaryOperator(unary.Operator))
+                if (!OperatorFacts.IsSupportedExpressionTreeUnaryOperator(unary.Operator))
                 {
                     return (unary, $"unary operator '{OperatorFacts.GetUnaryText(unary.Operator)}'");
                 }
@@ -16344,30 +16277,6 @@ public class Analyzer : IDisposable
                 return false;
         }
     }
-
-    private static bool IsSupportedExpressionTreeBinaryOperator(BinaryOperator op)
-        => op is BinaryOperator.Add
-            or BinaryOperator.Subtract
-            or BinaryOperator.Multiply
-            or BinaryOperator.Divide
-            or BinaryOperator.Modulo
-            or BinaryOperator.Equal
-            or BinaryOperator.NotEqual
-            or BinaryOperator.Less
-            or BinaryOperator.LessOrEqual
-            or BinaryOperator.Greater
-            or BinaryOperator.GreaterOrEqual
-            or BinaryOperator.And
-            or BinaryOperator.Or
-            or BinaryOperator.BitwiseAnd
-            or BinaryOperator.BitwiseOr
-            or BinaryOperator.BitwiseXor
-            or BinaryOperator.LeftShift
-            or BinaryOperator.RightShift;
-
-    private static bool IsSupportedExpressionTreeUnaryOperator(UnaryOperator op)
-        => op is UnaryOperator.Not
-            or UnaryOperator.Negate;
 
     private static bool IsExpressionTreeAnonymousObjectCreation(NewExpression newExpression)
         => newExpression.Type == null

@@ -54,4 +54,45 @@ public class OperatorFactsTests
         Assert.Equal("/=", OperatorFacts.GetAssignmentText(AssignmentOperator.DivideAssign));
         Assert.Equal("??=", OperatorFacts.GetAssignmentText(AssignmentOperator.NullCoalesceAssign));
     }
+
+    [Fact]
+    public void OperatorFacts_ReturnsBinaryOperatorOverloadMetadata()
+    {
+        Assert.Equal("op_Addition", OperatorFacts.GetBinaryClrName(BinaryOperator.Add));
+        Assert.Equal("+", OperatorFacts.GetBinarySymbol(BinaryOperator.Add));
+        Assert.Equal("op_LessThanOrEqual", OperatorFacts.GetBinaryClrName(BinaryOperator.LessOrEqual));
+        Assert.Equal("<=", OperatorFacts.GetBinarySymbol(BinaryOperator.LessOrEqual));
+
+        Assert.Null(OperatorFacts.GetBinaryClrName(BinaryOperator.NullCoalesce));
+        Assert.Null(OperatorFacts.GetBinarySymbol(BinaryOperator.NullCoalesce));
+        Assert.Null(OperatorFacts.GetBinaryClrName(BinaryOperator.Range));
+        Assert.Null(OperatorFacts.GetBinarySymbol(BinaryOperator.Range));
+    }
+
+    [Fact]
+    public void OperatorFacts_ReturnsUnaryOperatorOverloadMetadata()
+    {
+        Assert.Equal("op_UnaryNegation", OperatorFacts.GetUnaryClrName(UnaryOperator.Negate));
+        Assert.Equal("-", OperatorFacts.GetUnarySymbol(UnaryOperator.Negate));
+        Assert.Equal("op_Increment", OperatorFacts.GetUnaryClrName(UnaryOperator.PostIncrement));
+        Assert.Equal("++", OperatorFacts.GetUnarySymbol(UnaryOperator.PostIncrement));
+
+        Assert.Null(OperatorFacts.GetUnaryClrName(UnaryOperator.IndexFromEnd));
+        Assert.Null(OperatorFacts.GetUnarySymbol(UnaryOperator.IndexFromEnd));
+    }
+
+    [Fact]
+    public void OperatorFacts_IdentifiesExpressionTreeSupportedOperators()
+    {
+        Assert.True(OperatorFacts.IsSupportedExpressionTreeBinaryOperator(BinaryOperator.Add));
+        Assert.True(OperatorFacts.IsSupportedExpressionTreeBinaryOperator(BinaryOperator.And));
+        Assert.True(OperatorFacts.IsSupportedExpressionTreeBinaryOperator(BinaryOperator.RightShift));
+        Assert.False(OperatorFacts.IsSupportedExpressionTreeBinaryOperator(BinaryOperator.NullCoalesce));
+        Assert.False(OperatorFacts.IsSupportedExpressionTreeBinaryOperator(BinaryOperator.Range));
+
+        Assert.True(OperatorFacts.IsSupportedExpressionTreeUnaryOperator(UnaryOperator.Negate));
+        Assert.True(OperatorFacts.IsSupportedExpressionTreeUnaryOperator(UnaryOperator.Not));
+        Assert.False(OperatorFacts.IsSupportedExpressionTreeUnaryOperator(UnaryOperator.BitwiseNot));
+        Assert.False(OperatorFacts.IsSupportedExpressionTreeUnaryOperator(UnaryOperator.IndexFromEnd));
+    }
 }
