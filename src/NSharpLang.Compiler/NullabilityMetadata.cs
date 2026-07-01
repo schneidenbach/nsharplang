@@ -57,35 +57,21 @@ public static class NullabilityMetadata
     public static string FormatReturnType(MethodInfo method)
         => FormatTypeInfo(ConvertReturn(method));
 
-    public static string FormatTypeInfo(TypeInfo typeInfo) => typeInfo switch
+    public static string FormatTypeInfo(TypeInfo typeInfo)
     {
-        SimpleTypeInfo s => s.Name,
-        ClassTypeInfo c => c.Name,
-        StructTypeInfo s => s.Name,
-        RecordTypeInfo r => r.Name,
-        SoaRecordTypeInfo soa => soa.Declaration.Name,
-        SoaRowTypeInfo row => $"{row.Declaration.Name}.Row",
-        InterfaceTypeInfo i => i.Name,
-        EnumTypeInfo e => e.Declaration.Name,
-        AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),
-        UnionTypeInfo u => u.Declaration.Name,
-        NewtypeInfo n => n.Name,
-        GenericTypeInfo g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(FormatTypeInfo))}>",
-        ArrayTypeInfo a => $"{FormatTypeInfo(a.ElementType)}[]",
-        NullableTypeInfo n => $"{FormatTypeInfo(n.InnerType)}?",
-        ObliviousTypeInfo o => $"{FormatTypeInfo(o.InnerType)}!",
-        ReflectionTypeInfo r => FormatClrTypeName(r.Type),
-        ExternalTypeInfo e => e.Name,
-        FunctionTypeInfo f => FormatFunctionType(f),
-        UnknownTypeInfo => "unknown",
-        _ => typeInfo.ToString() ?? "unknown"
-    };
+        if (typeInfo is ReflectionTypeInfo reflection)
+            return FormatClrTypeName(reflection.Type);
 
-    public static TypeInfo StripMetadata(TypeInfo typeInfo) => typeInfo switch
-    {
-        ObliviousTypeInfo oblivious => StripMetadata(oblivious.InnerType),
-        _ => typeInfo
-    };
+        if (typeInfo is NewtypeInfo newtype)
+            return newtype.Name;
+
+        return NullabilityTypeDisplay.TryFormatTypeInfo(typeInfo)
+            ?? typeInfo.ToString()
+            ?? "unknown";
+    }
+
+    public static TypeInfo StripMetadata(TypeInfo typeInfo)
+        => NullabilityTypeDisplay.StripMetadata(typeInfo);
 
     private static TypeInfo ConvertType(
         Type type,
@@ -216,17 +202,17 @@ public static class NullabilityMetadata
 
     private static NullabilityInfo? TryCreateNullabilityInfo(PropertyInfo property)
     {
-            return new NullabilityInfoContext().Create(property);
+        return new NullabilityInfoContext().Create(property);
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(FieldInfo field)
     {
-            return new NullabilityInfoContext().Create(field);
+        return new NullabilityInfoContext().Create(field);
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(ParameterInfo parameter)
     {
-            return new NullabilityInfoContext().Create(parameter);
+        return new NullabilityInfoContext().Create(parameter);
     }
 
     private static NullabilityInfo? GetFirstGenericArgument(NullabilityInfo? info)
@@ -272,8 +258,8 @@ public static class NullabilityMetadata
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-            return parameter.GetCustomAttributesData()
-                .Any(attribute => attribute.AttributeType.FullName == "System.ParamArrayAttribute");
+        return parameter.GetCustomAttributesData()
+            .Any(attribute => attribute.AttributeType.FullName == "System.ParamArrayAttribute");
     }
 
     private static string FormatFlowAttributes(IEnumerable<CustomAttributeData> attributes)
@@ -298,14 +284,6 @@ public static class NullabilityMetadata
         }
 
         return formatted.Count == 0 ? string.Empty : string.Join(" ", formatted) + " ";
-    }
-
-    private static string FormatFunctionType(FunctionTypeInfo function)
-    {
-        if (function.ParameterTypes == null || function.ReturnType == null)
-            return function.SyntheticName ?? function.SourceName ?? "function";
-
-        return $"({string.Join(", ", function.ParameterTypes.Select(FormatTypeInfo))}) -> {FormatTypeInfo(function.ReturnType)}";
     }
 
     private static string FormatClrTypeName(Type type)
