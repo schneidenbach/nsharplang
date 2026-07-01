@@ -9122,40 +9122,6 @@ public class Analyzer : IDisposable
             member.KindName);
     }
 
-    private static string? GetDeclarationName(Declaration declaration) => declaration switch
-    {
-        FunctionDeclaration function => function.Name,
-        FieldDeclaration field => field.Name,
-        PropertyDeclaration property => property.Name,
-        ClassDeclaration classDecl => classDecl.Name,
-        StructDeclaration structDecl => structDecl.Name,
-        RecordDeclaration recordDecl => recordDecl.Name,
-        SoaRecordDeclaration soaRecordDecl => soaRecordDecl.Name,
-        InterfaceDeclaration interfaceDecl => interfaceDecl.Name,
-        EnumDeclaration enumDecl => enumDecl.Name,
-        UnionDeclaration unionDecl => unionDecl.Name,
-        TypeAliasDeclaration aliasDecl => aliasDecl.Name,
-        NewtypeDeclaration newtypeDecl => newtypeDecl.Name,
-        _ => null
-    };
-
-    private static string GetDeclarationKind(Declaration declaration) => declaration switch
-    {
-        FunctionDeclaration => "function",
-        FieldDeclaration => "field",
-        PropertyDeclaration => "property",
-        ClassDeclaration => "class",
-        StructDeclaration => "struct",
-        RecordDeclaration => "record",
-        SoaRecordDeclaration => "soaRecord",
-        InterfaceDeclaration => "interface",
-        EnumDeclaration => "enum",
-        UnionDeclaration => "union",
-        TypeAliasDeclaration => "typeAlias",
-        NewtypeDeclaration => "newtype",
-        _ => "variable"
-    };
-
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName, bool includeStaticMembers = true)
     {
         if (objectType is ObliviousTypeInfo obliviousType)
@@ -18945,7 +18911,7 @@ public class Analyzer : IDisposable
                 if (!TryCreateTopLevelTypeInfo(topLevelDeclaration, name, out type))
                     continue;
 
-                if (!isCurrentNamespace && !IsExportedDeclaration(topLevelDeclaration, name))
+                if (!isCurrentNamespace && !DeclarationFacts.IsExportedDeclaration(topLevelDeclaration, name))
                     continue;
 
                 declaration = new SymbolDeclaration(
@@ -18953,7 +18919,7 @@ public class Analyzer : IDisposable
                     filePath,
                     topLevelDeclaration.Line,
                     FindIdentifierNameColumn(sourceText, name, topLevelDeclaration.Line, topLevelDeclaration.Column),
-                    GetDeclarationKind(topLevelDeclaration));
+                    DeclarationFacts.GetDeclarationKind(topLevelDeclaration));
                 return true;
             }
         }
@@ -22029,22 +21995,9 @@ public class Analyzer : IDisposable
 
         foreach (var decl in unit.Declarations)
         {
-            var name = decl switch
-            {
-                ClassDeclaration c => c.Name,
-                StructDeclaration s => s.Name,
-                RecordDeclaration r => r.Name,
-                SoaRecordDeclaration soa => soa.Name,
-                InterfaceDeclaration i => i.Name,
-                UnionDeclaration u => u.Name,
-                EnumDeclaration e => e.Name,
-                TypeAliasDeclaration a => a.Name,
-                NewtypeDeclaration n => n.Name,
-                FunctionDeclaration f => f.Name,
-                _ => null
-            };
+            var name = DeclarationFacts.GetDeclarationName(decl);
 
-            if (name != null && IsExportedDeclaration(decl, name))
+            if (name != null && DeclarationFacts.IsExportedDeclaration(decl, name))
             {
                 var typeInfo = decl switch
                 {
@@ -22071,37 +22024,12 @@ public class Analyzer : IDisposable
                             filePath,
                             decl.Line,
                             FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
-                            GetDeclarationKind(decl))));
+                            DeclarationFacts.GetDeclarationKind(decl))));
                 }
             }
         }
 
         return symbols;
-    }
-
-    private static bool IsExportedDeclaration(Declaration declaration, string name)
-    {
-        return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration));
-    }
-
-    private static Modifiers GetDeclarationModifiers(Declaration declaration)
-    {
-        return declaration switch
-        {
-            ClassDeclaration c => c.Modifiers,
-            StructDeclaration s => s.Modifiers,
-            RecordDeclaration r => r.Modifiers,
-            SoaRecordDeclaration soa => soa.Modifiers,
-            InterfaceDeclaration i => i.Modifiers,
-            UnionDeclaration u => u.Modifiers,
-            EnumDeclaration e => e.Modifiers,
-            FunctionDeclaration f => f.Modifiers,
-            FieldDeclaration f => f.Modifiers,
-            PropertyDeclaration p => p.Modifiers,
-            ConstructorDeclaration c => c.Modifiers,
-            IndexerDeclaration i => i.Modifiers,
-            _ => Modifiers.None
-        };
     }
 
     private void CheckImportCollisions()
