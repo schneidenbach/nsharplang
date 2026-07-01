@@ -1154,9 +1154,9 @@ public class Analyzer : IDisposable
     }
 
     private bool SourceTypeDerivesFromAttribute(TypeInfo type)
-        => SourceTypeDerivesFromAttribute(type, new HashSet<ClassDeclaration>(ReferenceEqualityComparer.Instance));
+        => SourceTypeDerivesFromAttribute(type, new HashSet<string>(StringComparer.Ordinal));
 
-    private bool SourceTypeDerivesFromAttribute(TypeInfo type, HashSet<ClassDeclaration> seenClasses)
+    private bool SourceTypeDerivesFromAttribute(TypeInfo type, HashSet<string> seenClasses)
     {
         type = ResolveTypeAlias(type);
         if (type is ReflectionTypeInfo { Type: var reflectionType })
@@ -1169,14 +1169,13 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var classDeclaration = classType.GetDeclaration();
         var baseClass = classType.BaseClass;
         if (baseClass == null)
         {
             return false;
         }
 
-        if (!seenClasses.Add(classDeclaration))
+        if (!seenClasses.Add(classType.Name))
         {
             return false;
         }
@@ -9232,16 +9231,16 @@ public class Analyzer : IDisposable
 
     private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
     {
-        ClassTypeInfo classType => GetDeclarationFilePath(classType.Name, classType.GetDeclaration()),
-        StructTypeInfo structType => GetDeclarationFilePath(structType.Name, structType.GetDeclaration()),
-        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Name, recordType.GetDeclaration()),
-        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Name, interfaceType.GetDeclaration()),
+        ClassTypeInfo classType => GetDeclarationFilePath(classType.Name),
+        StructTypeInfo structType => GetDeclarationFilePath(structType.Name),
+        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Name),
+        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Name),
         EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
         UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
         _ => _currentFilePath
     };
 
-    private string? GetDeclarationFilePath(string typeName, Declaration? declaration = null)
+    private string? GetDeclarationFilePath(string typeName)
     {
         return _typeDeclarationFiles.TryGetValue(typeName, out var filePath)
             ? filePath
