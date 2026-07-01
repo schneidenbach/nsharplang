@@ -9,6 +9,7 @@ public class NominalTypeInfoFactory {
     public static func FromClassDeclaration(declaration: object): ClassTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
+        nestedTypes := GetNestedTypeArray(declaration)
         return new ClassTypeInfo(
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
@@ -20,10 +21,13 @@ public class NominalTypeInfoFactory {
             GetTypeParameterArray(declaration),
             primaryConstructorParameters,
             declaredMembers,
+            nestedTypes,
             HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
+        primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
+        declaredMembers := GetDeclaredMemberArray(declaration)
         return new StructTypeInfo(
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
@@ -31,11 +35,14 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"),
-            GetDeclaredMemberArray(declaration))
+            primaryConstructorParameters,
+            declaredMembers,
+            GetNestedTypeArray(declaration))
     }
 
     public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
+        primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
+        declaredMembers := GetDeclaredMemberArray(declaration)
         return new RecordTypeInfo(
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
@@ -44,11 +51,13 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
             GetTypeReferenceArray(declaration, "Interfaces"),
             GetTypeParameterArray(declaration),
-            GetParameterArray(declaration, "PrimaryConstructorParameters"),
-            GetDeclaredMemberArray(declaration))
+            primaryConstructorParameters,
+            declaredMembers,
+            GetNestedTypeArray(declaration))
     }
 
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
+        declaredMembers := GetDeclaredMemberArray(declaration)
         return new InterfaceTypeInfo(
             declaration,
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
@@ -57,7 +66,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"),
             GetTypeReferenceArray(declaration, "BaseInterfaces"),
             GetTypeParameterArray(declaration),
-            GetDeclaredMemberArray(declaration))
+            declaredMembers,
+            GetNestedTypeArray(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -180,6 +190,36 @@ public class NominalTypeInfoFactory {
         return result
     }
 
+    static func GetNestedTypeArray(owner: object): NestedTypeInfo[] {
+        source := TypeInfoFactoryReflection.GetRequiredList(owner, "Members")
+
+        count := 0
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item != null && IsNestedTypeDeclarationName(item.GetType().Name) {
+                count = count + 1
+            }
+
+            index = index + 1
+        }
+
+        result := new NestedTypeInfo[](count)
+        resultIndex := 0
+        index = 0
+        while index < source.Count {
+            item := source[index]
+            if item != null && IsNestedTypeDeclarationName(item.GetType().Name) {
+                result[resultIndex] = CreateNestedTypeInfo(item)
+                resultIndex = resultIndex + 1
+            }
+
+            index = index + 1
+        }
+
+        return result
+    }
+
     static func CreateDeclaredMemberInfo(member: object): DeclaredMemberInfo {
         typeName := member.GetType().Name
         name := GetOptionalString(member, "Name")
@@ -188,7 +228,7 @@ public class NominalTypeInfoFactory {
             name,
             kind,
             GetDeclaredMemberKindName(kind),
-            GetOptionalTypeReference(member, "Type"),
+            GetDeclaredMemberTypeReference(member, kind),
             HasOptionalModifier(member, 16),
             HasOptionalModifier(member, 512),
             HasOptionalPropertyValue(member, "SetBody"),
@@ -202,6 +242,20 @@ public class NominalTypeInfoFactory {
             GetOptionalBool(member, "IsImplicitConversion"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+    }
+
+    static func GetDeclaredMemberTypeReference(member: object, kind: DeclaredMemberKind): TypeReference? {
+        if kind == DeclaredMemberKind.Field
+            || kind == DeclaredMemberKind.Property
+            || kind == DeclaredMemberKind.TypeAlias {
+            return GetOptionalTypeReference(member, "Type")
+        }
+
+        if kind == DeclaredMemberKind.Newtype {
+            return GetOptionalTypeReference(member, "UnderlyingType")
+        }
+
+        return null
     }
 
     static func HasOptionalModifier(declaration: object, flag: int): bool {
@@ -339,6 +393,63 @@ public class NominalTypeInfoFactory {
         }
 
         return DeclaredMemberKind.Unknown
+    }
+
+    static func IsNestedTypeDeclarationName(typeName: string): bool {
+        return typeName == "ClassDeclaration"
+            || typeName == "StructDeclaration"
+            || typeName == "RecordDeclaration"
+            || typeName == "SoaRecordDeclaration"
+            || typeName == "InterfaceDeclaration"
+            || typeName == "EnumDeclaration"
+            || typeName == "UnionDeclaration"
+            || typeName == "TypeAliasDeclaration"
+            || typeName == "NewtypeDeclaration"
+    }
+
+    static func CreateNestedTypeInfo(declaration: object): NestedTypeInfo {
+        name := TypeInfoFactoryReflection.GetRequiredString(declaration, "Name")
+        typeName := declaration.GetType().Name
+
+        if typeName == "ClassDeclaration" {
+            return new NestedTypeInfo(name, FromClassDeclaration(declaration))
+        }
+        if typeName == "StructDeclaration" {
+            return new NestedTypeInfo(name, FromStructDeclaration(declaration))
+        }
+        if typeName == "RecordDeclaration" {
+            return new NestedTypeInfo(name, FromRecordDeclaration(declaration))
+        }
+        if typeName == "SoaRecordDeclaration" {
+            return new NestedTypeInfo(name, SoaTypeInfoFactory.FromDeclaration(declaration))
+        }
+        if typeName == "InterfaceDeclaration" {
+            return new NestedTypeInfo(name, FromInterfaceDeclaration(declaration))
+        }
+        if typeName == "EnumDeclaration" {
+            return new NestedTypeInfo(name, EnumTypeInfoFactory.FromDeclaration(declaration))
+        }
+        if typeName == "UnionDeclaration" {
+            return new NestedTypeInfo(name, UnionTypeInfoFactory.FromDeclaration(declaration))
+        }
+        if typeName == "TypeAliasDeclaration" {
+            aliasType := GetOptionalTypeReference(declaration, "Type")
+            if aliasType == null {
+                throw new InvalidOperationException("Expected '" + declaration.GetType().Name + ".Type' to be a type reference.")
+            }
+
+            return new NestedTypeInfo(name, new AliasTypeInfo(aliasType))
+        }
+        if typeName == "NewtypeDeclaration" {
+            underlyingType := GetOptionalTypeReference(declaration, "UnderlyingType")
+            if underlyingType == null {
+                throw new InvalidOperationException("Expected '" + declaration.GetType().Name + ".UnderlyingType' to be a type reference.")
+            }
+
+            return new NestedTypeInfo(name, new NewtypeInfo(name, underlyingType))
+        }
+
+        throw new InvalidOperationException("Expected '" + typeName + "' to be a nested type declaration.")
     }
 
     static func GetDeclaredMemberKindName(kind: DeclaredMemberKind): string {

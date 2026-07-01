@@ -117,6 +117,19 @@ public class ParameterDeclarationInfo {
     }
 }
 
+public class NestedTypeInfo {
+    nameValue: string
+    typeValue: TypeInfo
+
+    Name: string => nameValue
+    Type: TypeInfo => typeValue
+
+    constructor(name: string, nestedType: TypeInfo) {
+        nameValue = name
+        typeValue = nestedType
+    }
+}
+
 public class TypeInfo {
 }
 
@@ -131,6 +144,7 @@ public class ClassTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    nestedTypesValue: NestedTypeInfo[]
     hasParameterlessConstructorValue: bool
 
     Declaration: object => declarationValue
@@ -143,6 +157,7 @@ public class ClassTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    NestedTypes: NestedTypeInfo[] => nestedTypesValue
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
     constructor(
@@ -156,6 +171,7 @@ public class ClassTypeInfo: TypeInfo {
         typeParameters: TypeParameter[],
         primaryConstructorParameters: ParameterDeclarationInfo[],
         declaredMembers: DeclaredMemberInfo[],
+        nestedTypes: NestedTypeInfo[],
         hasParameterlessConstructor: bool) {
         declarationValue = declaration
         nameValue = name
@@ -167,6 +183,7 @@ public class ClassTypeInfo: TypeInfo {
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
         declaredMembersValue = declaredMembers
+        nestedTypesValue = nestedTypes
         hasParameterlessConstructorValue = hasParameterlessConstructor
     }
 
@@ -184,6 +201,7 @@ public class StructTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    nestedTypesValue: NestedTypeInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -193,6 +211,7 @@ public class StructTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
         declaration: object,
@@ -202,7 +221,8 @@ public class StructTypeInfo: TypeInfo {
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
         primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[]) {
+        declaredMembers: DeclaredMemberInfo[],
+        nestedTypes: NestedTypeInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -211,6 +231,7 @@ public class StructTypeInfo: TypeInfo {
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
         declaredMembersValue = declaredMembers
+        nestedTypesValue = nestedTypes
     }
 
     override func ToString(): string {
@@ -228,6 +249,7 @@ public class RecordTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    nestedTypesValue: NestedTypeInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -238,6 +260,7 @@ public class RecordTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
         declaration: object,
@@ -248,7 +271,8 @@ public class RecordTypeInfo: TypeInfo {
         interfaces: TypeReference[],
         typeParameters: TypeParameter[],
         primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[]) {
+        declaredMembers: DeclaredMemberInfo[],
+        nestedTypes: NestedTypeInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -258,6 +282,7 @@ public class RecordTypeInfo: TypeInfo {
         typeParametersValue = typeParameters
         primaryConstructorParametersValue = primaryConstructorParameters
         declaredMembersValue = declaredMembers
+        nestedTypesValue = nestedTypes
     }
 
     override func ToString(): string {
@@ -274,6 +299,7 @@ public class InterfaceTypeInfo: TypeInfo {
     baseInterfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
     declaredMembersValue: DeclaredMemberInfo[]
+    nestedTypesValue: NestedTypeInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -283,6 +309,7 @@ public class InterfaceTypeInfo: TypeInfo {
     BaseInterfaces: TypeReference[] => baseInterfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constructor(
         declaration: object,
@@ -292,7 +319,8 @@ public class InterfaceTypeInfo: TypeInfo {
         isDuckInterface: bool,
         baseInterfaces: TypeReference[],
         typeParameters: TypeParameter[],
-        declaredMembers: DeclaredMemberInfo[]) {
+        declaredMembers: DeclaredMemberInfo[],
+        nestedTypes: NestedTypeInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -301,6 +329,7 @@ public class InterfaceTypeInfo: TypeInfo {
         baseInterfacesValue = baseInterfaces
         typeParametersValue = typeParameters
         declaredMembersValue = declaredMembers
+        nestedTypesValue = nestedTypes
     }
 
     override func ToString(): string {

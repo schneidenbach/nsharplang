@@ -7449,6 +7449,31 @@ func Main() {
     }
 
     [Fact]
+    public void NestedClass_ResolvesThroughOwnerTypeInfo()
+    {
+        AssertNoErrors(@"
+            class Outer {
+                class Inner {
+                    Value: int
+
+                    constructor(value: int) {
+                        Value = value
+                    }
+                }
+            }
+
+            func MakeInner(): Outer.Inner {
+                return new Outer.Inner(42)
+            }
+
+            func Main() {
+                item := MakeInner()
+                value := item.Value
+            }
+        ");
+    }
+
+    [Fact]
     public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
     {
         var result = AnalyzeWithSource(@"

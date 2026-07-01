@@ -8737,10 +8737,10 @@ public class Analyzer : IDisposable
 
         var members = ownerType switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
-            InterfaceTypeInfo interfaceType => interfaceType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.NestedTypes,
+            StructTypeInfo structType => structType.NestedTypes,
+            RecordTypeInfo recordType => recordType.NestedTypes,
+            InterfaceTypeInfo interfaceType => interfaceType.NestedTypes,
             _ => null
         };
 
@@ -9453,7 +9453,7 @@ public class Analyzer : IDisposable
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(classType.GetDeclaration().Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(classType.NestedTypes, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9488,7 +9488,7 @@ public class Analyzer : IDisposable
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(structType.GetDeclaration().Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(structType.NestedTypes, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9514,7 +9514,7 @@ public class Analyzer : IDisposable
             }
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(recordType.GetDeclaration().Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(recordType.NestedTypes, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9534,7 +9534,7 @@ public class Analyzer : IDisposable
                 return resolvedMember;
 
             if (includeStaticMembers
-                && TryResolveNestedTypeMember(interfaceType.GetDeclaration().Members, memberName, out var nestedTypeMember))
+                && TryResolveNestedTypeMember(interfaceType.NestedTypes, memberName, out var nestedTypeMember))
             {
                 return nestedTypeMember;
             }
@@ -9807,16 +9807,16 @@ public class Analyzer : IDisposable
     }
 
     private bool TryResolveNestedTypeMember(
-        IEnumerable<Declaration> members,
+        IEnumerable<NestedTypeInfo> nestedTypes,
         string memberName,
         out TypeInfo memberType)
     {
-        foreach (var member in members)
+        foreach (var nestedType in nestedTypes)
         {
-            if (!IsNestedTypeDeclaration(member) || GetDeclarationName(member) != memberName)
+            if (nestedType.Name != memberName)
                 continue;
 
-            memberType = CreateTypeInfoForDeclaration(member);
+            memberType = nestedType.Type;
             return true;
         }
 
@@ -9880,31 +9880,6 @@ public class Analyzer : IDisposable
 
     private static bool IsSystemObjectType(Type type)
         => type == typeof(object) || string.Equals(type.FullName, "System.Object", StringComparison.Ordinal);
-
-    private static bool IsNestedTypeDeclaration(Declaration declaration)
-        => declaration is ClassDeclaration
-            or StructDeclaration
-            or RecordDeclaration
-            or SoaRecordDeclaration
-            or InterfaceDeclaration
-            or EnumDeclaration
-            or UnionDeclaration
-            or TypeAliasDeclaration
-            or NewtypeDeclaration;
-
-    private static TypeInfo CreateTypeInfoForDeclaration(Declaration declaration) => declaration switch
-    {
-        ClassDeclaration classDecl => NominalTypeInfoFactory.FromClassDeclaration(classDecl),
-        StructDeclaration structDecl => NominalTypeInfoFactory.FromStructDeclaration(structDecl),
-        RecordDeclaration recordDecl => NominalTypeInfoFactory.FromRecordDeclaration(recordDecl),
-        SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
-        InterfaceDeclaration interfaceDecl => NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl),
-        EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
-        UnionDeclaration unionDecl => UnionTypeInfoFactory.FromDeclaration(unionDecl),
-        TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
-        NewtypeDeclaration newtypeDecl => new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType),
-        _ => BuiltInTypes.Unknown
-    };
 
     private TypeInfo TryResolveExtensionMethod(TypeInfo targetType, string methodName)
     {
