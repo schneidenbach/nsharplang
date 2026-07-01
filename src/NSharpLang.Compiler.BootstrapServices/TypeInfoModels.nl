@@ -39,6 +39,7 @@ public class DeclaredMemberInfo {
     parameterModifiersValue: ParameterModifier[]
     requiredParameterCountValue: int
     hasParamsParameterValue: bool
+    hasReceiverParameterValue: bool
     returnTypeValue: TypeReference?
     typeParameterCountValue: int
     typeParametersValue: TypeParameter[]
@@ -69,6 +70,7 @@ public class DeclaredMemberInfo {
     ParameterModifiers: ParameterModifier[] => parameterModifiersValue
     RequiredParameterCount: int => requiredParameterCountValue
     HasParamsParameter: bool => hasParamsParameterValue
+    HasReceiverParameter: bool => hasReceiverParameterValue
     ReturnType: TypeReference? => returnTypeValue
     TypeParameterCount: int => typeParameterCountValue
     TypeParameters: TypeParameter[] => typeParametersValue
@@ -100,6 +102,7 @@ public class DeclaredMemberInfo {
         parameterModifiers: ParameterModifier[],
         requiredParameterCount: int,
         hasParamsParameter: bool,
+        hasReceiverParameter: bool,
         returnType: TypeReference?,
         typeParameterCount: int,
         typeParameters: TypeParameter[],
@@ -129,6 +132,7 @@ public class DeclaredMemberInfo {
         parameterModifiersValue = parameterModifiers
         requiredParameterCountValue = requiredParameterCount
         hasParamsParameterValue = hasParamsParameter
+        hasReceiverParameterValue = hasReceiverParameter
         returnTypeValue = returnType
         typeParameterCountValue = typeParameterCount
         typeParametersValue = typeParameters
@@ -672,6 +676,7 @@ public class FunctionTypeInfo: TypeInfo {
     SourceLine: int
     SourceColumn: int
     SourceParameterCount: int
+    SourceHasReceiverParameter: bool
     ParameterNames: List<string>?
     ParameterTypes: List<TypeInfo>?
     SourceParameterTypes: List<TypeReference>?
@@ -690,6 +695,7 @@ public class FunctionTypeInfo: TypeInfo {
         SourceLine = 0
         SourceColumn = 0
         SourceParameterCount = -1
+        SourceHasReceiverParameter = false
     }
 }
 

@@ -243,6 +243,7 @@ public class NominalTypeInfoFactory {
             GetParameterModifierArray(member),
             GetRequiredParameterCount(member),
             HasParamsParameter(member),
+            HasReceiverParameter(member),
             GetOptionalTypeReference(member, "ReturnType"),
             typeParameters.Length,
             typeParameters,
@@ -478,6 +479,29 @@ public class NominalTypeInfoFactory {
         }
 
         return false
+    }
+
+    static func HasReceiverParameter(owner: object): bool {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return false
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        if source.Count == 0 {
+            return false
+        }
+
+        first := source[0]
+        if first == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+        }
+
+        return GetOptionalBool(first, "IsThis")
     }
 
     static func HasMustUseAttribute(owner: object): bool {
