@@ -195,6 +195,8 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(member, "ReturnType"),
             GetOptionalBool(member, "IsOperatorOverload"),
             GetOptionalString(member, "OperatorSymbol"),
+            GetOptionalBool(member, "IsConversionOperator"),
+            GetOptionalBool(member, "IsImplicitConversion"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
     }

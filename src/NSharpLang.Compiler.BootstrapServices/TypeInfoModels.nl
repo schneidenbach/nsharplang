@@ -36,6 +36,8 @@ public class DeclaredMemberInfo {
     returnTypeValue: TypeReference?
     isOperatorOverloadValue: bool
     operatorSymbolValue: string
+    isConversionOperatorValue: bool
+    isImplicitConversionValue: bool
     lineValue: int
     columnValue: int
 
@@ -52,6 +54,8 @@ public class DeclaredMemberInfo {
     ReturnType: TypeReference? => returnTypeValue
     IsOperatorOverload: bool => isOperatorOverloadValue
     OperatorSymbol: string => operatorSymbolValue
+    IsConversionOperator: bool => isConversionOperatorValue
+    IsImplicitConversion: bool => isImplicitConversionValue
     Line: int => lineValue
     Column: int => columnValue
 
@@ -69,6 +73,8 @@ public class DeclaredMemberInfo {
         returnType: TypeReference?,
         isOperatorOverload: bool,
         operatorSymbol: string,
+        isConversionOperator: bool,
+        isImplicitConversion: bool,
         line: int,
         column: int) {
         nameValue = name
@@ -84,6 +90,8 @@ public class DeclaredMemberInfo {
         returnTypeValue = returnType
         isOperatorOverloadValue = isOperatorOverload
         operatorSymbolValue = operatorSymbol
+        isConversionOperatorValue = isConversionOperator
+        isImplicitConversionValue = isImplicitConversion
         lineValue = line
         columnValue = column
     }

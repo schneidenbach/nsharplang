@@ -20651,34 +20651,29 @@ public class Analyzer : IDisposable
 
     private bool HasImplicitConversion(TypeInfo source, TypeInfo target)
     {
-        // Get the members of the source type
-        List<Declaration>? sourceMembers = null;
+        var sourceMembers = source switch
+        {
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
+            _ => null
+        };
 
-        if (source is ClassTypeInfo classType)
-            sourceMembers = classType.GetDeclaration().Members;
-        else if (source is StructTypeInfo structType)
-            sourceMembers = structType.GetDeclaration().Members;
-        else if (source is RecordTypeInfo recordType)
-            sourceMembers = recordType.GetDeclaration().Members;
-        else
-            return false; // No conversion operators for other types
+        if (sourceMembers == null)
+            return false;
 
         // Look for implicit conversion operators
         foreach (var member in sourceMembers)
         {
-            if (member is not FunctionDeclaration func)
+            if (member.Kind != DeclaredMemberKind.Function
+                || !member.IsConversionOperator
+                || !member.IsImplicitConversion
+                || member.ReturnType == null)
+            {
                 continue;
+            }
 
-            // Check if this is an implicit conversion operator
-            if (!func.IsConversionOperator || !func.IsImplicitConversion)
-                continue;
-
-            // Check if it converts to the target type
-            // The return type of the conversion operator is the target type
-            if (func.ReturnType == null)
-                continue;
-
-            var returnType = ResolveType(func.ReturnType);
+            var returnType = ResolveType(member.ReturnType);
             if (IsAssignable(target, returnType))
             {
                 return true;

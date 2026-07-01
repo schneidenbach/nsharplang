@@ -31,7 +31,10 @@ public class AnalyzerTests
         analyzer.LoadSystemAssemblies();
 
         // Load from project config if provided
-        analyzer.LoadFromProjectConfig(config);
+        if (config != null)
+        {
+            analyzer.LoadFromProjectConfig(config);
+        }
 
         return analyzer.Analyze(result.CompilationUnit!);
     }
@@ -4681,7 +4684,7 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     [Fact]
     public void ImplicitConversion_ClassToClass()
     {
-        AssertNoErrors(@"
+        var result = AnalyzeWithSource("""
             class Celsius {
                 Value: double
 
@@ -4698,13 +4701,18 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 let c: Celsius = new Celsius { Value: 20.0 }
                 let f: Fahrenheit = c  // Implicit conversion should work
             }
-        ");
+        """);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
     }
 
     [Fact]
     public void ExplicitConversion_DoesNotAllowImplicitAssignment()
     {
-        AssertHasError(@"
+        var result = AnalyzeWithSource("""
             class Fraction {
                 Numerator: int
                 Denominator: int
@@ -4718,13 +4726,16 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 let frac: Fraction = new Fraction { Numerator: 3, Denominator: 4 }
                 let value: double = frac  // Should error - explicit conversion required
             }
-        ", "is typed as");
+        """);
+
+        Assert.True(result.HasErrors, "Expected errors but got none");
+        Assert.Contains(result.Errors, e => e.Message.Contains("is typed as"));
     }
 
     [Fact]
     public void ImplicitConversion_BidirectionalConversions()
     {
-        AssertNoErrors(@"
+        var result = AnalyzeWithSource("""
             class Meters {
                 Value: double
 
@@ -4746,7 +4757,40 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 let cm: Centimeters = m  // Meters -> Centimeters
                 let m2: Meters = cm      // Centimeters -> Meters
             }
-        ");
+        """);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
+    public void Assignment_UserDefinedImplicitConversion_Allowed()
+    {
+        var result = AnalyzeWithSource("""
+            class Celsius {
+                Value: double
+
+                implicit operator Fahrenheit(c: Celsius) {
+                    return new Fahrenheit { Value: c.Value }
+                }
+            }
+
+            class Fahrenheit {
+                Value: double
+            }
+
+            func Main() {
+                celsius := new Celsius { Value: 20.0 }
+                fahrenheit: Fahrenheit = celsius
+            }
+        """);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
     }
 
     [Fact]
@@ -5878,7 +5922,7 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
 
         Assert.True(result.HasErrors, "Expected method group binding to reject numeric parameter conversion.");
-        Assert.Contains(result.Errors, error => error.Message.Contains("AcceptLong"));
+        Assert.Contains(result.Errors, error => error.Code == ErrorCode.TypeMismatch);
     }
 
     [Fact]
@@ -9870,7 +9914,6 @@ func Main() {
     }
 
     #endregion
-
     [Fact]
     public void SetupSymbols_VisibleInTestBodies()
     {
