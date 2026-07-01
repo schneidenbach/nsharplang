@@ -839,7 +839,7 @@ public class CodeIntelligenceService
                 GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
                 declaration.Line,
                 declaration.Column),
-            typeInfo != null ? FormatNullState(GetDefaultNullState(typeInfo)) : null);
+            typeInfo != null ? NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)) : null);
     }
 
     private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
@@ -1566,10 +1566,10 @@ public class CodeIntelligenceService
             && semanticModel != null
             && semanticModel.ExpressionNullStates.TryGetValue((expression.Line, expression.Column), out var state))
         {
-            return FormatNullState(state);
+            return NullStateFacts.GetSchemaText(state);
         }
 
-        return FormatNullState(GetDefaultNullState(typeInfo));
+        return NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo));
     }
 
     private static NullState GetDefaultNullState(TypeInfo typeInfo)
@@ -1585,16 +1585,6 @@ public class CodeIntelligenceService
             _ => NullState.NotNull
         };
     }
-
-    private static string FormatNullState(NullState state) => state switch
-    {
-        NullState.Unknown => "unknown",
-        NullState.Null => "null",
-        NullState.MaybeNull => "maybeNull",
-        NullState.NotNull => "notNull",
-        NullState.Oblivious => "oblivious",
-        _ => "unknown"
-    };
 
     private static string TypeInfoToKind(TypeInfo typeInfo) => typeInfo switch
     {

@@ -6896,16 +6896,6 @@ public class Analyzer : IDisposable
     private static bool IsUnsafeNullState(NullState state)
         => state is NullState.Null or NullState.MaybeNull;
 
-    private static string FormatNullState(NullState state) => state switch
-    {
-        NullState.Unknown => "unknown",
-        NullState.Null => "null",
-        NullState.MaybeNull => "maybe-null",
-        NullState.NotNull => "not-null",
-        NullState.Oblivious => "oblivious",
-        _ => "unknown"
-    };
-
     private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
     {
         // Target-typed: use _currentExpectedType if available
@@ -8451,7 +8441,7 @@ public class Analyzer : IDisposable
         if (!_reportedNullabilityDiagnostics.Add(key))
             return;
 
-        var stateLabel = FormatNullState(nullState);
+        var stateLabel = NullStateFacts.GetDiagnosticText(nullState);
         var message = operation == "call"
             ? $"Possible null call: `{path}` is {stateLabel}"
             : $"Possible null {operation}: `{path}` is {stateLabel}";
