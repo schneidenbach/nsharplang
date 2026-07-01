@@ -434,6 +434,10 @@ class FunctionMemberBox {
     func Format(label: string, ref value: int): string {
         return label
     }
+
+    func FormatDefault(label: string, suffix: string = ""!""): string {
+        return label + suffix
+    }
 }
 
 struct MarkedStruct: Marker {
@@ -546,6 +550,12 @@ interface Named {
         Assert.Equal(0, formatMember.AttributeCount);
         Assert.False(formatMember.IsAsync);
         Assert.False(formatMember.IsGenerator);
+        var formatDefaultMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "FormatDefault");
+        Assert.Equal(DeclaredMemberKind.Function, formatDefaultMember.Kind);
+        Assert.Equal(2, formatDefaultMember.ParameterCount);
+        Assert.Equal(new[] { "label", "suffix" }, formatDefaultMember.ParameterNames);
+        Assert.Equal(1, formatDefaultMember.RequiredParameterCount);
+        Assert.False(formatDefaultMember.HasParamsParameter);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,

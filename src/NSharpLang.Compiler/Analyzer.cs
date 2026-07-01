@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -9788,7 +9789,8 @@ public class Analyzer : IDisposable
         => member.TypeParameterCount == 0
            && member.AttributeCount == 0
            && !member.HasParamsParameter
-           && member.RequiredParameterCount == member.ParameterCount
+           && member.RequiredParameterCount >= 0
+           && member.RequiredParameterCount <= member.ParameterCount
            && member.ParameterNames.Length == member.ParameterCount
            && member.ParameterTypes.Length == member.ParameterCount
            && member.ParameterModifiers.Length == member.ParameterCount;
@@ -10468,6 +10470,7 @@ public class Analyzer : IDisposable
             ParameterNames = member.ParameterNames.ToList(),
             ParameterTypes = member.ParameterTypes.Select(ResolveType).ToList(),
             ParameterModifiers = member.ParameterModifiers.ToList(),
+            RequiredParameterCount = member.RequiredParameterCount,
             ReturnType = ResolveDeclaredFunctionCallReturnType(member)
         };
     }
@@ -11345,12 +11348,16 @@ public class Analyzer : IDisposable
 
         var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
         var expectedCount = functionType.ParameterTypes.Count;
-        if (argTypes.Count != expectedCount)
+        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        if (argTypes.Count < requiredCount || argTypes.Count > expectedCount)
         {
             var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+            var expectedDescription = requiredCount == expectedCount
+                ? expectedCount.ToString(CultureInfo.InvariantCulture)
+                : $"{requiredCount.ToString(CultureInfo.InvariantCulture)} to {expectedCount.ToString(CultureInfo.InvariantCulture)}";
             Error(
                 ErrorCode.WrongArgumentCount,
-                $"'{functionName}' takes {expectedCount} argument(s), but you passed {argTypes.Count}",
+                $"'{functionName}' takes {expectedDescription} argument(s), but you passed {argTypes.Count}",
                 line,
                 column,
                 "Check the argument count against the function signature.",
@@ -11475,7 +11482,55 @@ public class Analyzer : IDisposable
             nextPositionalParameter++;
         }
 
+        var requiredCount = GetSyntheticRequiredParameterCount(functionType, expectedCount);
+        for (var parameterIndex = 0; parameterIndex < requiredCount; parameterIndex++)
+        {
+            if (boundArgumentIndexByParameter[parameterIndex] >= 0)
+                continue;
+
+            if (reportErrors)
+            {
+                ReportSyntheticMissingArgumentBindingError(
+                    functionType,
+                    functionName,
+                    call,
+                    parameterIndex);
+            }
+
+            success = false;
+        }
+
         return success;
+    }
+
+    private static int GetSyntheticRequiredParameterCount(FunctionTypeInfo functionType, int expectedCount)
+    {
+        var requiredCount = functionType.RequiredParameterCount ?? expectedCount;
+        if (requiredCount < 0 || requiredCount > expectedCount)
+            return expectedCount;
+
+        return requiredCount;
+    }
+
+    private void ReportSyntheticMissingArgumentBindingError(
+        FunctionTypeInfo functionType,
+        string functionName,
+        CallExpression call,
+        int parameterIndex)
+    {
+        var parameterName = functionType.ParameterNames != null
+                            && parameterIndex >= 0
+                            && parameterIndex < functionType.ParameterNames.Count
+            ? functionType.ParameterNames[parameterIndex]
+            : $"arg{parameterIndex + 1}";
+        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"'{functionName}' needs an argument for parameter '{parameterName}'",
+            line,
+            column,
+            $"Use {FormatSyntheticFunctionSignature(functionType, functionName)}.",
+            length);
     }
 
     private void ReportSyntheticArgumentBindingError(

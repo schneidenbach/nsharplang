@@ -654,6 +654,7 @@ public class FunctionTypeInfo: TypeInfo {
     ParameterNames: List<string>?
     ParameterTypes: List<TypeInfo>?
     ParameterModifiers: List<ParameterModifier>?
+    RequiredParameterCount: int?
     ReturnType: TypeInfo?
 
     constructor(declaration: object?) {
