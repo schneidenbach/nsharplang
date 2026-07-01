@@ -9138,7 +9138,7 @@ public class Analyzer : IDisposable
         {
             var classDeclaration = classType.GetDeclaration();
             var members = GetDeclaredMemberNames(classDeclaration.Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(classDeclaration.PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetPrimaryConstructorParameterNames(classType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             if (classType.BaseClass != null)
                 members.AddRange(GetAvailableMemberNames(ResolveType(classType.BaseClass), includeStaticMembers));
@@ -9148,7 +9148,7 @@ public class Analyzer : IDisposable
         if (receiverType is StructTypeInfo structType)
         {
             var members = GetDeclaredMemberNames(structType.GetDeclaration().Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(structType.GetDeclaration().PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetPrimaryConstructorParameterNames(structType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
@@ -9156,7 +9156,7 @@ public class Analyzer : IDisposable
         if (receiverType is RecordTypeInfo recordType)
         {
             var members = GetDeclaredMemberNames(recordType.GetDeclaration().Members);
-            members.AddRange(GetPrimaryConstructorParameterNames(recordType.GetDeclaration().PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetPrimaryConstructorParameterNames(recordType.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
         }
@@ -9217,10 +9217,10 @@ public class Analyzer : IDisposable
             .ToList();
 
     private static IEnumerable<string> GetPrimaryConstructorParameterNames(
-        List<Parameter>? parameters,
+        ParameterDeclarationInfo[] parameters,
         bool includeStaticMembers)
     {
-        return includeStaticMembers || parameters == null
+        return includeStaticMembers || parameters.Length == 0
             ? Enumerable.Empty<string>()
             : parameters.Select(parameter => parameter.Name);
     }
@@ -9470,7 +9470,7 @@ public class Analyzer : IDisposable
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(classType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(classType.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
@@ -9502,7 +9502,7 @@ public class Analyzer : IDisposable
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(structType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(structType.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
@@ -9524,7 +9524,7 @@ public class Analyzer : IDisposable
                 return resolvedMember;
 
             if (!includeStaticMembers
-                && TryResolvePrimaryConstructorParameter(recordType.GetDeclaration().PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+                && TryResolvePrimaryConstructorParameter(recordType.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
                 return primaryConstructorMember;
             }
@@ -9800,19 +9800,16 @@ public class Analyzer : IDisposable
     }
 
     private bool TryResolvePrimaryConstructorParameter(
-        List<Parameter>? parameters,
+        ParameterDeclarationInfo[] parameters,
         string memberName,
         out TypeInfo memberType)
     {
-        if (parameters != null)
+        foreach (var parameter in parameters)
         {
-            foreach (var parameter in parameters)
+            if (parameter.Name == memberName)
             {
-                if (parameter.Name == memberName)
-                {
-                    memberType = ResolveType(parameter.Type);
-                    return true;
-                }
+                memberType = ResolveType(parameter.Type);
+                return true;
             }
         }
 
@@ -12509,8 +12506,7 @@ public class Analyzer : IDisposable
             var classDeclaration = classType.GetDeclaration();
             // A class with a primary constructor (-style `class Foo(int x)`) suppresses
             // the implicit default constructor, so it does NOT satisfy new().
-            if (classDeclaration.PrimaryConstructorParameters != null
-                && classDeclaration.PrimaryConstructorParameters.Count > 0)
+            if (classType.PrimaryConstructorParameters.Length > 0)
                 return false;
 
             var constructors = classDeclaration.Members
@@ -12521,15 +12517,13 @@ public class Analyzer : IDisposable
 
         if (type is RecordTypeInfo recordType)
         {
-            var recordDeclaration = recordType.GetDeclaration();
             // Record structs always have an implicit parameterless constructor regardless of
             // whether they declare primary constructor parameters.
             if (recordType.IsStruct)
                 return true;
 
             // Record classes: a primary constructor with params suppresses the default ctor
-            return recordDeclaration.PrimaryConstructorParameters == null
-                || recordDeclaration.PrimaryConstructorParameters.Count == 0;
+            return recordType.PrimaryConstructorParameters.Length == 0;
         }
 
         if (type is ReflectionTypeInfo refl)
@@ -17429,29 +17423,29 @@ public class Analyzer : IDisposable
         TypeInfo type,
         out TypeParameter[] typeParameters,
         out List<Declaration> members,
-        out List<Parameter>? primaryConstructorParameters)
+        out ParameterDeclarationInfo[] primaryConstructorParameters)
     {
         switch (type)
         {
             case ClassTypeInfo classInfo:
                 typeParameters = classInfo.TypeParameters;
                 members = classInfo.GetDeclaration().Members;
-                primaryConstructorParameters = classInfo.GetDeclaration().PrimaryConstructorParameters;
+                primaryConstructorParameters = classInfo.PrimaryConstructorParameters;
                 return true;
             case StructTypeInfo structInfo:
                 typeParameters = structInfo.TypeParameters;
                 members = structInfo.GetDeclaration().Members;
-                primaryConstructorParameters = structInfo.GetDeclaration().PrimaryConstructorParameters;
+                primaryConstructorParameters = structInfo.PrimaryConstructorParameters;
                 return true;
             case RecordTypeInfo recordInfo:
                 typeParameters = recordInfo.TypeParameters;
                 members = recordInfo.GetDeclaration().Members;
-                primaryConstructorParameters = recordInfo.GetDeclaration().PrimaryConstructorParameters;
+                primaryConstructorParameters = recordInfo.PrimaryConstructorParameters;
                 return true;
             default:
                 typeParameters = Array.Empty<TypeParameter>();
                 members = null!;
-                primaryConstructorParameters = null;
+                primaryConstructorParameters = Array.Empty<ParameterDeclarationInfo>();
                 return false;
         }
     }
@@ -17463,7 +17457,7 @@ public class Analyzer : IDisposable
     /// </summary>
     private static TypeReference? FindDeclaredMemberTypeReference(
         List<Declaration> members,
-        List<Parameter>? primaryConstructorParameters,
+        ParameterDeclarationInfo[] primaryConstructorParameters,
         string memberName)
     {
         foreach (var member in members)
@@ -17479,7 +17473,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        return primaryConstructorParameters?.FirstOrDefault(parameter => parameter.Name == memberName)?.Type;
+        return primaryConstructorParameters.FirstOrDefault(parameter => parameter.Name == memberName)?.Type;
     }
 
     /// <summary>

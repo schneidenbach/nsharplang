@@ -15,7 +15,8 @@ public class NominalTypeInfoFactory {
             HasModifier(declaration, 128),
             GetOptionalTypeReference(declaration, "BaseClass"),
             GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration))
+            GetTypeParameterArray(declaration),
+            GetParameterArray(declaration, "PrimaryConstructorParameters"))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -25,7 +26,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration))
+            GetTypeParameterArray(declaration),
+            GetParameterArray(declaration, "PrimaryConstructorParameters"))
     }
 
     public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
@@ -36,7 +38,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
             TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
             GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration))
+            GetTypeParameterArray(declaration),
+            GetParameterArray(declaration, "PrimaryConstructorParameters"))
     }
 
     public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
@@ -110,6 +113,42 @@ public class NominalTypeInfoFactory {
             }
 
             result[index] = typeParameter
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func GetParameterArray(owner: object, propertyName: string): ParameterDeclarationInfo[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        if value == null {
+            return new ParameterDeclarationInfo[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' to be a list.")
+        }
+
+        result := new ParameterDeclarationInfo[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' entries to be parameters.")
+            }
+
+            parameterTypeValue := TypeInfoFactoryReflection.GetRequiredProperty(item, "Type")
+            parameterType := parameterTypeValue as TypeReference
+            if parameterType == null {
+                throw new InvalidOperationException("Expected '" + item.GetType().Name + ".Type' to be a type reference.")
+            }
+
+            result[index] = new ParameterDeclarationInfo(
+                TypeInfoFactoryReflection.GetRequiredString(item, "Name"),
+                parameterType,
+                TypeInfoFactoryReflection.GetRequiredInt(item, "Line"),
+                TypeInfoFactoryReflection.GetRequiredInt(item, "Column"))
             index = index + 1
         }
 

@@ -419,16 +419,25 @@ class ImplementedDerived: Base, Marker {
 class GenericBox<T> {
 }
 
+class PrimaryBox(value: int) {
+}
+
 struct MarkedStruct: Marker {
 }
 
 struct GenericStruct<T> {
 }
 
+struct PrimaryPoint(x: double, y: double) {
+}
+
 record MarkedRecord: Marker {
 }
 
 record GenericRecord<T> {
+}
+
+record PrimaryPerson(name: string, age: int) {
 }
 
 interface GenericInterface<T> {
@@ -469,9 +478,12 @@ interface Named {
         var derivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Derived"]);
         var implementedDerivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["ImplementedDerived"]);
         var markedStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["MarkedStruct"]);
+        var primaryPointType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["PrimaryPoint"]);
         var markedRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["MarkedRecord"]);
+        var primaryPersonType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["PrimaryPerson"]);
         var childMarkerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["ChildMarker"]);
         var genericBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["GenericBox"]);
+        var primaryBoxType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["PrimaryBox"]);
         var genericStructType = Assert.IsType<StructTypeInfo>(result.SemanticModel.Types["GenericStruct"]);
         var genericRecordType = Assert.IsType<RecordTypeInfo>(result.SemanticModel.Types["GenericRecord"]);
         var genericInterfaceType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["GenericInterface"]);
@@ -483,6 +495,7 @@ interface Named {
         Assert.Null(openType.BaseClass);
         Assert.Empty(openType.Interfaces);
         Assert.Empty(openType.TypeParameters);
+        Assert.Empty(openType.PrimaryConstructorParameters);
         var derivedBase = Assert.IsType<SimpleTypeReference>(derivedType.BaseClass);
         Assert.Equal("Base", derivedBase.Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(implementedDerivedType.Interfaces)).Name);
@@ -490,8 +503,35 @@ interface Named {
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(markedRecordType.Interfaces)).Name);
         Assert.Equal("Marker", Assert.IsType<SimpleTypeReference>(Assert.Single(childMarkerType.BaseInterfaces)).Name);
         Assert.Equal("T", Assert.Single(genericBoxType.TypeParameters).Name);
+        var primaryBoxParameter = Assert.Single(primaryBoxType.PrimaryConstructorParameters);
+        Assert.Equal("value", primaryBoxParameter.Name);
+        Assert.Equal("int", Assert.IsType<SimpleTypeReference>(primaryBoxParameter.Type).Name);
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
+        Assert.Collection(
+            primaryPointType.PrimaryConstructorParameters,
+            x =>
+            {
+                Assert.Equal("x", x.Name);
+                Assert.Equal("double", Assert.IsType<SimpleTypeReference>(x.Type).Name);
+            },
+            y =>
+            {
+                Assert.Equal("y", y.Name);
+                Assert.Equal("double", Assert.IsType<SimpleTypeReference>(y.Type).Name);
+            });
         Assert.Equal("T", Assert.Single(genericRecordType.TypeParameters).Name);
+        Assert.Collection(
+            primaryPersonType.PrimaryConstructorParameters,
+            name =>
+            {
+                Assert.Equal("name", name.Name);
+                Assert.Equal("string", Assert.IsType<SimpleTypeReference>(name.Type).Name);
+            },
+            age =>
+            {
+                Assert.Equal("age", age.Name);
+                Assert.Equal("int", Assert.IsType<SimpleTypeReference>(age.Type).Name);
+            });
         Assert.Equal("T", Assert.Single(genericInterfaceType.TypeParameters).Name);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.True(readerType.IsDuckInterface);
@@ -531,6 +571,24 @@ func Main() {
         var result = Analyze(source);
 
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
+    {
+        var source = @"
+class Box<T>(value: T) {
+}
+
+func Main(): Box<int> {
+    return new Box<int> { value: ""wrong"" }
+}";
+
+        var result = Analyze(source);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
     }

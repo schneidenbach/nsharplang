@@ -6,6 +6,25 @@ import System.Reflection
 import System.Text
 import NSharpLang.Compiler.Ast
 
+public class ParameterDeclarationInfo {
+    nameValue: string
+    typeValue: TypeReference
+    lineValue: int
+    columnValue: int
+
+    Name: string => nameValue
+    Type: TypeReference => typeValue
+    Line: int => lineValue
+    Column: int => columnValue
+
+    constructor(name: string, typeReference: TypeReference, line: int, column: int) {
+        nameValue = name
+        typeValue = typeReference
+        lineValue = line
+        columnValue = column
+    }
+}
+
 public class TypeInfo {
 }
 
@@ -18,6 +37,7 @@ public class ClassTypeInfo: TypeInfo {
     baseClassValue: TypeReference?
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
+    primaryConstructorParametersValue: ParameterDeclarationInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -27,6 +47,7 @@ public class ClassTypeInfo: TypeInfo {
     BaseClass: TypeReference? => baseClassValue
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
+    PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
 
     constructor(
         declaration: object,
@@ -36,7 +57,8 @@ public class ClassTypeInfo: TypeInfo {
         isSealed: bool,
         baseClass: TypeReference?,
         interfaces: TypeReference[],
-        typeParameters: TypeParameter[]) {
+        typeParameters: TypeParameter[],
+        primaryConstructorParameters: ParameterDeclarationInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -45,6 +67,7 @@ public class ClassTypeInfo: TypeInfo {
         baseClassValue = baseClass
         interfacesValue = interfaces
         typeParametersValue = typeParameters
+        primaryConstructorParametersValue = primaryConstructorParameters
     }
 
     override func ToString(): string {
@@ -59,6 +82,7 @@ public class StructTypeInfo: TypeInfo {
     columnValue: int
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
+    primaryConstructorParametersValue: ParameterDeclarationInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -66,14 +90,23 @@ public class StructTypeInfo: TypeInfo {
     Column: int => columnValue
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
+    PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[]) {
+    constructor(
+        declaration: object,
+        name: string,
+        line: int,
+        column: int,
+        interfaces: TypeReference[],
+        typeParameters: TypeParameter[],
+        primaryConstructorParameters: ParameterDeclarationInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         interfacesValue = interfaces
         typeParametersValue = typeParameters
+        primaryConstructorParametersValue = primaryConstructorParameters
     }
 
     override func ToString(): string {
@@ -89,6 +122,7 @@ public class RecordTypeInfo: TypeInfo {
     isStructValue: bool
     interfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
+    primaryConstructorParametersValue: ParameterDeclarationInfo[]
 
     Declaration: object => declarationValue
     Name: string => nameValue
@@ -97,8 +131,17 @@ public class RecordTypeInfo: TypeInfo {
     IsStruct: bool => isStructValue
     Interfaces: TypeReference[] => interfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
+    PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[]) {
+    constructor(
+        declaration: object,
+        name: string,
+        line: int,
+        column: int,
+        isStruct: bool,
+        interfaces: TypeReference[],
+        typeParameters: TypeParameter[],
+        primaryConstructorParameters: ParameterDeclarationInfo[]) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
@@ -106,6 +149,7 @@ public class RecordTypeInfo: TypeInfo {
         isStructValue = isStruct
         interfacesValue = interfaces
         typeParametersValue = typeParameters
+        primaryConstructorParametersValue = primaryConstructorParameters
     }
 
     override func ToString(): string {
