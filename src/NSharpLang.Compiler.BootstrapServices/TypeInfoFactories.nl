@@ -185,7 +185,10 @@ public class NominalTypeInfoFactory {
             GetOptionalTypeReference(member, "Type"),
             HasOptionalModifier(member, 16),
             GetOptionalListCount(member, "Parameters"),
+            GetParameterTypeArray(member),
             GetOptionalTypeReference(member, "ReturnType"),
+            GetOptionalBool(member, "IsOperatorOverload"),
+            GetOptionalString(member, "OperatorSymbol"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
     }
@@ -214,6 +217,38 @@ public class NominalTypeInfoFactory {
         return source.Count
     }
 
+    static func GetParameterTypeArray(owner: object): TypeReference[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return new TypeReference[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        result := new TypeReference[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            parameterTypeValue := TypeInfoFactoryReflection.GetRequiredProperty(item, "Type")
+            parameterType := parameterTypeValue as TypeReference
+            if parameterType == null {
+                throw new InvalidOperationException("Expected '" + item.GetType().Name + ".Type' to be a type reference.")
+            }
+
+            result[index] = parameterType
+            index = index + 1
+        }
+
+        return result
+    }
+
     static func GetOptionalString(owner: object, propertyName: string): string {
         value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
         if value == null {
@@ -226,6 +261,15 @@ public class NominalTypeInfoFactory {
         }
 
         return text
+    }
+
+    static func GetOptionalBool(owner: object, propertyName: string): bool {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        if value == null {
+            return false
+        }
+
+        return Convert.ToInt32(value) != 0
     }
 
     static func GetDeclaredMemberKind(typeName: string): DeclaredMemberKind {

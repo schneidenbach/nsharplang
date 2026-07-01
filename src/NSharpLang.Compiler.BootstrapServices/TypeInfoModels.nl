@@ -28,7 +28,10 @@ public class DeclaredMemberInfo {
     typeValue: TypeReference?
     isStaticValue: bool
     parameterCountValue: int
+    parameterTypesValue: TypeReference[]
     returnTypeValue: TypeReference?
+    isOperatorOverloadValue: bool
+    operatorSymbolValue: string
     lineValue: int
     columnValue: int
 
@@ -37,7 +40,10 @@ public class DeclaredMemberInfo {
     Type: TypeReference? => typeValue
     IsStatic: bool => isStaticValue
     ParameterCount: int => parameterCountValue
+    ParameterTypes: TypeReference[] => parameterTypesValue
     ReturnType: TypeReference? => returnTypeValue
+    IsOperatorOverload: bool => isOperatorOverloadValue
+    OperatorSymbol: string => operatorSymbolValue
     Line: int => lineValue
     Column: int => columnValue
 
@@ -47,7 +53,10 @@ public class DeclaredMemberInfo {
         typeReference: TypeReference?,
         isStatic: bool,
         parameterCount: int,
+        parameterTypes: TypeReference[],
         returnType: TypeReference?,
+        isOperatorOverload: bool,
+        operatorSymbol: string,
         line: int,
         column: int) {
         nameValue = name
@@ -55,7 +64,10 @@ public class DeclaredMemberInfo {
         typeValue = typeReference
         isStaticValue = isStatic
         parameterCountValue = parameterCount
+        parameterTypesValue = parameterTypes
         returnTypeValue = returnType
+        isOperatorOverloadValue = isOperatorOverload
+        operatorSymbolValue = operatorSymbol
         lineValue = line
         columnValue = column
     }

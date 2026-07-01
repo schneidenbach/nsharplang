@@ -771,6 +771,71 @@ func Main() {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_BinaryOperatorUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+struct Vec2 {
+    X: double
+    Y: double
+
+    static func operator +(left: Vec2, right: Vec2): Vec2 {
+        return new Vec2 { X: left.X + right.X, Y: left.Y + right.Y }
+    }
+}
+
+func Add(left: Vec2, right: Vec2): Vec2 {
+    return left + right
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_UnaryOperatorUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+struct Flag {
+    Value: int
+
+    static func operator !(value: Flag): bool {
+        return value.Value == 0
+    }
+}
+
+func IsEmpty(value: Flag): bool {
+    return !value
+}";
+
+        var result = Analyze(source);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_OperatorParameterFactsRejectMismatchedOperands()
+    {
+        var source = @"
+struct Vec2 {
+    X: double
+    Y: double
+
+    static func operator +(left: int, right: int): Vec2 {
+        return new Vec2 { X: 0.0, Y: 0.0 }
+    }
+}
+
+func Add(left: Vec2, right: Vec2): Vec2 {
+    return left + right
+}";
+
+        var result = Analyze(source);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
     public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
     {
         var source = @"

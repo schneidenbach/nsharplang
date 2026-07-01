@@ -7608,9 +7608,9 @@ public class Analyzer : IDisposable
 
         var members = operandType switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
             _ => null
         };
 
@@ -7623,23 +7623,25 @@ public class Analyzer : IDisposable
         // Without this check `Vec + Vec` would bind to *any* `static func operator +` on the type
         // (e.g. one declared as `operator +(a: int, b: int)`), swallowing a real type mismatch and
         // diverging from the IL backend, which resolves operators against the actual argument types.
-        var match = members
-            .OfType<FunctionDeclaration>()
-            .FirstOrDefault(member =>
-                member.IsOperatorOverload
-                && member.OperatorSymbol == symbol
-                && member.Parameters.Count == 2
-                && member.ReturnType != null
-                && IsAssignable(ResolveType(member.Parameters[0].Type), left)
-                && IsAssignable(ResolveType(member.Parameters[1].Type), right));
-
-        if (match?.ReturnType == null)
+        foreach (var member in members)
         {
-            return false;
+            if (member.Kind != DeclaredMemberKind.Function
+                || !member.IsOperatorOverload
+                || member.OperatorSymbol != symbol
+                || member.ParameterCount != 2
+                || member.ParameterTypes.Length != 2
+                || member.ReturnType == null
+                || !IsAssignable(ResolveType(member.ParameterTypes[0]), left)
+                || !IsAssignable(ResolveType(member.ParameterTypes[1]), right))
+            {
+                continue;
+            }
+
+            result = ResolveType(member.ReturnType);
+            return true;
         }
 
-        result = ResolveType(match.ReturnType);
-        return true;
+        return false;
     }
 
     private bool TryResolveRuntimeBinaryOperator(
@@ -7801,9 +7803,9 @@ public class Analyzer : IDisposable
 
         var members = operandType switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
             _ => null
         };
 
@@ -7812,22 +7814,24 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var match = members
-            .OfType<FunctionDeclaration>()
-            .FirstOrDefault(member =>
-                member.IsOperatorOverload
-                && member.OperatorSymbol == symbol
-                && member.Parameters.Count == 1
-                && member.ReturnType != null
-                && IsAssignable(ResolveType(member.Parameters[0].Type), operandType));
-
-        if (match?.ReturnType == null)
+        foreach (var member in members)
         {
-            return false;
+            if (member.Kind != DeclaredMemberKind.Function
+                || !member.IsOperatorOverload
+                || member.OperatorSymbol != symbol
+                || member.ParameterCount != 1
+                || member.ParameterTypes.Length != 1
+                || member.ReturnType == null
+                || !IsAssignable(ResolveType(member.ParameterTypes[0]), operandType))
+            {
+                continue;
+            }
+
+            result = ResolveType(member.ReturnType);
+            return true;
         }
 
-        result = ResolveType(match.ReturnType);
-        return true;
+        return false;
     }
 
     private bool TryResolveRuntimeUnaryOperator(TypeInfo operandType, string clrName, out TypeInfo result)
