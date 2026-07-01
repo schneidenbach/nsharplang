@@ -751,21 +751,65 @@ public sealed class SystemsAnalyzer
         if (!semanticModel.ExpressionTypes.TryGetValue((call.Callee.Line, call.Callee.Column), out var calleeType))
             return false;
 
-        var declaration = calleeType switch
+        if (calleeType is FunctionTypeInfo functionType
+            && TryGetEntryForFunctionType(functionType, context, out entry))
         {
-            FunctionTypeInfo { Declaration: FunctionDeclaration resolved } => resolved,
-            NSharpMethodGroupInfo group when NSharpMethodGroupInfoFactory.GetDeclarations(group).OfType<FunctionDeclaration>().ToList() is [{ } single] => single,
-            _ => null
-        };
-
-        if (declaration == null)
-        {
-            return call.Callee is MemberAccessExpression member
-                && TryResolveConstrainedInterfaceCallee(member, context, semanticModel, out entry);
+            return true;
         }
 
-        return TryGetEntryForDeclaration(declaration, context, out entry);
+        if (calleeType is NSharpMethodGroupInfo group
+            && TryGetEntryForMethodGroup(group, context, out entry))
+        {
+            return true;
+        }
+
+        return call.Callee is MemberAccessExpression member
+            && TryResolveConstrainedInterfaceCallee(member, context, semanticModel, out entry);
     }
+
+    private bool TryGetEntryForFunctionType(FunctionTypeInfo functionType, WalkContext context, out FunctionEntry entry)
+    {
+        switch (functionType.Declaration)
+        {
+            case FunctionDeclaration declaration:
+                return TryGetEntryForDeclaration(declaration, context, out entry);
+            case DeclaredMemberInfo member:
+                return TryGetEntryForDeclarationSite(DeclarationSite.For(member), context, out entry);
+            default:
+                entry = null!;
+                return false;
+        }
+    }
+
+    private bool TryGetEntryForMethodGroup(NSharpMethodGroupInfo methodGroup, WalkContext context, out FunctionEntry entry)
+    {
+        var functionTypes = GetMethodGroupFunctions(methodGroup);
+        if (functionTypes is [{ } singleFunction])
+            return TryGetEntryForFunctionType(singleFunction, context, out entry);
+
+        var declarations = GetMethodGroupDeclarations(methodGroup);
+        if (declarations is [{ } singleDeclaration])
+            return TryGetEntryForDeclaration(singleDeclaration, context, out entry);
+
+        entry = null!;
+        return false;
+    }
+
+    private static List<FunctionTypeInfo> GetMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
+        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
+            .OfType<FunctionTypeInfo>()
+            .ToList();
+
+    private static List<FunctionDeclaration> GetMethodGroupDeclarations(NSharpMethodGroupInfo methodGroup)
+        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
+            .Select(item => item switch
+            {
+                FunctionDeclaration declaration => declaration,
+                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration,
+                _ => null
+            })
+            .OfType<FunctionDeclaration>()
+            .ToList();
 
     private bool TryGetEntryForDeclaration(FunctionDeclaration declaration, WalkContext context, out FunctionEntry entry)
     {

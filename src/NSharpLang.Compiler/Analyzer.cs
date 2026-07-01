@@ -131,6 +131,12 @@ public class Analyzer : IDisposable
 
     private static List<FunctionDeclaration> GetNSharpMethodGroupDeclarations(NSharpMethodGroupInfo methodGroup)
         => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
+            .Select(item => item switch
+            {
+                FunctionDeclaration declaration => declaration,
+                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration,
+                _ => null
+            })
             .OfType<FunctionDeclaration>()
             .ToList();
 
@@ -6916,6 +6922,25 @@ public class Analyzer : IDisposable
         };
     }
 
+    private string GetArgumentTypeDiagnosticName(Argument argument, TypeInfo type)
+    {
+        var resolvedType = ResolveTypeAlias(type);
+        if (IsCallableReferenceType(resolvedType))
+        {
+            var name = GetCallableReferenceName(argument.Value, resolvedType);
+            return $"method group '{name}'";
+        }
+
+        return type.ToString() ?? "unknown";
+    }
+
+    private string FormatArgumentTypeDiagnosticPhrase(Argument argument, TypeInfo type)
+    {
+        var resolvedType = ResolveTypeAlias(type);
+        var name = GetArgumentTypeDiagnosticName(argument, type);
+        return IsCallableReferenceType(resolvedType) ? name : $"'{name}'";
+    }
+
     private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
     {
         if (_suppressNullabilityFlowType)
@@ -10443,18 +10468,25 @@ public class Analyzer : IDisposable
     {
         return new FunctionTypeInfo(func)
         {
+            SyntheticName = func.Name,
+            ParameterNames = func.Parameters.Select(parameter => parameter.Name).ToList(),
             ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
             SourceParameterTypes = func.Parameters.Select(parameter => parameter.Type).ToList(),
             ParameterModifiers = func.Parameters.Select(parameter => parameter.Modifier).ToList(),
+            RequiredParameterCount = func.Parameters.Count(parameter =>
+                parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null),
+            HasParamsParameter = func.Parameters.Count > 0
+                && func.Parameters[^1].Modifier == Ast.ParameterModifier.Params,
             TypeParameters = func.TypeParameters,
             GenericConstraints = func.Constraints,
+            HasMustUseAttribute = HasMustUseAttribute(func.Attributes),
             ReturnType = ResolveDeclaredFunctionCallReturnType(func)
         };
     }
 
     private FunctionTypeInfo CreateFunctionTypeInfo(DeclaredMemberInfo member)
     {
-        return new FunctionTypeInfo(null)
+        return new FunctionTypeInfo(member)
         {
             SyntheticName = member.Name,
             ParameterNames = member.ParameterNames.ToList(),
@@ -10899,6 +10931,7 @@ public class Analyzer : IDisposable
 
                             if (sourceSnippet != null && _currentFilePath != null)
                             {
+                                var actualType = GetArgumentTypeDiagnosticName(call.Arguments[i], argType);
                                 var error = ErrorMessageBuilder.WrongArgumentType(
                                     _currentFilePath,
                                     diagnosticLine,
@@ -10908,14 +10941,15 @@ public class Analyzer : IDisposable
                                     declaration.Name,
                                     i + 1,
                                     parameters[paramIndex].Name,
-                                    argType.ToString(),
+                                    actualType,
                                     paramType.ToString()
                                 );
                                 _errors.Add(error);
                             }
                             else
                             {
-                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} is '{argType}', but parameter '{parameters[paramIndex].Name}' expects '{paramType}'",
+                                var actualType = FormatArgumentTypeDiagnosticPhrase(call.Arguments[i], argType);
+                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} is {actualType}, but parameter '{parameters[paramIndex].Name}' expects '{paramType}'",
                                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
                             }
                         }
@@ -11472,9 +11506,10 @@ public class Analyzer : IDisposable
             var argumentDescription = argumentName != null
                 ? $"Argument '{argumentName}'"
                 : $"Argument {argumentIndex + 1}";
+            var actualType = FormatArgumentTypeDiagnosticPhrase(call.Arguments[argumentIndex], argType);
             Error(
                 ErrorCode.TypeMismatch,
-                $"{argumentDescription} to '{functionName}' is '{argType}', but this parameter expects '{expectedType}'",
+                $"{argumentDescription} to '{functionName}' is {actualType}, but this parameter expects '{expectedType}'",
                 line,
                 column,
                 "Pass a value with the expected type, or update the function signature.",
@@ -11658,18 +11693,55 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private static string FormatSyntheticFunctionSignature(FunctionTypeInfo functionType, string functionName)
+    private string FormatSyntheticFunctionSignature(FunctionTypeInfo functionType, string functionName)
     {
         var parameterCount = functionType.ParameterTypes?.Count ?? 0;
-        if (parameterCount == 0)
-            return $"{functionName}()";
+        var typeParameters = functionType.TypeParameters is { Count: > 0 }
+            ? $"<{string.Join(", ", functionType.TypeParameters.Select(parameter => parameter.Name))}>"
+            : string.Empty;
+        var returnType = functionType.ReturnType != null
+            ? $": {functionType.ReturnType}"
+            : string.Empty;
 
-        var names = functionType.ParameterNames;
+        if (parameterCount == 0)
+            return $"{functionName}{typeParameters}(){returnType}";
+
         var parameters = Enumerable.Range(0, parameterCount)
-            .Select(index => names != null && index < names.Count && names[index] is { } name
-                ? name
-                : $"arg{index + 1}");
-        return $"{functionName}({string.Join(", ", parameters)})";
+            .Select(index => FormatSyntheticParameterSignature(functionType, index));
+        return $"{functionName}{typeParameters}({string.Join(", ", parameters)}){returnType}";
+    }
+
+    private string FormatSyntheticParameterSignature(FunctionTypeInfo functionType, int index)
+    {
+        var names = functionType.ParameterNames;
+        var name = names != null && index < names.Count && names[index] is { } parameterName
+            ? parameterName
+            : $"arg{index + 1}";
+        var sourceTypes = functionType.SourceParameterTypes;
+        var resolvedTypes = functionType.ParameterTypes;
+        var typeName = sourceTypes != null && index < sourceTypes.Count
+            ? TranspileTypeReference(sourceTypes[index])
+            : resolvedTypes != null && index < resolvedTypes.Count
+                ? resolvedTypes[index].ToString()
+                : "unknown";
+        var modifiers = functionType.ParameterModifiers;
+        var modifier = modifiers != null && index < modifiers.Count
+            ? modifiers[index] switch
+            {
+                Ast.ParameterModifier.Ref => "ref ",
+                Ast.ParameterModifier.Out => "out ",
+                Ast.ParameterModifier.Params => "params ",
+                _ => string.Empty
+            }
+            : string.Empty;
+        var requiredCount = functionType.RequiredParameterCount ?? (functionType.ParameterTypes?.Count ?? 0);
+        var defaultValue = index >= requiredCount
+                           && modifiers != null
+                           && (index >= modifiers.Count || modifiers[index] != Ast.ParameterModifier.Params)
+            ? " = ..."
+            : string.Empty;
+
+        return $"{modifier}{name}: {typeName}{defaultValue}";
     }
 
     private void ValidateSoaSyntheticFunctionCall(
@@ -12701,7 +12773,8 @@ public class Analyzer : IDisposable
 
             if (!IsNSharpArgumentAssignable(decl.Parameters[paramIndex], paramType, call.Arguments[i], argType))
             {
-                Error($"Argument {i + 1} is '{argType}', but parameter '{decl.Parameters[paramIndex].Name}' expects '{paramType}'",
+                var actualType = FormatArgumentTypeDiagnosticPhrase(call.Arguments[i], argType);
+                Error($"Argument {i + 1} is {actualType}, but parameter '{decl.Parameters[paramIndex].Name}' expects '{paramType}'",
                     call.Line, call.Column);
             }
         }
@@ -22043,7 +22116,7 @@ public class Analyzer : IDisposable
                     {
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromDeclarations(
-                            new[] { existingDeclaration, newDeclaration });
+                            new object[] { existing, type });
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -22060,7 +22133,7 @@ public class Analyzer : IDisposable
                     if (HasDistinctParameterSignature(newDeclaration, declarations))
                     {
                         // Add to existing method group
-                        NSharpMethodGroupInfoFactory.AddDeclaration(group, newDeclaration);
+                        NSharpMethodGroupInfoFactory.AddDeclaration(group, type);
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -22563,6 +22636,30 @@ public class Analyzer : IDisposable
 
     private string? GetSourceSnippet(int line)
     {
+        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
+        if (string.IsNullOrEmpty(sourceText) || line <= 0)
+            return null;
+
+        var currentLine = 1;
+        var start = 0;
+        for (var index = 0; index <= sourceText.Length; index++)
+        {
+            if (index < sourceText.Length && sourceText[index] != '\n')
+                continue;
+
+            if (currentLine == line)
+            {
+                var length = index - start;
+                if (length > 0 && sourceText[start + length - 1] == '\r')
+                    length--;
+
+                return sourceText.Substring(start, length);
+            }
+
+            currentLine++;
+            start = index + 1;
+        }
+
         return null;
     }
 

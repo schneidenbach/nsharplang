@@ -109,6 +109,32 @@ func getNumber(): int {
     }
 
     [Fact]
+    public void Analyzer_TopLevelOverloadCall_RecordsFunctionTypeInfoFacts()
+    {
+        var source = @"
+func Pick(value: int): int {
+    return value
+}
+func Pick(value: string): string {
+    return value
+}
+func Main() {
+    result := Pick(42)
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var pickColumn = FindColumn(source, 9, "Pick");
+        Assert.True(result.SemanticModel.ExpressionTypes.TryGetValue((9, pickColumn), out var selectedType));
+        var selectedFunction = Assert.IsType<FunctionTypeInfo>(selectedType);
+        Assert.Equal("Pick", selectedFunction.SyntheticName);
+        Assert.Equal("int", selectedFunction.ReturnType?.ToString());
+        Assert.Equal("value", Assert.Single(selectedFunction.ParameterNames!));
+        Assert.Equal("int", Assert.IsType<SimpleTypeReference>(Assert.Single(selectedFunction.SourceParameterTypes!)).Name);
+    }
+
+    [Fact]
     public void Analyzer_MultipleVariables_AllInSemanticModel()
     {
         var source = @"
