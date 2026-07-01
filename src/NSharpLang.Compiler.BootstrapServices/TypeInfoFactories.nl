@@ -5,6 +5,49 @@ import System.Collections
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+public class NominalTypeInfoFactory {
+    public static func FromClassDeclaration(declaration: object): ClassTypeInfo {
+        return new ClassTypeInfo(
+            declaration,
+            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
+            HasModifier(declaration, 128))
+    }
+
+    public static func FromStructDeclaration(declaration: object): StructTypeInfo {
+        return new StructTypeInfo(
+            declaration,
+            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"))
+    }
+
+    public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
+        return new RecordTypeInfo(
+            declaration,
+            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
+            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"))
+    }
+
+    public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
+        return new InterfaceTypeInfo(
+            declaration,
+            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
+            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
+            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"))
+    }
+
+    static func HasModifier(declaration: object, flag: int): bool {
+        modifiers := TypeInfoFactoryReflection.GetRequiredProperty(declaration, "Modifiers")
+        value := Convert.ToInt32(modifiers)
+        return (value & flag) == flag
+    }
+}
+
 public class SoaTypeInfoFactory {
     public static func FromDeclaration(declaration: object): SoaRecordTypeInfo {
         return new SoaRecordTypeInfo(CreateDeclarationInfo(declaration))
@@ -216,5 +259,10 @@ class TypeInfoFactoryReflection {
     public static func GetRequiredInt(owner: object, propertyName: string): int {
         value := GetRequiredProperty(owner, propertyName)
         return Convert.ToInt32(value)
+    }
+
+    public static func GetRequiredBool(owner: object, propertyName: string): bool {
+        value := GetRequiredProperty(owner, propertyName)
+        return Convert.ToInt32(value) != 0
     }
 }

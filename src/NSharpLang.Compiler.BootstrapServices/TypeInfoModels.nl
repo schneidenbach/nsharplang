@@ -14,17 +14,20 @@ public class ClassTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
+    isSealedValue: bool
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
+    IsSealed: bool => isSealedValue
 
-    constructor(declaration: object, name: string, line: int, column: int) {
+    constructor(declaration: object, name: string, line: int, column: int, isSealed: bool = false) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
+        isSealedValue = isSealed
     }
 
     override func ToString(): string {
@@ -86,17 +89,20 @@ public class InterfaceTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
+    isDuckInterfaceValue: bool
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
+    IsDuckInterface: bool => isDuckInterfaceValue
 
-    constructor(declaration: object, name: string, line: int, column: int) {
+    constructor(declaration: object, name: string, line: int, column: int, isDuckInterface: bool = false) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
+        isDuckInterfaceValue = isDuckInterface
     }
 
     override func ToString(): string {

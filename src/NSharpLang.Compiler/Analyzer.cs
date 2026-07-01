@@ -317,15 +317,15 @@ public class Analyzer : IDisposable
         foreach (var decl in unit.Declarations)
         {
             if (decl is ClassDeclaration classDecl)
-                DeclareType(classDecl.Name, new ClassTypeInfo(classDecl, classDecl.Name, classDecl.Line, classDecl.Column), decl.Line, decl.Column);
+                DeclareType(classDecl.Name, NominalTypeInfoFactory.FromClassDeclaration(classDecl), decl.Line, decl.Column);
             else if (decl is StructDeclaration structDecl)
-                DeclareType(structDecl.Name, new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column), decl.Line, decl.Column);
+                DeclareType(structDecl.Name, NominalTypeInfoFactory.FromStructDeclaration(structDecl), decl.Line, decl.Column);
             else if (decl is RecordDeclaration recordDecl)
-                DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct), decl.Line, decl.Column);
+                DeclareType(recordDecl.Name, NominalTypeInfoFactory.FromRecordDeclaration(recordDecl), decl.Line, decl.Column);
             else if (decl is SoaRecordDeclaration soaRecordDecl)
                 DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
-                DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name, interfaceDecl.Line, interfaceDecl.Column), decl.Line, decl.Column);
+                DeclareType(interfaceDecl.Name, NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
                 DeclareType(unionDecl.Name, UnionTypeInfoFactory.FromDeclaration(unionDecl), decl.Line, decl.Column);
             else if (decl is EnumDeclaration enumDecl)
@@ -2256,7 +2256,7 @@ public class Analyzer : IDisposable
         ResolveTypeReferences(classDecl.Interfaces);
 
         // Add 'this' to scope
-        var classType = new ClassTypeInfo(classDecl, classDecl.Name, classDecl.Line, classDecl.Column);
+        var classType = NominalTypeInfoFactory.FromClassDeclaration(classDecl);
         DeclareSymbol("this", classType, classDecl.Line, classDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope.
@@ -2321,7 +2321,7 @@ public class Analyzer : IDisposable
 
         ResolveTypeReferences(structDecl.Interfaces);
 
-        var structType = new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column);
+        var structType = NominalTypeInfoFactory.FromStructDeclaration(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope.
@@ -2371,7 +2371,7 @@ public class Analyzer : IDisposable
 
         ResolveTypeReferences(recordDecl.Interfaces);
 
-        var recordType = new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct);
+        var recordType = NominalTypeInfoFactory.FromRecordDeclaration(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope.
@@ -9909,11 +9909,11 @@ public class Analyzer : IDisposable
 
     private static TypeInfo CreateTypeInfoForDeclaration(Declaration declaration) => declaration switch
     {
-        ClassDeclaration classDecl => new ClassTypeInfo(classDecl, classDecl.Name, classDecl.Line, classDecl.Column),
-        StructDeclaration structDecl => new StructTypeInfo(structDecl, structDecl.Name, structDecl.Line, structDecl.Column),
-        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl, recordDecl.Name, recordDecl.Line, recordDecl.Column, recordDecl.IsStruct),
+        ClassDeclaration classDecl => NominalTypeInfoFactory.FromClassDeclaration(classDecl),
+        StructDeclaration structDecl => NominalTypeInfoFactory.FromStructDeclaration(structDecl),
+        RecordDeclaration recordDecl => NominalTypeInfoFactory.FromRecordDeclaration(recordDecl),
         SoaRecordDeclaration soaRecordDecl => SoaTypeInfoFactory.FromDeclaration(soaRecordDecl),
-        InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl, interfaceDecl.Name, interfaceDecl.Line, interfaceDecl.Column),
+        InterfaceDeclaration interfaceDecl => NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl),
         EnumDeclaration enumDecl => EnumTypeInfoFactory.FromDeclaration(enumDecl),
         UnionDeclaration unionDecl => UnionTypeInfoFactory.FromDeclaration(unionDecl),
         TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
@@ -12525,7 +12525,7 @@ public class Analyzer : IDisposable
             var recordDeclaration = recordType.GetDeclaration();
             // Record structs always have an implicit parameterless constructor regardless of
             // whether they declare primary constructor parameters.
-            if (recordDeclaration.IsStruct)
+            if (recordType.IsStruct)
                 return true;
 
             // Record classes: a primary constructor with params suppresses the default ctor
@@ -19689,7 +19689,7 @@ public class Analyzer : IDisposable
             return IsLambdaAssignableToDelegate(funcType, delegateType);
 
         // Duck interface structural typing
-        if (resolvedTarget is InterfaceTypeInfo iface && iface.GetDeclaration().IsDuckInterface)
+        if (resolvedTarget is InterfaceTypeInfo iface && iface.IsDuckInterface)
         {
             return ImplementsDuckInterface(resolvedSource, iface);
         }
@@ -20670,11 +20670,11 @@ public class Analyzer : IDisposable
 
         // Sealed class to unrelated class — impossible
         // (IsAssignable already checked above, so if we get here they're unrelated)
-        if (resolvedSource is ClassTypeInfo srcClass && srcClass.GetDeclaration().Modifiers.HasFlag(Modifiers.Sealed))
+        if (resolvedSource is ClassTypeInfo srcClass && srcClass.IsSealed)
         {
             if (resolvedTarget is ClassTypeInfo) return false;
         }
-        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.GetDeclaration().Modifiers.HasFlag(Modifiers.Sealed))
+        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.IsSealed)
         {
             if (resolvedSource is ClassTypeInfo) return false;
         }
@@ -22366,11 +22366,11 @@ public class Analyzer : IDisposable
             {
                 var typeInfo = decl switch
                 {
-                    ClassDeclaration c => new ClassTypeInfo(c, c.Name, c.Line, c.Column) as TypeInfo,
-                    StructDeclaration s => new StructTypeInfo(s, s.Name, s.Line, s.Column),
-                    RecordDeclaration r => new RecordTypeInfo(r, r.Name, r.Line, r.Column, r.IsStruct),
+                    ClassDeclaration c => NominalTypeInfoFactory.FromClassDeclaration(c) as TypeInfo,
+                    StructDeclaration s => NominalTypeInfoFactory.FromStructDeclaration(s),
+                    RecordDeclaration r => NominalTypeInfoFactory.FromRecordDeclaration(r),
                     SoaRecordDeclaration soa => SoaTypeInfoFactory.FromDeclaration(soa),
-                    InterfaceDeclaration i => new InterfaceTypeInfo(i, i.Name, i.Line, i.Column),
+                    InterfaceDeclaration i => NominalTypeInfoFactory.FromInterfaceDeclaration(i),
                     UnionDeclaration u => UnionTypeInfoFactory.FromDeclaration(u),
                     EnumDeclaration e => EnumTypeInfoFactory.FromDeclaration(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),

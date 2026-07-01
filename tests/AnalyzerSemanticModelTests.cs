@@ -392,6 +392,38 @@ record Address {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_SourceFactsInSemanticModel()
+    {
+        var source = @"
+sealed class Closed {
+}
+
+class Open {
+}
+
+duck interface Reader {
+    func Read(): string
+}
+
+interface Named {
+    func Name(): string
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var closedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Closed"]);
+        var openType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Open"]);
+        var readerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Reader"]);
+        var namedType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Named"]);
+
+        Assert.True(closedType.IsSealed);
+        Assert.False(openType.IsSealed);
+        Assert.True(readerType.IsDuckInterface);
+        Assert.False(namedType.IsDuckInterface);
+    }
+
+    [Fact]
     public void Analyzer_ClassProperties_RecordedInSemanticModelTypeMembers()
     {
         var source = @"
