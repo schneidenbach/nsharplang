@@ -479,29 +479,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
-        => sourceFileKind switch
-        {
-            NewTemplateSourceFileKind.Program => "Program.nl",
-            NewTemplateSourceFileKind.Calculator => "Calculator.nl",
-            NewTemplateSourceFileKind.CalculatorTests => "Calculator.tests.nl",
-            NewTemplateSourceFileKind.WebApiController => "Controllers/WeatherController.nl",
-            NewTemplateSourceFileKind.SystemsTests => "Systems.tests.nl",
-            NewTemplateSourceFileKind.PacketCore => "PacketCore.nl",
-            NewTemplateSourceFileKind.PacketCoreTests => "PacketCore.tests.nl",
-            _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
-        };
+        => NewCommandKernels.GetTemplateSourceFileName(sourceFileKind);
 
     static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
-        => templateKind switch
-        {
-            NewProjectTemplateKind.Console => "console",
-            NewProjectTemplateKind.Library => "library",
-            NewProjectTemplateKind.Test => "test",
-            NewProjectTemplateKind.WebApi => "webapi",
-            NewProjectTemplateKind.SystemsCli => "systems-cli",
-            NewProjectTemplateKind.SystemsLib => "systems-lib",
-            _ => null,
-        };
+        => NewCommandKernels.GetProjectTemplateName(templateKind);
 
     static void WriteCanonicalProject(string projectDir, string projectName, string template)
     {

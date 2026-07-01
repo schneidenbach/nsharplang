@@ -2541,6 +2541,66 @@ func CliNewTemplateSourceFileKindsInto(template: string, resultKinds: int[]): in
     return 0
 }
 
+func CliNewProjectTemplateName(templateKind: int): string {
+    if templateKind == 1 {
+        return "console"
+    }
+
+    if templateKind == 2 {
+        return "library"
+    }
+
+    if templateKind == 3 {
+        return "test"
+    }
+
+    if templateKind == 4 {
+        return "webapi"
+    }
+
+    if templateKind == 5 {
+        return "systems-cli"
+    }
+
+    if templateKind == 6 {
+        return "systems-lib"
+    }
+
+    return ""
+}
+
+func CliNewTemplateSourceFileName(sourceFileKind: int): string {
+    if sourceFileKind == 1 {
+        return "Program.nl"
+    }
+
+    if sourceFileKind == 2 {
+        return "Calculator.nl"
+    }
+
+    if sourceFileKind == 3 {
+        return "Calculator.tests.nl"
+    }
+
+    if sourceFileKind == 4 {
+        return "Controllers/WeatherController.nl"
+    }
+
+    if sourceFileKind == 5 {
+        return "Systems.tests.nl"
+    }
+
+    if sourceFileKind == 6 {
+        return "PacketCore.nl"
+    }
+
+    if sourceFileKind == 7 {
+        return "PacketCore.tests.nl"
+    }
+
+    return ""
+}
+
 func CliNewArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 5 {
         return -1

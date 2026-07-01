@@ -95,6 +95,15 @@ internal static class NewCommandKernels
         return kinds;
     }
 
+    internal static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
+    {
+        var text = RequiredBindings.NewProjectTemplateName((int)templateKind);
+        return string.IsNullOrEmpty(text) ? null : text;
+    }
+
+    internal static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
+        => RequireText(RequiredBindings.NewTemplateSourceFileName((int)sourceFileKind));
+
     internal static string GetHelpText()
         => RequiredBindings.NewHelpText();
 
@@ -173,6 +182,12 @@ internal static class NewCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliNewTemplateSourceFileKindsInto>(
                 programType,
                 "CliNewTemplateSourceFileKindsInto"),
+            DogfoodKernelLoader.CreateDelegate<CliNewProjectTemplateName>(
+                programType,
+                "CliNewProjectTemplateName"),
+            DogfoodKernelLoader.CreateDelegate<CliNewTemplateSourceFileName>(
+                programType,
+                "CliNewTemplateSourceFileName"),
             DogfoodKernelLoader.CreateDelegate<CliNewHelpText>(
                 programType,
                 "CliNewHelpText"),
@@ -246,6 +261,9 @@ internal static class NewCommandKernels
         string template,
         int[] resultKinds);
 
+    private delegate string CliNewProjectTemplateName(int templateKind);
+    private delegate string CliNewTemplateSourceFileName(int sourceFileKind);
+
     private delegate string CliNewHelpText();
     private delegate string CliNewUsageMessage();
     private delegate string CliNewInvalidTemplateMessage();
@@ -271,6 +289,8 @@ internal static class NewCommandKernels
         CliNewTemplateKind NewTemplateKind,
         CliNewEffectiveTemplateKind NewEffectiveTemplateKind,
         CliNewTemplateSourceFileKindsInto NewTemplateSourceFileKinds,
+        CliNewProjectTemplateName NewProjectTemplateName,
+        CliNewTemplateSourceFileName NewTemplateSourceFileName,
         CliNewHelpText NewHelpText,
         CliNewUsageMessage NewUsageMessage,
         CliNewInvalidTemplateMessage NewInvalidTemplateMessage,
