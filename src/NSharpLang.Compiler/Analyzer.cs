@@ -15823,11 +15823,11 @@ public class Analyzer : IDisposable
     private bool TryFindReadonlyStaticField(TypeInfo owner, string fieldName, out string resolvedFieldName)
     {
         resolvedFieldName = string.Empty;
-        List<Declaration>? members = owner switch
+        DeclaredMemberInfo[]? members = owner switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
             _ => null,
         };
 
@@ -15835,16 +15835,16 @@ public class Analyzer : IDisposable
         {
             foreach (var member in members)
             {
-                if (GetDeclarationName(member) != fieldName)
+                if (member.Name != fieldName)
                 {
                     continue;
                 }
 
-                if (member is FieldDeclaration field
-                    && field.Modifiers.HasFlag(Modifiers.Static)
-                    && field.Modifiers.HasFlag(Modifiers.Readonly))
+                if (member.Kind == DeclaredMemberKind.Field
+                    && member.IsStatic
+                    && member.IsReadonly)
                 {
-                    resolvedFieldName = field.Name;
+                    resolvedFieldName = member.Name;
                     return true;
                 }
 
@@ -15937,11 +15937,11 @@ public class Analyzer : IDisposable
     private bool TryFindReadonlyInstanceField(TypeInfo receiver, string fieldName, out string resolvedFieldName)
     {
         resolvedFieldName = string.Empty;
-        List<Declaration>? members = receiver switch
+        DeclaredMemberInfo[]? members = receiver switch
         {
-            ClassTypeInfo classType => classType.GetDeclaration().Members,
-            StructTypeInfo structType => structType.GetDeclaration().Members,
-            RecordTypeInfo recordType => recordType.GetDeclaration().Members,
+            ClassTypeInfo classType => classType.DeclaredMembers,
+            StructTypeInfo structType => structType.DeclaredMembers,
+            RecordTypeInfo recordType => recordType.DeclaredMembers,
             _ => null,
         };
 
@@ -15949,16 +15949,16 @@ public class Analyzer : IDisposable
         {
             foreach (var member in members)
             {
-                if (GetDeclarationName(member) != fieldName)
+                if (member.Name != fieldName)
                 {
                     continue;
                 }
 
-                if (member is FieldDeclaration field
-                    && !field.Modifiers.HasFlag(Modifiers.Static)
-                    && field.Modifiers.HasFlag(Modifiers.Readonly))
+                if (member.Kind == DeclaredMemberKind.Field
+                    && !member.IsStatic
+                    && member.IsReadonly)
                 {
-                    resolvedFieldName = field.Name;
+                    resolvedFieldName = member.Name;
                     return true;
                 }
 

@@ -836,6 +836,42 @@ func Add(left: Vec2, right: Vec2): Vec2 {
     }
 
     [Fact]
+    public void Analyzer_NominalTypes_StaticReadonlyFieldUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Counter {
+    static readonly Value: int = 1
+}
+
+func Main() {
+    Counter.Value = 2
+}";
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("static readonly", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_NominalTypes_InstanceReadonlyFieldUsesTypeInfoDeclaredMembers()
+    {
+        var source = @"
+class Counter {
+    readonly value: int = 1
+}
+
+func Main(counter: Counter) {
+    counter.value = 2
+}";
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'value' is readonly", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters()
     {
         var source = @"

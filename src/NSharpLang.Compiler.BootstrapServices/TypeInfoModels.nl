@@ -27,6 +27,7 @@ public class DeclaredMemberInfo {
     kindValue: DeclaredMemberKind
     typeValue: TypeReference?
     isStaticValue: bool
+    isReadonlyValue: bool
     parameterCountValue: int
     parameterTypesValue: TypeReference[]
     returnTypeValue: TypeReference?
@@ -39,6 +40,7 @@ public class DeclaredMemberInfo {
     Kind: DeclaredMemberKind => kindValue
     Type: TypeReference? => typeValue
     IsStatic: bool => isStaticValue
+    IsReadonly: bool => isReadonlyValue
     ParameterCount: int => parameterCountValue
     ParameterTypes: TypeReference[] => parameterTypesValue
     ReturnType: TypeReference? => returnTypeValue
@@ -52,6 +54,7 @@ public class DeclaredMemberInfo {
         kind: DeclaredMemberKind,
         typeReference: TypeReference?,
         isStatic: bool,
+        isReadonly: bool,
         parameterCount: int,
         parameterTypes: TypeReference[],
         returnType: TypeReference?,
@@ -63,6 +66,7 @@ public class DeclaredMemberInfo {
         kindValue = kind
         typeValue = typeReference
         isStaticValue = isStatic
+        isReadonlyValue = isReadonly
         parameterCountValue = parameterCount
         parameterTypesValue = parameterTypes
         returnTypeValue = returnType

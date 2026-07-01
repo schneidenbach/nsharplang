@@ -184,6 +184,7 @@ public class NominalTypeInfoFactory {
             GetDeclaredMemberKind(typeName),
             GetOptionalTypeReference(member, "Type"),
             HasOptionalModifier(member, 16),
+            HasOptionalModifier(member, 512),
             GetOptionalListCount(member, "Parameters"),
             GetParameterTypeArray(member),
             GetOptionalTypeReference(member, "ReturnType"),
