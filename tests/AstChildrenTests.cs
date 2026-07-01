@@ -12,9 +12,9 @@ namespace NSharpLang.Tests;
 /// Structural guard for the skipped-subtree bug class: every Expression-typed slot of every AST
 /// expression record (including slots nested in aggregates such as Argument, PropertyInitializer,
 /// TupleElement, MatchCase, and InterpolatedStringHole) must be reachable through
-/// <see cref="AstChildren.Of"/>. Late-added children (NewExpression.ArrayLengthExpression,
+/// the N# AstChildrenCore traversal. Late-added children (NewExpression.ArrayLengthExpression,
 /// StackAllocExpression.LengthExpression) shipped twice without any walker visiting them; this
-/// test makes the third instance impossible: a new expression node hits AstChildren's throwing
+/// test makes the third instance impossible: a new expression node hits AstChildrenCore's throwing
 /// default, and a new Expression-typed property on an existing node shows up here as an
 /// unreachable sentinel.
 /// </summary>
@@ -40,7 +40,7 @@ public class AstChildrenTests
             queue.Enqueue(node);
             while (queue.Count > 0)
             {
-                foreach (var child in AstChildren.Of(queue.Dequeue()))
+                foreach (var child in AstChildrenCore.Of(queue.Dequeue()).Cast<Expression>())
                 {
                     if (reached.Add(child))
                         queue.Enqueue(child);
@@ -49,8 +49,8 @@ public class AstChildrenTests
 
             var missed = sentinels.Where(sentinel => !reached.Contains(sentinel)).ToList();
             Assert.True(missed.Count == 0,
-                $"AstChildren.Of({type.Name}) never yields {missed.Count} Expression-typed slot(s) "
-                + "of that node. Add the missing child to AstChildren.Of (and audit walkers with a "
+                $"AstChildrenCore.Of({type.Name}) never yields {missed.Count} Expression-typed slot(s) "
+                + "of that node. Add the missing child to AstChildrenCore.Of (and audit walkers with a "
                 + "bespoke case for this node).");
         }
     }

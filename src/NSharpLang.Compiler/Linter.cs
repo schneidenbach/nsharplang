@@ -835,7 +835,7 @@ internal class LintVisitor
 
     private void VisitChildExpressions(Expression expression)
     {
-        foreach (var child in AstChildren.Of(expression))
+        foreach (var child in AstChildrenCore.Of(expression).Cast<Expression>())
         {
             VisitExpression(child);
         }
