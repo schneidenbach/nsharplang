@@ -504,26 +504,7 @@ public class MultiFileCompiler
     }
 
     private bool RequiresColumnarSoaEmission()
-        => SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations));
-
-    private static bool ContainsSoaRecordDeclaration(IEnumerable<Declaration> declarations)
-    {
-        foreach (var declaration in declarations)
-        {
-            switch (declaration)
-            {
-                case SoaRecordDeclaration:
-                    return true;
-                case ClassDeclaration classDeclaration when ContainsSoaRecordDeclaration(classDeclaration.Members):
-                case StructDeclaration structDeclaration when ContainsSoaRecordDeclaration(structDeclaration.Members):
-                case RecordDeclaration recordDeclaration when ContainsSoaRecordDeclaration(recordDeclaration.Members):
-                case InterfaceDeclaration interfaceDeclaration when ContainsSoaRecordDeclaration(interfaceDeclaration.Members):
-                    return true;
-            }
-        }
-
-        return false;
-    }
+        => SoaFeature.IsEnabled && _compilationUnits.Values.Any(CompilationUnitFacts.ContainsSoaRecordDeclaration);
 
     private static bool IsDebugLoggingEnabled()
     {
