@@ -5280,58 +5280,16 @@ public class Analyzer : IDisposable
 
     private bool TryGetGenericLoopSequenceElementType(GenericTypeInfo genericType, bool requireAsync, out TypeInfo elementType)
     {
+        var sourceElementType = LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(genericType, requireAsync);
+        if (sourceElementType != null)
+        {
+            elementType = sourceElementType;
+            return true;
+        }
+
         elementType = BuiltInTypes.Unknown;
-
-        var name = GetUnqualifiedTypeName(genericType.Name);
-        var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
-        if (tickIndex >= 0)
-        {
-            name = name[..tickIndex];
-        }
-
-        if (requireAsync)
-        {
-            if (name != "IAsyncEnumerable")
-            {
-                return false;
-            }
-
-            elementType = genericType.TypeArguments[0];
-            return true;
-        }
-
-        if (!requireAsync && IsDictionaryTypeName(name) && genericType.TypeArguments.Count == 2)
-        {
-            elementType = new GenericTypeInfo("KeyValuePair", genericType.TypeArguments.ToList());
-            return true;
-        }
-
-        if (genericType.TypeArguments.Count != 1)
-        {
-            return false;
-        }
-
-        if (IsSpanTypeName(name) || IsCollectionType(genericType, out elementType))
-        {
-            if (BuiltInTypes.IsUnknown(elementType))
-            {
-                elementType = genericType.TypeArguments[0];
-            }
-
-            return true;
-        }
-
         return false;
     }
-
-    private static bool IsDictionaryTypeName(string name)
-        => name is "Dictionary" or "IDictionary" or "IReadOnlyDictionary"
-            or "SortedDictionary" or "SortedList"
-            || name.EndsWith(".Dictionary", StringComparison.Ordinal)
-            || name.EndsWith(".IDictionary", StringComparison.Ordinal)
-            || name.EndsWith(".IReadOnlyDictionary", StringComparison.Ordinal)
-            || name.EndsWith(".SortedDictionary", StringComparison.Ordinal)
-            || name.EndsWith(".SortedList", StringComparison.Ordinal);
 
     private bool TryGetSourceLoopSequenceElementType(
         IEnumerable<TypeReference> interfaceReferences,
