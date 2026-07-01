@@ -8736,7 +8736,7 @@ internal sealed class ColumnarIlEmitter
                     type = targetType;
                     return true;
                 }
-                if (!IsCastableScalar(targetType))
+                if (!ColumnarNumericFacts.IsCastableScalar(targetType))
                 {
                     if (sourceType == typeof(object) && targetType is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
                     {
@@ -8757,7 +8757,7 @@ internal sealed class ColumnarIlEmitter
                 // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
                 if (IsEnumType(sourceType))
                     sourceType = typeof(int);
-                if (!IsCastableScalar(sourceType))
+                if (!ColumnarNumericFacts.IsCastableScalar(sourceType))
                     return false;
                 // Emit the conversion only when the stack representation differs (char->int and same-type casts
                 // are no-ops). The opcode is TARGET-driven, matching the N# backend path (TryGetNumericConversionOpcode):
@@ -10073,11 +10073,6 @@ internal sealed class ColumnarIlEmitter
         }
         return false;
     }
-
-    // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
-    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float)
-        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong)
-        || t == typeof(decimal);
 
     // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
     // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
