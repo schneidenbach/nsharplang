@@ -3,18 +3,18 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 
 public class NSharpMethodGroupInfoFactory {
-    public static func FromDeclarations(declarations: IEnumerable<object>): NSharpMethodGroupInfo {
-        result := new List<object>()
-        foreach declaration in declarations {
-            result.Add(declaration)
+    public static func FromFunctions(functions: IEnumerable<FunctionTypeInfo>): NSharpMethodGroupInfo {
+        result := new List<FunctionTypeInfo>()
+        foreach functionInfo in functions {
+            result.Add(functionInfo)
         }
 
         return new NSharpMethodGroupInfo(result)
     }
 
-    public static func GetDeclarations(methodGroup: NSharpMethodGroupInfo): List<object> {
-        result := new List<object>()
-        source := methodGroup.Declarations
+    public static func GetFunctions(methodGroup: NSharpMethodGroupInfo): List<FunctionTypeInfo> {
+        result := new List<FunctionTypeInfo>()
+        source := methodGroup.Functions
 
         index := 0
         while index < source.Count {
@@ -25,7 +25,7 @@ public class NSharpMethodGroupInfoFactory {
         return result
     }
 
-    public static func AddDeclaration(methodGroup: NSharpMethodGroupInfo, declaration: object) {
-        methodGroup.Declarations.Add(declaration)
+    public static func AddFunction(methodGroup: NSharpMethodGroupInfo, functionInfo: FunctionTypeInfo) {
+        methodGroup.Functions.Add(functionInfo)
     }
 }

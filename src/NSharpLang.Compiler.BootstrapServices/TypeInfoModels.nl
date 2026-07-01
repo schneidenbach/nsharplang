@@ -682,10 +682,10 @@ public class FunctionTypeInfo: TypeInfo {
 }
 
 public class NSharpMethodGroupInfo: TypeInfo {
-    Declarations: List<object>
+    Functions: List<FunctionTypeInfo>
 
-    constructor(declarations: List<object>) {
-        Declarations = declarations
+    constructor(functions: List<FunctionTypeInfo>) {
+        Functions = functions
     }
 
     override func ToString(): string {

@@ -787,29 +787,12 @@ public sealed class SystemsAnalyzer
         if (functionTypes is [{ } singleFunction])
             return TryGetEntryForFunctionType(singleFunction, context, out entry);
 
-        var declarations = GetMethodGroupDeclarations(methodGroup);
-        if (declarations is [{ } singleDeclaration])
-            return TryGetEntryForDeclaration(singleDeclaration, context, out entry);
-
         entry = null!;
         return false;
     }
 
     private static List<FunctionTypeInfo> GetMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
-        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
-            .OfType<FunctionTypeInfo>()
-            .ToList();
-
-    private static List<FunctionDeclaration> GetMethodGroupDeclarations(NSharpMethodGroupInfo methodGroup)
-        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
-            .Select(item => item switch
-            {
-                FunctionDeclaration declaration => declaration,
-                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration,
-                _ => null
-            })
-            .OfType<FunctionDeclaration>()
-            .ToList();
+        => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
 
     private bool TryGetEntryForDeclaration(FunctionDeclaration declaration, WalkContext context, out FunctionEntry entry)
     {

@@ -129,20 +129,13 @@ public class Analyzer : IDisposable
         "Reverse"
     };
 
-    private static List<FunctionDeclaration> GetNSharpMethodGroupDeclarations(NSharpMethodGroupInfo methodGroup)
-        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
-            .Select(item => item switch
-            {
-                FunctionDeclaration declaration => declaration,
-                FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration,
-                _ => null
-            })
-            .OfType<FunctionDeclaration>()
-            .ToList();
+    private static List<FunctionTypeInfo> GetNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
+        => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
 
-    private static List<FunctionTypeInfo> GetSyntheticNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
-        => NSharpMethodGroupInfoFactory.GetDeclarations(methodGroup)
-            .OfType<FunctionTypeInfo>()
+    private static List<FunctionDeclaration> GetNSharpMethodGroupFunctionDeclarations(NSharpMethodGroupInfo methodGroup)
+        => GetNSharpMethodGroupFunctions(methodGroup)
+            .Select(functionType => functionType.Declaration as FunctionDeclaration)
+            .OfType<FunctionDeclaration>()
             .ToList();
 
     private readonly List<CompilerError> _errors = new();
@@ -3853,10 +3846,10 @@ public class Analyzer : IDisposable
                 return true;
             case NSharpMethodGroupInfo group:
                 {
-                    var declarations = GetNSharpMethodGroupDeclarations(group);
-                    if (declarations.Count > 0 && declarations.All(d => HasMustUseAttribute(d.Attributes)))
+                    var functions = GetNSharpMethodGroupFunctions(group);
+                    if (functions.Count > 0 && functions.All(function => function.HasMustUseAttribute))
                     {
-                        reason = $"'{declarations[0].Name}' is marked [MustUse]";
+                        reason = $"'{functions[0].SyntheticName ?? "function"}' is marked [MustUse]";
                         return true;
                     }
                     return false;
@@ -6915,7 +6908,7 @@ public class Analyzer : IDisposable
             {
                 ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
                 ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
-                NSharpMethodGroupInfo methodGroup when GetNSharpMethodGroupDeclarations(methodGroup) is [var first, ..] => first.Name,
+                NSharpMethodGroupInfo methodGroup when GetNSharpMethodGroupFunctions(methodGroup) is [var first, ..] => first.SyntheticName ?? "method",
                 FunctionTypeInfo { Declaration: FunctionDeclaration declaration } => declaration.Name,
                 _ => "method"
             }
@@ -9814,7 +9807,7 @@ public class Analyzer : IDisposable
                 .ToList();
             return functionTypes.Count == 1
                 ? functionTypes[0]
-                : NSharpMethodGroupInfoFactory.FromDeclarations(functionTypes);
+                : NSharpMethodGroupInfoFactory.FromFunctions(functionTypes);
         }
 
         return null;
@@ -9979,7 +9972,7 @@ public class Analyzer : IDisposable
             return CreateFunctionTypeInfo(applicableExtensions[0]);
 
         // Multiple matches - return fact-backed method group for overload resolution
-        return NSharpMethodGroupInfoFactory.FromDeclarations(
+        return NSharpMethodGroupInfoFactory.FromFunctions(
             applicableExtensions.Select(CreateFunctionTypeInfo).ToList());
     }
 
@@ -11083,10 +11076,10 @@ public class Analyzer : IDisposable
         // Handle N#-declared method group (overloaded N# methods)
         if (calleeType is NSharpMethodGroupInfo nsharpGroup)
         {
-            var syntheticFunctions = GetSyntheticNSharpMethodGroupFunctions(nsharpGroup);
-            if (syntheticFunctions.Count > 0)
+            var functions = GetNSharpMethodGroupFunctions(nsharpGroup);
+            if (functions.Count > 0)
             {
-                var boundFunction = BindSyntheticNSharpCall(syntheticFunctions, call, argTypes);
+                var boundFunction = BindSyntheticNSharpCall(functions, call, argTypes);
                 if (boundFunction != null)
                 {
                     _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, boundFunction);
@@ -11094,24 +11087,9 @@ public class Analyzer : IDisposable
                     return ResolveSyntheticReturnType(boundFunction, call, argTypes);
                 }
 
-                ReportNoMatchingSyntheticNSharpOverload(syntheticFunctions, call, argTypes);
+                ReportNoMatchingSyntheticNSharpOverload(functions, call, argTypes);
                 return BuiltInTypes.Unknown;
             }
-
-            var boundDecl = BindNSharpCall(nsharpGroup, call, argTypes);
-            if (boundDecl != null)
-            {
-                // Keep the semantic model pinned to the selected overload, not just the
-                // pre-bind method group. Later checks such as [MustUse] enforcement need
-                // the exact declaration that this call resolved to.
-                _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, CreateFunctionTypeInfo(boundDecl));
-
-                // Validate arguments against the selected overload
-                ValidateNSharpCallArguments(boundDecl, call, argTypes);
-                return ResolveNSharpReturnType(boundDecl, call, argTypes);
-            }
-
-            ReportNoMatchingNSharpOverload(nsharpGroup, call, argTypes);
         }
 
         return BuiltInTypes.Unknown;
@@ -12008,46 +11986,6 @@ public class Analyzer : IDisposable
         return flowType;
     }
 
-    private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
-    {
-        var declarations = GetNSharpMethodGroupDeclarations(methodGroup);
-        if (declarations.Count == 0)
-            return;
-
-        var functionName = GetCallTargetName(call) ?? declarations[0].Name;
-        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
-        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
-        var candidateSignatures = declarations
-            .Select(declaration => FormatNSharpMethodSignature(declaration, call))
-            .Distinct(StringComparer.Ordinal)
-            .Take(8)
-            .ToList();
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                functionName,
-                call.Arguments.Count,
-                argumentTypes,
-                candidateSignatures));
-            return;
-        }
-
-        Error(
-            ErrorCode.NoMatchingOverload,
-            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
-            line,
-            column,
-            "Check the argument count and types against the available overloads.",
-            length);
-    }
-
     private void ReportNoMatchingSyntheticNSharpOverload(
         IReadOnlyList<FunctionTypeInfo> candidates,
         CallExpression call,
@@ -12190,42 +12128,6 @@ public class Analyzer : IDisposable
            && IsReceiverStyleExtensionCall(declaration, call)
             ? 1
             : 0;
-
-    private string FormatNSharpMethodSignature(FunctionDeclaration declaration, CallExpression call)
-    {
-        var parameterStart = call.Callee is MemberAccessExpression &&
-                             declaration.Parameters.Count > 0 &&
-                             declaration.Parameters[0].IsThis
-            ? 1
-            : 0;
-        var name = declaration.IsOperatorOverload
-            ? $"operator {declaration.OperatorSymbol}"
-            : declaration.Name;
-        var typeParameters = declaration.TypeParameters is { Count: > 0 }
-            ? $"<{string.Join(", ", declaration.TypeParameters.Select(parameter => parameter.Name))}>"
-            : string.Empty;
-        var parameters = declaration.Parameters
-            .Skip(parameterStart)
-            .Select(FormatNSharpParameterSignature);
-        var returnType = declaration.ReturnType != null
-            ? $": {TranspileTypeReference(declaration.ReturnType)}"
-            : string.Empty;
-
-        return $"{name}{typeParameters}({string.Join(", ", parameters)}){returnType}";
-    }
-
-    private string FormatNSharpParameterSignature(Parameter parameter)
-    {
-        var modifier = parameter.Modifier switch
-        {
-            Ast.ParameterModifier.Ref => "ref ",
-            Ast.ParameterModifier.Out => "out ",
-            Ast.ParameterModifier.Params => "params ",
-            _ => parameter.IsThis ? "this " : string.Empty
-        };
-        var defaultValue = parameter.DefaultValue != null ? " = ..." : string.Empty;
-        return $"{modifier}{parameter.Name}: {TranspileTypeReference(parameter.Type)}{defaultValue}";
-    }
 
     private static string FormatReflectionMethodSignature(MethodInfo method, CallExpression call)
     {
@@ -12590,149 +12492,6 @@ public class Analyzer : IDisposable
         }
 
         return true;
-    }
-
-    private FunctionDeclaration? BindNSharpCall(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
-    {
-        FunctionDeclaration? bestDecl = null;
-        int bestScore = -1;
-        bool ambiguous = false;
-
-        foreach (var decl in GetNSharpMethodGroupDeclarations(methodGroup))
-        {
-            var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
-            var effectiveParamCount = decl.Parameters.Count - paramStart;
-            var hasParams = decl.Parameters.Count > 0 &&
-                            decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
-
-            // Count required parameters
-            int requiredCount = 0;
-            for (int i = paramStart; i < decl.Parameters.Count; i++)
-            {
-                if (decl.Parameters[i].Modifier == Ast.ParameterModifier.Params)
-                    continue;
-                if (decl.Parameters[i].DefaultValue == null)
-                    requiredCount++;
-            }
-
-            // Check arity
-            if (argTypes.Count < requiredCount)
-                continue;
-            if (!hasParams && argTypes.Count > effectiveParamCount)
-                continue;
-
-            // Try generic inference if needed
-            var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
-
-            // Score each argument
-            int score = 0;
-            bool allMatch = true;
-
-            int regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
-            for (int i = 0; i < argTypes.Count && i < regularParamCount; i++)
-            {
-                var paramType = ResolveType(decl.Parameters[i + paramStart].Type);
-                paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
-                var argType = argTypes[i];
-
-                if (!IsNSharpArgumentAssignable(decl.Parameters[i + paramStart], paramType, call.Arguments[i], argType))
-                {
-                    allMatch = false;
-                    break;
-                }
-
-                score += GetNSharpArgumentMatchScore(decl.Parameters[i + paramStart], paramType, call.Arguments[i], argType);
-            }
-
-            if (!allMatch)
-                continue;
-
-            // Validate params arguments if present
-            if (hasParams && argTypes.Count > regularParamCount)
-            {
-                var paramsParamType = ResolveType(decl.Parameters[^1].Type);
-                paramsParamType = ApplyNSharpGenericBindings(paramsParamType, genericBindings);
-
-                if (paramsParamType is ArrayTypeInfo paramsArrayType)
-                {
-                    bool paramsMatch = true;
-                    if (IsSingleDirectNSharpParamsArrayArgument(
-                        regularParamCount,
-                        call.Arguments,
-                        argTypes,
-                        paramsArrayType))
-                    {
-                        score += GetNSharpMatchScore(paramsArrayType, argTypes[regularParamCount]);
-                    }
-                    else
-                    {
-                        for (int i = regularParamCount; i < argTypes.Count; i++)
-                        {
-                            if (!IsAssignable(paramsArrayType.ElementType, argTypes[i]))
-                            {
-                                paramsMatch = false;
-                                break;
-                            }
-                            score += GetNSharpMatchScore(paramsArrayType.ElementType, argTypes[i]);
-                        }
-                    }
-
-                    if (!paramsMatch)
-                        continue;
-                }
-            }
-
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestDecl = decl;
-                ambiguous = false;
-            }
-            else if (score == bestScore && bestDecl != null)
-            {
-                // Tie-breaking rules (production semantics):
-                // 1. Non-generic preferred over generic
-                // 2. Non-params preferred over params
-                // 3. More parameters (fewer defaults used) preferred
-                bool currentIsGeneric = decl.TypeParameters != null && decl.TypeParameters.Count > 0;
-                bool bestIsGeneric = bestDecl.TypeParameters != null && bestDecl.TypeParameters.Count > 0;
-                bool currentHasParams = decl.Parameters.Count > 0 &&
-                                        decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
-                bool bestHasParams = bestDecl.Parameters.Count > 0 &&
-                                     bestDecl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
-
-                if (bestIsGeneric && !currentIsGeneric)
-                {
-                    bestDecl = decl;
-                    ambiguous = false;
-                }
-                else if (!bestIsGeneric && currentIsGeneric)
-                {
-                    // Best (non-generic) already wins
-                }
-                else if (bestHasParams && !currentHasParams)
-                {
-                    bestDecl = decl;
-                    ambiguous = false;
-                }
-                else if (!bestHasParams && currentHasParams)
-                {
-                    // Best (non-params) already wins
-                }
-                else
-                {
-                    ambiguous = true;
-                }
-            }
-        }
-
-        if (ambiguous && bestDecl != null)
-        {
-            Error($"Ambiguous call to '{bestDecl.Name}' — multiple overloads match with equal specificity",
-                call.Line, call.Column);
-        }
-
-        return bestDecl;
     }
 
     /// <summary>
@@ -14363,9 +14122,8 @@ public class Analyzer : IDisposable
             var bestScore = -1;
             var ambiguous = false;
             FunctionTypeInfo? bestFunctionType = null;
-            foreach (var declaration in GetNSharpMethodGroupDeclarations(methodGroup))
+            foreach (var candidateType in GetNSharpMethodGroupFunctions(methodGroup))
             {
-                var candidateType = CreateFunctionTypeInfo(declaration);
                 if (!TryGetMatchScore(candidateType, out var candidateScore))
                     continue;
 
@@ -22187,15 +21945,15 @@ public class Analyzer : IDisposable
         {
             // Allow function overloading: merge into NSharpMethodGroupInfo
             // Only if parameter signatures differ (same name + same params = duplicate error)
-            if (type is FunctionTypeInfo { Declaration: FunctionDeclaration newDeclaration })
+            if (type is FunctionTypeInfo { Declaration: FunctionDeclaration newDeclaration } newFunction)
             {
-                if (existing is FunctionTypeInfo { Declaration: FunctionDeclaration existingDeclaration })
+                if (existing is FunctionTypeInfo { Declaration: FunctionDeclaration existingDeclaration } existingFunction)
                 {
                     if (HasDistinctParameterSignature(newDeclaration, new[] { existingDeclaration }))
                     {
                         // Upgrade single function to method group
-                        currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromDeclarations(
-                            new object[] { existing, type });
+                        currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromFunctions(
+                            new[] { existingFunction, newFunction });
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -22208,11 +21966,11 @@ public class Analyzer : IDisposable
 
                 if (existing is NSharpMethodGroupInfo group)
                 {
-                    var declarations = GetNSharpMethodGroupDeclarations(group);
+                    var declarations = GetNSharpMethodGroupFunctionDeclarations(group);
                     if (HasDistinctParameterSignature(newDeclaration, declarations))
                     {
                         // Add to existing method group
-                        NSharpMethodGroupInfoFactory.AddDeclaration(group, type);
+                        NSharpMethodGroupInfoFactory.AddFunction(group, newFunction);
                         if (shouldRecordBindingDeclaration)
                         {
                             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
