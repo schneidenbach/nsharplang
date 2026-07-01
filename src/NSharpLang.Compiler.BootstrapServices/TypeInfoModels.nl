@@ -40,6 +40,8 @@ public class DeclaredMemberInfo {
     hasParamsParameterValue: bool
     returnTypeValue: TypeReference?
     typeParameterCountValue: int
+    typeParametersValue: TypeParameter[]
+    genericConstraintsValue: GenericConstraint[]
     attributeCountValue: int
     hasMustUseAttributeValue: bool
     isAsyncValue: bool
@@ -67,6 +69,8 @@ public class DeclaredMemberInfo {
     HasParamsParameter: bool => hasParamsParameterValue
     ReturnType: TypeReference? => returnTypeValue
     TypeParameterCount: int => typeParameterCountValue
+    TypeParameters: TypeParameter[] => typeParametersValue
+    GenericConstraints: GenericConstraint[] => genericConstraintsValue
     AttributeCount: int => attributeCountValue
     HasMustUseAttribute: bool => hasMustUseAttributeValue
     IsAsync: bool => isAsyncValue
@@ -95,6 +99,8 @@ public class DeclaredMemberInfo {
         hasParamsParameter: bool,
         returnType: TypeReference?,
         typeParameterCount: int,
+        typeParameters: TypeParameter[],
+        genericConstraints: GenericConstraint[],
         attributeCount: int,
         hasMustUseAttribute: bool,
         isAsync: bool,
@@ -121,6 +127,8 @@ public class DeclaredMemberInfo {
         hasParamsParameterValue = hasParamsParameter
         returnTypeValue = returnType
         typeParameterCountValue = typeParameterCount
+        typeParametersValue = typeParameters
+        genericConstraintsValue = genericConstraints
         attributeCountValue = attributeCount
         hasMustUseAttributeValue = hasMustUseAttribute
         isAsyncValue = isAsync
@@ -657,9 +665,12 @@ public class FunctionTypeInfo: TypeInfo {
     SyntheticName: string?
     ParameterNames: List<string>?
     ParameterTypes: List<TypeInfo>?
+    SourceParameterTypes: List<TypeReference>?
     ParameterModifiers: List<ParameterModifier>?
     RequiredParameterCount: int?
     HasParamsParameter: bool
+    TypeParameters: List<TypeParameter>?
+    GenericConstraints: List<GenericConstraint>?
     HasMustUseAttribute: bool
     ReturnType: TypeInfo?
 

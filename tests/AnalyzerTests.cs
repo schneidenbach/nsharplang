@@ -7549,6 +7549,46 @@ func Main() {
     }
 
     [Fact]
+    public void GenericFunctionMemberCall_ResolvesThroughTypeInfoDeclaredMembers()
+    {
+        AssertNoErrors(@"
+            class Box {
+                func Identity<T>(value: T): T {
+                    return value
+                }
+
+                func RequireClass<T>(value: T): T where T : class {
+                    return value
+                }
+            }
+
+            func Main() {
+                box := new Box()
+                number: int = box.Identity(1)
+                text: string = box.Identity<string>(""one"")
+                constrained: string = box.RequireClass(""value"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericFunctionMemberConstraint_ResolvesThroughTypeInfoDeclaredMembers()
+    {
+        AssertHasError(@"
+            class Box {
+                func RequireClass<T>(value: T): T where T : class {
+                    return value
+                }
+            }
+
+            func Main() {
+                box := new Box()
+                value := box.RequireClass(1)
+            }
+        ", "is a value type, but type parameter");
+    }
+
+    [Fact]
     public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
     {
         var result = AnalyzeWithSource(@"

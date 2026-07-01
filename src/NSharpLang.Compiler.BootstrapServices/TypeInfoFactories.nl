@@ -224,6 +224,8 @@ public class NominalTypeInfoFactory {
         typeName := member.GetType().Name
         name := GetOptionalString(member, "Name")
         kind := GetDeclaredMemberKind(typeName)
+        typeParameters := GetTypeParameterArray(member)
+        genericConstraints := GetGenericConstraintArray(member)
         return new DeclaredMemberInfo(
             name,
             kind,
@@ -240,7 +242,9 @@ public class NominalTypeInfoFactory {
             GetRequiredParameterCount(member),
             HasParamsParameter(member),
             GetOptionalTypeReference(member, "ReturnType"),
-            GetTypeParameterArray(member).Length,
+            typeParameters.Length,
+            typeParameters,
+            genericConstraints,
             GetOptionalListCount(member, "Attributes"),
             HasMustUseAttribute(member),
             HasOptionalModifier(member, 2048),
@@ -251,6 +255,33 @@ public class NominalTypeInfoFactory {
             GetOptionalBool(member, "IsImplicitConversion"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+    }
+
+    static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Constraints")
+        if value == null {
+            return new GenericConstraint[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Constraints' to be a list.")
+        }
+
+        result := new GenericConstraint[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            constraint := item as GenericConstraint
+            if constraint == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Constraints' entries to be generic constraints.")
+            }
+
+            result[index] = constraint
+            index = index + 1
+        }
+
+        return result
     }
 
     static func GetDeclaredMemberTypeReference(member: object, kind: DeclaredMemberKind): TypeReference? {

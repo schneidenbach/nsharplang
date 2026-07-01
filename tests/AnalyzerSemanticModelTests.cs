@@ -455,6 +455,14 @@ class FunctionMemberBox {
     func Convert(value: string): string {
         return value
     }
+
+    func Identity<T>(value: T): T {
+        return value
+    }
+
+    func RequireClass<T>(value: T): T where T : class {
+        return value
+    }
 }
 
 struct MarkedStruct: Marker {
@@ -600,6 +608,20 @@ interface Named {
         });
         Assert.Equal("int", Assert.IsType<SimpleTypeReference>(Assert.Single(convertMembers[0].ParameterTypes)).Name);
         Assert.Equal("string", Assert.IsType<SimpleTypeReference>(Assert.Single(convertMembers[1].ParameterTypes)).Name);
+        var identityMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "Identity");
+        Assert.Equal(DeclaredMemberKind.Function, identityMember.Kind);
+        Assert.Equal(1, identityMember.TypeParameterCount);
+        Assert.Equal("T", Assert.Single(identityMember.TypeParameters).Name);
+        Assert.Empty(identityMember.GenericConstraints);
+        Assert.Equal("T", Assert.IsType<SimpleTypeReference>(Assert.Single(identityMember.ParameterTypes)).Name);
+        Assert.Equal("T", Assert.IsType<SimpleTypeReference>(identityMember.ReturnType).Name);
+        var requireClassMember = Assert.Single(functionMemberBoxType.DeclaredMembers, member => member.Name == "RequireClass");
+        Assert.Equal(DeclaredMemberKind.Function, requireClassMember.Kind);
+        Assert.Equal(1, requireClassMember.TypeParameterCount);
+        Assert.Equal("T", Assert.Single(requireClassMember.TypeParameters).Name);
+        var requireClassConstraint = Assert.Single(requireClassMember.GenericConstraints);
+        Assert.Equal("T", requireClassConstraint.TypeParameter);
+        Assert.True(requireClassConstraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class));
         Assert.Equal("T", Assert.Single(genericStructType.TypeParameters).Name);
         Assert.Collection(
             primaryPointType.PrimaryConstructorParameters,
