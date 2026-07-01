@@ -22729,6 +22729,12 @@ public class Analyzer : IDisposable
             Func5 = Resolve("System.Func`5");
 
             {
+                var runtime = mlc.LoadFromAssemblyName("NSharpLang.Runtime");
+                RuntimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
+                RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
+            }
+
+            {
                 var json = mlc.LoadFromAssemblyName("System.Text.Json");
                 JsonTypeInfoOpen = json.GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1");
             }
