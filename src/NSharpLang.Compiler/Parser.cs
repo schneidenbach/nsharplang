@@ -2833,44 +2833,8 @@ public class Parser
         return new ReturnStatement(value, line, column);
     }
 
-    private static bool CanStartExpression(TokenType type) =>
-        type is
-            TokenType.Identifier or
-            TokenType.IntLiteral or
-            TokenType.FloatLiteral or
-            TokenType.CharLiteral or
-            TokenType.StringLiteral or
-            TokenType.InterpolatedRawStringLiteral or
-            TokenType.True or
-            TokenType.False or
-            TokenType.Null or
-            TokenType.New or
-            TokenType.Alloc or
-            TokenType.Stackalloc or
-            TokenType.Match or
-            TokenType.This or
-            TokenType.Base or
-            TokenType.LeftParen or
-            TokenType.LeftBracket or
-            TokenType.Immutable or
-            TokenType.DotDotDot or
-            // Unary operators / keywords that start expressions
-            TokenType.Plus or
-            TokenType.Minus or
-            TokenType.Not or
-            TokenType.BitwiseNot or
-            TokenType.Increment or
-            TokenType.Decrement or
-            TokenType.Must or
-            TokenType.Await or
-            TokenType.Throw or
-            // Keywords that are also expressions
-            TokenType.Checked or
-            TokenType.Unchecked or
-            TokenType.Typeof or
-            TokenType.Nameof or
-            TokenType.Sizeof or
-            TokenType.Default;
+    private static bool CanStartExpression(TokenType type)
+        => ParserTokenFacts.CanStartExpression(type);
 
     private YieldStatement ParseYieldStatement()
     {
@@ -3781,12 +3745,7 @@ public class Parser
     }
 
     private static bool IsAssignmentOperator(TokenType type)
-        => type is TokenType.Assign
-            or TokenType.PlusAssign
-            or TokenType.MinusAssign
-            or TokenType.StarAssign
-            or TokenType.SlashAssign
-            or TokenType.QuestionQuestionAssign;
+        => ParserTokenFacts.IsAssignmentOperator(type);
 
     private Expression ParseRightOperandOrMissing(
         Token operatorToken,
@@ -5886,47 +5845,10 @@ public class Parser
     }
 
     private static bool IsCastOperandStart(TokenType type)
-        => type != TokenType.LeftBracket
-           && IsExpressionStart(type);
+        => ParserTokenFacts.IsCastOperandStart(type);
 
     private static bool IsExpressionStart(TokenType type)
-    {
-        return type is
-            TokenType.Identifier or
-            TokenType.IntLiteral or
-            TokenType.FloatLiteral or
-            TokenType.CharLiteral or
-            TokenType.StringLiteral or
-            TokenType.TripleQuoteStringLiteral or
-            TokenType.InterpolatedRawStringLiteral or
-            TokenType.True or
-            TokenType.False or
-            TokenType.Null or
-            TokenType.Default or
-            TokenType.New or
-            TokenType.Alloc or
-            TokenType.Stackalloc or
-            TokenType.This or
-            TokenType.Base or
-            TokenType.LeftParen or
-            TokenType.LeftBracket or
-            TokenType.Immutable or
-            TokenType.Plus or
-            TokenType.Minus or
-            TokenType.Not or
-            TokenType.BitwiseNot or
-            TokenType.Increment or
-            TokenType.Decrement or
-            TokenType.Must or
-            TokenType.Await or
-            TokenType.Throw or
-            TokenType.Match or
-            TokenType.Typeof or
-            TokenType.Nameof or
-            TokenType.Sizeof or
-            TokenType.Checked or
-            TokenType.Unchecked;
-    }
+        => ParserTokenFacts.IsExpressionStart(type);
 
     private string ParseOperatorSymbol()
     {
@@ -6862,9 +6784,7 @@ public class Parser
     }
 
     private static bool IsTypeReferenceStart(TokenType type)
-    {
-        return type is TokenType.Identifier or TokenType.LeftParen or TokenType.BitwiseAnd;
-    }
+        => ParserTokenFacts.IsTypeReferenceStart(type);
 
     private void ReportMissingReturnTypeMarker(
         string declarationName,
@@ -7062,65 +6982,29 @@ public class Parser
     /// which can start a local function).
     /// </summary>
     private static bool IsTypeDeclarationKeyword(TokenType type)
-    {
-        return type == TokenType.Class || type == TokenType.Struct ||
-               type == TokenType.Record || type == TokenType.Interface ||
-               type == TokenType.Union || type == TokenType.Enum ||
-               type == TokenType.Type;
-    }
+        => ParserTokenFacts.IsTypeDeclarationKeyword(type);
 
     /// <summary>
     /// Check if current token starts a declaration keyword (includes func, modifiers, attributes).
     /// Used for synchronization when recovering from errors.
     /// </summary>
     private static bool IsDeclarationKeyword(TokenType type)
-    {
-        return type == TokenType.Func || IsTypeDeclarationKeyword(type) ||
-               type == TokenType.Test || type == TokenType.Implicit || type == TokenType.Explicit ||
-               type == TokenType.Duck || type == TokenType.Ref;
-    }
+        => ParserTokenFacts.IsDeclarationKeyword(type);
 
     /// <summary>
     /// Check if a token type is a modifier keyword that can precede declarations.
     /// </summary>
     private static bool IsModifierKeyword(TokenType type)
-    {
-        return type == TokenType.Static || type == TokenType.Internal ||
-               type == TokenType.Protected || type == TokenType.Virtual ||
-               type == TokenType.Override || type == TokenType.Abstract ||
-               type == TokenType.Sealed || type == TokenType.Readonly ||
-               type == TokenType.Partial || type == TokenType.Async ||
-               type == TokenType.File;
-    }
+        => ParserTokenFacts.IsModifierKeyword(type);
 
     /// <summary>
     /// Check if a token type starts a statement (used for statement-level synchronization).
     /// </summary>
     private static bool IsStatementStartKeyword(TokenType type)
-    {
-        return type == TokenType.Let || type == TokenType.Const ||
-               type == TokenType.Readonly || type == TokenType.If ||
-               type == TokenType.For || type == TokenType.Foreach ||
-               type == TokenType.While || type == TokenType.Return ||
-               type == TokenType.Yield || type == TokenType.Break ||
-               type == TokenType.Continue || type == TokenType.Throw ||
-               type == TokenType.Try || type == TokenType.Using ||
-               type == TokenType.Lock || type == TokenType.Switch ||
-               type == TokenType.Print || type == TokenType.Assert ||
-               type == TokenType.Unsafe || type == TokenType.Allow ||
-               type == TokenType.Func || type == TokenType.Semicolon ||
-               type == TokenType.LeftBrace;
-    }
+        => ParserTokenFacts.IsStatementStartKeyword(type);
 
     private static bool IsExpressionTerminator(TokenType type)
-    {
-        return type == TokenType.RightBrace ||
-               type == TokenType.RightParen ||
-               type == TokenType.RightBracket ||
-               type == TokenType.Comma ||
-               type == TokenType.Semicolon ||
-               type == TokenType.Eof;
-    }
+        => ParserTokenFacts.IsExpressionTerminator(type);
 
     private bool IsMissingOperandBoundary(Token operatorToken)
     {
