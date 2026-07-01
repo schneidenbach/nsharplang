@@ -1018,7 +1018,7 @@ internal sealed class ColumnarIlEmitter
                 var raw = text;
                 if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
                     raw = raw.Substring(1, raw.Length - 2);
-                if (!TryDecodeLiteralBody(raw, out var charValue) || charValue.Length != 1)
+                if (!NSharpLang.Compiler.StringLiteralDecoder.TryDecodeBody(raw, out var charValue) || charValue.Length != 1)
                     return false;
                 il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
                 return true;
@@ -2778,52 +2778,6 @@ internal sealed class ColumnarIlEmitter
 
         parts.Add(s.Substring(start));
         return parts;
-    }
-
-    /// <summary>
-    /// Decode the (quote-stripped) body of a char/string literal, resolving the common C-style escape sequences
-    /// (<c>\n \r \t \\ \" \' \0 \a \b \f \v</c>) to their characters. Returns false for an unknown/unsupported
-    /// escape (e.g. <c>\u</c>/<c>\x</c> or a trailing backslash) so that literal declines — keeping the N# backend path
-    /// authoritative rather than mis-decoding. A body with no backslash is returned verbatim.
-    /// </summary>
-    private static bool TryDecodeLiteralBody(string body, out string decoded)
-    {
-        decoded = string.Empty;
-        if (!body.Contains('\\'))
-        {
-            decoded = body;
-            return true;
-        }
-        var sb = new System.Text.StringBuilder(body.Length);
-        for (var i = 0; i < body.Length; i++)
-        {
-            var ch = body[i];
-            if (ch != '\\')
-            {
-                sb.Append(ch);
-                continue;
-            }
-            if (i + 1 >= body.Length)
-                return false; // trailing backslash.
-            i++;
-            switch (body[i])
-            {
-                case 'n': sb.Append('\n'); break;
-                case 'r': sb.Append('\r'); break;
-                case 't': sb.Append('\t'); break;
-                case '\\': sb.Append('\\'); break;
-                case '"': sb.Append('"'); break;
-                case '\'': sb.Append('\''); break;
-                case '0': sb.Append('\0'); break;
-                case 'a': sb.Append('\a'); break;
-                case 'b': sb.Append('\b'); break;
-                case 'f': sb.Append('\f'); break;
-                case 'v': sb.Append('\v'); break;
-                default: return false; // \u, \x, or unknown escape — decline.
-            }
-        }
-        decoded = sb.ToString();
-        return true;
     }
 
     // Parse a floating-point literal's body (type suffix already stripped by the caller) to its double value,
@@ -7446,7 +7400,7 @@ internal sealed class ColumnarIlEmitter
                 var raw = Text(idx);
                 if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
                     raw = raw.Substring(1, raw.Length - 2);
-                if (!TryDecodeLiteralBody(raw, out var charValue) || charValue.Length != 1)
+                if (!NSharpLang.Compiler.StringLiteralDecoder.TryDecodeBody(raw, out var charValue) || charValue.Length != 1)
                     return false;
                 _il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
                 type = typeof(char);

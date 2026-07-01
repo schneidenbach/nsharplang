@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import System.Text
+
 public class StringLiteralDecoder {
     public static func Decode(tokenText: string): string {
         start := 0
@@ -13,6 +15,62 @@ public class StringLiteralDecoder {
         }
 
         return DecodeBody(tokenText.Substring(start, end - start))
+    }
+
+    public static func TryDecodeBody(body: string, out decoded: string): bool {
+        decoded = ""
+        if body.IndexOf('\\') < 0 {
+            decoded = body
+            return true
+        }
+
+        builder := new StringBuilder(body.Length)
+        i := 0
+        while i < body.Length {
+            ch := body[i]
+            if ch != '\\' {
+                builder.Append(ch)
+                i = i + 1
+                continue
+            }
+
+            if i + 1 >= body.Length {
+                return false
+            }
+
+            i = i + 1
+            next := body[i]
+            if next == '\'' {
+                builder.Append('\'')
+            } else if next == '"' {
+                builder.Append('"')
+            } else if next == '\\' {
+                builder.Append('\\')
+            } else if next == '0' {
+                builder.Append('\0')
+            } else if next == 'a' {
+                builder.Append('\a')
+            } else if next == 'b' {
+                builder.Append('\b')
+            } else if next == 'f' {
+                builder.Append('\f')
+            } else if next == 'n' {
+                builder.Append('\n')
+            } else if next == 'r' {
+                builder.Append('\r')
+            } else if next == 't' {
+                builder.Append('\t')
+            } else if next == 'v' {
+                builder.Append('\v')
+            } else {
+                return false
+            }
+
+            i = i + 1
+        }
+
+        decoded = builder.ToString()
+        return true
     }
 
     public static func DecodeBody(body: string): string {
