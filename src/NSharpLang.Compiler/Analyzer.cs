@@ -6713,7 +6713,8 @@ public class Analyzer : IDisposable
             _assignmentTargetExpressionTypes[expr] = flowType;
 
         if (!_allowSyntheticSoaOperationReference
-            && flowType is FunctionTypeInfo { Declaration: null, SyntheticName: { Length: > 0 } } syntheticSoaOperation)
+            && flowType is FunctionTypeInfo { SyntheticName: { Length: > 0 } } syntheticSoaOperation
+            && !HasSourceFunctionIdentity(syntheticSoaOperation))
         {
             ReportSyntheticSoaOperationUsedAsValue(expr, syntheticSoaOperation);
             return BuiltInTypes.Unknown;
@@ -6805,12 +6806,15 @@ public class Analyzer : IDisposable
 
     private static bool IsCallableReferenceType(TypeInfo type)
         => IsMethodGroupReferenceType(type)
-            || type is FunctionTypeInfo { Declaration: not null };
+            || type is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType);
 
     private static bool IsMethodGroupReferenceType(TypeInfo type)
         => type is ReflectionMethodInfo
             or ReflectionMethodGroupInfo
             or NSharpMethodGroupInfo;
+
+    private static bool HasSourceFunctionIdentity(FunctionTypeInfo functionType)
+        => !string.IsNullOrEmpty(functionType.SourceName);
 
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
     {
@@ -12161,7 +12165,7 @@ public class Analyzer : IDisposable
 
             var symbol = LookupSymbol(identifier.Name);
             if (symbol is NSharpMethodGroupInfo
-                || symbol is FunctionTypeInfo { Declaration: not null })
+                || symbol is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType))
             {
                 name = identifier.Name;
                 return true;
@@ -17884,7 +17888,7 @@ public class Analyzer : IDisposable
         }
 
         if (resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
-            || resolved is FunctionTypeInfo { Declaration: not null })
+            || resolved is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType))
         {
             return false;
         }
@@ -20309,7 +20313,7 @@ public class Analyzer : IDisposable
         if (resolvedSource is AnonymousUnionTypeInfo unionSource)
             return unionSource.Arms.All(sourceArm => IsAssignable(resolvedTarget, sourceArm));
 
-        if (resolvedSource is FunctionTypeInfo { Declaration: not null } sourceFunction)
+        if (resolvedSource is FunctionTypeInfo sourceFunction && HasSourceFunctionIdentity(sourceFunction))
         {
             if (!CanBindCallableReferenceToExpectedType(resolvedTarget))
                 return false;
@@ -20901,7 +20905,7 @@ public class Analyzer : IDisposable
     /// </summary>
     private bool IsLambdaAssignableToDelegate(FunctionTypeInfo funcType, GenericTypeInfo delegateType)
     {
-        if (funcType.Declaration != null
+        if (HasSourceFunctionIdentity(funcType)
             && TryCreateFunctionTypeInfoFromGenericDelegate(delegateType, out var delegateSignature))
         {
             return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(funcType, delegateSignature);
