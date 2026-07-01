@@ -401,6 +401,12 @@ sealed class Closed {
 class Open {
 }
 
+class Base {
+}
+
+class Derived: Base {
+}
+
 duck interface Reader {
     func Read(): string
 }
@@ -414,11 +420,15 @@ interface Named {
         Assert.NotNull(result.SemanticModel);
         var closedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Closed"]);
         var openType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Open"]);
+        var derivedType = Assert.IsType<ClassTypeInfo>(result.SemanticModel.Types["Derived"]);
         var readerType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Reader"]);
         var namedType = Assert.IsType<InterfaceTypeInfo>(result.SemanticModel.Types["Named"]);
 
         Assert.True(closedType.IsSealed);
         Assert.False(openType.IsSealed);
+        Assert.Null(openType.BaseClass);
+        var derivedBase = Assert.IsType<SimpleTypeReference>(derivedType.BaseClass);
+        Assert.Equal("Base", derivedBase.Name);
         Assert.True(readerType.IsDuckInterface);
         Assert.False(namedType.IsDuckInterface);
     }

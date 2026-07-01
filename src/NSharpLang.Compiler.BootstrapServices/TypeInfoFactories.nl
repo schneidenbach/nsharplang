@@ -12,7 +12,8 @@ public class NominalTypeInfoFactory {
             TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
             TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            HasModifier(declaration, 128))
+            HasModifier(declaration, 128),
+            GetOptionalTypeReference(declaration, "BaseClass"))
     }
 
     public static func FromStructDeclaration(declaration: object): StructTypeInfo {
@@ -45,6 +46,20 @@ public class NominalTypeInfoFactory {
         modifiers := TypeInfoFactoryReflection.GetRequiredProperty(declaration, "Modifiers")
         value := Convert.ToInt32(modifiers)
         return (value & flag) == flag
+    }
+
+    static func GetOptionalTypeReference(owner: object, propertyName: string): TypeReference? {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
+        if value == null {
+            return null
+        }
+
+        typeReference := value as TypeReference
+        if typeReference == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' to be a type reference.")
+        }
+
+        return typeReference
     }
 }
 

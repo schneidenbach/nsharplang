@@ -15,19 +15,28 @@ public class ClassTypeInfo: TypeInfo {
     lineValue: int
     columnValue: int
     isSealedValue: bool
+    baseClassValue: TypeReference?
 
     Declaration: object => declarationValue
     Name: string => nameValue
     Line: int => lineValue
     Column: int => columnValue
     IsSealed: bool => isSealedValue
+    BaseClass: TypeReference? => baseClassValue
 
-    constructor(declaration: object, name: string, line: int, column: int, isSealed: bool = false) {
+    constructor(
+        declaration: object,
+        name: string,
+        line: int,
+        column: int,
+        isSealed: bool = false,
+        baseClass: TypeReference? = null) {
         declarationValue = declaration
         nameValue = name
         lineValue = line
         columnValue = column
         isSealedValue = isSealed
+        baseClassValue = baseClass
     }
 
     override func ToString(): string {

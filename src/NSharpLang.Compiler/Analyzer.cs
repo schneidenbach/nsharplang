@@ -1168,7 +1168,7 @@ public class Analyzer : IDisposable
         }
 
         var classDeclaration = classType.GetDeclaration();
-        var baseClass = classDeclaration.BaseClass;
+        var baseClass = classType.BaseClass;
         if (baseClass == null)
         {
             return false;
@@ -5858,9 +5858,8 @@ public class Analyzer : IDisposable
 
         if (resolved is ClassTypeInfo classType)
         {
-            var classDeclaration = classType.GetDeclaration();
-            return classDeclaration.BaseClass != null
-                && IsThrowableType(ResolveType(classDeclaration.BaseClass));
+            return classType.BaseClass != null
+                && IsThrowableType(ResolveType(classType.BaseClass));
         }
 
         return false;
@@ -8817,8 +8816,8 @@ public class Analyzer : IDisposable
                     isExported = IsExportedByCasingOrModifier(memberName, classMember);
                     return true;
                 }
-                if (classDeclaration.BaseClass != null)
-                    return TryFindMemberExportVisibility(ResolveType(classDeclaration.BaseClass), memberName, out isExported, out filePath);
+                if (classType.BaseClass != null)
+                    return TryFindMemberExportVisibility(ResolveType(classType.BaseClass), memberName, out isExported, out filePath);
                 return false;
 
             case StructTypeInfo structType:
@@ -8919,8 +8918,8 @@ public class Analyzer : IDisposable
                 var classDeclaration = classType.GetDeclaration();
                 if (TryFindDeclarationMember(classDeclaration.Members, memberName, GetDeclarationFileForType(classType), out declaration))
                     return true;
-                if (classDeclaration.BaseClass != null)
-                    return TryFindMemberDeclaration(ResolveType(classDeclaration.BaseClass), memberName, out declaration);
+                if (classType.BaseClass != null)
+                    return TryFindMemberDeclaration(ResolveType(classType.BaseClass), memberName, out declaration);
                 return false;
 
             case StructTypeInfo structType:
@@ -9141,8 +9140,8 @@ public class Analyzer : IDisposable
             var members = GetDeclaredMemberNames(classDeclaration.Members);
             members.AddRange(GetPrimaryConstructorParameterNames(classDeclaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
-            if (classDeclaration.BaseClass != null)
-                members.AddRange(GetAvailableMemberNames(ResolveType(classDeclaration.BaseClass), includeStaticMembers));
+            if (classType.BaseClass != null)
+                members.AddRange(GetAvailableMemberNames(ResolveType(classType.BaseClass), includeStaticMembers));
             return members;
         }
 
@@ -9484,9 +9483,9 @@ public class Analyzer : IDisposable
 
             // If member not found, check base class
             var classDeclaration = classType.GetDeclaration();
-            if (classDeclaration.BaseClass != null)
+            if (classType.BaseClass != null)
             {
-                var baseType = ResolveType(classDeclaration.BaseClass);
+                var baseType = ResolveType(classType.BaseClass);
                 var baseMember = ResolveMember(baseType, memberName, includeStaticMembers);
                 if (!BuiltInTypes.IsUnknown(baseMember))
                     return baseMember;
@@ -11229,7 +11228,7 @@ public class Analyzer : IDisposable
 
             if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                var baseClass = classTypeWithBase.BaseClass;
                 if (baseClass != null)
                 {
                     var baseType = ResolveType(baseClass);
@@ -14887,7 +14886,7 @@ public class Analyzer : IDisposable
 
             if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                var baseClass = classTypeWithBase.BaseClass;
                 if (baseClass != null)
                 {
                     var baseType = ResolveType(baseClass);
@@ -15577,7 +15576,7 @@ public class Analyzer : IDisposable
 
             if (owner is ClassTypeInfo classTypeWithBase)
             {
-                var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+                var baseClass = classTypeWithBase.BaseClass;
                 if (baseClass != null)
                 {
                     var baseType = ResolveType(baseClass);
@@ -15873,7 +15872,7 @@ public class Analyzer : IDisposable
 
         if (owner is ClassTypeInfo classTypeWithBase)
         {
-            var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+            var baseClass = classTypeWithBase.BaseClass;
             if (baseClass != null)
             {
                 var baseType = ResolveType(baseClass);
@@ -15987,7 +15986,7 @@ public class Analyzer : IDisposable
 
         if (receiver is ClassTypeInfo classTypeWithBase)
         {
-            var baseClass = classTypeWithBase.GetDeclaration().BaseClass;
+            var baseClass = classTypeWithBase.BaseClass;
             if (baseClass != null)
             {
                 var baseType = ResolveType(baseClass);
@@ -17304,7 +17303,7 @@ public class Analyzer : IDisposable
                 // Same-named functions, generated members, and inherited members resolve
                 // on the open type — only a conclusively absent member reports (a base
                 // class would need its own substitution chain, so it suppresses instead).
-                var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.GetDeclaration().BaseClass != null;
+                var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.BaseClass != null;
                 if (!hasBaseClass
                     && BuiltInTypes.IsUnknown(ResolveMember(openType, memberName, includeStaticMembers: false))
                     && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
@@ -19546,7 +19545,7 @@ public class Analyzer : IDisposable
         var currentType = GetCurrentTypeScope();
         if (currentType is ClassTypeInfo classType)
         {
-            var baseClass = classType.GetDeclaration().BaseClass;
+            var baseClass = classType.BaseClass;
             if (baseClass != null)
                 return ResolveType(baseClass);
         }
@@ -20336,9 +20335,9 @@ public class Analyzer : IDisposable
         {
             // Walk base class chain
             var classDeclaration = classSource.GetDeclaration();
-            if (classDeclaration.BaseClass != null)
+            if (classSource.BaseClass != null)
             {
-                var baseType = ResolveType(classDeclaration.BaseClass);
+                var baseType = ResolveType(classSource.BaseClass);
                 if (IsAssignable(target, baseType)) return true;
             }
             // Check implemented interfaces
