@@ -824,7 +824,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        ReportUnsupportedAttributeOperator(unary, GetUnaryOperatorText(unary.Operator));
+        ReportUnsupportedAttributeOperator(unary, OperatorFacts.GetUnaryText(unary.Operator));
         kind = operandKind;
         return false;
     }
@@ -843,7 +843,7 @@ public class Analyzer : IDisposable
 
         if (binary.Operator is not (BinaryOperator.BitwiseOr or BinaryOperator.BitwiseAnd or BinaryOperator.BitwiseXor))
         {
-            ReportUnsupportedAttributeOperator(binary, GetBinaryOperatorText(binary.Operator));
+            ReportUnsupportedAttributeOperator(binary, OperatorFacts.GetBinaryText(binary.Operator));
             return false;
         }
 
@@ -858,7 +858,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        ReportUnsupportedAttributeOperator(binary, GetBinaryOperatorText(binary.Operator));
+        ReportUnsupportedAttributeOperator(binary, OperatorFacts.GetBinaryText(binary.Operator));
         return false;
     }
 
@@ -1012,19 +1012,6 @@ public class Analyzer : IDisposable
                 return false;
         }
     }
-
-    private static string GetUnaryOperatorText(UnaryOperator op) => op switch
-    {
-        UnaryOperator.Negate => "-",
-        UnaryOperator.Not => "!",
-        UnaryOperator.BitwiseNot => "~",
-        UnaryOperator.PreIncrement => "++",
-        UnaryOperator.PreDecrement => "--",
-        UnaryOperator.PostIncrement => "++",
-        UnaryOperator.PostDecrement => "--",
-        UnaryOperator.IndexFromEnd => "^",
-        _ => op.ToString()
-    };
 
     private void ReportUnsupportedAttributeArgument(Expression expression, string description)
     {
@@ -4232,44 +4219,8 @@ public class Analyzer : IDisposable
             length: diagnosticLength);
     }
 
-    private static string GetBinaryOperatorText(BinaryOperator op) => op switch
-    {
-        BinaryOperator.Add => "+",
-        BinaryOperator.Subtract => "-",
-        BinaryOperator.Multiply => "*",
-        BinaryOperator.Divide => "/",
-        BinaryOperator.Modulo => "%",
-        BinaryOperator.Equal => "==",
-        BinaryOperator.NotEqual => "!=",
-        BinaryOperator.Less => "<",
-        BinaryOperator.LessOrEqual => "<=",
-        BinaryOperator.Greater => ">",
-        BinaryOperator.GreaterOrEqual => ">=",
-        BinaryOperator.And => "&&",
-        BinaryOperator.Or => "||",
-        BinaryOperator.BitwiseAnd => "&",
-        BinaryOperator.BitwiseOr => "|",
-        BinaryOperator.BitwiseXor => "^",
-        BinaryOperator.LeftShift => "<<",
-        BinaryOperator.RightShift => ">>",
-        BinaryOperator.NullCoalesce => "??",
-        BinaryOperator.Range => "..",
-        _ => op.ToString()
-    };
-
-    private static string GetAssignmentOperatorText(AssignmentOperator op) => op switch
-    {
-        AssignmentOperator.Assign => "=",
-        AssignmentOperator.AddAssign => "+=",
-        AssignmentOperator.SubtractAssign => "-=",
-        AssignmentOperator.MultiplyAssign => "*=",
-        AssignmentOperator.DivideAssign => "/=",
-        AssignmentOperator.NullCoalesceAssign => "??=",
-        _ => op.ToString()
-    };
-
     private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
-        => (expression.Line, expression.Column, Math.Max(1, GetBinaryOperatorText(expression.Operator).Length));
+        => (expression.Line, expression.Column, Math.Max(1, OperatorFacts.GetBinaryText(expression.Operator).Length));
 
     private static (int Line, int Column, int Length) GetSourceSpanDiagnosticSpan(
         SourceSpan span,
@@ -7274,7 +7225,7 @@ public class Analyzer : IDisposable
             var rightIsWrong = !IsNumericType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                 GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
                 : leftIsWrong
@@ -7295,7 +7246,7 @@ public class Analyzer : IDisposable
         if (result == null)
         {
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
                 $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
@@ -7394,7 +7345,7 @@ public class Analyzer : IDisposable
             }
 
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
                 $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but comparison operators must return 'bool'",
@@ -7411,7 +7362,7 @@ public class Analyzer : IDisposable
             var rightIsWrong = !IsPrimitiveRelationalType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                 GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
                 : leftIsWrong
@@ -7430,7 +7381,7 @@ public class Analyzer : IDisposable
         if (GetWiderType(left, right) == null)
         {
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
                 $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
@@ -7459,7 +7410,7 @@ public class Analyzer : IDisposable
             }
 
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
                 $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but equality operators must return 'bool'",
@@ -7477,7 +7428,7 @@ public class Analyzer : IDisposable
 
         var (diagnosticLine2, diagnosticColumn2, diagnosticLength2) =
             GetBinaryOperandDiagnosticSpan(expr, leftIsWrong: true, rightIsWrong: true);
-        var opText2 = GetBinaryOperatorText(expr.Operator);
+        var opText2 = OperatorFacts.GetBinaryText(expr.Operator);
         Error(
             ErrorCode.TypeMismatch,
             $"The '{opText2}' operator doesn't work with '{left}' and '{right}' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload",
@@ -7858,7 +7809,7 @@ public class Analyzer : IDisposable
             var rightIsWrong = !IsBoolType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                 GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = GetBinaryOperatorText(expr.Operator);
+            var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
                 : leftIsWrong
@@ -14105,7 +14056,7 @@ public class Analyzer : IDisposable
 
         if (ReportNullConditionalWriteTargetIfNeeded(
                 assignment.Target,
-                $"assigned with '{GetAssignmentOperatorText(assignment.Operator)}'"))
+                $"assigned with '{OperatorFacts.GetAssignmentText(assignment.Operator)}'"))
         {
             var invalidValueType = AnalyzeExpression(assignment.Value);
             if (invalidValueType is SoaRowTypeInfo)
@@ -14214,7 +14165,7 @@ public class Analyzer : IDisposable
 
         if (ReportReadOnlyPropertyWriteTargetIfNeeded(
                 assignment.Target,
-                GetAssignmentOperatorText(assignment.Operator),
+                OperatorFacts.GetAssignmentText(assignment.Operator),
                 targetExpressionTypes))
         {
             var invalidValueType = AnalyzeExpression(assignment.Value);
@@ -14328,7 +14279,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var opText = GetAssignmentOperatorText(assignment.Operator);
+        var opText = OperatorFacts.GetAssignmentText(assignment.Operator);
         Error(
             ErrorCode.TypeMismatch,
             $"The '{opText}' assignment produces '{resultType}', which can't be stored in '{targetType}'",
@@ -14645,7 +14596,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var opText = GetAssignmentOperatorText(assignment.Operator);
+        var opText = OperatorFacts.GetAssignmentText(assignment.Operator);
         var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
         Error(
             ErrorCode.InvalidSyntax,
@@ -16251,7 +16202,7 @@ public class Analyzer : IDisposable
             case BinaryExpression binary:
                 if (!IsSupportedExpressionTreeBinaryOperator(binary.Operator))
                 {
-                    return (binary, $"binary operator '{GetBinaryOperatorText(binary.Operator)}'");
+                    return (binary, $"binary operator '{OperatorFacts.GetBinaryText(binary.Operator)}'");
                 }
 
                 return FindUnsupportedExpressionTreeExpression(binary.Left, parameterNames)
@@ -16260,7 +16211,7 @@ public class Analyzer : IDisposable
             case UnaryExpression unary:
                 if (!IsSupportedExpressionTreeUnaryOperator(unary.Operator))
                 {
-                    return (unary, $"unary operator '{GetUnaryOperatorText(unary.Operator)}'");
+                    return (unary, $"unary operator '{OperatorFacts.GetUnaryText(unary.Operator)}'");
                 }
 
                 return FindUnsupportedExpressionTreeExpression(unary.Operand, parameterNames);
@@ -21080,7 +21031,7 @@ public class Analyzer : IDisposable
 
         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
             GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-        var opText = GetBinaryOperatorText(expr.Operator);
+        var opText = OperatorFacts.GetBinaryText(expr.Operator);
         var sideText = leftIsWrong == rightIsWrong
             ? $"I found '{left}' and '{right}'"
             : leftIsWrong
