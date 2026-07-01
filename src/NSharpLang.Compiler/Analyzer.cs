@@ -132,12 +132,6 @@ public class Analyzer : IDisposable
     private static List<FunctionTypeInfo> GetNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
         => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
 
-    private static List<FunctionDeclaration> GetNSharpMethodGroupFunctionDeclarations(NSharpMethodGroupInfo methodGroup)
-        => GetNSharpMethodGroupFunctions(methodGroup)
-            .Select(functionType => functionType.Declaration as FunctionDeclaration)
-            .OfType<FunctionDeclaration>()
-            .ToList();
-
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -1865,9 +1859,8 @@ public class Analyzer : IDisposable
         {
             // Already in a method group (registered by class first pass) — skip
         }
-        else if (existingSymbol is FunctionTypeInfo { Declaration: FunctionDeclaration existingDecl }
-                 && funcType.Declaration is FunctionDeclaration funcDecl
-                 && ParameterSignaturesMatch(existingDecl, funcDecl))
+        else if (existingSymbol is FunctionTypeInfo existingFunction
+                 && ParameterSignaturesMatch(existingFunction, funcType))
         {
             // Same function already declared (by class first pass) — skip
         }
@@ -21960,11 +21953,11 @@ public class Analyzer : IDisposable
         {
             // Allow function overloading: merge into NSharpMethodGroupInfo
             // Only if parameter signatures differ (same name + same params = duplicate error)
-            if (type is FunctionTypeInfo { Declaration: FunctionDeclaration newDeclaration } newFunction)
+            if (type is FunctionTypeInfo newFunction && HasSourceParameterSignature(newFunction))
             {
-                if (existing is FunctionTypeInfo { Declaration: FunctionDeclaration existingDeclaration } existingFunction)
+                if (existing is FunctionTypeInfo existingFunction && HasSourceParameterSignature(existingFunction))
                 {
-                    if (HasDistinctParameterSignature(newDeclaration, new[] { existingDeclaration }))
+                    if (HasDistinctParameterSignature(newFunction, new[] { existingFunction }))
                     {
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromFunctions(
@@ -21981,8 +21974,9 @@ public class Analyzer : IDisposable
 
                 if (existing is NSharpMethodGroupInfo group)
                 {
-                    var declarations = GetNSharpMethodGroupFunctionDeclarations(group);
-                    if (HasDistinctParameterSignature(newDeclaration, declarations))
+                    var functions = GetNSharpMethodGroupFunctions(group);
+                    if (functions.All(HasSourceParameterSignature)
+                        && HasDistinctParameterSignature(newFunction, functions))
                     {
                         // Add to existing method group
                         NSharpMethodGroupInfoFactory.AddFunction(group, newFunction);
@@ -22094,33 +22088,44 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Checks if a new function declaration has a distinct parameter signature
-    /// from all existing declarations (for overload validation).
+    /// True for source-declared function facts that can participate in N# overload sets.
+    /// </summary>
+    private static bool HasSourceParameterSignature(FunctionTypeInfo function)
+        => function.SourceParameterTypes != null;
+
+    /// <summary>
+    /// Checks if a new source function has a distinct parameter signature
+    /// from all existing source function facts (for overload validation).
     /// </summary>
     private static bool HasDistinctParameterSignature(
-        FunctionDeclaration newDecl,
-        IEnumerable<FunctionDeclaration> existingDecls)
+        FunctionTypeInfo newFunction,
+        IEnumerable<FunctionTypeInfo> existingFunctions)
     {
-        foreach (var existing in existingDecls)
+        foreach (var existing in existingFunctions)
         {
-            if (ParameterSignaturesMatch(newDecl, existing))
+            if (ParameterSignaturesMatch(newFunction, existing))
                 return false; // Duplicate signature found
         }
         return true;
     }
 
     /// <summary>
-    /// Compares two function declarations' parameter signatures (types only, not names).
+    /// Compares two function fact parameter signatures (types only, not names).
     /// Returns true if they have the same parameter types.
     /// </summary>
-    private static bool ParameterSignaturesMatch(FunctionDeclaration a, FunctionDeclaration b)
+    private static bool ParameterSignaturesMatch(FunctionTypeInfo a, FunctionTypeInfo b)
     {
-        if (a.Parameters.Count != b.Parameters.Count)
+        var aParameters = a.SourceParameterTypes;
+        var bParameters = b.SourceParameterTypes;
+        if (aParameters == null || bParameters == null)
             return false;
 
-        for (int i = 0; i < a.Parameters.Count; i++)
+        if (aParameters.Count != bParameters.Count)
+            return false;
+
+        for (int i = 0; i < aParameters.Count; i++)
         {
-            if (GetParameterTypeSignature(a.Parameters[i].Type) != GetParameterTypeSignature(b.Parameters[i].Type))
+            if (GetParameterTypeSignature(aParameters[i]) != GetParameterTypeSignature(bParameters[i]))
                 return false;
         }
 
