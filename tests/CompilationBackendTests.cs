@@ -689,6 +689,59 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsCheckedUncheckedArithmetic()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CheckedUncheckedArithmetic
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    max := 2147483647
+    print unchecked(max + 1)
+
+    try {
+        overflow := checked(max + 1)
+        print overflow
+    } catch ex: OverflowException {
+        print "overflow"
+    }
+
+    print checked((100 + 50) * 2 - 25)
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "CheckedUncheckedArithmetic.dll");
+            var result = compiler.CompileToIlAssembly("CheckedUncheckedArithmetic", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("""
+-2147483648
+overflow
+275
+""".Trim(), runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
     {
         // Defect regression: this program used to COMPILE through the legacy

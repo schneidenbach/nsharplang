@@ -95,6 +95,8 @@ import "CompilerServices/ParserTypeReferences"
 //                                         modifier token lives in the value span, ONE child [target]. )
 //   TypeOfExpression        -> kind 55  ( `typeof(Type)` (Typeof 49) -- ONE child [typeRoot], where the child is a
 //                                         TYPE-kernel subtree. )
+//   CheckedContextExpression -> kind 57 ( `checked(expr)` / `unchecked(expr)` (Checked 83 / Unchecked 84);
+//                                         keyword token in the value span, ONE child [expr]. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -428,6 +430,27 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
         typeOfChildRun := st.ChildCursor
         AppendExpressionChild(ref st, ref children, typeRoot)
         return EmitExpressionNode(ref st, ref nodes, 55, -1, 0, typeOfChildRun, 1, typeOfStart, typeOfEnd - typeOfStart)
+    }
+    if kind == 83 || kind == 84 {
+        checkedStart := tokenStart
+        checkedLength := tokenLength
+        st.Pos = pos + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+            return -1
+        }
+        st.Pos = st.Pos + 1
+        checkedValue := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+        if checkedValue < 0 {
+            return -1
+        }
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+            return -1
+        }
+        checkedEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+        checkedChildRun := st.ChildCursor
+        AppendExpressionChild(ref st, ref children, checkedValue)
+        return EmitExpressionNode(ref st, ref nodes, 57, checkedStart, checkedLength, checkedChildRun, 1, checkedStart, checkedEnd - checkedStart)
     }
     if kind == 31 {
         // `match <value> { <pattern> => <result>, ... }` (Match token 31, Arrow `=>` token 120). MatchExpression
@@ -1514,7 +1537,8 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //                                             TypeOf). )
 //   PrintStatement               -> kind 56  ( print <expr>; 1 child = the printed expression. Lowered as
 //                                             the legacy emitter did: evaluate, box a value type, call
-//                                             Console.WriteLine(object). 57 is the next free kind. )
+//                                             Console.WriteLine(object). Kind 57 belongs to the expression
+//                                             kernel (CheckedContextExpression); 58 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. An
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the

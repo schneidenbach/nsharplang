@@ -172,6 +172,9 @@ internal sealed class ColumnarIlEmitter
     // path — the declines below remain as this emitter's own contract guards. Loops OPENED inside the
     // finally still break/continue freely.
     private bool _inFinallyRegion;
+    // Set by kind-57 checked/unchecked expression wrappers while their child emits. Checked arithmetic swaps the
+    // integral +, -, and * opcodes to their overflow-checking variants; nested unchecked restores wrapping behavior.
+    private bool _overflowCheckingEnabled;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
     // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
@@ -7408,6 +7411,20 @@ internal sealed class ColumnarIlEmitter
     private bool EmitExpression(int idx, out Type type)
         => EmitExpressionCore(idx, out type);
 
+    private bool EmitExpressionWithOverflowChecking(int idx, bool enabled, out Type type)
+    {
+        var previous = _overflowCheckingEnabled;
+        _overflowCheckingEnabled = enabled;
+        try
+        {
+            return EmitExpression(Child(idx, 0), out type);
+        }
+        finally
+        {
+            _overflowCheckingEnabled = previous;
+        }
+    }
+
     private bool EmitExpressionCore(int idx, out Type type)
     {
         type = null!;
@@ -7643,8 +7660,36 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 57: // CheckedContextExpression [value] — `checked(expr)` / `unchecked(expr)`.
+            {
+                if (_nodes.ChildCount(idx) != 1)
+                    return false;
+                return Text(idx) switch
+                {
+                    "checked" => EmitExpressionWithOverflowChecking(idx, enabled: true, out type),
+                    "unchecked" => EmitExpressionWithOverflowChecking(idx, enabled: false, out type),
+                    _ => false,
+                };
+            }
+
             case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {
+                if (Text(idx) == "-" && _nodes.ChildCount(idx) == 1 && _nodes.Kind(Child(idx, 0)) == 0)
+                {
+                    var magnitudeText = Text(Child(idx, 0));
+                    if (magnitudeText == "2147483648")
+                    {
+                        _il.Emit(OpCodes.Ldc_I4, int.MinValue);
+                        type = typeof(int);
+                        return true;
+                    }
+                    if (magnitudeText == "9223372036854775808L" || magnitudeText == "9223372036854775808l")
+                    {
+                        _il.Emit(OpCodes.Ldc_I8, long.MinValue);
+                        type = typeof(long);
+                        return true;
+                    }
+                }
                 if (!EmitExpression(Child(idx, 0), out var operandType))
                     return false;
                 switch (Text(idx))
@@ -7659,6 +7704,19 @@ internal sealed class ColumnarIlEmitter
                             type = typeof(decimal); return true;
                         }
                         if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(double) && operandType != typeof(float)) return false;
+                        if (_overflowCheckingEnabled && (operandType == typeof(int) || operandType == typeof(long)))
+                        {
+                            var negOperand = _il.DeclareLocal(operandType);
+                            _il.Emit(OpCodes.Stloc, negOperand);
+                            if (operandType == typeof(long))
+                                _il.Emit(OpCodes.Ldc_I8, 0L);
+                            else
+                                _il.Emit(OpCodes.Ldc_I4_0);
+                            _il.Emit(OpCodes.Ldloc, negOperand);
+                            _il.Emit(OpCodes.Sub_Ovf);
+                            type = operandType;
+                            return true;
+                        }
                         _il.Emit(OpCodes.Neg); type = operandType; return true;
                     case "~": // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
                         if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong)) return false;
@@ -7879,13 +7937,16 @@ internal sealed class ColumnarIlEmitter
                         // INT_MIN÷-1 still throw exactly as the N# backend path does. A CHAR result promotes to INT (a char
                         // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
                         if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
-                        var unsignedDivRem = opType == typeof(ulong) || opType == typeof(uint);
+                        var unsignedArithmetic = opType == typeof(ulong) || opType == typeof(uint);
+                        var checkedIntegralArithmetic = _overflowCheckingEnabled
+                            && op is "+" or "-" or "*"
+                            && (ColumnarNumericFacts.IsIntPromotable(opType) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint));
                         _il.Emit(
-                            op == "+" ? OpCodes.Add :
-                            op == "-" ? OpCodes.Sub :
-                            op == "*" ? OpCodes.Mul :
-                            op == "/" ? (unsignedDivRem ? OpCodes.Div_Un : OpCodes.Div) :
-                            (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
+                            op == "+" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf) : OpCodes.Add) :
+                            op == "-" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf) : OpCodes.Sub) :
+                            op == "*" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf) : OpCodes.Mul) :
+                            op == "/" ? (unsignedArithmetic ? OpCodes.Div_Un : OpCodes.Div) :
+                            (unsignedArithmetic ? OpCodes.Rem_Un : OpCodes.Rem));
                         // char and the small ints never survive an arithmetic op — the result is INT (N#'s
                         // promoted result, matching Analyzer.cs GetWiderType); uint stays uint (u4 native).
                         type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
@@ -11711,7 +11772,17 @@ internal sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldc_I4_1);
         if (targetType != typeof(int))
             _il.Emit(OpCodes.Conv_I8); // long AND ulong step by an i8 one (u8 shares the slot).
-        _il.Emit(op == "++" ? OpCodes.Add : OpCodes.Sub);
+        if (_overflowCheckingEnabled)
+        {
+            var isUnsigned = targetType == typeof(ulong);
+            _il.Emit(op == "++"
+                ? (isUnsigned ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf)
+                : (isUnsigned ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf));
+        }
+        else
+        {
+            _il.Emit(op == "++" ? OpCodes.Add : OpCodes.Sub);
+        }
     }
 
     // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;
@@ -12092,6 +12163,8 @@ internal sealed class ColumnarIlEmitter
                 return TryGetPreflightMemberAccessType(node, out type);
             case 15:
                 return TryGetNewExpressionResultType(node, out type);
+            case 57:
+                return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
             default:
                 return false;
         }
