@@ -188,28 +188,6 @@ public class CodeIntelligenceTextUtilities {
         position := 0
 
         while position < sourceLength {
-            if source[position] == '\r' {
-                if currentLine == line {
-                    start = lineStart
-                    length = position - lineStart
-                    return true
-                }
-
-                currentLine = currentLine + 1
-                hasNext := position + 1 < sourceLength
-                if hasNext {
-                    if source[position + 1] == '\n' {
-                        position = position + 2
-                        lineStart = position
-                        continue
-                    }
-                }
-
-                position = position + 1
-                lineStart = position
-                continue
-            }
-
             if source[position] == '\n' {
                 if currentLine == line {
                     start = lineStart

@@ -60,6 +60,10 @@ public class ProjectFileParser {
             throw new InvalidOperationException("Invalid outputType: '" + config.OutputType + "'. Must be 'exe' or 'library'.")
         }
 
+        if config.Backend != "il" {
+            throw new InvalidOperationException("Invalid backend: '" + config.Backend + "'. Must be 'il'.")
+        }
+
         if config.TestFramework != "xunit" && config.TestFramework != "nunit" {
             throw new InvalidOperationException("Invalid testFramework: '" + config.TestFramework + "'. Must be 'xunit' or 'nunit'.")
         }
