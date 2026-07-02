@@ -4737,8 +4737,9 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
             }
         """);
 
-        Assert.True(result.HasErrors, "Expected errors but got none");
-        Assert.Contains(result.Errors, e => e.Message.Contains("is typed as"));
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Equal("Fraction", error.ActualType);
+        Assert.Equal("double", error.ExpectedType);
     }
 
     [Fact]

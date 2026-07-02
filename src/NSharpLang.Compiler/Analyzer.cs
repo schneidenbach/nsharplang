@@ -10189,6 +10189,46 @@ public class Analyzer : IDisposable
             && type.FullName != "System.MulticastDelegate";
     }
 
+    private bool IsBroadDelegateType(Type type)
+    {
+        if (_wellKnownTypes == null) return false;
+
+        type = GetDelegateParameterTypeForLambdaTarget(type);
+        return type == _wellKnownTypes.Delegate
+            || type.FullName is "System.Delegate" or "System.MulticastDelegate";
+    }
+
+    private bool CanInferBroadDelegateLambda(
+        Type openDelegateType,
+        Dictionary<Type, Type> clrBindings,
+        LambdaExpression lambda)
+    {
+        if (!IsBroadDelegateType(ApplyReflectionBindings(openDelegateType, clrBindings)))
+            return false;
+
+        return lambda.Parameters.All(parameter =>
+            parameter.Type is not null
+            && parameter.Type is not SimpleTypeReference { Name: "var" });
+    }
+
+    private FunctionTypeInfo? CreateBroadDelegateSignatureForLambda(
+        Type openDelegateType,
+        Dictionary<Type, Type> clrBindings,
+        LambdaExpression lambda)
+    {
+        if (!CanInferBroadDelegateLambda(openDelegateType, clrBindings, lambda))
+            return null;
+
+        return new FunctionTypeInfo()
+        {
+            ParameterTypes = lambda.Parameters
+                .Select(parameter => ResolveType(parameter.Type!))
+                .ToList(),
+            ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, lambda.Parameters.Count).ToList(),
+            ReturnType = null
+        };
+    }
+
     private static bool TryGetExpressionTreeDelegateType(Type type, out Type delegateType)
     {
         delegateType = typeof(void);
@@ -13272,7 +13312,16 @@ public class Analyzer : IDisposable
                 typeInfoBindings,
                 bindings);
 
-            if (expectedSignature?.ParameterTypes == null || expectedSignature.ParameterTypes.Count != lambda.Parameters.Count)
+            if (expectedSignature?.ParameterTypes == null)
+            {
+                if (!CanInferBroadDelegateLambda(openParameterType, bindings, lambda))
+                    return false;
+
+                score = 1 + lambda.Parameters.Count;
+                return true;
+            }
+
+            if (expectedSignature.ParameterTypes.Count != lambda.Parameters.Count)
                 return false;
 
             score = 2 + expectedSignature.ParameterTypes.Count;
@@ -13575,6 +13624,10 @@ public class Analyzer : IDisposable
                 boundArgument.OpenParameterType,
                 workingTypeInfoBindings,
                 workingBindings);
+            expectedSignature ??= CreateBroadDelegateSignatureForLambda(
+                boundArgument.OpenParameterType,
+                workingBindings,
+                lambda);
             if (expectedSignature == null)
                 return null;
 
@@ -13738,6 +13791,10 @@ public class Analyzer : IDisposable
                 supplied.OpenParameterType,
                 workingTypeInfoBindings,
                 workingBindings);
+            expectedSignature ??= CreateBroadDelegateSignatureForLambda(
+                supplied.OpenParameterType,
+                workingBindings,
+                lambda);
             parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo() { ReturnType = BuiltInTypes.Unknown });
 
             if (expectedSignature == null)
@@ -19600,6 +19657,8 @@ public class Analyzer : IDisposable
         // Same type name (string comparison fallback for types we can't structurally compare)
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
 
+        if (IsAspNetActionResultGenericAssignable(resolvedTarget, resolvedSource)) return true;
+
         if (IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)) return true;
 
         // CLR implicit numeric conversions
@@ -19793,6 +19852,21 @@ public class Analyzer : IDisposable
         }
 
         return true;
+    }
+
+    private bool IsAspNetActionResultGenericAssignable(TypeInfo target, TypeInfo source)
+    {
+        if (target is not GenericTypeInfo { TypeArguments.Count: 1 } targetGeneric)
+            return false;
+
+        if (targetGeneric.Name is not ("ActionResult" or "Microsoft.AspNetCore.Mvc.ActionResult"))
+            return false;
+
+        if (source is not ReflectionTypeInfo sourceReflection)
+            return false;
+
+        return TryResolveExternalType("Microsoft.AspNetCore.Mvc.ActionResult") is ReflectionTypeInfo actionResult
+            && IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
     }
 
     private bool IsArrayToSpanAssignable(TypeInfo target, TypeInfo source)
