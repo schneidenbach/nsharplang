@@ -20,7 +20,7 @@ public class CliCommandTests
 
     private static int ExecuteCli(string[] args)
     {
-        var programType = typeof(CommandRegistry).Assembly.GetType("NSharpLang.Cli.Program", throwOnError: true)!;
+        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program", throwOnError: true)!;
         var execute = programType.GetMethod("Execute", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Could not find the N# CLI entry point.");
 
