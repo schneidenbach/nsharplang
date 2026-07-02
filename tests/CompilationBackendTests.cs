@@ -585,6 +585,53 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsQualifiedBclExceptionConstruction()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: QualifiedExceptionProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Divide(a: int, b: int): int {
+    if b == 0 {
+        throw new System.DivideByZeroException("Cannot divide by zero")
+    }
+
+    return a / b
+}
+
+func main() {
+    print Divide(10, 2)
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "QualifiedExceptionProject.dll");
+            var result = compiler.CompileToIlAssembly("QualifiedExceptionProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("5", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
     {
         // Defect regression: this program used to COMPILE through the legacy
