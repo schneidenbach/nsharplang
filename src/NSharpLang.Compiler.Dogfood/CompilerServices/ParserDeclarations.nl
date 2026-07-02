@@ -1581,10 +1581,21 @@ func ParserDeclarationMemberModifierKind(kind: int): int {
     if kind == 64 || kind == 65 || kind == 66 || kind == 67 {
         return 1
     }
-    if kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
+    if kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
         return 3
     }
     return 0
+}
+
+func ParserDeclarationMemberModifierFlag(kind: int): int {
+    if kind == 22 {
+        return 512
+    }
+    return ModifierFlag(kind)
+}
+
+func ParserDeclarationModifierFlagsIncludeReadonly(flags: int): bool {
+    return (flags / 512) % 2 == 1
 }
 
 func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: int, pos: int, result: &ParserDeclarationResultTable): int {
@@ -1604,7 +1615,7 @@ func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: 
         }
 
         if result.Values.Length >= 3 {
-            flag := ModifierFlag(tokens.Kinds[pos])
+            flag := ParserDeclarationMemberModifierFlag(tokens.Kinds[pos])
             if flag != 0 {
                 result.Values[2] = result.Values[2] | flag
             }
@@ -2128,7 +2139,11 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
             }
             decl.FieldTypeStarts[fieldCount] = fieldTypeResult.Values[0]
             decl.FieldTypeLengths[fieldCount] = fieldTypeResult.Values[1]
-            decl.FieldStaticFlags[fieldCount] = memberModifiers.Values[0]
+            fieldModifierFlags := memberModifiers.Values[0]
+            if ParserDeclarationModifierFlagsIncludeReadonly(memberModifiers.Values[2]) {
+                fieldModifierFlags = fieldModifierFlags + 2
+            }
+            decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0

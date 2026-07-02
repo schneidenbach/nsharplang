@@ -271,6 +271,7 @@ internal static class ColumnarProgramInputBuilder
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
                 var fieldStatics = new bool[fieldCount];
+                var fieldReadonlyFlags = new bool[fieldCount];
                 var fieldInitKinds = new int[fieldCount];
                 var fieldInitTexts = new string[fieldCount];
                 for (var f = 0; f < fieldCount; f++)
@@ -279,7 +280,9 @@ internal static class ColumnarProgramInputBuilder
                     fieldNames[f] = fieldName;
                     var fieldType = outFieldTypeTexts[f];
                     fieldTypes[f] = fieldType;
-                    fieldStatics[f] = outFieldStaticFlags[f] == 1;
+                    var fieldModifierFlags = outFieldStaticFlags[f];
+                    fieldStatics[f] = (fieldModifierFlags & 1) != 0;
+                    fieldReadonlyFlags[f] = (fieldModifierFlags & 2) != 0;
                     fieldInitKinds[f] = outFieldInitKinds[f];
                     if (outFieldInitKinds[f] >= 0)
                     {
@@ -326,7 +329,7 @@ internal static class ColumnarProgramInputBuilder
                     properties.Add(propInput);
                 }
 
-                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));
+                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags));
             }
             return true;
         }

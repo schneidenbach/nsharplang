@@ -88,7 +88,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         instanceFieldCount := 0
         fieldSlot := 0
         while fieldSlot < fieldCount {
-            if outputs.FieldStaticFlags[fieldSlot] == 0 {
+            if !ColumnarStructFieldFlagIsStatic(outputs.FieldStaticFlags[fieldSlot]) {
                 instanceFieldCount = instanceFieldCount + 1
             }
 
@@ -107,7 +107,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     i := 0
     if typeParamCount > 0 {
         while i < fieldCount {
-            if outputs.FieldStaticFlags[i] == 1 {
+            if ColumnarStructFieldFlagIsStatic(outputs.FieldStaticFlags[i]) {
                 return -1
             }
 
@@ -219,6 +219,10 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     }
 
     return fieldCount
+}
+
+func ColumnarStructFieldFlagIsStatic(flags: int): bool {
+    return flags == 1 || flags == 3
 }
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, methodCount: int): int {

@@ -3013,9 +3013,13 @@ internal sealed class ColumnarIlEmitter
                 if (st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
                 var isStaticField = st.FieldStaticFlags[fi];
+                var isReadonlyField = fi < st.FieldReadonlyFlags.Length && st.FieldReadonlyFlags[fi];
                 if (isStaticField)
                 {
-                    var sfb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public | FieldAttributes.Static);
+                    var staticAttributes = FieldAttributes.Public | FieldAttributes.Static;
+                    if (isReadonlyField)
+                        staticAttributes |= FieldAttributes.InitOnly;
+                    var sfb = tb.DefineField(st.FieldNames[fi], fieldType, staticAttributes);
                     def.StaticFields[st.FieldNames[fi]] = sfb;
                     var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
@@ -3025,7 +3029,10 @@ internal sealed class ColumnarIlEmitter
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
                 if (st.FieldInitKinds[fi] >= 0)
                     return false;
-                var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
+                var instanceAttributes = FieldAttributes.Public;
+                if (isReadonlyField)
+                    instanceAttributes |= FieldAttributes.InitOnly;
+                var fb = tb.DefineField(st.FieldNames[fi], fieldType, instanceAttributes);
                 fields[st.FieldNames[fi]] = fb;
                 if (st.FieldTypeCanonicals[fi].EndsWith("?", StringComparison.Ordinal))
                     def.NullableFields.Add(st.FieldNames[fi]);

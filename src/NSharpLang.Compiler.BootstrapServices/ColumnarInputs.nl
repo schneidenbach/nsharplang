@@ -194,6 +194,7 @@ public class ColumnarStructInput {
     IsReference: bool
     BaseNames: string[]
     FieldStaticFlags: bool[]
+    FieldReadonlyFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     IsRecord: bool
@@ -212,7 +213,8 @@ public class ColumnarStructInput {
         fieldInitKinds: int[]? = null,
         fieldInitTexts: string[]? = null,
         isRecord: bool = false,
-        typeParamNames: string[]? = null) {
+        typeParamNames: string[]? = null,
+        fieldReadonlyFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -222,6 +224,7 @@ public class ColumnarStructInput {
         IsReference = isReference
         BaseNames = baseNames ?? new string[](0)
         FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
+        FieldReadonlyFlags = fieldReadonlyFlags ?? new bool[](fieldNames.Length)
         if fieldInitKinds == null {
             fieldInitKinds = new int[](fieldNames.Length)
             i := 0
