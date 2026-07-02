@@ -239,6 +239,9 @@ internal sealed class ColumnarIlEmitter
     private const int NSharpModifierOverride = 65536;
 
     private bool Decline(string siteId, string message, int nodeIdx = -1)
+        => DeclineMember(siteId, message, nodeIdx, string.Empty);
+
+    private bool DeclineMember(string siteId, string message, int nodeIdx, string memberName)
     {
         var spanStart = -1;
         var spanLength = 0;
@@ -248,7 +251,13 @@ internal sealed class ColumnarIlEmitter
             spanLength = _nodes.SpanLength(nodeIdx);
         }
 
-        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, string.Empty);
+        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName);
+        return false;
+    }
+
+    private static bool DeclineStatic(string siteId, string message, string memberName = "", int spanStart = -1, int spanLength = 0)
+    {
+        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName);
         return false;
     }
 
@@ -1124,7 +1133,7 @@ internal sealed class ColumnarIlEmitter
                     programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                     enclosingBindingNames: VisibleBindingNamesSnapshot());
                 if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, invoke.ReturnType))
-                    return false;
+                    return DeclineMember("emit.body", "instance lambda body emission declined", bodyNode, "lambda");
                 _il.Emit(OpCodes.Ldarg_0);
                 _il.Emit(OpCodes.Ldftn, instanceLambda);
                 _il.Emit(OpCodes.Newobj, delegateCtor);
@@ -1140,7 +1149,7 @@ internal sealed class ColumnarIlEmitter
                 programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                 enclosingBindingNames: VisibleBindingNamesSnapshot());
             if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, invoke.ReturnType))
-                return false;
+                return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda");
             _il.Emit(OpCodes.Ldnull);
             _il.Emit(OpCodes.Ldftn, lambdaMethod);
             _il.Emit(OpCodes.Newobj, delegateCtor);
@@ -1222,7 +1231,7 @@ internal sealed class ColumnarIlEmitter
             boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
             enclosingBindingNames: VisibleBindingNamesSnapshot());
         if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, invoke.ReturnType))
-            return false;
+            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda");
         _displayClasses.Add(display);
         // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
         // reference; bind the delegate to the closure.
@@ -1572,7 +1581,7 @@ internal sealed class ColumnarIlEmitter
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
             enclosingBindingNames: VisibleBindingNamesSnapshot());
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
-            return false;
+            return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda");
         lambdaIl.Emit(OpCodes.Ret);
         delegateType = bodyType == typeof(void) ? typeof(Action) : typeof(Func<>).MakeGenericType(bodyType);
         if (!IsSupportedDelegateType(delegateType))
@@ -2797,7 +2806,7 @@ internal sealed class ColumnarIlEmitter
         var unions = program.Unions;
         var interfaces = program.Interfaces;
         if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0)
-            return false;
+            return DeclineStatic("emit.program.empty", "columnar program has no modeled declarations");
 
         var builder = new PersistedAssemblyBuilder(new AssemblyName(assemblyName), typeof(object).Assembly);
         var module = builder.DefineDynamicModule(assemblyName);
@@ -3903,7 +3912,7 @@ internal sealed class ColumnarIlEmitter
                 asyncReturnType: asyncWrappedByFunc[f],
                 asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask");
             if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == typeof(void)))
-                return false;
+                return DeclineStatic("emit.body", "function body emission declined", fn.Name);
             if (fn.LocalFunctions != null)
             {
                 // NL316 across the local-function boundary: the pipeline rejects a local-func PARAM or
@@ -3937,7 +3946,7 @@ internal sealed class ColumnarIlEmitter
                         localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix,
                         enclosingBindingNames: parentBindings);
                     if (!localEmitter.EmitBody(localFn.BodyRoot, target.ReturnType == typeof(void)))
-                        return false;
+                        return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name);
                 }
             }
         }
@@ -3954,7 +3963,7 @@ internal sealed class ColumnarIlEmitter
                 currentStruct: job.Interface, enclosingType: job.Interface,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
-                return false;
+                return DeclineStatic("emit.body", "default interface method body emission declined", job.Interface.Builder.Name + "." + job.Method.Name);
         }
 
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
@@ -3974,7 +3983,7 @@ internal sealed class ColumnarIlEmitter
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
-                return false;
+                return DeclineStatic("emit.body", "member body emission declined", job.Struct.Builder.Name + "." + job.Method.Name);
         }
 
         // Emit user-constructor bodies. Each chains to the base `object` ctor first (`ldarg.0; call object::.ctor()`),
@@ -4039,7 +4048,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
             }
             if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
-                return false;
+                return DeclineStatic("emit.body", "constructor body emission declined", job.Struct.Builder.Name + ".constructor");
         }
 
         // Finalize the struct types before the Program type (the spike's ordering). Struct fields are already
@@ -5793,8 +5802,11 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            default: // spike: Block / Return / `:=` / assignment / if-else / while / break / continue.
-                return false;
+            default:
+                return Decline(
+                    "emit.statement.unhandled-kind",
+                    "unsupported statement (node kind " + _nodes.Kind(idx).ToString() + ")",
+                    idx);
         }
     }
 
@@ -9756,7 +9768,10 @@ internal sealed class ColumnarIlEmitter
             }
 
             default:
-                return false;
+                return Decline(
+                    "emit.expression.unhandled-kind",
+                    "unsupported expression (node kind " + _nodes.Kind(idx).ToString() + ")",
+                    idx);
         }
     }
 
@@ -10880,7 +10895,10 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
-        return false;
+        return Decline(
+            "emit.call.static-member-unmodeled",
+            "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
+            callIdx);
     }
 
     private static bool AreSameSupportedArrayType(Type sourceArrayType, Type destinationArrayType)
@@ -12953,7 +12971,10 @@ internal sealed class ColumnarIlEmitter
             }
             return false;
         }
-        return false;
+        return Decline(
+            "emit.call.instance-member-unmodeled",
+            "instance call '" + receiverType.Name + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
+            callIdx);
     }
 
     // Emit the argument at child position `argPosition` of the call and require its type to match
