@@ -12831,6 +12831,15 @@ internal sealed class ColumnarIlEmitter
             type = typeof(string);
             return true;
         }
+        if (receiverType == typeof(string) && member == nameof(string.CompareTo) && argCount == 1)
+        {
+            var method = typeof(string).GetMethod(nameof(string.CompareTo), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(int);
+            return true;
+        }
         // Parameterless string members: casing transforms, ToString (identity, but the pipeline accepts it), and
         // GetHashCode for emitted value-semantics helpers.
         if (receiverType == typeof(string) && argCount == 0 && member is "ToUpper" or "ToLower" or "ToUpperInvariant" or "ToLowerInvariant" or "ToString" or "GetHashCode")
