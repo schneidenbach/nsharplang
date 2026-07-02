@@ -1488,6 +1488,14 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
+    if pos < count && tokens.Kinds[pos] == 122 {
+        pos = pos + 1
+        if pos >= count || tokens.Kinds[pos] != 0 {
+            return -1
+        }
+        pos = pos + 1
+    }
+
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
@@ -1507,7 +1515,7 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
 
         if pos < count && tokens.Kinds[pos] == 93 {
             pos = pos + 1
-            if pos >= count || tokens.Kinds[pos] != 1 {
+            if pos >= count || (tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 4) {
                 return -1
             }
             members.HasValue[memberCount] = 1

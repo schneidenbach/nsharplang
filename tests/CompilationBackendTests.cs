@@ -476,6 +476,61 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsStringEnumConstantsAsStrings()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: StringEnumProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+enum Status: string {
+    Active = "active",
+    Inactive = "inactive",
+    Pending = "pending"
+}
+
+func GetDefault(): Status {
+    return Status.Active
+}
+
+func Echo(value: Status): string {
+    return value
+}
+
+func main() {
+    print GetDefault()
+    print Echo(Status.Inactive)
+    print Status.Pending
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "StringEnumProject.dll");
+            var result = compiler.CompileToIlAssembly("StringEnumProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("active\ninactive\npending", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
     {
         // Defect regression: this program used to COMPILE through the legacy

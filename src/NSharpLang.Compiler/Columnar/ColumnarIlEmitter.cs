@@ -2660,6 +2660,11 @@ internal sealed class ColumnarIlEmitter
         // as an enum name).
         if (enumRegistry != null && enumRegistry.TryGetValue(canonical, out var enumDef))
         {
+            if (enumDef.IsStringBacked)
+            {
+                type = typeof(string);
+                return true;
+            }
             type = enumDef.EnumType;
             return true;
         }
@@ -2819,6 +2824,27 @@ internal sealed class ColumnarIlEmitter
         for (var e = 0; e < enums.Count; e++)
         {
             var en = enums[e];
+            if (en.IsStringBacked)
+            {
+                var stringConstants = new Dictionary<string, string>(StringComparer.Ordinal);
+                var tb = module.DefineType(en.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+                for (var m = 0; m < en.MemberNames.Length; m++)
+                {
+                    var memberValue = m < en.MemberStringValues.Length ? en.MemberStringValues[m] : en.MemberNames[m];
+                    var field = tb.DefineField(en.MemberNames[m],
+                        typeof(string),
+                        FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
+                    field.SetConstant(memberValue);
+                    stringConstants[en.MemberNames[m]] = memberValue;
+                }
+
+                _ = tb.CreateType();
+                var stringEnumDef = new ColumnarEnumDef(typeof(string), new Dictionary<string, int>(StringComparer.Ordinal), stringConstants);
+                enumRegistry[en.Name] = stringEnumDef;
+                TryRegisterEnumAlias(enumRegistry, en.Name, stringEnumDef);
+                continue;
+            }
+
             var eb = module.DefineEnum(en.Name, TypeAttributes.Public, typeof(int));
             var constants = new Dictionary<string, int>(StringComparer.Ordinal);
             for (var m = 0; m < en.MemberNames.Length; m++)
@@ -8082,6 +8108,14 @@ internal sealed class ColumnarIlEmitter
                     if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
+                        if (userEnum.StringConstants != null)
+                        {
+                            if (!userEnum.StringConstants.TryGetValue(Text(idx), out var stringValue))
+                                return false;
+                            _il.Emit(OpCodes.Ldstr, stringValue);
+                            type = typeof(string);
+                            return true;
+                        }
                         if (!userEnum.Constants.TryGetValue(Text(idx), out var memberValue))
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, memberValue);
@@ -9593,7 +9627,7 @@ internal sealed class ColumnarIlEmitter
                 ColumnarEnumDef? matchEnumDef = null;
                 foreach (var def in _enumRegistry.Values)
                 {
-                    if (def.EnumType == matchValueType) { matchEnumDef = def; break; }
+                    if (!def.IsStringBacked && def.EnumType == matchValueType) { matchEnumDef = def; break; }
                 }
                 if (matchEnumDef != null)
                 {
@@ -9848,6 +9882,17 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (matchValueType != enumDef.EnumType)
                         return false;
+                    if (enumDef.StringConstants != null)
+                    {
+                        if (!enumDef.StringConstants.TryGetValue(Text(patternNode), out var stringValue))
+                            return false;
+                        _il.Emit(OpCodes.Ldloc, matchLocal);
+                        _il.Emit(OpCodes.Ldstr, stringValue);
+                        _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
+                        _il.Emit(OpCodes.Brtrue, successLabel);
+                        _il.Emit(OpCodes.Br, failLabel);
+                        return true;
+                    }
                     if (!enumDef.Constants.TryGetValue(Text(patternNode), out var memberValue))
                         return false;
                     _il.Emit(OpCodes.Ldloc, matchLocal);
@@ -11834,7 +11879,8 @@ internal sealed class ColumnarIlEmitter
             1 => expectedType == typeof(int)
                  && int.TryParse(defaultTexts[index], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _),
             4 => expectedType == typeof(string),
-            ParameterDefaultMemberAccessKind => TryResolveEnumParameterDefault(expectedType, defaultTexts[index], _enumRegistry, out _),
+            ParameterDefaultMemberAccessKind => TryResolveStringEnumParameterDefault(expectedType, defaultTexts[index], _enumRegistry, out _)
+                                                || TryResolveEnumParameterDefault(expectedType, defaultTexts[index], _enumRegistry, out _),
             _ => false,
         };
     }
@@ -11864,6 +11910,10 @@ internal sealed class ColumnarIlEmitter
             case 4 when expectedType == typeof(string):
                 _il.Emit(OpCodes.Ldstr, defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : string.Empty);
                 type = typeof(string);
+                return true;
+            case ParameterDefaultMemberAccessKind when TryResolveStringEnumParameterDefault(expectedType, defaultText, _enumRegistry, out var stringEnumDefault):
+                _il.Emit(OpCodes.Ldstr, stringEnumDefault);
+                type = expectedType;
                 return true;
             case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(expectedType, defaultText, _enumRegistry, out var enumDefault):
                 _il.Emit(OpCodes.Ldc_I4, enumDefault);
@@ -11990,7 +12040,8 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
             if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
-                && userEnum.Constants.ContainsKey(Text(node)))
+                && ((userEnum.StringConstants != null && userEnum.StringConstants.ContainsKey(Text(node)))
+                    || userEnum.Constants.ContainsKey(Text(node))))
             {
                 type = userEnum.EnumType;
                 return true;
@@ -13354,12 +13405,43 @@ internal sealed class ColumnarIlEmitter
             case 4:
                 parameter.SetConstant(defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : null);
                 return true;
+            case ParameterDefaultMemberAccessKind when TryResolveStringEnumParameterDefault(parameterType, defaultText, enumRegistry, out var stringEnumDefault):
+                parameter.SetConstant(stringEnumDefault);
+                return true;
             case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(parameterType, defaultText, enumRegistry, out var enumDefault):
                 parameter.SetConstant(enumDefault);
                 return true;
             default:
                 return false;
         }
+    }
+
+    private static bool TryResolveStringEnumParameterDefault(
+        Type parameterType,
+        string? defaultText,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
+        out string value)
+    {
+        value = string.Empty;
+        if (string.IsNullOrWhiteSpace(defaultText))
+            return false;
+
+        var lastDot = defaultText.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot + 1 >= defaultText.Length)
+            return false;
+
+        var enumTypeName = defaultText[..lastDot];
+        var memberName = defaultText[(lastDot + 1)..];
+        if (enumRegistry.TryGetValue(enumTypeName, out var enumDef)
+            && enumDef.StringConstants != null
+            && TypesEquivalent(enumDef.EnumType, parameterType)
+            && enumDef.StringConstants.TryGetValue(memberName, out var resolvedValue))
+        {
+            value = resolvedValue;
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryResolveEnumParameterDefault(

@@ -6,15 +6,26 @@ public class ColumnarEnumInput {
     nameValue: string
     memberNamesValue: string[]
     memberValuesValue: int[]
+    isStringBackedValue: bool
+    memberStringValuesValue: string[]
 
     Name: string => nameValue
     MemberNames: string[] => memberNamesValue
     MemberValues: int[] => memberValuesValue
+    IsStringBacked: bool => isStringBackedValue
+    MemberStringValues: string[] => memberStringValuesValue
 
-    constructor(name: string, memberNames: string[], memberValues: int[]) {
+    constructor(
+        name: string,
+        memberNames: string[],
+        memberValues: int[],
+        isStringBacked: bool = false,
+        memberStringValues: string[]? = null) {
         nameValue = name
         memberNamesValue = memberNames
         memberValuesValue = memberValues
+        isStringBackedValue = isStringBacked
+        memberStringValuesValue = memberStringValues ?? new string[](0)
     }
 }
 

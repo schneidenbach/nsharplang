@@ -174,25 +174,33 @@ internal static class ColumnarProgramInputBuilder
                 var cap = n + 1;
                 var outNameTexts = new string[cap];
                 var outMemberValues = new int[cap];
+                var outMemberStringValues = new string[cap];
                 var outEnumNameTexts = new string[1];
-                var outResult = new int[2];
+                var outResult = new int[3];
                 var memberCount = bindings.ParseColumnarEnumInfo(
-                    source, ck, cs, cv, n, enumIndex, outNameTexts, outMemberValues, outEnumNameTexts, outResult);
+                    source, ck, cs, cv, n, enumIndex, outNameTexts, outMemberValues, outMemberStringValues, outEnumNameTexts, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
                 {
                     return DeclineAtToken("parse.enum", "enum declaration could not be parsed into columnar input", cs, cv, enumIndex);
                 }
 
                 var enumName = outEnumNameTexts[0];
+                var isStringBacked = outResult[2] == 1;
                 var memberNames = new string[memberCount];
                 var memberValues = new int[memberCount];
+                var memberStringValues = isStringBacked ? new string[memberCount] : Array.Empty<string>();
                 for (var m = 0; m < memberCount; m++)
                 {
                     var memberName = outNameTexts[m];
                     memberNames[m] = memberName;
                     memberValues[m] = outMemberValues[m];
+                    if (isStringBacked)
+                    {
+                        var rawValue = outMemberStringValues[m];
+                        memberStringValues[m] = NSharpLang.Compiler.StringLiteralDecoder.Decode(rawValue ?? memberName);
+                    }
                 }
-                enums.Add(new ColumnarEnumInput(enumName, memberNames, memberValues));
+                enums.Add(new ColumnarEnumInput(enumName, memberNames, memberValues, isStringBacked, memberStringValues));
             }
             return true;
         }
@@ -844,9 +852,7 @@ internal static class ColumnarProgramInputBuilder
             DogfoodKernelLoader.CreateDelegate<ParseColumnarInterfaceInfoInto>(
                 programType,
                 "ParseColumnarInterfaceInfoInto"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
-                programType,
-                "ParseColumnarEnumInfoInto"),
+            CreateParseColumnarEnumInfo(programType),
             DogfoodKernelLoader.CreateDelegate<ParseColumnarStructInfoInto>(
                 programType,
                 "ParseColumnarStructInfoInto"),
@@ -859,6 +865,26 @@ internal static class ColumnarProgramInputBuilder
             DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
                 programType,
                 "ParseColumnarConstructorInfoInto")));
+
+    private static ParseColumnarEnumInfoInto CreateParseColumnarEnumInfo(Type programType)
+    {
+        try
+        {
+            return DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
+                programType,
+                "ParseColumnarEnumInfoInto");
+        }
+        catch (MissingMethodException)
+        {
+            var legacy = DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoIntoLegacy>(
+                programType,
+                "ParseColumnarEnumInfoInto");
+            return (source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex,
+                outNameTexts, outMemberValues, outMemberStringValues, outEnumNameTexts, outResult) =>
+                legacy(source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex,
+                    outNameTexts, outMemberValues, outEnumNameTexts, outResult);
+        }
+    }
 
     private delegate int TokenizeColumnarSourceInto(
         string source,
@@ -910,6 +936,11 @@ internal static class ColumnarProgramInputBuilder
         string[] outMethodParamNameTexts, string[] outMethodParamTypeTexts, int[] outResult);
 
     private delegate int ParseColumnarEnumInfoInto(
+        string source,
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
+        string[] outNameTexts, int[] outMemberValues, string[] outMemberStringValues, string[] outEnumNameTexts, int[] outResult);
+
+    private delegate int ParseColumnarEnumInfoIntoLegacy(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         string[] outNameTexts, int[] outMemberValues, string[] outEnumNameTexts, int[] outResult);

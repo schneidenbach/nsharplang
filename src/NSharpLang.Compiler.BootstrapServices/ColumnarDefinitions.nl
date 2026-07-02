@@ -8,13 +8,17 @@ import System.Reflection.Emit
 public class ColumnarEnumDef {
     enumTypeValue: Type
     constantsValue: Dictionary<string, int>
+    stringConstantsValue: Dictionary<string, string>?
 
     EnumType: Type => enumTypeValue
     Constants: Dictionary<string, int> => constantsValue
+    StringConstants: Dictionary<string, string>? => stringConstantsValue
+    IsStringBacked: bool => stringConstantsValue != null
 
-    constructor(enumType: Type, constants: Dictionary<string, int>) {
+    constructor(enumType: Type, constants: Dictionary<string, int>, stringConstants: Dictionary<string, string>? = null) {
         enumTypeValue = enumType
         constantsValue = constants
+        stringConstantsValue = stringConstants
     }
 }
 
