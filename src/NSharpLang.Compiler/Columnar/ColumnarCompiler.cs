@@ -18,6 +18,7 @@ internal static class ColumnarCompiler
         out string[] methodNames,
         bool isExecutable = false)
     {
+        ColumnarDeclineTrace.Reset();
         assembly = Array.Empty<byte>();
         emittedTypeName = string.Empty;
         methodNames = Array.Empty<string>();
@@ -26,7 +27,7 @@ internal static class ColumnarCompiler
             return false;
 
         // A modeled program may still decline through TryEmitColumnarAssembly returning false. Unexpected
-        // emitter faults must surface; converting them to a decline re-enables the C# codegen fallback.
+        // emitter faults must surface; declines are hard NL103 errors.
         if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, isExecutable, out assembly))
             return false;
 

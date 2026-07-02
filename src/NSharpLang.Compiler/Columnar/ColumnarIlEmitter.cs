@@ -238,6 +238,20 @@ internal sealed class ColumnarIlEmitter
 
     private const int NSharpModifierOverride = 65536;
 
+    private bool Decline(string siteId, string message, int nodeIdx = -1)
+    {
+        var spanStart = -1;
+        var spanLength = 0;
+        if (nodeIdx >= 0)
+        {
+            spanStart = _nodes.SpanStart(nodeIdx);
+            spanLength = _nodes.SpanLength(nodeIdx);
+        }
+
+        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, string.Empty);
+        return false;
+    }
+
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
     // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
