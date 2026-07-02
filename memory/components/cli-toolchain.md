@@ -570,6 +570,8 @@ nlc build --release --verbose
 - `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
 - `--release` selects the Release configuration and native output layout (`bin/Release/<tfm>` unless `--output` is provided); it is not a separate IL optimizer today
 - `--verbose` enables detailed native resolver/build output
+- Set `NSHARP_COLUMNAR_DECLINE_LOG=1` while debugging an `NL103` columnar-emission decline to print every decline trace
+  record to stderr. `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
 
 ### `nlc publish` — Framework-Dependent Deployment Artifacts
 

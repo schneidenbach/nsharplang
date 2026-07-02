@@ -71,9 +71,12 @@ internal static class ColumnarProgramInputBuilder
             declarationResult);
         if (declarationRowCount < 0)
         {
-            return Decline(
+            return DeclineAtToken(
                 "parse.declaration-scan",
-                "top-level declaration scan failed; the source may contain an unmodeled declaration shape such as test, setup, or teardown");
+                "top-level declaration scan failed; the source may contain an unmodeled declaration shape such as test, setup, or teardown",
+                tokens.Starts,
+                tokens.ValueLengths,
+                0);
         }
 
         if (!TryGetColumnarFunctionInputs(bindings, source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))

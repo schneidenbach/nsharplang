@@ -96,7 +96,12 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Syntax Errors (100-199)
 - `NL101`: UnexpectedToken
 - `NL102`: ExpectedToken
-- `NL103`: InvalidSyntax
+- `NL103`: InvalidSyntax. For required columnar-emission failures, the diagnostic keeps the stable first sentence
+  `Columnar emission is required for '<assembly>', but the columnar backend declined.` and appends a decline reason
+  sentence with the deepest stable site id, human-readable reason, enclosing member when known, and mapped
+  file/line/column. The `CompilerError.FileName`, `Line`, `Column`, and `Length` fields point at the declined source
+  span when the backend can map it. Set `NSHARP_COLUMNAR_DECLINE_LOG=1` to dump the full columnar decline trace to
+  stderr; `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
 - `NL104`: UnexpectedEndOfFile — emitted when `Consume`/`ConsumeIdentifier` reach EOF while a token is still required (e.g. `func`, `class Foo`, or a trailing `<expected>` with no body). The span anchors on the last visible owner token (the keyword/identifier), never on the empty EOF position, and the message reads "...but reached the end of the file" instead of exposing the empty `''` token.
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at visible owner tokens when available
