@@ -96,6 +96,13 @@ internal sealed class ColumnarStructDef
     // provided args plus trailing defaults. Empty when the type has no user ctor (then DefaultCtor drives object-init).
     // A type with >=1 user ctor has NO DefaultCtor (object-init on it declines).
     internal List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)> Constructors { get; } = new();
+    // Private instance method synthesized from instance field initializers. Constructors call this immediately after
+    // the base/sibling constructor chain, before the user body. It is never a public construction candidate.
+    internal MethodBuilder? InstanceInitializerMethod { get; set; }
+    // Own fields definitely assigned by the synthesized instance-initializer method. Reference constructor validation
+    // treats these like top-level constructor assignments because every non-delegating constructor calls the method
+    // before user body emission, and delegating constructors call a sibling that does.
+    internal HashSet<string> InstanceInitializerFields { get; } = new(StringComparer.Ordinal);
     // Computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the set_Name setter MethodBuilder or null,
     // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
     // setter exists) to `callvirt set_Name`.
@@ -872,6 +879,63 @@ internal sealed class ColumnarIlEmitter
                 return builder;
         }
         return null;
+    }
+
+    private static bool IsZeroParamSynthesizedInitializer(ColumnarConstructorInput ctor)
+        => ctor.IsSynthesizedInitializer && ctor.Body.ParamNames.Length == 0;
+
+    private static void CollectTopLevelFieldInitializerAssignments(ColumnarFunctionInput body, string source, HashSet<string> fieldNames)
+    {
+        var nodes = body.BodyNodes;
+        var bodyRoot = body.BodyRoot;
+        if (bodyRoot < 0 || nodes.Kind(bodyRoot) != 25)
+            return;
+        for (var n = 0; n < nodes.ChildCount(bodyRoot); n++)
+        {
+            var stmt = nodes.Child(bodyRoot, n);
+            if (nodes.Kind(stmt) != 23 || nodes.ChildCount(stmt) != 1)
+                continue;
+            var expr = nodes.Child(stmt, 0);
+            if (nodes.Kind(expr) != 14 || nodes.Text(source, expr) != "=" || nodes.ChildCount(expr) != 2)
+                continue;
+            var target = nodes.Child(expr, 0);
+            if (nodes.Kind(target) == 6 && nodes.ValueStart(target) >= 0)
+                fieldNames.Add(nodes.Text(source, target));
+        }
+    }
+
+    private static bool HasCallableConstructor(ColumnarStructInput st)
+    {
+        foreach (var ctor in st.Constructors)
+        {
+            if (!IsZeroParamSynthesizedInitializer(ctor))
+                return true;
+        }
+        return false;
+    }
+
+    private static void EmitCtorBaseChain(ILGenerator il, ColumnarStructDef def, ConstructorInfo objectCtor)
+    {
+        if (def.BaseDef != null)
+        {
+            var baseParameterless = ResolveParameterlessCtor(def.BaseDef)
+                ?? throw new InvalidOperationException("base has only parameterized constructors");
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Call, baseParameterless);
+        }
+        else
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Call, objectCtor);
+        }
+    }
+
+    private static void EmitInstanceInitializerCall(ILGenerator il, ColumnarStructDef def)
+    {
+        if (def.InstanceInitializerMethod == null)
+            return;
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, def.InstanceInitializerMethod);
     }
 
     // Chain-walking member resolution: find `name` on `def` or any base on its chain, NEAREST declaration first —
@@ -3425,7 +3489,9 @@ internal sealed class ColumnarIlEmitter
         // construction/chaining call site is emitted. Value-type constructors arrive only for the parser-accepted
         // positional shape: non-parameterless and without chain initializers. The ConstructorBuilder + its param types
         // are stored for positional-construction resolution; the body (+ chained call) is emitted (+ validated) in PASS 2.
+        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
+        var structInitializerJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, MethodBuilder Builder)>();
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Constructors.Count == 0)
@@ -3433,22 +3499,36 @@ internal sealed class ColumnarIlEmitter
             var def = structRegistry[structs[s].Name];
             foreach (var ctor in structs[s].Constructors)
             {
+                if (IsZeroParamSynthesizedInitializer(ctor))
+                {
+                    if (!def.IsReference)
+                        return DeclineStatic("emit.ctor.instance-initializer-value-type", "instance field initializer constructor is only modeled for reference types", def.Builder.Name);
+                    var initializer = def.Builder.DefineMethod(
+                        "<InitializeFields>$",
+                        MethodAttributes.Private | MethodAttributes.HideBySig,
+                        typeof(void),
+                        Type.EmptyTypes);
+                    def.InstanceInitializerMethod = initializer;
+                    CollectTopLevelFieldInitializerAssignments(ctor.Body, source, def.InstanceInitializerFields);
+                    structInitializerJobs.Add((def, ctor, initializer));
+                    continue;
+                }
                 if (ctor.ChainInitKind == 2 && def.BaseDef == null)
-                    return false; // a `: base(...)` initializer requires a declared (modelled) base class.
+                    return DeclineStatic("emit.ctor.base-chain-without-base", "constructor base initializer requires a modeled base class", def.Builder.Name + ".constructor");
                 var cParamTypes = new Type[ctor.Body.ParamNames.Length];
                 var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < ctor.Body.ParamNames.Length; i++)
                 {
                     if (!TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
-                        return false;
+                        return DeclineStatic("emit.ctor.param-type", "constructor parameter type is not modeled", def.Builder.Name + ".constructor");
                     cParamTypes[i] = pt;
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
                     cParamTypeMap[ctor.Body.ParamNames[i]] = pt;
                 }
                 var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
                 if (!DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts, enumRegistry))
-                    return false;
+                    return DeclineStatic("emit.ctor.param-metadata", "constructor parameter metadata could not be emitted", def.Builder.Name + ".constructor");
                 def.Constructors.Add((cb, cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts));
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
@@ -3469,21 +3549,20 @@ internal sealed class ColumnarIlEmitter
                 if (structDepths[s] != depth)
                     continue;
                 var st = structs[s];
-                if (!st.IsReference || st.Constructors.Count > 0)
+                if (!st.IsReference || HasCallableConstructor(st))
                     continue;
                 var def = structRegistry[st.Name];
-                if (def.BaseDef == null)
+                if (def.BaseDef == null && def.InstanceInitializerMethod == null)
                 {
                     def.DefaultCtor = def.Builder.DefineDefaultConstructor(MethodAttributes.Public);
                     continue;
                 }
-                var baseCtorTarget = ResolveParameterlessCtor(def.BaseDef);
-                if (baseCtorTarget == null)
-                    return false; // base has only parameterized ctors — an implicit chain is impossible.
+                if (def.BaseDef != null && ResolveParameterlessCtor(def.BaseDef) == null)
+                    return DeclineStatic("emit.ctor.default-base-chain", "default constructor requires a modeled base parameterless constructor", def.Builder.Name);
                 var dcb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
                 var dcil = dcb.GetILGenerator();
-                dcil.Emit(OpCodes.Ldarg_0);
-                dcil.Emit(OpCodes.Call, baseCtorTarget);
+                EmitCtorBaseChain(dcil, def, objectCtor);
+                EmitInstanceInitializerCall(dcil, def);
                 dcil.Emit(OpCodes.Ret);
                 def.DefaultCtor = dcb;
             }
@@ -3999,6 +4078,24 @@ internal sealed class ColumnarIlEmitter
                 return DeclineStatic("emit.body", "default interface method body emission declined", job.Interface.Builder.Name + "." + job.Method.Name);
         }
 
+        // Emit synthesized instance-field initializer methods before constructors that call them. The N# constructor
+        // parser builds these bodies as assignment statements (`field = initializer`) using the same columnar node
+        // shape as constructor bodies, so C# only wires the private method and invocation order.
+        foreach (var job in structInitializerJobs)
+        {
+            var mil = job.Builder.GetILGenerator();
+            var emitter = new ColumnarIlEmitter(
+                job.Ctor.Body.BodyNodes, source,
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, Type>(StringComparer.Ordinal),
+                typeof(void), mil, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
+                isSynthesizedInitializerBody: true,
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+            if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
+                return DeclineStatic("emit.body", "instance field initializer emission declined", job.Struct.Builder.Name + ".<InitializeFields>$");
+        }
+
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
         // `_currentStruct` set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). A STATIC body
         // runs with `_currentStruct` NULL — there is no instance, so every implicit-`this` path (bare fields, bare
@@ -4023,7 +4120,6 @@ internal sealed class ColumnarIlEmitter
         // then emits the ctor body (field assignments via the reference-type field-write path), with `_currentStruct`
         // set and the ctor's param ordinals (arg 0 = `this`). The body is VOID (no return value), so EmitBody(isVoid:
         // true) appends a trailing `ret` where control falls through.
-        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         foreach (var job in structCtorJobs)
         {
             var cil = job.Builder.GetILGenerator();
@@ -4043,6 +4139,8 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
                     return false;
+                if (job.Ctor.ChainInitKind == 2)
+                    EmitInstanceInitializerCall(cil, job.Struct);
             }
             else if (job.Struct.IsReference)
             {
@@ -4058,19 +4156,10 @@ internal sealed class ColumnarIlEmitter
                     ? emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot)
                     : !emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
                     return false;
-                if (job.Struct.BaseDef != null)
-                {
-                    var baseParameterless = ResolveParameterlessCtor(job.Struct.BaseDef);
-                    if (baseParameterless == null)
-                        return false; // base has only parameterized ctors — `: base(...)` is required.
-                    cil.Emit(OpCodes.Ldarg_0);
-                    cil.Emit(OpCodes.Call, baseParameterless);
-                }
-                else
-                {
-                    cil.Emit(OpCodes.Ldarg_0);
-                    cil.Emit(OpCodes.Call, objectCtor);
-                }
+                if (job.Struct.BaseDef != null && ResolveParameterlessCtor(job.Struct.BaseDef) == null)
+                    return false; // base has only parameterized ctors — `: base(...)` is required.
+                EmitCtorBaseChain(cil, job.Struct, objectCtor);
+                EmitInstanceInitializerCall(cil, job.Struct);
             }
             else
             {
@@ -7204,7 +7293,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (_currentStruct == null || _nodes.Kind(bodyRoot) != 25 || ContainsReturnStatement(bodyRoot))
             return false;
-        var assigned = new HashSet<string>(StringComparer.Ordinal);
+        var assigned = new HashSet<string>(_currentStruct.InstanceInitializerFields, StringComparer.Ordinal);
         for (var n = 0; n < _nodes.ChildCount(bodyRoot); n++)
         {
             var stmt = Child(bodyRoot, n);

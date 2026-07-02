@@ -2283,7 +2283,7 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
             if memberModifiers.Values[0] == 1 {
                 return -1
             }
-            if syntheticCtorNeeded {
+            if syntheticCtorNeeded && tokens.Kinds[structIndex] == 9 {
                 return -1
             }
             decl.CtorIndices[ctorCount] = memberStart

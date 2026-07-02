@@ -632,6 +632,63 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsInstanceFieldInitializersWithExplicitConstructor()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InstanceFieldInitializers
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Logger {
+    Prefix: string = "[LOG]"
+}
+
+class Application {
+    logger: Logger = new Logger()
+    readonly Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+
+    func Describe(): string {
+        return $"{logger.Prefix}:{Name}"
+    }
+}
+
+func main() {
+    app := new Application("FileScopedDemo")
+    print app.Describe()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "InstanceFieldInitializers.dll");
+            var result = compiler.CompileToIlAssembly("InstanceFieldInitializers", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("[LOG]:FileScopedDemo", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
     {
         // Defect regression: this program used to COMPILE through the legacy

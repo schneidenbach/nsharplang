@@ -359,9 +359,11 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: &Columna
             return -1
         }
 
+        currentIsInitializerMethod := ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(ref tokens, outputs.CtorIndices[i], paramCount)
         previousCtor := 0
         while previousCtor < i {
-            if ctorParamCounts[previousCtor] == paramCount {
+            previousIsInitializerMethod := ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(ref tokens, outputs.CtorIndices[previousCtor], ctorParamCounts[previousCtor])
+            if !currentIsInitializerMethod && !previousIsInitializerMethod && ctorParamCounts[previousCtor] == paramCount {
                 sameSignature := true
                 paramSlot := 0
                 while paramSlot < paramCount {
@@ -415,6 +417,13 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: &Columna
     }
 
     return 0
+}
+
+func ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(tokens: &ColumnarStructTokenTable, ctorIndex: int, paramCount: int): bool {
+    if paramCount != 0 || ctorIndex < 0 || ctorIndex >= tokens.Count {
+        return false
+    }
+    return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 13
 }
 
 func ColumnarStructNameMatchesTypeParam(source: string, scratch: &ColumnarStructScratchTable, typeParamCount: int, nameStart: int, nameLength: int): bool {
