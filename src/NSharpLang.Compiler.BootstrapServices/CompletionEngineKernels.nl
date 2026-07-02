@@ -70,6 +70,45 @@ public class CompletionEngineKernels {
         }
     }
 
+    public static func BuildMemberItemsFromRows(
+        names: string[],
+        kinds: string[],
+        typeTexts: string[],
+        isStaticValues: bool[]): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        count := names.Length
+        if kinds.Length < count {
+            count = kinds.Length
+        }
+
+        if typeTexts.Length < count {
+            count = typeTexts.Length
+        }
+
+        if isStaticValues.Length < count {
+            count = isStaticValues.Length
+        }
+
+        i := 0
+        while i < count {
+            typeText: string? = null
+            if typeTexts[i].Length > 0 {
+                typeText = typeTexts[i]
+            }
+
+            items.Add(new CompletionItem(
+                names[i],
+                kinds[i],
+                typeText,
+                null,
+                null,
+                isStaticValues[i]))
+            i = i + 1
+        }
+
+        return items
+    }
+
     static func PluralizeCompletionKind(kind: string): string {
         if kind == "property" {
             return "properties"

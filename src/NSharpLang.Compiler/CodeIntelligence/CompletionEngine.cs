@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using BindingFlags = System.Reflection.BindingFlags;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -130,7 +131,7 @@ public class CompletionEngine
                     displayReceiver,
                     snapshot,
                     completions,
-                    MemberFilter.InstanceOnly);
+                    GetMemberFilter(displayReceiver, receiverType));
                 if (memberResult != null) return memberResult;
             }
         }
@@ -142,7 +143,8 @@ public class CompletionEngine
 
         if (semanticModel != null)
         {
-            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col);
+            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col)
+                           ?? semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
                 var memberResult = ResolveMemberCompletionsFromTypeInfo(
@@ -150,9 +152,21 @@ public class CompletionEngine
                     receiver,
                     snapshot,
                     completions,
-                    MemberFilter.InstanceOnly);
+                    GetMemberFilter(receiver, typeInfo));
                 if (memberResult != null) return memberResult;
             }
+        }
+
+        var literalTypeInfo = ResolveLiteralReceiverType(receiver);
+        if (literalTypeInfo != null)
+        {
+            var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                literalTypeInfo,
+                receiver,
+                snapshot,
+                completions,
+                MemberFilter.InstanceOnly);
+            if (memberResult != null) return memberResult;
         }
 
         return EmptyResult(CompletionContext.MemberAccess);
@@ -161,6 +175,41 @@ public class CompletionEngine
     private static TypeInfo? LookupIdentifierAtPosition(SemanticModel semanticModel, string name, int line, int column)
     {
         return semanticModel.LookupIdentifierAtPosition(name, line, column);
+    }
+
+    private static MemberFilter GetMemberFilter(string receiver, TypeInfo typeInfo)
+    {
+        return IsStaticTypeReceiver(receiver, typeInfo)
+            ? MemberFilter.StaticOnly
+            : MemberFilter.InstanceOnly;
+    }
+
+    private static bool IsStaticTypeReceiver(string receiver, TypeInfo typeInfo)
+    {
+        if (!VisibilityConventions.IsExportedIdentifier(receiver))
+            return false;
+
+        return typeInfo is ReflectionTypeInfo
+            or ClassTypeInfo
+            or StructTypeInfo
+            or EnumTypeInfo
+            or InterfaceTypeInfo;
+    }
+
+    private static TypeInfo? ResolveLiteralReceiverType(string receiver)
+    {
+        return IsStringLiteralReceiver(receiver)
+            ? new SimpleTypeInfo("System.String")
+            : null;
+    }
+
+    private static bool IsStringLiteralReceiver(string receiver)
+    {
+        var index = 0;
+        while (index < receiver.Length && receiver[index] == '$')
+            index++;
+
+        return index < receiver.Length && receiver[index] == '"';
     }
 
     // ── General Identifier Completions ──────────────────────────────────
@@ -250,7 +299,135 @@ public class CompletionEngine
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
         }
 
+        if (TryGetCompletionReflectionType(typeInfo, out var clrType))
+        {
+            var flags = BindingFlags.Public |
+                (filter == MemberFilter.StaticOnly ? BindingFlags.Static :
+                 filter == MemberFilter.InstanceOnly ? BindingFlags.Instance :
+                 BindingFlags.Static | BindingFlags.Instance);
+            var reflectionMembers = BuildReflectionMemberItems(clrType, flags);
+            if (reflectionMembers.Count > 0)
+            {
+                AddGroupedCompletionsByKind(reflectionMembers, completions);
+                return new CompletionResult(
+                    CompletionContext.MemberAccess,
+                    receiver,
+                    clrType.FullName ?? clrType.Name,
+                    completions);
+            }
+        }
+
         return null;
+    }
+
+    private static bool TryGetCompletionReflectionType(
+        TypeInfo typeInfo,
+        [NotNullWhen(true)] out Type? clrType)
+    {
+        if (typeInfo is ReflectionTypeInfo reflectionType)
+        {
+            clrType = reflectionType.Type;
+            return true;
+        }
+
+        if (typeInfo is SimpleTypeInfo simpleType)
+        {
+            clrType = simpleType.Name switch
+            {
+                "string" or "System.String" => typeof(string),
+                "int" or "System.Int32" => typeof(int),
+                "long" or "System.Int64" => typeof(long),
+                "bool" or "System.Boolean" => typeof(bool),
+                "double" or "System.Double" => typeof(double),
+                "float" or "System.Single" => typeof(float),
+                "char" or "System.Char" => typeof(char),
+                "object" or "System.Object" => typeof(object),
+                "Console" or "System.Console" => typeof(Console),
+                "Math" or "System.Math" => typeof(Math),
+                "DateTime" or "System.DateTime" => typeof(DateTime),
+                _ => null
+            };
+            return clrType != null;
+        }
+
+        clrType = null;
+        return false;
+    }
+
+    private static List<CompletionItem> BuildReflectionMemberItems(Type clrType, BindingFlags flags)
+    {
+        var methods = clrType.GetMethods(flags);
+        var properties = clrType.GetProperties(flags);
+        var fields = clrType.GetFields(flags);
+        var count = methods.Length + properties.Length + fields.Length;
+        var names = new string[count];
+        var kinds = new string[count];
+        var typeTexts = new string[count];
+        var isStaticValues = new bool[count];
+        var index = 0;
+
+        foreach (var method in methods)
+        {
+            names[index] = method.Name;
+            kinds[index] = "method";
+            typeTexts[index] = FormatClrType(method.ReturnType);
+            isStaticValues[index] = method.IsStatic;
+            index++;
+        }
+
+        foreach (var property in properties)
+        {
+            if (property.DeclaringType?.FullName == "System.Object")
+                continue;
+
+            names[index] = property.Name;
+            kinds[index] = "property";
+            typeTexts[index] = FormatClrType(property.PropertyType);
+            isStaticValues[index] = property.GetMethod?.IsStatic ?? false;
+            index++;
+        }
+
+        foreach (var field in fields)
+        {
+            if (field.DeclaringType?.FullName == "System.Object")
+                continue;
+
+            names[index] = field.Name;
+            kinds[index] = "field";
+            typeTexts[index] = FormatClrType(field.FieldType);
+            isStaticValues[index] = field.IsStatic;
+            index++;
+        }
+
+        if (index != count)
+        {
+            Array.Resize(ref names, index);
+            Array.Resize(ref kinds, index);
+            Array.Resize(ref typeTexts, index);
+            Array.Resize(ref isStaticValues, index);
+        }
+
+        return CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStaticValues);
+    }
+
+    private static string FormatClrType(Type type)
+    {
+        if (type.FullName == "System.Void") return "void";
+        if (type.FullName == "System.Int32") return "int";
+        if (type.FullName == "System.Int64") return "long";
+        if (type.FullName == "System.String") return "string";
+        if (type.FullName == "System.Boolean") return "bool";
+        if (type.FullName == "System.Double") return "double";
+        if (type.FullName == "System.Single") return "float";
+        if (type.FullName == "System.Object") return "object";
+        if (type.IsGenericType)
+        {
+            var baseName = type.Name.Split('`')[0];
+            var args = string.Join(", ", type.GetGenericArguments().Select(FormatClrType));
+            return $"{baseName}<{args}>";
+        }
+
+        return type.Name;
     }
 
     /// <summary>
