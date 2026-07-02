@@ -16,6 +16,7 @@ namespace NSharpLang.Compiler;
 public class MultiFileCompiler
 {
     private const string DebugLogEnvVar = "NSHARP_DEBUG_LOG";
+    private const string ColumnarDeclineLogEnvVar = "NSHARP_COLUMNAR_DECLINE_LOG";
     private const int MaxDisplayedImportCycleNodes = 10;
     private const int MaxReportedImportCycles = 20;
     private readonly string _projectRoot;
@@ -410,7 +411,14 @@ public class MultiFileCompiler
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
-                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmitOnlyEmissionError(assemblyName));
+                var decline = BuildColumnarDeclineDiagnostic();
+                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmitOnlyEmissionError(
+                    assemblyName,
+                    decline.Detail,
+                    decline.FileName,
+                    decline.Line,
+                    decline.Column,
+                    decline.SpanLength));
             }
 
             var emitOnlySuccess = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
@@ -452,17 +460,36 @@ public class MultiFileCompiler
             // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
+                var decline = BuildColumnarDeclineDiagnostic();
                 if (AotMode)
                 {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredAotEmissionError(assemblyName));
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredAotEmissionError(
+                        assemblyName,
+                        decline.Detail,
+                        decline.FileName,
+                        decline.Line,
+                        decline.Column,
+                        decline.SpanLength));
                 }
                 else if (RequiresColumnarSoaEmission())
                 {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredSoaEmissionError(assemblyName));
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredSoaEmissionError(
+                        assemblyName,
+                        decline.Detail,
+                        decline.FileName,
+                        decline.Line,
+                        decline.Column,
+                        decline.SpanLength));
                 }
                 else
                 {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionError(assemblyName));
+                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionError(
+                        assemblyName,
+                        decline.Detail,
+                        decline.FileName,
+                        decline.Line,
+                        decline.Column,
+                        decline.SpanLength));
                 }
             }
         }
@@ -507,9 +534,128 @@ public class MultiFileCompiler
     private bool RequiresColumnarSoaEmission()
         => SoaFeature.IsEnabled && _compilationUnits.Values.Any(CompilationUnitFacts.ContainsSoaRecordDeclaration);
 
+    private ColumnarDeclineDiagnostic BuildColumnarDeclineDiagnostic()
+    {
+        var records = ColumnarDeclineTrace.Snapshot();
+        WriteColumnarDeclineTrace(records);
+        if (records.Count == 0)
+        {
+            return ColumnarDeclineDiagnostic.Empty;
+        }
+
+        var primary = records[0];
+        var memberName = primary.MemberName;
+        if (string.IsNullOrEmpty(memberName))
+        {
+            for (var i = records.Count - 1; i >= 0; i--)
+            {
+                if (!string.IsNullOrEmpty(records[i].MemberName))
+                {
+                    memberName = records[i].MemberName;
+                    break;
+                }
+            }
+        }
+
+        var fileLengths = GetOrderedSourceLengths();
+        var fileIndex = ColumnarDeclineReasonFacts.MapMergedOffsetFileIndex(fileLengths, 2, primary.SpanStart);
+        string? fileName = null;
+        var line = 0;
+        var column = 0;
+        if (fileIndex >= 0 && fileIndex < _sourceFiles.Count)
+        {
+            var sourceFile = _sourceFiles[fileIndex];
+            fileName = sourceFile;
+            var localOffset = ColumnarDeclineReasonFacts.MapMergedOffsetLocalOffset(fileLengths, 2, primary.SpanStart);
+            if (localOffset >= 0 && _sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out var source))
+            {
+                line = ColumnarDeclineReasonFacts.LineFromOffset(source, localOffset);
+                column = ColumnarDeclineReasonFacts.ColumnFromOffset(source, localOffset);
+            }
+        }
+
+        var reason = string.IsNullOrEmpty(memberName)
+            ? primary
+            : new ColumnarDeclineReason(primary.SiteId, primary.Message, primary.SpanStart, primary.SpanLength, memberName);
+        var detailFileName = fileName != null ? Path.GetFileName(fileName) : null;
+        var detail = ColumnarDeclineReasonFacts.FormatDetail(reason, detailFileName, line, column);
+        return new ColumnarDeclineDiagnostic(
+            detail,
+            fileName,
+            line,
+            column,
+            Math.Max(1, primary.SpanLength));
+    }
+
+    private int[] GetOrderedSourceLengths()
+    {
+        var lengths = new int[_sourceFiles.Count];
+        for (var i = 0; i < _sourceFiles.Count; i++)
+        {
+            if (_sourceTexts.TryGetValue(Path.GetFullPath(_sourceFiles[i]), out var source))
+            {
+                lengths[i] = source.Length;
+            }
+        }
+
+        return lengths;
+    }
+
+    private void WriteColumnarDeclineTrace(IReadOnlyList<ColumnarDeclineReason> records)
+    {
+        if (records.Count == 0)
+        {
+            return;
+        }
+
+        var writeToStdErr = IsColumnarDeclineLoggingEnabled();
+        if (!writeToStdErr && !_debugLoggingEnabled)
+        {
+            return;
+        }
+
+        var fileLengths = GetOrderedSourceLengths();
+        foreach (var record in records)
+        {
+            var fileName = (string?)null;
+            var line = 0;
+            var column = 0;
+            var fileIndex = ColumnarDeclineReasonFacts.MapMergedOffsetFileIndex(fileLengths, 2, record.SpanStart);
+            if (fileIndex >= 0 && fileIndex < _sourceFiles.Count)
+            {
+                var sourceFile = _sourceFiles[fileIndex];
+                var localOffset = ColumnarDeclineReasonFacts.MapMergedOffsetLocalOffset(fileLengths, 2, record.SpanStart);
+                if (localOffset >= 0 && _sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out var source))
+                {
+                    fileName = Path.GetFileName(sourceFile);
+                    line = ColumnarDeclineReasonFacts.LineFromOffset(source, localOffset);
+                    column = ColumnarDeclineReasonFacts.ColumnFromOffset(source, localOffset);
+                }
+            }
+
+            var traceLine = ColumnarDeclineReasonFacts.FormatTraceLine(record, fileName, line, column);
+            if (writeToStdErr)
+            {
+                Console.Error.WriteLine(traceLine);
+            }
+
+            if (_debugLoggingEnabled)
+            {
+                AppendDebugLog(traceLine);
+            }
+        }
+    }
+
     private static bool IsDebugLoggingEnabled()
     {
         var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
+        return string.Equals(value, "1", StringComparison.Ordinal) ||
+            string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsColumnarDeclineLoggingEnabled()
+    {
+        var value = Environment.GetEnvironmentVariable(ColumnarDeclineLogEnvVar);
         return string.Equals(value, "1", StringComparison.Ordinal) ||
             string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
@@ -528,6 +674,16 @@ public class MultiFileCompiler
 
         var logPath = Path.Combine(_projectRoot, "compile-debug.log");
         File.AppendAllText(logPath, message + Environment.NewLine);
+    }
+
+    private readonly record struct ColumnarDeclineDiagnostic(
+        string? Detail,
+        string? FileName,
+        int Line,
+        int Column,
+        int SpanLength)
+    {
+        public static ColumnarDeclineDiagnostic Empty { get; } = new(null, null, 0, 0, 1);
     }
 
 }
