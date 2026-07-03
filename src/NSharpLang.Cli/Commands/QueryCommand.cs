@@ -68,7 +68,11 @@ public static class QueryCommand
         SymbolKind? kindFilter = null;
         var kindArg = summary.Kind;
         if (kindArg != null)
-            kindFilter = QueryCommandKernels.ParseSymbolKind(kindArg);
+        {
+            var parsedKind = QueryCommandKernels.ParseSymbolKind(kindArg);
+            if (parsedKind.HasValue)
+                kindFilter = parsedKind.GetValueOrDefault();
+        }
 
         var fileFilter = summary.File ?? options.File;
         var filterPattern = commandSummary.Filter;

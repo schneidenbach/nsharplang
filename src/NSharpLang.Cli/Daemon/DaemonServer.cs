@@ -326,7 +326,11 @@ public class DaemonServer
     {
         NSharpLang.Compiler.CodeIntelligence.SymbolKind? kindFilter = null;
         if (kind != null)
-            kindFilter = QueryCommandKernels.ParseSymbolKind(kind);
+        {
+            var parsedKind = QueryCommandKernels.ParseSymbolKind(kind);
+            if (parsedKind.HasValue)
+                kindFilter = parsedKind.GetValueOrDefault();
+        }
 
         var results = _service.GetSymbols(_snapshot!, file, kindFilter);
         return OutputFormatter.SymbolsToJson(results, _snapshot!.ProjectRoot);
