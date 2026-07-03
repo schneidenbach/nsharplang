@@ -472,6 +472,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(StringComparer)
         || t == typeof(TextWriter)
         || t == typeof(System.Text.StringBuilder)
+        || t == typeof(DateTime)
         || t == typeof(TimeSpan)
         || ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(t)
         || IsSupportedTaskType(t)
@@ -2921,6 +2922,7 @@ internal sealed class ColumnarIlEmitter
             "float" => typeof(float),
             "decimal" => typeof(decimal),
             "string" => typeof(string),
+            "DateTime" => typeof(DateTime),
             _ => null!,
         };
         return type != null;
@@ -3019,6 +3021,42 @@ internal sealed class ColumnarIlEmitter
             TryRegisterStructAlias(structRegistry, iface.Name, interfaceDef);
             interfaceDefsInOrder.Add(interfaceDef);
         }
+
+        var structBuilders = new TypeBuilder[structs.Count];
+        var structDefsInOrder = new ColumnarStructDef[structs.Count];
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var st = structs[s];
+            // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
+            // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
+            // after every type name is in the registry, so field signatures can reference later-declared types.
+            var tb = st.IsReference
+                ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+                : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+
+            // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
+            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
+            // the product parser wrapper before this point.
+            Dictionary<string, Type>? typeGenericParams = null;
+            if (st.TypeParamNames is { Length: > 0 })
+            {
+                typeGenericParams = new Dictionary<string, Type>(StringComparer.Ordinal);
+                var declaredParams = tb.DefineGenericParameters(st.TypeParamNames);
+                for (var tp = 0; tp < declaredParams.Length; tp++)
+                    typeGenericParams[st.TypeParamNames[tp]] = declaredParams[tp];
+            }
+
+            var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+            var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord)
+            {
+                GenericParameters = typeGenericParams,
+            };
+            structBuilders[s] = tb;
+            structDefsInOrder[s] = newDef;
+            structRegistry[st.Name] = newDef;
+            TryRegisterStructAlias(structRegistry, st.Name, newDef);
+        }
+
         for (var i = 0; i < interfaces.Count; i++)
         {
             var iface = interfaces[i];
@@ -3081,41 +3119,6 @@ internal sealed class ColumnarIlEmitter
             if (depth < 0)
                 return false; // interface inheritance cycle.
             interfaceDepths[i] = depth;
-        }
-
-        var structBuilders = new TypeBuilder[structs.Count];
-        var structDefsInOrder = new ColumnarStructDef[structs.Count];
-        for (var s = 0; s < structs.Count; s++)
-        {
-            var st = structs[s];
-            // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
-            // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
-            // after every type name is in the registry, so field signatures can reference later-declared types.
-            var tb = st.IsReference
-                ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
-                : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
-
-            // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
-            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
-            // the product parser wrapper before this point.
-            Dictionary<string, Type>? typeGenericParams = null;
-            if (st.TypeParamNames is { Length: > 0 })
-            {
-                typeGenericParams = new Dictionary<string, Type>(StringComparer.Ordinal);
-                var declaredParams = tb.DefineGenericParameters(st.TypeParamNames);
-                for (var tp = 0; tp < declaredParams.Length; tp++)
-                    typeGenericParams[st.TypeParamNames[tp]] = declaredParams[tp];
-            }
-
-            var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
-            var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord)
-            {
-                GenericParameters = typeGenericParams,
-            };
-            structBuilders[s] = tb;
-            structDefsInOrder[s] = newDef;
-            structRegistry[st.Name] = newDef;
-            TryRegisterStructAlias(structRegistry, st.Name, newDef);
         }
         for (var s = 0; s < structs.Count; s++)
         {
@@ -14018,6 +14021,20 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private sealed class InterpolationHolePlan
+    {
+        internal LocalBuilder? RootLocal { get; init; }
+        internal int RootOrdinal { get; init; }
+        internal bool RootThis { get; init; }
+        internal MethodInfo? RootGetter { get; init; }
+        internal Type RootType { get; init; } = null!;
+        internal List<FieldBuilder> Hops { get; init; } = new();
+        internal MethodBuilder? CallBuilder { get; init; }
+        internal Type ValueType { get; set; } = null!;
+        internal string? Format { get; set; }
+        internal InterpolationHolePlan? CoalesceRight { get; set; }
+    }
+
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
     // (identifier-chain holes only — anything richer declines) and mirror the
@@ -14052,7 +14069,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         // Resolve every hole BEFORE any emission.
-        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, bool RootThis, MethodInfo? RootGetter, Type RootType, List<FieldBuilder> Hops, MethodBuilder? CallBuilder, Type ValueType, string? Format)>(formattedCount);
+        var holePlans = new List<InterpolationHolePlan>(formattedCount);
         var literalLength = 0;
         foreach (var part in parts)
         {
@@ -14061,9 +14078,9 @@ internal sealed class ColumnarIlEmitter
                 literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text).Length;
                 continue;
             }
-            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var callBuilder, out var valueType))
+            if (!TryResolveInterpolationHolePlan(part.Text, part.Format, out var plan))
                 return false;
-            holePlans.Add((rootLocal, rootOrdinal, rootThis, rootGetter, rootType, hops, callBuilder, valueType, part.Format));
+            holePlans.Add(plan);
         }
         var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
         var handlerLocal = _il.DeclareLocal(handlerType);
@@ -14082,56 +14099,7 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
             var plan = holePlans[holeIndex++];
-            if (plan.RootThis)
-                _il.Emit(OpCodes.Ldarg_0);
-            else if (plan.RootLocal != null)
-                _il.Emit(OpCodes.Ldloc, plan.RootLocal);
-            else
-                EmitLoadArgument(plan.RootOrdinal);
-            var current = plan.RootType;
-            var stackHasCurrentAddress = plan.RootThis && !IsReferenceWriteLink(current);
-            if (plan.RootGetter != null)
-            {
-                _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter);
-                current = plan.RootGetter.ReturnType;
-                stackHasCurrentAddress = false;
-            }
-            foreach (var hop in plan.Hops)
-            {
-                if (!IsReferenceWriteLink(current))
-                {
-                    // a VALUE owner on the stack: spill + ldloca so ldfld reads off an address
-                    // (the case-8 member-read discipline).
-                    if (!stackHasCurrentAddress)
-                    {
-                        var spill = _il.DeclareLocal(current);
-                        _il.Emit(OpCodes.Stloc, spill);
-                        _il.Emit(OpCodes.Ldloca, spill);
-                    }
-                }
-                _il.Emit(OpCodes.Ldfld, hop);
-                current = hop.FieldType;
-                stackHasCurrentAddress = false;
-            }
-            if (plan.CallBuilder != null)
-            {
-                if (!IsReferenceWriteLink(current))
-                {
-                    if (!stackHasCurrentAddress)
-                    {
-                        var spill = _il.DeclareLocal(current);
-                        _il.Emit(OpCodes.Stloc, spill);
-                        _il.Emit(OpCodes.Ldloca, spill);
-                    }
-                    _il.Emit(OpCodes.Call, plan.CallBuilder);
-                }
-                else
-                {
-                    _il.Emit(OpCodes.Callvirt, plan.CallBuilder);
-                }
-                current = plan.ValueType;
-                stackHasCurrentAddress = false;
-            }
+            EmitInterpolationHoleValue(plan);
             if (plan.ValueType == typeof(string) && plan.Format == null)
             {
                 _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })!);
@@ -14150,6 +14118,123 @@ internal sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Call, handlerType.GetMethod("ToStringAndClear")!);
         type = typeof(string);
         return true;
+    }
+
+    private bool TryResolveInterpolationHolePlan(string text, string? format, out InterpolationHolePlan plan)
+    {
+        plan = null!;
+        text = text.Trim();
+        var coalesce = text.IndexOf("??", StringComparison.Ordinal);
+        if (coalesce >= 0)
+        {
+            if (text.IndexOf("??", coalesce + 2, StringComparison.Ordinal) >= 0)
+                return false;
+            var leftText = text.Substring(0, coalesce).Trim();
+            var rightText = text.Substring(coalesce + 2).Trim();
+            if (leftText.Length == 0 || rightText.Length == 0)
+                return false;
+            if (!TryResolveInterpolationChainPlan(leftText, out var left)
+                || !TryResolveInterpolationChainPlan(rightText, out var right)
+                || left.ValueType.IsValueType
+                || !TypesEquivalent(left.ValueType, right.ValueType))
+                return false;
+
+            left.CoalesceRight = right;
+            left.Format = format;
+            plan = left;
+            return true;
+        }
+
+        if (!TryResolveInterpolationChainPlan(text, out plan))
+            return false;
+        plan.Format = format;
+        return true;
+    }
+
+    private bool TryResolveInterpolationChainPlan(string chain, out InterpolationHolePlan plan)
+    {
+        plan = null!;
+        if (!TryResolveInterpolationHole(chain, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var callBuilder, out var valueType))
+            return false;
+        plan = new InterpolationHolePlan
+        {
+            RootLocal = rootLocal,
+            RootOrdinal = rootOrdinal,
+            RootThis = rootThis,
+            RootGetter = rootGetter,
+            RootType = rootType,
+            Hops = hops,
+            CallBuilder = callBuilder,
+            ValueType = valueType,
+        };
+        return true;
+    }
+
+    private void EmitInterpolationHoleValue(InterpolationHolePlan plan)
+    {
+        if (plan.CoalesceRight != null)
+        {
+            EmitInterpolationSimpleHoleValue(plan);
+            var end = _il.DefineLabel();
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Brtrue, end);
+            _il.Emit(OpCodes.Pop);
+            EmitInterpolationHoleValue(plan.CoalesceRight);
+            _il.MarkLabel(end);
+            return;
+        }
+
+        EmitInterpolationSimpleHoleValue(plan);
+    }
+
+    private void EmitInterpolationSimpleHoleValue(InterpolationHolePlan plan)
+    {
+        if (plan.RootThis)
+            _il.Emit(OpCodes.Ldarg_0);
+        else if (plan.RootLocal != null)
+            _il.Emit(OpCodes.Ldloc, plan.RootLocal);
+        else
+            EmitLoadArgument(plan.RootOrdinal);
+        var current = plan.RootType;
+        var stackHasCurrentAddress = plan.RootThis && !IsReferenceWriteLink(current);
+        if (plan.RootGetter != null)
+        {
+            _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter);
+            current = plan.RootGetter.ReturnType;
+            stackHasCurrentAddress = false;
+        }
+        foreach (var hop in plan.Hops)
+        {
+            if (!IsReferenceWriteLink(current))
+            {
+                if (!stackHasCurrentAddress)
+                {
+                    var spill = _il.DeclareLocal(current);
+                    _il.Emit(OpCodes.Stloc, spill);
+                    _il.Emit(OpCodes.Ldloca, spill);
+                }
+            }
+            _il.Emit(OpCodes.Ldfld, hop);
+            current = hop.FieldType;
+            stackHasCurrentAddress = false;
+        }
+        if (plan.CallBuilder != null)
+        {
+            if (!IsReferenceWriteLink(current))
+            {
+                if (!stackHasCurrentAddress)
+                {
+                    var spill = _il.DeclareLocal(current);
+                    _il.Emit(OpCodes.Stloc, spill);
+                    _il.Emit(OpCodes.Ldloca, spill);
+                }
+                _il.Emit(OpCodes.Call, plan.CallBuilder);
+            }
+            else
+            {
+                _il.Emit(OpCodes.Callvirt, plan.CallBuilder);
+            }
+        }
     }
 
     private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,

@@ -52,6 +52,28 @@ public class ColumnarLiteralFactsTests
     }
 
     [Fact]
+    public void ColumnarInterpolationSplitter_AcceptsSimpleCoalesceHole()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit("$\"email: {email ?? missingEmail}\"", parts));
+
+        Assert.Equal(2, parts.Count);
+        Assert.False(parts[0].IsHole);
+        Assert.Equal("email: ", parts[0].Text);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal("email ?? missingEmail", parts[1].Text);
+    }
+
+    [Fact]
+    public void ColumnarInterpolationSplitter_RejectsMultipleCoalesceHole()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.False(ColumnarInterpolationSplitter.TrySplit("$\"email: {primary ?? fallback ?? missing}\"", parts));
+    }
+
+    [Fact]
     public void ColumnarCompiler_CharLiteralEscape_UsesNSharpDecoder()
     {
         Assert.True(ColumnarCompiler.TryEmitProgram(

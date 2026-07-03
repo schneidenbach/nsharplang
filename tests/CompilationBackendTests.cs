@@ -658,6 +658,156 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsFileScopedRecordWithDateTimeField()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: FileScopedDateTimeProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+file record Stamp {
+    When: DateTime
+}
+
+func main() {
+    print "ok"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "FileScopedDateTimeProject.dll");
+            var result = compiler.CompileToIlAssembly("FileScopedDateTimeProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("ok", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsInterfaceMethodReturningUserStruct()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InterfaceUserStructProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+file struct ValidationResult {
+    IsValid: bool
+}
+
+file interface IValidator {
+    func Validate(input: string): ValidationResult
+}
+
+file class UsernameValidator: IValidator {
+    func Validate(input: string): ValidationResult {
+        if input.Length > 0 {
+            return new ValidationResult { IsValid: true }
+        }
+
+        return new ValidationResult { IsValid: false }
+    }
+}
+
+func main() {
+    validator: IValidator = new UsernameValidator()
+    result := validator.Validate("abc")
+    print result.IsValid
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "InterfaceUserStructProject.dll");
+            var result = compiler.CompileToIlAssembly("InterfaceUserStructProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("True", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsInterpolatedStringCoalesceHole()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InterpolatedCoalesceProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Directory {
+    func FindEmail(): string? {
+        return null
+    }
+}
+
+func main() {
+    directory := new Directory()
+    email := directory.FindEmail()
+    missing := "not found"
+    print $"Retrieved email: {email ?? missing}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "InterpolatedCoalesceProject.dll");
+            var result = compiler.CompileToIlAssembly("InterpolatedCoalesceProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("Retrieved email: not found", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStringEnumConstantsAsStrings()
     {
         var tempDir = CreateTempDir();

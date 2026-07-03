@@ -299,7 +299,7 @@ public class ColumnarInterpolationSplitter {
         return !expectIdentifierStart
     }
 
-    static func ColumnarInterpolatedStringIsSupportedHoleExpression(literal: string, start: int, length: int): bool {
+    static func ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal: string, start: int, length: int): bool {
         if ColumnarInterpolatedStringIsIdentifierChain(literal, start, length) {
             return true
         }
@@ -309,6 +309,65 @@ public class ColumnarInterpolationSplitter {
         }
 
         return false
+    }
+
+    static func ColumnarInterpolatedStringIsSupportedHoleExpression(literal: string, start: int, length: int): bool {
+        if ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, start, length) {
+            return true
+        }
+
+        coalesce := -1
+        i := 0
+        while i + 1 < length {
+            if literal[start + i] == '?' && literal[start + i + 1] == '?' {
+                if coalesce >= 0 {
+                    return false
+                }
+
+                coalesce = i
+                i = i + 2
+                continue
+            }
+
+            i = i + 1
+        }
+
+        if coalesce < 0 {
+            return false
+        }
+
+        leftStart := start
+        leftLength := coalesce
+        rightStart := start + coalesce + 2
+        rightLength := length - coalesce - 2
+        while leftLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[leftStart]) {
+            leftStart = leftStart + 1
+            leftLength = leftLength - 1
+        }
+
+        while leftLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[leftStart + leftLength - 1]) {
+            leftLength = leftLength - 1
+        }
+
+        while rightLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[rightStart]) {
+            rightStart = rightStart + 1
+            rightLength = rightLength - 1
+        }
+
+        while rightLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[rightStart + rightLength - 1]) {
+            rightLength = rightLength - 1
+        }
+
+        return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
+            && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    static func ColumnarInterpolatedStringIsTrimSpace(ch: char): bool {
+        if ch == ' ' {
+            return true
+        }
+
+        return ch == '\t'
     }
 
     static func ColumnarInterpolatedStringIsIdentifierStart(ch: char): bool {
