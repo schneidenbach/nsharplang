@@ -708,7 +708,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &
     i := 0
     while i < declCount {
         kind := decls.Kinds[i]
-        if kind != 7 && kind != 14 && kind != 9 && kind != 13 && kind != 12 && kind != 8 && kind != 10 {
+        if kind != 7 && kind != 14 && kind != 9 && kind != 13 && kind != 12 && kind != 8 && kind != 10 && kind != 72 {
             return -1
         }
 
@@ -880,6 +880,16 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
                     return 0
                 }
 
+                i = i + 1
+                continue
+            }
+
+            aliasWalk := preceding
+            while aliasWalk >= 0 && !IsTopLevelDeclarationKeyword(tokens.Kinds[aliasWalk]) && tokens.Kinds[aliasWalk] != 15 && tokens.Kinds[aliasWalk] != 17 && tokens.Kinds[aliasWalk] != 18 {
+                aliasWalk = aliasWalk - 1
+            }
+
+            if aliasWalk >= 0 && tokens.Kinds[aliasWalk] == 72 {
                 i = i + 1
                 continue
             }
