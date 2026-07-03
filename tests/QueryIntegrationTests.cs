@@ -357,6 +357,49 @@ func helper(): int {
     }
 
     [Fact]
+    public void Diagnostics_ProjectWideAutoDiscovery_ResolvesUnimportedProjectTypes()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main() {
+    service := new ProductService()
+    service.Add(new Product { Name: "Laptop" })
+    category := Category.Books
+    print category
+}
+"""),
+            ("Models/Product.nl", """
+namespace QueryTemp.Models
+
+record Product {
+    Name: string
+}
+
+enum Category {
+    Books
+}
+"""),
+            ("Services/ProductService.nl", """
+namespace QueryTemp.Services
+
+class ProductService {
+    func Add(product: Product) {
+        print product.Name
+    }
+}
+"""));
+
+        var diagnostics = _service.GetDiagnostics(snapshot);
+        var errors = diagnostics.Where(d => d.Severity == "error").ToList();
+
+        Assert.DoesNotContain(errors, error => error.Code == "NL201");
+        Assert.DoesNotContain(errors, error => error.Code == "NL301");
+        Assert.Empty(errors);
+    }
+
+    [Fact]
     public void Diagnostics_HaveCorrectCodeFormat()
     {
         // All diagnostic codes should start with "NL" (our prefix)

@@ -18932,7 +18932,7 @@ public class Analyzer : IDisposable
             return nestedType;
         }
 
-        if (TryResolveVisibleProjectType(name, out var projectType, out var projectDeclaration))
+        if (TryResolveVisibleProjectType(name, line, column, out var projectType, out var projectDeclaration))
         {
             if (line > 0)
             {
@@ -18976,7 +18976,12 @@ public class Analyzer : IDisposable
         return new ExternalTypeInfo(name);
     }
 
-    private bool TryResolveVisibleProjectType(string name, out TypeInfo type, out SymbolDeclaration declaration)
+    private bool TryResolveVisibleProjectType(
+        string name,
+        int line,
+        int column,
+        out TypeInfo type,
+        out SymbolDeclaration declaration)
     {
         foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
         {
@@ -18991,10 +18996,88 @@ public class Analyzer : IDisposable
             }
         }
 
+        if (TryReportInaccessibleVisibleProjectDeclaration(
+                name,
+                line,
+                column,
+                declaration => IsTopLevelTypeDeclaration(declaration)))
+        {
+            _reportedUnresolvedTypeRefs.Add((name, line, column));
+            type = BuiltInTypes.Unknown;
+            declaration = null!;
+            return false;
+        }
+
+        if (TryResolveUniqueExportedProjectType(name, out type, out declaration))
+        {
+            if (!string.IsNullOrWhiteSpace(declaration.File))
+            {
+                _typeDeclarationFiles[name] = declaration.File!;
+            }
+
+            return true;
+        }
+
         type = BuiltInTypes.Unknown;
         declaration = null!;
         return false;
     }
+
+    private bool TryReportInaccessibleVisibleProjectDeclaration(
+        string name,
+        int line,
+        int column,
+        Func<Declaration, bool> matchesDeclarationKind)
+    {
+        if (line <= 0)
+            return false;
+
+        var currentNamespace = GetUnitNamespace(_compilationUnit);
+        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        {
+            if (string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal))
+                continue;
+
+            foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
+            {
+                var unit = GetProjectCompilationUnit(filePath, sourceText);
+                if (unit == null)
+                    continue;
+
+                if (!string.Equals(GetUnitNamespace(unit), visibleNamespace, StringComparison.Ordinal))
+                    continue;
+
+                foreach (var topLevelDeclaration in unit.Declarations)
+                {
+                    if (!matchesDeclarationKind(topLevelDeclaration))
+                        continue;
+
+                    var declarationName = DeclarationFacts.GetDeclarationName(topLevelDeclaration);
+                    if (!string.Equals(declarationName, name, StringComparison.Ordinal))
+                        continue;
+
+                    if (DeclarationFacts.IsExportedDeclaration(topLevelDeclaration, name))
+                        continue;
+
+                    ReportInaccessibleMember(name, filePath, line, column);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsTopLevelTypeDeclaration(Declaration declaration)
+        => declaration is ClassDeclaration
+            or StructDeclaration
+            or RecordDeclaration
+            or SoaRecordDeclaration
+            or InterfaceDeclaration
+            or UnionDeclaration
+            or EnumDeclaration
+            or TypeAliasDeclaration
+            or NewtypeDeclaration;
 
     private IEnumerable<string?> GetVisibleProjectTypeNamespaces()
     {
@@ -19044,12 +19127,7 @@ public class Analyzer : IDisposable
                 if (!isCurrentNamespace && !DeclarationFacts.IsExportedDeclaration(topLevelDeclaration, name))
                     continue;
 
-                declaration = new SymbolDeclaration(
-                    name,
-                    filePath,
-                    topLevelDeclaration.Line,
-                    FindIdentifierNameColumn(sourceText, name, topLevelDeclaration.Line, topLevelDeclaration.Column),
-                    DeclarationFacts.GetDeclarationKind(topLevelDeclaration));
+                declaration = CreateTopLevelTypeSymbolDeclaration(name, filePath, sourceText, topLevelDeclaration);
                 return true;
             }
         }
@@ -19057,6 +19135,68 @@ public class Analyzer : IDisposable
         type = BuiltInTypes.Unknown;
         declaration = null!;
         return false;
+    }
+
+    private bool TryResolveUniqueExportedProjectType(
+        string name,
+        out TypeInfo type,
+        out SymbolDeclaration declaration)
+    {
+        TypeInfo? matchType = null;
+        SymbolDeclaration? matchDeclaration = null;
+
+        foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
+        {
+            var unit = GetProjectCompilationUnit(filePath, sourceText);
+            if (unit == null)
+                continue;
+
+            foreach (var topLevelDeclaration in unit.Declarations)
+            {
+                if (!TryCreateTopLevelTypeInfo(topLevelDeclaration, name, out var candidateType))
+                    continue;
+
+                if (!DeclarationFacts.IsExportedDeclaration(topLevelDeclaration, name))
+                    continue;
+
+                var candidateDeclaration =
+                    CreateTopLevelTypeSymbolDeclaration(name, filePath, sourceText, topLevelDeclaration);
+                if (matchDeclaration != null)
+                {
+                    type = BuiltInTypes.Unknown;
+                    declaration = null!;
+                    return false;
+                }
+
+                matchType = candidateType;
+                matchDeclaration = candidateDeclaration;
+            }
+        }
+
+        if (matchType != null && matchDeclaration != null)
+        {
+            type = matchType;
+            declaration = matchDeclaration;
+            return true;
+        }
+
+        type = BuiltInTypes.Unknown;
+        declaration = null!;
+        return false;
+    }
+
+    private SymbolDeclaration CreateTopLevelTypeSymbolDeclaration(
+        string name,
+        string filePath,
+        string sourceText,
+        Declaration topLevelDeclaration)
+    {
+        return new SymbolDeclaration(
+            name,
+            filePath,
+            topLevelDeclaration.Line,
+            FindIdentifierNameColumn(sourceText, name, topLevelDeclaration.Line, topLevelDeclaration.Column),
+            DeclarationFacts.GetDeclarationKind(topLevelDeclaration));
     }
 
     private IEnumerable<(string FilePath, string SourceText)> EnumerateProjectSourceTexts()
@@ -19483,6 +19623,14 @@ public class Analyzer : IDisposable
             return true;
         }
 
+        if (TryResolveVisibleProjectType(name, line, column, out var projectType, out var projectDeclaration))
+        {
+            type = projectType;
+            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
+            _semanticModel.RecordType(name, projectType);
+            return true;
+        }
+
         // Try to resolve as external type (for static class access like Console).
         // This intentionally happens after current-type member lookup so instance
         // members win over imported type names in instance scope.
@@ -19506,6 +19654,16 @@ public class Analyzer : IDisposable
         {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column);
             return type;
+        }
+
+        if (reportMissingAsFunction
+            && TryReportInaccessibleVisibleProjectDeclaration(
+                name,
+                line,
+                column,
+                declaration => declaration is FunctionDeclaration))
+        {
+            return BuiltInTypes.Unknown;
         }
 
         // Use ErrorMessageBuilder for better error message with suggestions

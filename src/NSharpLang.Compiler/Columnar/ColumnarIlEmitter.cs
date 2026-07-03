@@ -9644,7 +9644,7 @@ internal sealed class ColumnarIlEmitter
                         // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                         // init value's type come from independent resolutions (referentially distinct TBIs).
                         if (!EmitExpression(valueNode, out var initValueType)
-                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
+                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -11515,12 +11515,29 @@ internal sealed class ColumnarIlEmitter
             if (target == typeof(long)) { _il.Emit(OpCodes.Conv_I8); return true; }
             if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
             if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4); return true; }
+            if (target == typeof(decimal))
+            {
+                var fromType = source == typeof(char) ? typeof(char) : typeof(int);
+                var conversion = typeof(decimal).GetMethod("op_Implicit", BindingFlags.Public | BindingFlags.Static, null, new[] { fromType }, null);
+                if (conversion == null)
+                    return false;
+                _il.Emit(OpCodes.Call, conversion);
+                return true;
+            }
             return false;
         }
         if (source == typeof(long))
         {
             if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
             if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4); return true; }
+            if (target == typeof(decimal))
+            {
+                var conversion = typeof(decimal).GetMethod("op_Implicit", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(long) }, null);
+                if (conversion == null)
+                    return false;
+                _il.Emit(OpCodes.Call, conversion);
+                return true;
+            }
             return false;
         }
         if (source == typeof(float) && target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
@@ -14095,12 +14112,25 @@ internal sealed class ColumnarIlEmitter
         internal bool RootThis { get; init; }
         internal MethodInfo? RootGetter { get; init; }
         internal Type RootType { get; init; } = null!;
-        internal List<FieldBuilder> Hops { get; init; } = new();
+        internal List<InterpolationMemberPlan> Hops { get; init; } = new();
         internal MethodBuilder? CallBuilder { get; init; }
         internal Type ValueType { get; set; } = null!;
         internal string? Format { get; set; }
         internal InterpolationHolePlan? CoalesceRight { get; set; }
         internal int? ConstantInt { get; init; }
+    }
+
+    private sealed class InterpolationMemberPlan
+    {
+        internal FieldBuilder? Field { get; init; }
+        internal MethodBuilder? Getter { get; init; }
+        internal Type ValueType { get; init; } = null!;
+
+        internal static InterpolationMemberPlan ForField(FieldBuilder field)
+            => new() { Field = field, ValueType = field.FieldType };
+
+        internal static InterpolationMemberPlan ForGetter(MethodBuilder getter, Type valueType)
+            => new() { Getter = getter, ValueType = valueType };
     }
 
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
@@ -14147,7 +14177,9 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
             if (!TryResolveInterpolationHolePlan(part.Text, part.Format, out var plan))
-                return false;
+                return DeclineStatic(
+                    "emit.interpolation.hole",
+                    "interpolated string hole '" + part.Text + "' is not modeled");
             holePlans.Add(plan);
         }
         var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
@@ -14299,8 +14331,19 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ldloca, spill);
                 }
             }
-            _il.Emit(OpCodes.Ldfld, hop);
-            current = hop.FieldType;
+            if (hop.Field != null)
+            {
+                _il.Emit(OpCodes.Ldfld, hop.Field);
+            }
+            else if (hop.Getter != null)
+            {
+                _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, hop.Getter);
+            }
+            else
+            {
+                throw new InvalidOperationException("Invalid interpolation member plan");
+            }
+            current = hop.ValueType;
             stackHasCurrentAddress = false;
         }
         if (plan.CallBuilder != null)
@@ -14323,14 +14366,14 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
-        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<FieldBuilder> hops, out MethodBuilder? callBuilder, out Type valueType)
+        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<InterpolationMemberPlan> hops, out MethodBuilder? callBuilder, out Type valueType)
     {
         rootLocal = null;
         rootOrdinal = -1;
         rootThis = false;
         rootGetter = null;
         rootType = null!;
-        hops = new List<FieldBuilder>();
+        hops = new List<InterpolationMemberPlan>();
         callBuilder = null;
         valueType = null!;
         string? callMember = null;
@@ -14361,7 +14404,7 @@ internal sealed class ColumnarIlEmitter
         {
             rootThis = true;
             rootType = _currentStruct.Builder;
-            hops.Add(thisField);
+            hops.Add(InterpolationMemberPlan.ForField(thisField));
         }
         else if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out var thisProperty))
         {
@@ -14374,14 +14417,24 @@ internal sealed class ColumnarIlEmitter
         {
             return false; // siblings/statics/this-fields in holes — unmodelled, decline.
         }
-        var current = rootGetter != null ? valueType : (hops.Count == 0 ? rootType : hops[^1].FieldType);
+        var current = rootGetter != null ? valueType : (hops.Count == 0 ? rootType : hops[^1].ValueType);
         for (var n = 1; n < names.Length; n++)
         {
-            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def
-                || !TryFindFieldOnChain(def, names[n], out var hopField))
+            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def)
                 return false;
-            hops.Add(hopField);
-            current = hopField.FieldType;
+            if (TryFindFieldOnChain(def, names[n], out var hopField))
+            {
+                hops.Add(InterpolationMemberPlan.ForField(hopField));
+                current = hopField.FieldType;
+                continue;
+            }
+            if (TryFindPropertyOnChain(def, names[n], out var hopProperty))
+            {
+                hops.Add(InterpolationMemberPlan.ForGetter(hopProperty.Getter, hopProperty.PropertyType));
+                current = hopProperty.PropertyType;
+                continue;
+            }
+            return false;
         }
         if (callMember != null)
         {

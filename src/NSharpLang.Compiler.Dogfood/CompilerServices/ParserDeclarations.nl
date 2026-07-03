@@ -2298,6 +2298,33 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
             decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
             pos = memberStart + 1
+        } else if tokens.Kinds[memberStart] == 0 {
+            propTypePos := memberStart + 1
+            if propTypePos >= count || tokens.Kinds[propTypePos] != 122 {
+                return -1
+            }
+            propTypePos = propTypePos + 1
+
+            propBodyPos := ParseDeclarationTypeSpanCore(ref tokens, count, propTypePos, ref fieldTypeResult)
+            if propBodyPos < 0 || propBodyPos >= count {
+                return -1
+            }
+            if tokens.Kinds[propBodyPos] != 129 && tokens.Kinds[propBodyPos] != 120 {
+                return -1
+            }
+
+            decl.PropIndices[propCount] = memberStart
+            decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+            propCount = propCount + 1
+            pos = propBodyPos
+
+            if tokens.Kinds[pos] == 120 {
+                pos = ParseDeclarationExpressionBodyEndCore(ref tokens, count, pos)
+                if pos < 0 {
+                    return -1
+                }
+                continue
+            }
         } else {
             return -1
         }
