@@ -517,7 +517,7 @@ public class MultiFileCompiler
         {
             if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out var source))
                 return false;
-            sources.Add(source);
+            sources.Add(Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors));
         }
 
         byte[] assembly;

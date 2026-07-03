@@ -45,49 +45,49 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
     if result.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            if tokens.Kinds[i] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[i]) {
                 result.Indices[count] = i
                 count = count + 1
             }
 
             next := i + 1
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 2
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 3
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 4
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 5
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 6
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 7
-            if tokens.Kinds[next] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[next]) {
                 result.Indices[count] = next
                 count = count + 1
             }
@@ -96,7 +96,7 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
         }
 
         while i < length {
-            if tokens.Kinds[i] != 136 {
+            if ParserTokenCompactionKeepsToken(tokens.Kinds[i]) {
                 result.Indices[count] = i
                 count = count + 1
             }
@@ -108,7 +108,7 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
     }
 
     while i < length {
-        if tokens.Kinds[i] != 136 {
+        if ParserTokenCompactionKeepsToken(tokens.Kinds[i]) {
             if count >= result.Indices.Length {
                 return -1
             }
@@ -128,7 +128,7 @@ func ParserTokenCompactedMetadataCore(tokens: &LexerCompactTokenMetadataTable, l
     i := 0
 
     while i < length {
-        if tokens.Kinds[i] != 136 {
+        if ParserTokenCompactionKeepsToken(tokens.Kinds[i]) {
             result.Kinds[count] = tokens.Kinds[i]
             result.Starts[count] = tokens.Starts[i]
             result.ValueLengths[count] = tokens.ValueLengths[i]
@@ -139,6 +139,10 @@ func ParserTokenCompactedMetadataCore(tokens: &LexerCompactTokenMetadataTable, l
     }
 
     return count
+}
+
+func ParserTokenCompactionKeepsToken(kind: int): bool {
+    return kind != 136 && kind != 138
 }
 
 func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): int {

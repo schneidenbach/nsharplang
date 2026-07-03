@@ -112,6 +112,33 @@ public class PreprocessorTests
     }
 
     [Fact]
+    public void ProcessSource_PreservesLength_AndRemovesInactiveBranches()
+    {
+        const string source = """
+            #region Header
+            #if FEATURE_X
+            let value = onValue
+            #else
+            let value = offValue
+            #endif
+            #endregion
+            """;
+        var errors = new List<CompilerError>();
+        var symbols = new HashSet<string>(new[] { "FEATURE_X" }, System.StringComparer.Ordinal);
+
+        var processed = Preprocessor.ProcessSource(source, symbols, "test.nl", errors);
+
+        Assert.Empty(errors);
+        Assert.Equal(source.Length, processed.Length);
+        Assert.Contains("#region Header", processed);
+        Assert.Contains("onValue", processed);
+        Assert.DoesNotContain("offValue", processed);
+        Assert.DoesNotContain("#if FEATURE_X", processed);
+        Assert.DoesNotContain("#else", processed);
+        Assert.DoesNotContain("#endif", processed);
+    }
+
+    [Fact]
     public void Elif_SelectsFirstMatchingBranch_AndIsMutuallyExclusive()
     {
         const string source = """

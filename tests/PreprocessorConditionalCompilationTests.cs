@@ -75,6 +75,74 @@ func main() {
         }
     }
 
+    [Fact]
+    public void RegionDirectives_DoNotBlockColumnarConditionalCompilation()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RegionCondCompile
+backend: il
+outputType: exe
+targetFramework: net10.0
+defines:
+  - FEATURE_X
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+#region Types
+class Switchboard {
+    value: int = 0
+
+    func SetOn() {
+        value = 1
+    }
+
+    func GetValue(): int {
+        return value
+    }
+}
+#endregion
+
+func main() {
+    switchboard := new Switchboard()
+
+    #region Branch
+    #if FEATURE_X
+    switchboard.SetOn()
+    print "feature-on"
+    #else
+    print "feature-off"
+    #endif
+    #endregion
+
+    print switchboard.GetValue()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "RegionCondCompile.dll");
+            var result = compiler.CompileToIlAssembly("RegionCondCompile", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("feature-on", runResult.Stdout);
+            Assert.DoesNotContain("feature-off", runResult.Stdout);
+            Assert.Contains("1", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static string CreateTempDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"nlc-cond-{Guid.NewGuid():N}");

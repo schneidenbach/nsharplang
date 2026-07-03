@@ -4,6 +4,82 @@ import System
 import System.Collections.Generic
 
 public class Preprocessor {
+    public static func ProcessSource(
+        source: string,
+        definedSymbols: IReadOnlySet<string>,
+        fileName: string?,
+        errors: List<CompilerError>): string {
+        result := new StringBuilder()
+        stack := new Stack<Frame>()
+
+        position := 0
+        line := 1
+        while position < source.Length {
+            lineStart := position
+            lineEnd := position
+            while lineEnd < source.Length && source[lineEnd] != '\n' && source[lineEnd] != '\r' {
+                lineEnd = lineEnd + 1
+            }
+
+            nextLineStart := lineEnd
+            if nextLineStart < source.Length {
+                if source[nextLineStart] == '\r' {
+                    nextLineStart = nextLineStart + 1
+                    if nextLineStart < source.Length && source[nextLineStart] == '\n' {
+                        nextLineStart = nextLineStart + 1
+                    }
+                } else {
+                    nextLineStart = nextLineStart + 1
+                }
+            }
+
+            directiveStart := lineStart
+            while directiveStart < lineEnd && (source[directiveStart] == ' ' || source[directiveStart] == '\t') {
+                directiveStart = directiveStart + 1
+            }
+
+            isDirective := directiveStart < lineEnd && source[directiveStart] == '#'
+            if !isDirective {
+                if IsEmitting(stack) {
+                    result.Append(source.Substring(lineStart, nextLineStart - lineStart))
+                } else {
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                }
+            } else {
+                raw := source.Substring(directiveStart, lineEnd - directiveStart)
+                token := new Token(TokenType.PreprocessorDirective, raw, line, directiveStart - lineStart + 1, fileName)
+                parts := SplitDirective(raw)
+                if parts.Keyword == "if" {
+                    HandleIf(stack, parts.Argument, definedSymbols, token, fileName, errors)
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                } else if parts.Keyword == "elif" {
+                    HandleElif(stack, parts.Argument, definedSymbols, token, fileName, errors)
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                } else if parts.Keyword == "else" {
+                    HandleElse(stack, token, fileName, errors)
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                } else if parts.Keyword == "endif" {
+                    HandleEndif(stack, token, fileName, errors)
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                } else if IsEmitting(stack) {
+                    result.Append(source.Substring(lineStart, nextLineStart - lineStart))
+                } else {
+                    AppendBlankSourceLine(result, source, lineStart, lineEnd, nextLineStart)
+                }
+            }
+
+            position = nextLineStart
+            line = line + 1
+        }
+
+        if stack.Count > 0 {
+            Preprocessor.AddError(errors, fileName, new Token(TokenType.Eof, "", line, 1, fileName), "Unterminated '#if' directive: expected a matching '#endif'.")
+            stack.Clear()
+        }
+
+        return result.ToString()
+    }
+
     public static func Process(
         tokens: List<Token>,
         definedSymbols: IReadOnlySet<string>,
@@ -53,6 +129,18 @@ public class Preprocessor {
         }
 
         return result
+    }
+
+    static func AppendBlankSourceLine(builder: StringBuilder, source: string, lineStart: int, lineEnd: int, nextLineStart: int): void {
+        i := lineStart
+        while i < lineEnd {
+            builder.Append(' ')
+            i = i + 1
+        }
+
+        if nextLineStart > lineEnd {
+            builder.Append(source.Substring(lineEnd, nextLineStart - lineEnd))
+        }
     }
 
     static func IsEmitting(stack: Stack<Frame>): bool {
