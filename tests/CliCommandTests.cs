@@ -3731,16 +3731,15 @@ dependencies:
             imports);
         Assert.Equal(new[] { 2, 1, 3, 2, 1 }, statusRanks);
 
-        var actual = TidyCommandKernels.SelectPossiblyUnusedDependencies(
-            dependencies,
-            static dependency => dependency.Status);
+        var selectedIndices = TidyCommandKernels.SelectPossiblyUnusedDependencyIndices(
+            dependencies.Select(static dependency => dependency.Status).ToArray());
+        var actual = selectedIndices.Select(index => dependencies[index]).ToArray();
         Assert.Equal(
             dependencies.Where(dependency => dependency.Status == "possibly-unused"),
             actual);
 
         var summary = TidyCommandKernels.SummarizeDependencyStatuses(
-            dependencies,
-            static dependency => dependency.Status);
+            dependencies.Select(static dependency => dependency.Status).ToArray());
         Assert.Equal(2, summary.PossiblyUnusedCount);
         Assert.Equal(1, summary.UnknownCount);
 

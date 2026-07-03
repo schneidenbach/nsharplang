@@ -109,9 +109,14 @@ public static class TidyCommand
         // Apply fixes if requested
         if (fix)
         {
-            var toRemove = TidyCommandKernels.SelectPossiblyUnusedDependencies(
-                    results,
-                    static result => result.Status);
+            var selectedIndices = TidyCommandKernels.SelectPossiblyUnusedDependencyIndices(
+                results.Select(static result => result.Status).ToArray());
+            var toRemove = new List<DependencyStatus>(selectedIndices.Length);
+            foreach (var index in selectedIndices)
+            {
+                toRemove.Add(results[index]);
+            }
+
             if (toRemove.Count == 0)
             {
                 if (outputMode == 2) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
@@ -230,12 +235,11 @@ public static class TidyCommand
 
     private static TidyDependencySummary SummarizeDependencies(IReadOnlyList<DependencyStatus> results)
     {
-        var dogfoodSummary = TidyCommandKernels.SummarizeDependencyStatuses(
-                results,
-                static result => result.Status);
+        var summary = TidyCommandKernels.SummarizeDependencyStatuses(
+            results.Select(static result => result.Status).ToArray());
         return new TidyDependencySummary(
-            dogfoodSummary.PossiblyUnusedCount,
-            dogfoodSummary.UnknownCount);
+            summary.PossiblyUnusedCount,
+            summary.UnknownCount);
     }
 
     private static void PrintTable(
