@@ -278,25 +278,29 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStru
         }
 
         methodParamCounts[i] = paramCount
-        j := 0
-        while j < i {
-            if methodName == methodNameTexts[j] && methodParamCounts[j] == paramCount {
-                sameSignature := true
-                paramSlot := 0
-                while paramSlot < paramCount {
-                    if signatureOutputs.ParamTypeTexts[paramSlot] != methodParamTypeTexts[methodParamStarts[j] + paramSlot] {
-                        sameSignature = false
+        if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
+            j := 0
+            while j < i {
+                if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) && methodParamCounts[j] == paramCount {
+                    if methodName == methodNameTexts[j] {
+                        sameSignature := true
+                        paramSlot := 0
+                        while paramSlot < paramCount {
+                            if signatureOutputs.ParamTypeTexts[paramSlot] != methodParamTypeTexts[methodParamStarts[j] + paramSlot] {
+                                sameSignature = false
+                            }
+
+                            paramSlot = paramSlot + 1
+                        }
+
+                        if sameSignature {
+                            return 1
+                        }
                     }
-
-                    paramSlot = paramSlot + 1
                 }
 
-                if sameSignature {
-                    return 1
-                }
+                j = j + 1
             }
-
-            j = j + 1
         }
         methodNameTexts[i] = methodName
         methodParamStarts[i] = nextMethodParamType
@@ -633,6 +637,22 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarS
             }
 
             f = f + 1
+        }
+
+        j := i + 1
+        while j < methodCount {
+            otherMethodName := ColumnarStructMethodMemberNameText(source, ref tokens, outputs.MethodFuncIndices[j])
+            if otherMethodName == "" {
+                return 0
+            }
+
+            if methodName == otherMethodName {
+                if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) || !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) {
+                    return 0
+                }
+            }
+
+            j = j + 1
         }
 
         i = i + 1
