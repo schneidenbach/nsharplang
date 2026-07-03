@@ -130,7 +130,7 @@ public class ColumnarInterpolationSplitter {
                     }
                 }
 
-                if !ColumnarInterpolatedStringIsIdentifierChain(literal, exprStart, exprLength) {
+                if !ColumnarInterpolatedStringIsSupportedHoleExpression(literal, exprStart, exprLength) {
                     return -1
                 }
 
@@ -297,6 +297,18 @@ public class ColumnarInterpolationSplitter {
         }
 
         return !expectIdentifierStart
+    }
+
+    static func ColumnarInterpolatedStringIsSupportedHoleExpression(literal: string, start: int, length: int): bool {
+        if ColumnarInterpolatedStringIsIdentifierChain(literal, start, length) {
+            return true
+        }
+
+        if length > 2 && literal[start + length - 2] == '(' && literal[start + length - 1] == ')' {
+            return ColumnarInterpolatedStringIsIdentifierChain(literal, start, length - 2)
+        }
+
+        return false
     }
 
     static func ColumnarInterpolatedStringIsIdentifierStart(ch: char): bool {

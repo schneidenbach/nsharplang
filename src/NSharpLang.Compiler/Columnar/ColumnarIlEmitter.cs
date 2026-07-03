@@ -2054,6 +2054,68 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private bool TryEmitUserDefinedConversion(Type source, Type target, bool allowExplicit)
+    {
+        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out var implicitConversion)
+            || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out implicitConversion)))
+        {
+            _il.Emit(OpCodes.Call, implicitConversion.Builder);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryFindUserDefinedConversion(
+        Type source,
+        Type target,
+        string methodName,
+        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    {
+        if (FindDefByType(source) is { } sourceDef
+            && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method))
+        {
+            return true;
+        }
+
+        if (FindDefByType(target) is { } targetDef
+            && !ReferenceEquals(targetDef, FindDefByType(source))
+            && TryFindUserDefinedConversionOnType(targetDef, source, target, methodName, out method))
+        {
+            return true;
+        }
+
+        method = default;
+        return false;
+    }
+
+    private static bool TryFindUserDefinedConversionOnType(
+        ColumnarStructDef def,
+        Type source,
+        Type target,
+        string methodName,
+        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (!d.StaticMethods.TryGetValue(methodName, out var overloads))
+                continue;
+            foreach (var candidate in overloads)
+            {
+                if (candidate.ParamTypes.Length == 1
+                    && TypesEquivalent(candidate.ParamTypes[0], source)
+                    && TypesEquivalent(candidate.ReturnType, target))
+                {
+                    method = candidate;
+                    return true;
+                }
+            }
+        }
+
+        method = default;
+        return false;
+    }
+
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: bool (u1), int/uint (i4),
     // long/ulong (i8), char (u2), double (r8) / float (r4), string/reference handles, and jagged SZ arrays over
@@ -4766,6 +4828,10 @@ internal sealed class ColumnarIlEmitter
                 {
                     // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
                 }
+                else if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType))
+                {
+                    // target-typed array literal return.
+                }
                 else if (TryEmitNullLiteralAsType(retNode, _returnType, out retType))
                 {
                     // `return null` on a reference-typed function.
@@ -4783,7 +4849,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     return false;
                 }
-                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType))
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, allowExplicit: false))
                 {
                     return false; // exact or implicitly-widenable (`return n` on a long function) only.
                 }
@@ -4899,6 +4965,10 @@ internal sealed class ColumnarIlEmitter
                 {
                     // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
                 }
+                else if (TryEmitArrayLiteralAsType(declaredInit, declaredType, out _))
+                {
+                    // `values: T[] = [a, b]` — the target array type owns the element type.
+                }
                 else if (TryEmitNullLiteralAsType(declaredInit, declaredType, out _))
                 {
                     // `s: string? = null` (a `?`-annotated reference resolves to its element type).
@@ -4913,7 +4983,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
                         return false;
-                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType))
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
                         return false; // exact or implicitly-widenable (`w: long = n`) only.
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
@@ -5258,16 +5328,8 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
                         return false;
-                    if (elementType == typeof(bool)) _il.Emit(OpCodes.Stelem_I1);
-                    else if (elementType == typeof(int) || elementType == typeof(uint)) _il.Emit(OpCodes.Stelem_I4);
-                    else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
-                    else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
-                    else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
-                    else if (elementType == typeof(float)) _il.Emit(OpCodes.Stelem_R4);
-                    else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
-                    else if (!elementType.IsValueType) _il.Emit(OpCodes.Stelem_Ref);
-                    else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
-                    else return false; // other element types arrive with their type slices.
+                    if (!EmitArrayElementStore(elementType))
+                        return false;
                     return true;
                 }
 
@@ -5339,7 +5401,7 @@ internal sealed class ColumnarIlEmitter
                                 return false;
                             }
                             if (!TypesEquivalent(writeValueType, writeField.FieldType)
-                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType))
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType) && !TryEmitUserDefinedConversion(writeValueType, writeField.FieldType, allowExplicit: false))
                                 return false;
                             _il.Emit(OpCodes.Stfld, writeField);
                             return true;
@@ -5421,6 +5483,10 @@ internal sealed class ColumnarIlEmitter
                     {
                         // `b = 5` on a byte/uint/long/ulong local — constant conversion.
                     }
+                    else if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
+                    {
+                        // target-typed array literal re-store.
+                    }
                     else if (TryEmitNullLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
                     {
                         // `s = null` on a reference-typed local.
@@ -5435,7 +5501,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType) && !TryEmitUserDefinedConversion(valueType, assignTarget.LocalType, allowExplicit: false))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -5484,7 +5550,8 @@ internal sealed class ColumnarIlEmitter
                             && !TryEmitImplicitWidening(byRefParamValueType, paramElementType)
                             && !TryEmitInterfaceUpcast(byRefParamValueType, paramElementType)
                             && !TryEmitReferenceConversion(byRefParamValueType, paramElementType)
-                            && !TryEmitObjectConversion(byRefParamValueType, paramElementType))
+                            && !TryEmitObjectConversion(byRefParamValueType, paramElementType)
+                            && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType, allowExplicit: false))
                             return false;
                         EmitStoreByRefElement(paramElementType);
                         return true;
@@ -5516,7 +5583,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], allowExplicit: false))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -7114,6 +7181,9 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
+    private ColumnarStructDef? FindDefByType(Type type)
+        => type is TypeBuilder builder ? FindDefByBuilder(builder) : null;
+
     // PASS 0e bodies — the legacy emitter's synthesized record members VERBATIM (EmitRecordEquals /
     // EmitRecordGetHashCode / EmitRecordCloneMethod): Equals(object) = null-check + isinst + per-field
     // EqualityComparer<T>.Default.Equals chain; GetHashCode = `hash = 17; hash = hash * 23 +
@@ -7845,6 +7915,9 @@ internal sealed class ColumnarIlEmitter
                     type = coalesceLeft;
                     return true;
                 }
+
+                if (TryEmitMixedFloatingBinary(idx, op, out type))
+                    return true;
 
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                 {
@@ -9029,6 +9102,11 @@ internal sealed class ColumnarIlEmitter
                 if (!EmitExpression(Child(idx, 1), out var sourceType))
                     return false;
                 if (TypesEquivalent(sourceType, targetType))
+                {
+                    type = targetType;
+                    return true;
+                }
+                if (TryEmitUserDefinedConversion(sourceType, targetType, allowExplicit: true))
                 {
                     type = targetType;
                     return true;
@@ -11405,6 +11483,93 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private bool TryEmitMixedFloatingBinary(int idx, string op, out Type type)
+    {
+        type = null!;
+        if (op is not ("+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">=" or "==" or "!="))
+            return false;
+
+        var leftNode = Child(idx, 0);
+        var rightNode = Child(idx, 1);
+        if (!TryGetPreflightExpressionType(leftNode, out var leftType)
+            || !TryGetPreflightExpressionType(rightNode, out var rightType)
+            || TypesEquivalent(leftType, rightType)
+            || !TrySelectFloatingCommonType(leftType, rightType, out var opType))
+            return false;
+
+        if (!EmitExpression(leftNode, out var emittedLeft)
+            || (!TypesEquivalent(emittedLeft, opType) && !TryEmitImplicitWidening(emittedLeft, opType)))
+            return false;
+        if (!EmitExpression(rightNode, out var emittedRight)
+            || (!TypesEquivalent(emittedRight, opType) && !TryEmitImplicitWidening(emittedRight, opType)))
+            return false;
+
+        switch (op)
+        {
+            case "+":
+                _il.Emit(OpCodes.Add);
+                type = opType;
+                return true;
+            case "-":
+                _il.Emit(OpCodes.Sub);
+                type = opType;
+                return true;
+            case "*":
+                _il.Emit(OpCodes.Mul);
+                type = opType;
+                return true;
+            case "/":
+                _il.Emit(OpCodes.Div);
+                type = opType;
+                return true;
+            case "%":
+                _il.Emit(OpCodes.Rem);
+                type = opType;
+                return true;
+            case "<":
+            case ">":
+            case "<=":
+            case ">=":
+                EmitComparison(op, isFloat: true);
+                type = typeof(bool);
+                return true;
+            case "==":
+            case "!=":
+                EmitComparison(op);
+                type = typeof(bool);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TrySelectFloatingCommonType(Type left, Type right, out Type common)
+    {
+        common = null!;
+        if (left == typeof(double) || right == typeof(double))
+            common = typeof(double);
+        else if (left == typeof(float) || right == typeof(float))
+            common = typeof(float);
+        else
+            return false;
+
+        return CanUseImplicitNumericWidening(left, common)
+            && CanUseImplicitNumericWidening(right, common);
+    }
+
+    private static bool CanUseImplicitNumericWidening(Type source, Type target)
+    {
+        if (TypesEquivalent(source, target))
+            return true;
+        if (ColumnarNumericFacts.IsIntPromotable(source))
+            return target == typeof(int) || target == typeof(long) || target == typeof(double) || target == typeof(float);
+        if (source == typeof(long))
+            return target == typeof(double) || target == typeof(float);
+        if (source == typeof(float))
+            return target == typeof(double);
+        return false;
+    }
+
     private bool TryEmitObjectConversion(Type source, Type target)
     {
         if (target != typeof(object) || source == typeof(void))
@@ -11603,6 +11768,45 @@ internal sealed class ColumnarIlEmitter
             return false;
         _il.Emit(OpCodes.Ldnull);
         type = target;
+        return true;
+    }
+
+    private bool TryEmitArrayLiteralAsType(int node, Type target, out Type type)
+    {
+        type = null!;
+        if (_nodes.Kind(node) != 58 || !target.IsSZArray)
+            return false;
+        var elementType = target.GetElementType()!;
+        if (!IsSupportedElementType(elementType))
+            return false;
+        var elementCount = _nodes.ChildCount(node);
+        _il.Emit(OpCodes.Ldc_I4, elementCount);
+        _il.Emit(OpCodes.Newarr, elementType);
+        for (var i = 0; i < elementCount; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldc_I4, i);
+            if (!TryEmitAssignableValue(Child(node, i), elementType, out _))
+                return false;
+            if (!EmitArrayElementStore(elementType))
+                return false;
+        }
+        type = target;
+        return true;
+    }
+
+    private bool EmitArrayElementStore(Type elementType)
+    {
+        if (elementType == typeof(bool)) _il.Emit(OpCodes.Stelem_I1);
+        else if (elementType == typeof(int) || elementType == typeof(uint)) _il.Emit(OpCodes.Stelem_I4);
+        else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
+        else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
+        else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
+        else if (elementType == typeof(float)) _il.Emit(OpCodes.Stelem_R4);
+        else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
+        else if (!elementType.IsValueType) _il.Emit(OpCodes.Stelem_Ref);
+        else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
+        else return false;
         return true;
     }
 
@@ -12163,6 +12367,15 @@ internal sealed class ColumnarIlEmitter
                 return TryGetPreflightMemberAccessType(node, out type);
             case 15:
                 return TryGetNewExpressionResultType(node, out type);
+            case 16:
+            {
+                if (_nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 0)
+                    return false;
+                var castTargetName = Text(Child(node, 0));
+                return (TryResolveBuiltin(castTargetName, out type)
+                        || TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out type))
+                       && IsSupportedType(type);
+            }
             case 57:
                 return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
             default:
@@ -13215,7 +13428,8 @@ internal sealed class ColumnarIlEmitter
            && (TypesEquivalent(argType, expected)
                || TryEmitInterfaceUpcast(argType, expected)
                || TryEmitReferenceConversion(argType, expected)
-               || TryEmitObjectConversion(argType, expected));
+               || TryEmitObjectConversion(argType, expected)
+               || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
     private bool EmitDeclaredCallArgument(int argNode, Type expectedParamType, bool allowLambdaLiteral)
     {
@@ -13234,7 +13448,8 @@ internal sealed class ColumnarIlEmitter
                    || TryEmitImplicitWidening(argType, expectedParamType)
                    || TryEmitInterfaceUpcast(argType, expectedParamType)
                    || TryEmitReferenceConversion(argType, expectedParamType)
-                   || TryEmitObjectConversion(argType, expectedParamType));
+                   || TryEmitObjectConversion(argType, expectedParamType)
+                   || TryEmitUserDefinedConversion(argType, expectedParamType, allowExplicit: false));
     }
 
     private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
@@ -13470,6 +13685,10 @@ internal sealed class ColumnarIlEmitter
         {
             // constant conversion onto the storage type.
         }
+        else if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType))
+        {
+            // target-typed array literal.
+        }
         else if (TryEmitNullLiteralAsType(valueNode, targetType, out valueType))
         {
             // `null` adopted to a reference or nullable storage type.
@@ -13488,7 +13707,8 @@ internal sealed class ColumnarIlEmitter
             || TryEmitImplicitWidening(valueType, targetType)
             || TryEmitInterfaceUpcast(valueType, targetType)
             || TryEmitReferenceConversion(valueType, targetType)
-            || TryEmitObjectConversion(valueType, targetType);
+            || TryEmitObjectConversion(valueType, targetType)
+            || TryEmitUserDefinedConversion(valueType, targetType, allowExplicit: false);
         return assignable;
     }
 
@@ -13807,8 +14027,9 @@ internal sealed class ColumnarIlEmitter
     // segment, AppendFormatted per hole (string holes use the (string) overload, format clauses the
     // generic (T, string), the rest the generic (T)), then ToStringAndClear. Hole chains resolve
     // EMISSION-FREE first (the emit-ownership rule): roots are locals/params (lifted/boxed roots
-    // decline), hops are instance FIELDS on registered defs; builder-typed hole VALUES decline (the
-    // legacy emitter BOXES those through AppendFormatted(object, int, string) — a later rung).
+    // decline), hops are instance FIELDS on registered defs, and an optional final zero-argument user
+    // instance call is modelled for holes such as `{value.ToString()}`; builder-typed hole VALUES decline
+    // (the legacy emitter BOXES those through AppendFormatted(object, int, string) — a later rung).
     private bool TryEmitInterpolatedString(string literal, out Type type)
     {
         type = null!;
@@ -13831,7 +14052,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         // Resolve every hole BEFORE any emission.
-        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, bool RootThis, MethodInfo? RootGetter, Type RootType, List<FieldBuilder> Hops, Type ValueType, string? Format)>(formattedCount);
+        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, bool RootThis, MethodInfo? RootGetter, Type RootType, List<FieldBuilder> Hops, MethodBuilder? CallBuilder, Type ValueType, string? Format)>(formattedCount);
         var literalLength = 0;
         foreach (var part in parts)
         {
@@ -13840,9 +14061,9 @@ internal sealed class ColumnarIlEmitter
                 literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text).Length;
                 continue;
             }
-            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var valueType))
+            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var callBuilder, out var valueType))
                 return false;
-            holePlans.Add((rootLocal, rootOrdinal, rootThis, rootGetter, rootType, hops, valueType, part.Format));
+            holePlans.Add((rootLocal, rootOrdinal, rootThis, rootGetter, rootType, hops, callBuilder, valueType, part.Format));
         }
         var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
         var handlerLocal = _il.DeclareLocal(handlerType);
@@ -13892,6 +14113,25 @@ internal sealed class ColumnarIlEmitter
                 current = hop.FieldType;
                 stackHasCurrentAddress = false;
             }
+            if (plan.CallBuilder != null)
+            {
+                if (!IsReferenceWriteLink(current))
+                {
+                    if (!stackHasCurrentAddress)
+                    {
+                        var spill = _il.DeclareLocal(current);
+                        _il.Emit(OpCodes.Stloc, spill);
+                        _il.Emit(OpCodes.Ldloca, spill);
+                    }
+                    _il.Emit(OpCodes.Call, plan.CallBuilder);
+                }
+                else
+                {
+                    _il.Emit(OpCodes.Callvirt, plan.CallBuilder);
+                }
+                current = plan.ValueType;
+                stackHasCurrentAddress = false;
+            }
             if (plan.ValueType == typeof(string) && plan.Format == null)
             {
                 _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })!);
@@ -13913,7 +14153,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
-        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<FieldBuilder> hops, out Type valueType)
+        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<FieldBuilder> hops, out MethodBuilder? callBuilder, out Type valueType)
     {
         rootLocal = null;
         rootOrdinal = -1;
@@ -13921,7 +14161,18 @@ internal sealed class ColumnarIlEmitter
         rootGetter = null;
         rootType = null!;
         hops = new List<FieldBuilder>();
+        callBuilder = null;
         valueType = null!;
+        string? callMember = null;
+        if (chain.EndsWith("()", StringComparison.Ordinal))
+        {
+            var callTarget = chain.Substring(0, chain.Length - 2);
+            var lastDot = callTarget.LastIndexOf('.');
+            if (lastDot <= 0 || lastDot == callTarget.Length - 1)
+                return false;
+            callMember = callTarget.Substring(lastDot + 1);
+            chain = callTarget.Substring(0, lastDot);
+        }
         var names = chain.Split('.');
         var rootName = names[0];
         if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)))
@@ -13961,6 +14212,16 @@ internal sealed class ColumnarIlEmitter
                 return false;
             hops.Add(hopField);
             current = hopField.FieldType;
+        }
+        if (callMember != null)
+        {
+            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def
+                || !TryFindMethodOnChain(def, callMember, out var method)
+                || method.ParamTypes.Length != 0
+                || method.ReturnType == typeof(void))
+                return false;
+            callBuilder = method.Builder;
+            current = method.ReturnType;
         }
         if (ContainsBuilderBoundType(current) || !IsSupportedType(current))
             return false;

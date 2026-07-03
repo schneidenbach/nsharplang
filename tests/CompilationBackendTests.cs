@@ -518,6 +518,146 @@ targetFramework: net10.0
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsTargetTypedArrayLiteralAndForIn()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ArrayLiteralProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Item {
+    Value: int
+}
+
+func main() {
+    items: Item[] = [new Item { Value: 2 }, new Item { Value: 4 }]
+    total := 0
+    for item in items {
+        total = total + item.Value
+    }
+    print total
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ArrayLiteralProject.dll");
+            var result = compiler.CompileToIlAssembly("ArrayLiteralProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("6", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsUserDefinedConversionOperators()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ConversionOperatorProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Raw {
+    Value: int
+
+    implicit operator Cooked(r: Raw) {
+        return new Cooked { Value: r.Value + 10 }
+    }
+
+    explicit operator Done(r: Raw) {
+        return new Done { Value: r.Value + 20 }
+    }
+
+    func Label(): string {
+        return $"raw-{Value}"
+    }
+}
+
+class Cooked {
+    Value: int
+}
+
+class Done {
+    Value: int
+}
+
+struct Score {
+    Value: int
+
+    explicit operator int(s: Score) {
+        return s.Value + 30
+    }
+}
+
+struct Ratio {
+    Numerator: int
+    Denominator: int
+
+    explicit operator double(r: Ratio) {
+        return r.Numerator / (double)r.Denominator
+    }
+}
+
+func main() {
+    raw := new Raw { Value: 5 }
+    cooked: Cooked = raw
+    done := (Done)raw
+    score := new Score { Value: 7 }
+    value := (int)score
+    ratio := new Ratio { Numerator: 3, Denominator: 2 }
+    ratioValue := (double)ratio
+
+    print cooked.Value
+    print done.Value
+    print value
+    print $"label: {raw.Label()}"
+    print ratioValue
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ConversionOperatorProject.dll");
+            var result = compiler.CompileToIlAssembly("ConversionOperatorProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("15\n25\n37\nlabel: raw-5\n1.5", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStringEnumConstantsAsStrings()
     {
         var tempDir = CreateTempDir();

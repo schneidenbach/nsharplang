@@ -98,9 +98,11 @@ import "CompilerServices/ParserTypeReferences"
 //                                         TYPE-kernel subtree. )
 //   CheckedContextExpression -> kind 57 ( `checked(expr)` / `unchecked(expr)` (Checked 83 / Unchecked 84);
 //                                         keyword token in the value span, ONE child [expr]. )
+//   ArrayLiteralExpression  -> kind 58  ( `[e0, e1, ...]` (LeftBracket 131 / RightBracket 132); children
+//                                         are the element expressions. Target-typed in the emitter. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments,
-//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/...).
+//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/...).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -157,6 +159,59 @@ func AppendExpressionChild(st: &ParserState, children: &ParserChildIndexTable, c
     children.Indices[slot] = childId
     st.ChildCursor = slot + 1
     return slot
+}
+
+func ParseArrayLiteralExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    start := st.Pos
+    arrayStart := tokens.Starts[start]
+    st.Pos = start + 1
+    argBase := st.ArgStackTop
+
+    if st.Pos < count && tokens.Kinds[st.Pos] != 132 {
+        parsing := true
+        while parsing {
+            element := ParseLambdaOrAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+            if element < 0 {
+                st.ArgStackTop = argBase
+                return -1
+            }
+
+            argStack.Values[st.ArgStackTop] = element
+            st.ArgStackTop = st.ArgStackTop + 1
+
+            if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                st.Pos = st.Pos + 1
+                if st.Pos < count && tokens.Kinds[st.Pos] == 132 {
+                    st.ArgStackTop = argBase
+                    return -1
+                }
+            } else {
+                parsing = false
+            }
+        }
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
+        st.ArgStackTop = argBase
+        return -1
+    }
+
+    arrayEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+    st.Pos = st.Pos + 1
+    childCount := st.ArgStackTop - argBase
+    childRunStart := st.ChildCursor
+    a := argBase
+    while a < st.ArgStackTop {
+        AppendExpressionChild(ref st, ref children, argStack.Values[a])
+        a = a + 1
+    }
+    st.ArgStackTop = argBase
+
+    return EmitExpressionNode(ref st, ref nodes, 58, -1, 0, childRunStart, childCount, arrayStart, arrayEnd - arrayStart)
 }
 
 func ParseExpressionTypeReferenceNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
@@ -407,6 +462,9 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
     if kind == 46 {
         st.Pos = pos + 1
         return EmitExpressionNode(ref st, ref nodes, 5, -1, 0, -1, 0, tokenStart, tokenLength)
+    }
+    if kind == 131 {
+        return ParseArrayLiteralExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     }
     if kind == 0 {
         st.Pos = pos + 1
@@ -1517,7 +1575,8 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //   WhileStatement               -> kind 26  ( while cond <body>; children [condition, body] )
 //   IfStatement                  -> kind 27  ( if cond <then> [else <else>]; children [cond, then, else?] )
 //   ForStatement                 -> kind 28  ( for <init>; <cond>; <incr> <body>; children [init, cond, incr, body] )
-//   ForeachStatement             -> kind 29  ( foreach <var> in <coll> <body>; var in the value span, children [coll, body] )
+//   ForeachStatement             -> kind 29  ( `foreach <var> in <coll>` or `for <var> in <coll>`; var in the value span,
+//                                             children [coll, body] )
 //   TupleDeconstructionStatement -> kind 30  ( n0, n1, ... := <tuple>; children [name0..nameN-1 (Identifier kind 6), value] )
 //   TypedLocalDeclaration        -> kind 40  ( [let] name: Type = init; the TYPE's source span in the VALUE slot
 //                                             (type trees cannot share this table — kind spaces collide), children
@@ -1540,7 +1599,8 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //   PrintStatement               -> kind 56  ( print <expr>; 1 child = the printed expression. Lowered as
 //                                             the legacy emitter did: evaluate, box a value type, call
 //                                             Console.WriteLine(object). Kind 57 belongs to the expression
-//                                             kernel (CheckedContextExpression); 58 is the next free kind. )
+//                                             kernel (CheckedContextExpression); kind 58 belongs to the
+//                                             expression kernel (ArrayLiteralExpression); 59 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. An
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
@@ -1789,6 +1849,30 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     if kind == 25 {
         forStart := tokens.Starts[start]
         st.Pos = start + 1
+
+        // Production accepts Go-style `for <var> in <collection> { body }` as a foreach spelling. Reuse
+        // the existing ForeachStatement node shape so lowering stays shared with the `foreach` keyword.
+        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 28 {
+            forVarStart := tokens.Starts[st.Pos]
+            forVarLength := tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 2
+
+            forCollection := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
+            if forCollection < 0 {
+                return -1
+            }
+
+            forEachBody := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+            if forEachBody < 0 {
+                return -1
+            }
+
+            forEachBodyEnd := nodes.SpanStarts[forEachBody] + nodes.SpanLengths[forEachBody]
+            forEachChildRunStart := st.ChildCursor
+            AppendExpressionChild(ref st, ref children, forCollection)
+            AppendExpressionChild(ref st, ref children, forEachBody)
+            return EmitExpressionNode(ref st, ref nodes, 29, forVarStart, forVarLength, forEachChildRunStart, 2, forStart, forEachBodyEnd - forStart)
+        }
 
         // C-style `for <init>; <cond>; <incr> { body }`. init/incr are simple statements (a `:=` declaration or
         // an assignment expression statement); cond is an expression. All three clauses are required (an empty

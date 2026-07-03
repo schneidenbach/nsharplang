@@ -2073,7 +2073,8 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
     }
     pos = pos + 1
 
-    // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), or a
+    // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), a
+    // conversion-operator member (`implicit` 85 / `explicit` 86), or a
     // CONSTRUCTOR member — an Identifier (0) immediately followed by `(` (127). A field is `id : type` (a `:` after
     // the name), so an `id (` is unambiguously a constructor, not a field, and ends the field section. A PROPERTY
     // `id : type { get {…} [set {…}] }` — an `id : type` followed by `{` (129) — is recorded (its name token index in
@@ -2088,13 +2089,13 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
     fieldTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
     initializerTypeResult := new ParserDeclarationResultTable { Values: new int[](2) }
     hasInstanceInitializer := 0
-    while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 {
+    while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 85 && tokens.Kinds[pos] != 86 {
         memberStart := ParseMemberModifierPrefixCore(ref tokens, count, pos, ref memberModifiers)
         if memberStart < 0 || memberStart >= count {
             return -1
         }
 
-        if tokens.Kinds[memberStart] == 7 {
+        if tokens.Kinds[memberStart] == 7 || tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
             fieldsDone = 1
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             fieldsDone = 1
@@ -2271,11 +2272,15 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
             return -1
         }
 
-        if tokens.Kinds[memberStart] == 7 {
+        if tokens.Kinds[memberStart] == 7 || tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
+            methodFlags := memberModifiers.Values[2]
+            if tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
+                methodFlags = methodFlags | 16
+            }
             decl.MethodFuncIndices[methodCount] = memberStart
-            decl.MethodStaticFlags[methodCount] = memberModifiers.Values[0]
+            decl.MethodStaticFlags[methodCount] = methodFlags
             if decl.MethodModifierFlags.Length > methodCount {
-                decl.MethodModifierFlags[methodCount] = memberModifiers.Values[2]
+                decl.MethodModifierFlags[methodCount] = methodFlags
             }
             methodCount = methodCount + 1
             pos = memberStart + 1

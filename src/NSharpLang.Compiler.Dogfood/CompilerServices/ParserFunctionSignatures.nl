@@ -115,7 +115,11 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     }
 
     functionName := ""
-    if funcIndex + 2 < count && tokens.Kinds[funcIndex + 1] == 75 {
+    if funcIndex < count && tokens.Kinds[funcIndex] == 85 {
+        functionName = "op_Implicit"
+    } else if funcIndex < count && tokens.Kinds[funcIndex] == 86 {
+        functionName = "op_Explicit"
+    } else if funcIndex + 2 < count && tokens.Kinds[funcIndex + 1] == 75 {
         functionName = FunctionSignatureOperatorClrName(tokens.Kinds[funcIndex + 2], paramCount)
     } else {
         functionName = FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
@@ -277,12 +281,17 @@ func FunctionSignatureDefaultDottedNameSupported(tokens: &ParserTokenTable, star
 }
 
 func ParseFunctionParameterDefaultsCore(source: string, tokens: &ParserTokenTable, count: int, funcIndex: int, outputs: &FunctionSignatureInfoOutputTable): int {
-    if funcIndex < 0 || funcIndex >= count || tokens.Kinds[funcIndex] != 7 {
+    if funcIndex < 0 || funcIndex >= count || (tokens.Kinds[funcIndex] != 7 && tokens.Kinds[funcIndex] != 85 && tokens.Kinds[funcIndex] != 86) {
         return -1
     }
 
     pos := funcIndex + 1
-    if pos < count && tokens.Kinds[pos] == 75 {
+    if tokens.Kinds[funcIndex] == 85 || tokens.Kinds[funcIndex] == 86 {
+        if pos >= count || tokens.Kinds[pos] != 75 {
+            return -1
+        }
+        pos = pos + 1
+    } else if pos < count && tokens.Kinds[pos] == 75 {
         if pos + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[pos + 1]) {
             return -1
         }
@@ -719,8 +728,19 @@ func ParseFunctionSignatureCore(
     outResult: &ParserResultTable): int {
     funcNameStart := -1
     funcNameLength := 0
+    returnRoot := -1
+    conversionOperatorKind := 0
+    st := new ParserState { Pos: 0, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
     i := funcIndex + 1
-    if i < count && tokens.Kinds[i] == 75 {
+    if funcIndex >= 0 && funcIndex < count && (tokens.Kinds[funcIndex] == 85 || tokens.Kinds[funcIndex] == 86) {
+        conversionOperatorKind = tokens.Kinds[funcIndex]
+        if i >= count || tokens.Kinds[i] != 75 {
+            return -1
+        }
+        funcNameStart = tokens.Starts[funcIndex]
+        funcNameLength = tokens.Starts[i] + tokens.ValueLengths[i] - tokens.Starts[funcIndex]
+        i = i + 1
+    } else if i < count && tokens.Kinds[i] == 75 {
         if i + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[i + 1]) {
             return -1
         }
@@ -767,6 +787,17 @@ func ParseFunctionSignatureCore(
         i = i + 1
     }
 
+    if conversionOperatorKind != 0 {
+        st.Pos = i
+        st.SplitGreaterDepth = 0
+        st.ArgStackTop = 0
+        returnRoot = ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref typeStack, ref nodes, ref children, 0)
+        if returnRoot < 0 {
+            return -1
+        }
+        i = st.Pos
+    }
+
     // The parameter list `(` must follow the name (and optional type parameters) DIRECTLY. (Previously this
     // scanned blindly to the first `(`, silently skipping a `<T>` list — a generic function then declined
     // later at type resolution; the list is now parsed above, and anything ELSE in the gap is malformed and
@@ -775,8 +806,6 @@ func ParseFunctionSignatureCore(
         return -1
     }
     i = i + 1
-
-    st := new ParserState { Pos: 0, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
 
     paramCount := 0
 
@@ -881,8 +910,7 @@ func ParseFunctionSignatureCore(
         i = i + 1
     }
 
-    returnRoot := -1
-    if i < count && tokens.Kinds[i] == 122 {
+    if conversionOperatorKind == 0 && i < count && tokens.Kinds[i] == 122 {
         // A `: this(...)` / `: base(...)` CONSTRUCTOR chaining initializer is NOT a return type — leave returnRoot at
         // -1 and stop; the composed constructor parser handles the initializer via ParseConstructorChainInfoCore. A regular
         // function's `: ReturnType` always has a TYPE token after `:`, never `this` (42) / `base` (43), so this

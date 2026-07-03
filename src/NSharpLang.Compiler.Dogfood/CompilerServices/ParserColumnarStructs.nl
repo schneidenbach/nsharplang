@@ -580,6 +580,15 @@ func ColumnarStructOperatorMemberName(kind: int): string {
 }
 
 func ColumnarStructMethodMemberNameText(source: string, tokens: &ColumnarStructTokenTable, funcIndex: int): string {
+    if funcIndex >= 0 && funcIndex < tokens.Count {
+        if tokens.Kinds[funcIndex] == 85 {
+            return "op_Implicit"
+        }
+        if tokens.Kinds[funcIndex] == 86 {
+            return "op_Explicit"
+        }
+    }
+
     methodNameIndex := funcIndex + 1
     if methodNameIndex < 0 || methodNameIndex >= tokens.Count {
         return ""
