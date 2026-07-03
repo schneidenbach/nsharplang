@@ -100,6 +100,9 @@ import "CompilerServices/ParserTypeReferences"
 //                                         keyword token in the value span, ONE child [expr]. )
 //   ArrayLiteralExpression  -> kind 58  ( `[e0, e1, ...]` (LeftBracket 131 / RightBracket 132); children
 //                                         are the element expressions. Target-typed in the emitter. )
+//   AnonymousObjectInitializer -> kind 59 (`new { Field: value, ... }`; children [name0 (Identifier kind 6),
+//                                         value0, name1, value1, ...]. The parser records the shape; lowering is
+//                                         a later backend slice, so today's emitter declines this node explicitly.)
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/...).
@@ -616,6 +619,53 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
         // (sized array) and target-typed `new ( ... )` forms are deferred (refused). Named / ref / out constructor
         // arguments are also refused.
         newStart := tokenStart
+        if pos + 1 < count && tokens.Kinds[pos + 1] == 129 {
+            st.Pos = pos + 2
+            anonArgBase := st.ArgStackTop
+            while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+                if tokens.Kinds[st.Pos] != 0 {
+                    st.ArgStackTop = anonArgBase
+                    return -1
+                }
+                anonNameStart := tokens.Starts[st.Pos]
+                anonNameLen := tokens.ValueLengths[st.Pos]
+                st.Pos = st.Pos + 1
+                if st.Pos >= count || tokens.Kinds[st.Pos] != 122 {
+                    st.ArgStackTop = anonArgBase
+                    return -1
+                }
+                st.Pos = st.Pos + 1
+                anonNameNode := EmitExpressionNode(ref st, ref nodes, 6, anonNameStart, anonNameLen, -1, 0, anonNameStart, anonNameLen)
+                argStack.Values[st.ArgStackTop] = anonNameNode
+                st.ArgStackTop = st.ArgStackTop + 1
+                anonValue := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+                if anonValue < 0 {
+                    st.ArgStackTop = anonArgBase
+                    return -1
+                }
+                argStack.Values[st.ArgStackTop] = anonValue
+                st.ArgStackTop = st.ArgStackTop + 1
+                if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                    st.Pos = st.Pos + 1
+                }
+            }
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
+                st.ArgStackTop = anonArgBase
+                return -1
+            }
+            anonEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            anonChildCount := st.ArgStackTop - anonArgBase
+            anonChildRun := st.ChildCursor
+            anonArg := anonArgBase
+            while anonArg < st.ArgStackTop {
+                AppendExpressionChild(ref st, ref children, argStack.Values[anonArg])
+                anonArg = anonArg + 1
+            }
+            st.ArgStackTop = anonArgBase
+            return EmitExpressionNode(ref st, ref nodes, 59, -1, 0, anonChildRun, anonChildCount, newStart, anonEnd - newStart)
+        }
+
         st.Pos = pos + 1
         // The type kernel assumes splitGreaterDepth (st.SplitGreaterDepth) is 0 on entry (it is only set/cleared while
         // closing generics within a single type parse). A balanced type always leaves it 0, but reset it
