@@ -76,6 +76,22 @@ The Analyzer tracks `using` statements and resolves external types via .NET refl
    - Use reflection to get properties, fields, methods
    - Wrap in appropriate `TypeInfo` subclass
 
+### MetadataLoadContext Host Verdict
+
+Track D Sub-arc 0 probe (2026-07-03): BootstrapServices can carry the
+`System.Reflection.MetadataLoadContext` 9.0.0 dependency, but the N# columnar backend declines a
+minimal external abstract override probe:
+
+`AnalyzerMetadataResolverProbe: MetadataAssemblyResolver` with
+`override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly`.
+
+Exact build result:
+`error NL103: Columnar emission is required for 'NSharpLang.Compiler.BootstrapServices', but the columnar backend declined.`
+
+Verdict: keep `NSharpMetadataResolver` as bounded mechanical C# glue until the columnar backend
+supports overriding external abstract members. Its policy decisions should move to N# functions;
+the C# shell may only host the `Resolve` override and `MetadataLoadContext` integration boundary.
+
 ### Method Overload Resolution
 For external methods with multiple overloads:
 - Create `ReflectionMethodGroupInfo` with all signatures
