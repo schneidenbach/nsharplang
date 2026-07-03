@@ -13808,11 +13808,12 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var expectedType = NullabilityMetadata.ConvertParameter(
+        var expectedType = ConvertReflectionSuppliedArgumentType(
+            supplied,
             parameter,
-            type => hasTypeInfoOverrides || type.ContainsGenericParameters
-                ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
-                : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
+            workingBindings,
+            workingTypeInfoBindings,
+            hasTypeInfoOverrides);
         parameterTypes.Add(expectedType);
 
         if (methodGroupArguments.TryGetValue(supplied.ArgumentIndex, out var selectedMethodGroup))
@@ -13836,6 +13837,37 @@ public class Analyzer : IDisposable
         validatedArgumentTypes.Add(argumentType);
 
         return IsAssignableReflectionArgument(expectedType, argumentType);
+    }
+
+    private TypeInfo ConvertReflectionSuppliedArgumentType(
+        SuppliedReflectionBoundArgument supplied,
+        ParameterInfo parameter,
+        Dictionary<Type, Type> workingBindings,
+        Dictionary<Type, TypeInfo> workingTypeInfoBindings,
+        bool hasTypeInfoOverrides)
+    {
+        if (IsExpandedReflectionParamsArgument(supplied, parameter))
+        {
+            return hasTypeInfoOverrides || supplied.OpenParameterType.ContainsGenericParameters
+                ? ConvertReflectionTypeWithOverrides(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings)
+                : ConvertReflectionType(ApplyReflectionBindings(supplied.OpenParameterType, workingBindings));
+        }
+
+        return NullabilityMetadata.ConvertParameter(
+            parameter,
+            type => hasTypeInfoOverrides || type.ContainsGenericParameters
+                ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
+                : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
+    }
+
+    private static bool IsExpandedReflectionParamsArgument(
+        SuppliedReflectionBoundArgument supplied,
+        ParameterInfo parameter)
+    {
+        return IsParamsParameter(parameter)
+               && !HaveSameReflectionTypeIdentity(
+                   supplied.OpenParameterType,
+                   GetByRefElementType(parameter.ParameterType));
     }
 
     private bool IsAssignableReflectionArgument(TypeInfo expectedType, TypeInfo argumentType)

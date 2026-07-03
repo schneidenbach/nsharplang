@@ -10933,6 +10933,47 @@ internal sealed class ColumnarIlEmitter
             type = typeof(JsonDocument);
             return true;
         }
+        if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.Run) && argCount == 1)
+        {
+            var method = typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), new[] { typeof(Action) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(Action), allowLambdaLiteral: true))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(System.Threading.Tasks.Task);
+            return true;
+        }
+        if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.WaitAll) && argCount >= 1)
+        {
+            var method = typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.WaitAll), new[] { typeof(System.Threading.Tasks.Task[]) });
+            if (method == null)
+                return false;
+
+            var taskArrayType = typeof(System.Threading.Tasks.Task[]);
+            if (argCount == 1
+                && TryGetPreflightExpressionType(Child(callIdx, 1), out var directArgType)
+                && TypesEquivalent(directArgType, taskArrayType))
+            {
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1), taskArrayType, allowLambdaLiteral: false))
+                    return false;
+            }
+            else
+            {
+                _il.Emit(OpCodes.Ldc_I4, argCount);
+                _il.Emit(OpCodes.Newarr, typeof(System.Threading.Tasks.Task));
+                for (var a = 1; a <= argCount; a++)
+                {
+                    _il.Emit(OpCodes.Dup);
+                    _il.Emit(OpCodes.Ldc_I4, a - 1);
+                    if (!EmitDeclaredCallArgument(Child(callIdx, a), typeof(System.Threading.Tasks.Task), allowLambdaLiteral: false))
+                        return false;
+                    _il.Emit(OpCodes.Stelem_Ref);
+                }
+            }
+
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
         if (typeName == "ArgumentNullException" && member == nameof(ArgumentNullException.ThrowIfNull) && argCount == 1)
         {
             var method = typeof(ArgumentNullException).GetMethod(nameof(ArgumentNullException.ThrowIfNull), new[] { typeof(object), typeof(string) });
@@ -11917,6 +11958,32 @@ internal sealed class ColumnarIlEmitter
         {
             paramOrdinal = ordinal;
             targetType = _paramTypes[name];
+        }
+        else if (_currentStruct != null
+                 && (_currentStruct.IsReference || _isConstructorBody)
+                 && TryFindFieldOnChain(_currentStruct, name, out var thisField))
+        {
+            targetType = thisField.FieldType;
+            if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong))
+                return false;
+
+            _il.Emit(OpCodes.Ldarg_0);
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldfld, thisField);
+            LocalBuilder? oldValue = null;
+            if (keepValue)
+            {
+                oldValue = _il.DeclareLocal(targetType);
+                _il.Emit(OpCodes.Dup);
+                _il.Emit(OpCodes.Stloc, oldValue);
+            }
+            EmitPostfixStep(targetType, Text(idx));
+            _il.Emit(OpCodes.Stfld, thisField);
+            if (oldValue != null)
+                _il.Emit(OpCodes.Ldloc, oldValue);
+
+            type = targetType;
+            return true;
         }
         else
         {
@@ -14033,6 +14100,7 @@ internal sealed class ColumnarIlEmitter
         internal Type ValueType { get; set; } = null!;
         internal string? Format { get; set; }
         internal InterpolationHolePlan? CoalesceRight { get; set; }
+        internal int? ConstantInt { get; init; }
     }
 
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
@@ -14124,6 +14192,17 @@ internal sealed class ColumnarIlEmitter
     {
         plan = null!;
         text = text.Trim();
+        if (TryEvaluateInterpolationIntegerAdditiveExpression(text, out var constantInt))
+        {
+            plan = new InterpolationHolePlan
+            {
+                ValueType = typeof(int),
+                Format = format,
+                ConstantInt = constantInt,
+            };
+            return true;
+        }
+
         var coalesce = text.IndexOf("??", StringComparison.Ordinal);
         if (coalesce >= 0)
         {
@@ -14189,6 +14268,12 @@ internal sealed class ColumnarIlEmitter
 
     private void EmitInterpolationSimpleHoleValue(InterpolationHolePlan plan)
     {
+        if (plan.ConstantInt is { } constantInt)
+        {
+            _il.Emit(OpCodes.Ldc_I4, constantInt);
+            return;
+        }
+
         if (plan.RootThis)
             _il.Emit(OpCodes.Ldarg_0);
         else if (plan.RootLocal != null)
@@ -14313,6 +14398,59 @@ internal sealed class ColumnarIlEmitter
         valueType = current;
         return true;
     }
+
+    private static bool TryEvaluateInterpolationIntegerAdditiveExpression(string text, out int value)
+    {
+        value = 0;
+        var pos = 0;
+        if (!TryReadInterpolationIntegerTerm(text, ref pos, out value))
+            return false;
+
+        while (true)
+        {
+            SkipInterpolationExpressionSpace(text, ref pos);
+            if (pos >= text.Length)
+                return true;
+            var op = text[pos];
+            if (op != '+' && op != '-')
+                return false;
+            pos++;
+            if (!TryReadInterpolationIntegerTerm(text, ref pos, out var rhs))
+                return false;
+            try
+            {
+                value = op == '+' ? checked(value + rhs) : checked(value - rhs);
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+    }
+
+    private static bool TryReadInterpolationIntegerTerm(string text, ref int pos, out int value)
+    {
+        value = 0;
+        SkipInterpolationExpressionSpace(text, ref pos);
+        var start = pos;
+        while (pos < text.Length && IsInterpolationAsciiDigit(text[pos]))
+            pos++;
+        if (pos == start)
+            return false;
+        return int.TryParse(
+            text.Substring(start, pos - start),
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out value);
+    }
+
+    private static void SkipInterpolationExpressionSpace(string text, ref int pos)
+    {
+        while (pos < text.Length && (text[pos] == ' ' || text[pos] == '\t'))
+            pos++;
+    }
+
+    private static bool IsInterpolationAsciiDigit(char ch) => ch is >= '0' and <= '9';
 
     private static MethodInfo FindAppendFormattedGeneric(Type handlerType, bool withFormat)
     {

@@ -7420,6 +7420,19 @@ func Main() {
     }
 
     [Fact]
+    public void BCL_StaticParamsArray_AllowsExpandedArguments()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            func Main() {
+                task := Task.CompletedTask
+                Task.WaitAll(task, task, task)
+            }
+        ");
+    }
+
+    [Fact]
     public void BCL_IntegerParse()
     {
         AssertNoErrors(@"

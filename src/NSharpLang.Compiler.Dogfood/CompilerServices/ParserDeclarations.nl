@@ -1740,7 +1740,7 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: &ParserDeclarationTokenTab
     }
 
     kind := tokens.Kinds[pos]
-    if kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 4 {
+    if ParseDeclarationSimpleInitializerTokenIsLiteral(kind) {
         return pos + 1
     }
 
@@ -1787,6 +1787,10 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: &ParserDeclarationTokenTab
     }
 
     return pos
+}
+
+func ParseDeclarationSimpleInitializerTokenIsLiteral(kind: int): bool {
+    return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 2 || kind == 3 || kind == 4
 }
 
 func PrimaryConstructorParameterIndexOf(source: string, parameters: &PrimaryConstructorParameterTable, parameterCount: int, nameStart: int, nameLength: int): int {
@@ -2205,7 +2209,7 @@ func ParseStructDeclarationCore(source: string, tokens: &ParserDeclarationTokenT
                     } else {
                         primaryAssignedFlags[paramIndex] = 1
                     }
-                } else if initKind != 46 && initKind != 44 && initKind != 45 && initKind != 1 && initKind != 4 {
+                } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
                     initEnd := ParseDeclarationSimpleInitializerEndCore(ref tokens, count, pos, ref initializerTypeResult)
                     if initEnd < 0 {
                         return -1

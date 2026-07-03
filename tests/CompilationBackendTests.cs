@@ -808,6 +808,45 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsInterpolatedStringIntegerAdditiveHole()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InterpolatedIntegerAdditiveProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print $"Expected: {1000 + 1000 - 500}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "InterpolatedIntegerAdditiveProject.dll");
+            var result = compiler.CompileToIlAssembly("InterpolatedIntegerAdditiveProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("Expected: 1500", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStringEnumConstantsAsStrings()
     {
         var tempDir = CreateTempDir();
@@ -1021,6 +1060,54 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsDoubleInstanceFieldInitializer()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: DoubleInstanceFieldInitializer
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Account {
+    balance: double = 0.0
+
+    func GetBalance(): double {
+        return balance
+    }
+}
+
+func main() {
+    account := new Account()
+    print account.GetBalance()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "DoubleInstanceFieldInitializer.dll");
+            var result = compiler.CompileToIlAssembly("DoubleInstanceFieldInitializer", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("0", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsCheckedUncheckedArithmetic()
     {
         var tempDir = CreateTempDir();
@@ -1166,6 +1253,131 @@ async func main() {
             var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("async entrypoint works", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsTaskRunActionAndExpandedWaitAll()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TaskRunActionProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Threading.Tasks
+
+class Flags {
+    First: int = 0
+    Second: int = 0
+
+    func SetFirst() {
+        First = 1
+    }
+
+    func SetSecond() {
+        Second = 2
+    }
+
+    func Sum(): int {
+        return First + Second
+    }
+}
+
+func main() {
+    flags := new Flags()
+    t1 := Task.Run(() => {
+        flags.SetFirst()
+    })
+    t2 := Task.Run(() => {
+        flags.SetSecond()
+    })
+
+    Task.WaitAll(t1, t2)
+    print flags.Sum()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "TaskRunActionProject.dll");
+            var result = compiler.CompileToIlAssembly("TaskRunActionProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("3", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsLockWithBareFieldPostfix()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LockBareFieldPostfixProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Counter {
+    count: int = 0
+    syncLock: object = new object()
+
+    func Increment() {
+        lock syncLock {
+            count++
+        }
+    }
+
+    func GetValue(): int {
+        lock syncLock {
+            return count
+        }
+    }
+}
+
+func main() {
+    counter := new Counter()
+    counter.Increment()
+    print counter.GetValue()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "LockBareFieldPostfixProject.dll");
+            var result = compiler.CompileToIlAssembly("LockBareFieldPostfixProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("1", runResult.Stdout.Trim());
         }
         finally
         {

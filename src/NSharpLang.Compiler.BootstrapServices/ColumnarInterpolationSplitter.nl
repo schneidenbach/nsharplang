@@ -316,6 +316,10 @@ public class ColumnarInterpolationSplitter {
             return true
         }
 
+        if ColumnarInterpolatedStringIsIntegerAdditiveExpression(literal, start, length) {
+            return true
+        }
+
         coalesce := -1
         i := 0
         while i + 1 < length {
@@ -368,6 +372,44 @@ public class ColumnarInterpolationSplitter {
         }
 
         return ch == '\t'
+    }
+
+    static func ColumnarInterpolatedStringIsIntegerAdditiveExpression(literal: string, start: int, length: int): bool {
+        i := 0
+        expectNumber := true
+        sawNumber := false
+        while i < length {
+            ch := literal[start + i]
+            if ColumnarInterpolatedStringIsTrimSpace(ch) {
+                i = i + 1
+                continue
+            }
+
+            if expectNumber {
+                if !ColumnarInterpolatedStringIsAsciiDigit(ch) {
+                    return false
+                }
+
+                sawNumber = true
+                while i < length && ColumnarInterpolatedStringIsAsciiDigit(literal[start + i]) {
+                    i = i + 1
+                }
+                expectNumber = false
+            } else {
+                if ch != '+' && ch != '-' {
+                    return false
+                }
+
+                expectNumber = true
+                i = i + 1
+            }
+        }
+
+        return sawNumber && !expectNumber
+    }
+
+    static func ColumnarInterpolatedStringIsAsciiDigit(ch: char): bool {
+        return ch >= '0' && ch <= '9'
     }
 
     static func ColumnarInterpolatedStringIsIdentifierStart(ch: char): bool {

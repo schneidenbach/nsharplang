@@ -66,6 +66,20 @@ public class ColumnarLiteralFactsTests
     }
 
     [Fact]
+    public void ColumnarInterpolationSplitter_AcceptsIntegerAdditiveHole()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit("$\"Expected: {1000 + 1000 - 500}\"", parts));
+
+        Assert.Equal(2, parts.Count);
+        Assert.False(parts[0].IsHole);
+        Assert.Equal("Expected: ", parts[0].Text);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal("1000 + 1000 - 500", parts[1].Text);
+    }
+
+    [Fact]
     public void ColumnarInterpolationSplitter_RejectsMultipleCoalesceHole()
     {
         var parts = new List<ColumnarInterpolationPart>();
