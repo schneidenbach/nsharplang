@@ -861,6 +861,51 @@ func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count:
 // recognized modifiers (`static`, `async`), a previous declaration close, a package/namespace import
 // dotted header prefix, or a quoted file-import header may precede a top-level function. Returns 1
 // when every function preamble is valid.
+func TopLevelFunctionPreamblePreviousToken(tokens: &ParserDeclarationKindStream, start: int): int {
+    pos := start
+    changed := true
+    while changed {
+        changed = false
+
+        while pos >= 0 && (tokens.Kinds[pos] == 63 || tokens.Kinds[pos] == 68) {
+            pos = pos - 1
+            changed = true
+        }
+
+        if pos >= 0 && tokens.Kinds[pos] == 132 {
+            open := TopLevelFunctionPreambleAttributeOpen(ref tokens, pos)
+            if open < 0 {
+                return pos
+            }
+
+            pos = open - 1
+            changed = true
+        }
+    }
+
+    return pos
+}
+
+func TopLevelFunctionPreambleAttributeOpen(tokens: &ParserDeclarationKindStream, closeIndex: int): int {
+    depth := 0
+    pos := closeIndex
+    while pos >= 0 {
+        kind := tokens.Kinds[pos]
+        if kind == 132 {
+            depth = depth + 1
+        } else if kind == 131 {
+            depth = depth - 1
+            if depth == 0 {
+                return pos
+            }
+        }
+
+        pos = pos - 1
+    }
+
+    return -1
+}
+
 func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream, count: int, indices: &TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
@@ -869,10 +914,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
             return 0
         }
 
-        preceding := funcIndex - 1
-        while preceding >= 0 && (tokens.Kinds[preceding] == 63 || tokens.Kinds[preceding] == 68) {
-            preceding = preceding - 1
-        }
+        preceding := TopLevelFunctionPreamblePreviousToken(ref tokens, funcIndex - 1)
 
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
