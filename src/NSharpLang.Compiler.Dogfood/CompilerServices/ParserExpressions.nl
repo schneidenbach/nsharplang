@@ -1650,16 +1650,22 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
 //                                             the legacy emitter did: evaluate, box a value type, call
 //                                             Console.WriteLine(object). Kind 57 belongs to the expression
 //                                             kernel (CheckedContextExpression); kind 58 belongs to the
-//                                             expression kernel (ArrayLiteralExpression); 59 is the next free kind. )
+//                                             expression kernel (ArrayLiteralExpression). )
+//   AllowStatement               -> kind 60  ( allow(...) <body>; children [body]. The parser validates the
+//                                             balanced argument list and block; lowering is a later backend
+//                                             slice, so today's emitter declines this node explicitly. Kind 59
+//                                             belongs to AnonymousObjectInitializer. )
+//   Systems policy wrappers (`allow(...) {}`, `alloc {}`, `unsafe {}`) parse as transparent kind-25 blocks;
+//                                             systems analysis owns policy semantics before emission.
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. An
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield/
-// assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
-// statement-list gathers child node ids on the LIFO `argStack` (recursion is LIFO) and appends the
-// contiguous child run after `}`, exactly as calls/generics do.
+// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield/assert,
+// and statements whose expression parts use a not-yet-supported form. Block statement-list gathers child
+// node ids on the LIFO `argStack` (recursion is LIFO) and appends the contiguous child run after `}`,
+// exactly as calls/generics do.
 //
 // Node-table columns are the EXPRESSION table (see ParserExpressions.nl).
 //   outResult[0] = root statement node id (== nodeCount-1), outResult[1] = token index past the statement.
@@ -1703,6 +1709,40 @@ func ParseBlockStatementNodeCore(tokens: &ParserTokenTable, count: int, st: &Par
     return EmitExpressionNode(ref st, ref nodes, 25, -1, 0, childRunStart, childCount, blockStart, rightBraceEnd - blockStart)
 }
 
+func ParseSystemsPolicyBlockStatementNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
+    start := st.Pos
+    kind := tokens.Kinds[start]
+    st.Pos = start + 1
+
+    if kind == 144 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+            return -1
+        }
+
+        parenDepth := 1
+        st.Pos = st.Pos + 1
+        while st.Pos < count && parenDepth > 0 {
+            if tokens.Kinds[st.Pos] == 127 {
+                parenDepth = parenDepth + 1
+            } else if tokens.Kinds[st.Pos] == 128 {
+                parenDepth = parenDepth - 1
+            }
+
+            st.Pos = st.Pos + 1
+        }
+
+        if parenDepth != 0 {
+            return -1
+        }
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
+        return -1
+    }
+
+    return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+}
+
 // Dispatch + parse a single statement at st.Pos. Returns the emitted statement node id, or -1.
 func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
     if depth > 200 {
@@ -1718,6 +1758,10 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
 
     if kind == 129 {
         return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
+    }
+
+    if kind == 143 || kind == 144 || kind == 146 {
+        return ParseSystemsPolicyBlockStatementNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     }
 
     // `try { } [catch ... { }]* [finally { }]` (Try 38 / Catch 39 / Finally 40) -- TryStatement kind 49,
@@ -1874,6 +1918,41 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
         AppendExpressionChild(ref st, ref children, lockee)
         AppendExpressionChild(ref st, ref children, lockBody)
         return EmitExpressionNode(ref st, ref nodes, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
+    }
+
+    // `allow(...) { }` (Allow 144) -- AllowStatement kind 60, children [body]. The systems analyzer owns the
+    // effect-list semantics; the columnar parser only validates a balanced parenthesized argument list and a
+    // block body so product sources advance to the backend's explicit unsupported-statement decline.
+    if kind == 144 {
+        allowStart := tokens.Starts[start]
+        st.Pos = start + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+            return -1
+        }
+        st.Pos = st.Pos + 1
+        parenDepth := 1
+        while st.Pos < count && parenDepth > 0 {
+            if tokens.Kinds[st.Pos] == 127 {
+                parenDepth = parenDepth + 1
+            } else if tokens.Kinds[st.Pos] == 128 {
+                parenDepth = parenDepth - 1
+            }
+            st.Pos = st.Pos + 1
+        }
+        if parenDepth != 0 {
+            return -1
+        }
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
+            return -1
+        }
+        allowBody := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
+        if allowBody < 0 {
+            return -1
+        }
+        allowEnd := nodes.SpanStarts[allowBody] + nodes.SpanLengths[allowBody]
+        allowChildRun := st.ChildCursor
+        AppendExpressionChild(ref st, ref children, allowBody)
+        return EmitExpressionNode(ref st, ref nodes, 60, -1, 0, allowChildRun, 1, allowStart, allowEnd - allowStart)
     }
 
     if kind == 27 {
