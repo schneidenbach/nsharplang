@@ -1619,6 +1619,23 @@ func ParseMemberModifierPrefixCore(tokens: &ParserDeclarationTokenTable, count: 
         result.Values[2] = 0
     }
     while pos < count {
+        if tokens.Kinds[pos] == 131 {
+            bracketDepth := 1
+            pos = pos + 1
+            while pos < count && bracketDepth > 0 {
+                if tokens.Kinds[pos] == 131 {
+                    bracketDepth = bracketDepth + 1
+                } else if tokens.Kinds[pos] == 132 {
+                    bracketDepth = bracketDepth - 1
+                }
+                pos = pos + 1
+            }
+            if bracketDepth != 0 {
+                return -1
+            }
+            continue
+        }
+
         modifierKind := ParserDeclarationMemberModifierKind(tokens.Kinds[pos])
         if modifierKind == 0 {
             break
