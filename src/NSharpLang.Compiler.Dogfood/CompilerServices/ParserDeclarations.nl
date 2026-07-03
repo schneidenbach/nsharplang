@@ -2494,14 +2494,15 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
 // type-parameter list `<T, U>` (Less 100 / Identifier 0 / Comma 134 / Greater 102 — the same bare-identifier shape
 // as the struct/class kernel; spans to outTypeParamStarts/Lengths, count to outResult[2], 0 with no `<`; an inline
 // constraint or empty list returns -1), then `{` (129), then a sequence of CASES until the union close `}` (130).
-// Each case is `CaseName { field : Type, ... }`: the case name (Identifier) into outCaseNameStarts/Lengths[case],
-// its `{` (129), then a sequence of FIELDS — `Identifier : Type` where the type is a SINGLE Identifier token (a
-// builtin like int/string, a bare user-type name, or one of the union's type parameters) — each delimited by an
-// optional `,` (134), closed by the case `}` (130). Fields flatten ACROSS all cases into
+// Each case is either bare `CaseName` or `CaseName { field : Type, ... }`: the case name (Identifier) into
+// outCaseNameStarts/Lengths[case], then either no payload or a `{` (129) containing a sequence of FIELDS —
+// `Identifier : Type` where the type is a SINGLE Identifier token (a builtin like int/string, a bare user-type
+// name, or one of the union's type parameters) — each delimited by an optional `,` (134), closed by the case `}`
+// (130). Fields flatten ACROSS all cases into
 // outFieldNameStarts/Lengths + outFieldTypeStarts/Lengths in case-then-field order; outCaseFieldCounts[case] records
 // how many fields that case contributed (so the host re-segments the flat field arrays per case). Returns the case
-// count, or -1 on any unexpected token — a bare case with no `{` body, a primary-ctor `(`, a composed/array/generic
-// field type (a non-Identifier after `:`), a field initializer, a missing name/colon/brace, or an empty union — so
+// count, or -1 on any unexpected token — a primary-ctor `(`, a composed/array/generic field type (a non-Identifier
+// after `:`), a field initializer, a missing name/colon/brace, or an empty union — so
 // the host declines the whole program to the N# backend path. Slice scope: unions whose case fields are single
 // builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
 func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
@@ -2568,47 +2569,48 @@ func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int,
         decl.CaseNameLengths[caseCount] = tokens.ValueLengths[pos]
         pos = pos + 1
 
-        if pos >= count || tokens.Kinds[pos] != 129 {
-            return -1
-        }
-        pos = pos + 1
-
         caseFieldCount := 0
-        while pos < count && tokens.Kinds[pos] != 130 {
-            if tokens.Kinds[pos] != 0 {
-                return -1
-            }
-            decl.FieldNameStarts[totalFields] = tokens.Starts[pos]
-            decl.FieldNameLengths[totalFields] = tokens.ValueLengths[pos]
+        if pos < count && tokens.Kinds[pos] == 129 {
             pos = pos + 1
 
-            if pos >= count || tokens.Kinds[pos] != 122 {
-                return -1
-            }
-            pos = pos + 1
+            while pos < count && tokens.Kinds[pos] != 130 {
+                if tokens.Kinds[pos] != 0 {
+                    return -1
+                }
+                decl.FieldNameStarts[totalFields] = tokens.Starts[pos]
+                decl.FieldNameLengths[totalFields] = tokens.ValueLengths[pos]
+                pos = pos + 1
 
-            if pos >= count || tokens.Kinds[pos] != 0 {
-                return -1
-            }
-            decl.FieldTypeStarts[totalFields] = tokens.Starts[pos]
-            decl.FieldTypeLengths[totalFields] = tokens.ValueLengths[pos]
-            pos = pos + 1
-
-            totalFields = totalFields + 1
-            caseFieldCount = caseFieldCount + 1
-
-            if pos < count && tokens.Kinds[pos] != 130 {
-                if tokens.Kinds[pos] != 134 {
+                if pos >= count || tokens.Kinds[pos] != 122 {
                     return -1
                 }
                 pos = pos + 1
-            }
-        }
 
-        if pos >= count || tokens.Kinds[pos] != 130 {
+                if pos >= count || tokens.Kinds[pos] != 0 {
+                    return -1
+                }
+                decl.FieldTypeStarts[totalFields] = tokens.Starts[pos]
+                decl.FieldTypeLengths[totalFields] = tokens.ValueLengths[pos]
+                pos = pos + 1
+
+                totalFields = totalFields + 1
+                caseFieldCount = caseFieldCount + 1
+
+                if pos < count && tokens.Kinds[pos] != 130 {
+                    if tokens.Kinds[pos] != 134 {
+                        return -1
+                    }
+                    pos = pos + 1
+                }
+            }
+
+            if pos >= count || tokens.Kinds[pos] != 130 {
+                return -1
+            }
+            pos = pos + 1
+        } else if pos >= count || (tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 130) {
             return -1
         }
-        pos = pos + 1
 
         decl.CaseFieldCounts[caseCount] = caseFieldCount
         caseCount = caseCount + 1
