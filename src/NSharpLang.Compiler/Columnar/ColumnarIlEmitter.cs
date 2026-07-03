@@ -13798,9 +13798,9 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // INTERPOLATED STRINGS (`$"a{n}b"` — strings slice 4): the kind-3 token carries the whole
+    // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
-    // (identifier-chain holes only — anything richer declines to the fallback) and mirror the
+    // (identifier-chain holes only — anything richer declines) and mirror the
     // legacy emitter's EmitInterpolatedString exactly: empty/NO-hole literals constant-fold to the
     // concatenated DECODED text (`ldstr`); otherwise the DefaultInterpolatedStringHandler lowering —
     // ctor(literalLength = sum of DECODED text lengths, formattedCount), AppendLiteral per text
@@ -13825,7 +13825,7 @@ internal sealed class ColumnarIlEmitter
         {
             var folded = new System.Text.StringBuilder();
             foreach (var part in parts)
-                folded.Append(NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text));
+                folded.Append(NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text));
             _il.Emit(OpCodes.Ldstr, folded.ToString());
             type = typeof(string);
             return true;
@@ -13837,7 +13837,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (!part.IsHole)
             {
-                literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text).Length;
+                literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text).Length;
                 continue;
             }
             if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var valueType))
@@ -13856,7 +13856,7 @@ internal sealed class ColumnarIlEmitter
             _il.Emit(OpCodes.Ldloca, handlerLocal);
             if (!part.IsHole)
             {
-                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text));
+                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text));
                 _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendLiteral")!);
                 continue;
             }

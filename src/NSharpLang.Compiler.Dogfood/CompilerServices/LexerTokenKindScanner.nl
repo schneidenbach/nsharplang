@@ -302,7 +302,7 @@ func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): i
                 nextPosition := ScanRawString(source, position + 3, length)
                 metadata.Kinds[count] = 5
                 metadata.Starts[count] = start
-                metadata.ValueLengths[count] = RawStringValueLength(source, start, nextPosition)
+                metadata.ValueLengths[count] = nextPosition - start
                 metadata.Lines[count] = tokenLine
                 metadata.Columns[count] = tokenColumn
                 count = count + 1
@@ -852,16 +852,6 @@ func NumberValueLength(source: string, start: int, end: int): int {
             valueLength = valueLength + 1
         }
         position = position + 1
-    }
-
-    return valueLength
-}
-
-func RawStringValueLength(source: string, start: int, end: int): int {
-    contentStart := start + 3
-    valueLength := end - contentStart
-    if end >= start + 6 && source[end - 1] == '"' && source[end - 2] == '"' && source[end - 3] == '"' {
-        valueLength = valueLength - 3
     }
 
     return valueLength

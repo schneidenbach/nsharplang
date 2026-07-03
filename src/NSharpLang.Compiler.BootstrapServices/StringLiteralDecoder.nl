@@ -4,6 +4,14 @@ import System.Text
 
 public class StringLiteralDecoder {
     public static func Decode(tokenText: string): string {
+        if IsInterpolatedRawStringLiteral(tokenText) {
+            return tokenText.Substring(4, tokenText.Length - 7)
+        }
+
+        if IsTripleQuoteStringLiteral(tokenText) {
+            return tokenText.Substring(3, tokenText.Length - 6)
+        }
+
         start := 0
         if tokenText.Length > 0 && tokenText[0] == '"' {
             start = 1
@@ -15,6 +23,41 @@ public class StringLiteralDecoder {
         }
 
         return DecodeBody(tokenText.Substring(start, end - start))
+    }
+
+    public static func DecodeInterpolatedText(literal: string, text: string): string {
+        if IsInterpolatedRawStringLiteral(literal) {
+            return text
+        }
+
+        return DecodeBody(text)
+    }
+
+    public static func IsInterpolatedRawStringLiteral(tokenText: string): bool {
+        if tokenText.Length < 7 {
+            return false
+        }
+
+        return tokenText[0] == '$' &&
+            tokenText[1] == '"' &&
+            tokenText[2] == '"' &&
+            tokenText[3] == '"' &&
+            tokenText[tokenText.Length - 1] == '"' &&
+            tokenText[tokenText.Length - 2] == '"' &&
+            tokenText[tokenText.Length - 3] == '"'
+    }
+
+    public static func IsTripleQuoteStringLiteral(tokenText: string): bool {
+        if tokenText.Length < 6 {
+            return false
+        }
+
+        return tokenText[0] == '"' &&
+            tokenText[1] == '"' &&
+            tokenText[2] == '"' &&
+            tokenText[tokenText.Length - 1] == '"' &&
+            tokenText[tokenText.Length - 2] == '"' &&
+            tokenText[tokenText.Length - 3] == '"'
     }
 
     public static func TryDecodeBody(body: string, out decoded: string): bool {

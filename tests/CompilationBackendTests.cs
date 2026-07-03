@@ -476,6 +476,48 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsRawAndInterpolatedRawStringLiterals()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RawStringProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"),
+                "func main() {\n" +
+                "    name := \"Ada\"\n" +
+                "    raw := \"\"\"quote \" slash \\n\"\"\"\n" +
+                "    interp := $\"\"\"Hello {name}\\n{{name}}\"\"\"\n" +
+                "    print raw\n" +
+                "    print interp\n" +
+                "}\n");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "RawStringProject.dll");
+            var result = compiler.CompileToIlAssembly("RawStringProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("quote \" slash \\n\nHello Ada\\n{name}", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStringEnumConstantsAsStrings()
     {
         var tempDir = CreateTempDir();

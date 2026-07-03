@@ -9,7 +9,8 @@ import "CompilerServices/ParserTypeReferences"
 //   IntLiteralExpression    -> kind 0   (IntLiteral token 1)
 //   FloatLiteralExpression  -> kind 1   (FloatLiteral token 2)
 //   CharLiteralExpression   -> kind 2   (CharLiteral token 3)
-//   StringLiteralExpression -> kind 3   (StringLiteral token 4)
+//   StringLiteralExpression -> kind 3   (StringLiteral token 4, TripleQuoteStringLiteral token 5,
+//                                         InterpolatedRawStringLiteral token 6)
 //   BoolLiteralExpression   -> kind 4   (True 44 / False 45)
 //   NullLiteralExpression   -> kind 5   (Null 46)
 //   IdentifierExpression    -> kind 6   (Identifier 0)
@@ -99,8 +100,8 @@ import "CompilerServices/ParserTypeReferences"
 //                                         keyword token in the value span, ONE child [expr]. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments,
-//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
-//   interpolated string/...). (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
+//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/...).
+//   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
 //   value token's byte span only.
@@ -125,7 +126,8 @@ import "CompilerServices/ParserTypeReferences"
 // contiguous without the arg-stack.
 //
 // TokenType ordinals (Token.cs): Identifier 0, IntLiteral 1, FloatLiteral 2, CharLiteral 3, StringLiteral 4,
-// True 44, False 45, Null 46, LeftParen 127, RightParen 128, Dot 124, LeftBracket 131, RightBracket 132.
+// TripleQuoteStringLiteral 5, InterpolatedRawStringLiteral 6, True 44, False 45, Null 46, LeftParen 127,
+// RightParen 128, Dot 124, LeftBracket 131, RightBracket 132.
 
 struct ParserExpressionNodeTable {
     Kinds: int[]
@@ -394,7 +396,7 @@ func ParsePrimaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
         st.Pos = pos + 1
         return EmitExpressionNode(ref st, ref nodes, 2, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
-    if kind == 4 {
+    if kind == 4 || kind == 5 || kind == 6 {
         st.Pos = pos + 1
         return EmitExpressionNode(ref st, ref nodes, 3, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }

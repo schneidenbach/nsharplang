@@ -55,18 +55,28 @@ public class ColumnarInterpolationSplitter {
             return -1
         }
 
-        if literal[1] != '"' {
-            return -1
-        }
-
-        if literal[literal.Length - 1] != '"' {
-            return -1
-        }
-
         partCount := 0
         text := new StringBuilder(literal.Length)
         i := 2
         end := literal.Length - 1
+        if literal.Length >= 7 &&
+            literal[1] == '"' &&
+            literal[2] == '"' &&
+            literal[3] == '"' &&
+            literal[literal.Length - 1] == '"' &&
+            literal[literal.Length - 2] == '"' &&
+            literal[literal.Length - 3] == '"' {
+            i = 4
+            end = literal.Length - 3
+        } else {
+            if literal[1] != '"' {
+                return -1
+            }
+
+            if literal[literal.Length - 1] != '"' {
+                return -1
+            }
+        }
 
         while i < end {
             c := literal[i]

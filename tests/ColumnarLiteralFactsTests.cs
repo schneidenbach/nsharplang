@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Columnar;
@@ -22,6 +23,32 @@ public class ColumnarLiteralFactsTests
     {
         Assert.False(StringLiteralDecoder.TryDecodeBody(@"\u1234", out _));
         Assert.False(StringLiteralDecoder.TryDecodeBody(@"trailing\", out _));
+    }
+
+    [Fact]
+    public void StringLiteralDecoder_Decode_PreservesRawStringBackslashes()
+    {
+        Assert.Equal("slash\n", StringLiteralDecoder.Decode("\"slash\\n\""));
+        Assert.Equal(@"slash\n", StringLiteralDecoder.Decode("\"\"\"slash\\n\"\"\""));
+        Assert.Equal(@"slash\n", StringLiteralDecoder.Decode("$\"\"\"slash\\n\"\"\""));
+        Assert.Equal("\n", StringLiteralDecoder.DecodeInterpolatedText("$\"x\"", @"\n"));
+        Assert.Equal(@"\n", StringLiteralDecoder.DecodeInterpolatedText("$\"\"\"x\"\"\"", @"\n"));
+    }
+
+    [Fact]
+    public void ColumnarInterpolationSplitter_SplitsInterpolatedRawStringBody()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit("$\"\"\"a\\n{name}{{name}}\"\"\"", parts));
+
+        Assert.Equal(3, parts.Count);
+        Assert.False(parts[0].IsHole);
+        Assert.Equal(@"a\n", parts[0].Text);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal("name", parts[1].Text);
+        Assert.False(parts[2].IsHole);
+        Assert.Equal("{name}", parts[2].Text);
     }
 
     [Fact]
