@@ -66,7 +66,7 @@ public class TypeResolver
         "System.Threading.Tasks",
     ];
 
-    public TypeResolver(ILogger<TypeResolver> logger, XmlDocReader xmlDocReader)
+    public TypeResolver(ILogger<TypeResolver> logger)
     {
         _logger = logger;
         // CRITICAL FIX: Don't load assemblies in constructor

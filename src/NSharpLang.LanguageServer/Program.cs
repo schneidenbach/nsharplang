@@ -43,7 +43,6 @@ class Program
                     .WithServices(services =>
                     {
                         services.AddSingleton<DocumentManager>();
-                        services.AddSingleton<XmlDocReader>();
                         services.AddSingleton<TypeResolver>();
                     })
                     .WithHandler<TextDocumentHandler>()

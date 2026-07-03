@@ -42,7 +42,6 @@ builder. // <-- Triggers IntelliSense
 **Key Files:**
 - `CompletionHandler.cs` - Main completion logic
 - `TypeResolver.cs` - Type resolution via reflection
-- `XmlDocReader.cs` - XML documentation loading
 - `DocumentManager.cs` - Document state management
 
 **Features:**

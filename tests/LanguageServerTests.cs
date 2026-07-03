@@ -28,31 +28,12 @@ namespace NSharpLang.Tests;
 /// </summary>
 public class LanguageServerFixture : IDisposable
 {
-    private XmlDocReader? _xmlDocReader;
     private TypeResolver? _typeResolver;
     private readonly object _initLock = new();
 
     // CRITICAL FIX: Lazy properties, NOT eager constructor initialization
     // xUnit instantiates collection fixtures during test DISCOVERY, not execution
     // Any work in the constructor blocks test discovery
-    public XmlDocReader XmlDocReader
-    {
-        get
-        {
-            if (_xmlDocReader == null)
-            {
-                lock (_initLock)
-                {
-                    if (_xmlDocReader == null)
-                    {
-                        _xmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-                    }
-                }
-            }
-            return _xmlDocReader;
-        }
-    }
-
     public TypeResolver TypeResolver
     {
         get
@@ -63,7 +44,7 @@ public class LanguageServerFixture : IDisposable
                 {
                     if (_typeResolver == null)
                     {
-                        _typeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+                        _typeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance);
                     }
                 }
             }
@@ -304,7 +285,6 @@ public class LanguageServerTests
     private class LspTestHarness
     {
         public DocumentManager DocumentManager { get; }
-        public XmlDocReader XmlDocReader { get; }
         public TypeResolver TypeResolver { get; }
         public CompletionHandler CompletionHandler { get; }
         public HoverHandler HoverHandler { get; }
@@ -332,12 +312,10 @@ public class LanguageServerTests
         public OnTypeFormattingHandler OnTypeFormattingHandler { get; }
 
         public LspTestHarness(
-            XmlDocReader xmlDocReader,
             TypeResolver typeResolver,
             ILogger<DocumentManager>? documentManagerLogger = null)
         {
-            // Reuse shared XmlDocReader and TypeResolver from fixture
-            XmlDocReader = xmlDocReader;
+            // Reuse shared TypeResolver from fixture
             TypeResolver = typeResolver;
 
             // Create test-specific DocumentManager (each test needs its own)
@@ -707,7 +685,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_KeywordsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -723,7 +701,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_PrimitiveTypesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "i");
@@ -738,7 +716,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_CommonDotNetTypesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "C");
@@ -753,7 +731,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_LocalFunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -774,7 +752,7 @@ func main(): void
     [Fact]
     public async Task Completion_LocalFunction_IncludesLeadingDocumentationAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/docs.nl";
 
         var source = @"// Greets someone by name.
@@ -800,7 +778,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippet_FuncAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -819,7 +797,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippet_IfAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "i");
@@ -836,7 +814,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippet_MatchAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "m");
@@ -854,7 +832,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippet_ForAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -872,7 +850,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippet_TypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "t");
@@ -889,7 +867,7 @@ func main(): void
     [Fact]
     public async Task Completion_Snippets_CoexistWithKeywordsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -913,7 +891,7 @@ func main(): void
     [Fact]
     public async Task Hover_KeywordAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -930,7 +908,7 @@ func main(): void
     [Fact]
     public async Task Hover_PrimitiveTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func test(): int");
@@ -947,7 +925,7 @@ func main(): void
     [Fact]
     public async Task Hover_LocalVariableAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -969,7 +947,7 @@ func main(): void
     [Fact]
     public async Task Hover_FunctionNameAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -989,7 +967,7 @@ func greet(name: string): string
     [Fact]
     public async Task Hover_VariableWithSystemTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1016,7 +994,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_BasicAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1044,7 +1022,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_IncludesLeadingDocumentationAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/docs-signature.nl";
 
         var source = @"// Greets someone by name.
@@ -1071,7 +1049,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_ActiveParameterAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1093,7 +1071,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_ReturnTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1116,7 +1094,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_NoParamsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1140,7 +1118,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_DefaultValueParamAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1169,7 +1147,7 @@ func main(): void
     [Fact]
     public async Task Definition_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1191,7 +1169,7 @@ func main(): void
     [Fact]
     public async Task Definition_CrossFileType_PrefersSemanticResultOverSameNameLocalSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1213,7 +1191,7 @@ func main(): void
     [Fact]
     public async Task Definition_EndOfLinePosition_ReturnsNullAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = """
@@ -1234,7 +1212,7 @@ func Foo(): void {
     [Fact]
     public async Task Definition_CrossFile_WithUnsavedComment_UsesOpenBufferProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1255,7 +1233,7 @@ func Foo(): void {
     [Fact]
     public async Task Definition_CrossFile_WithUnsavedComment_DifferentSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1274,7 +1252,7 @@ func Foo(): void {
     [Fact]
     public async Task Definition_ScannedWorkspaceWithoutProjectFile_ResolvesAgainstWorkspaceRootAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-workspace-root-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1317,7 +1295,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Definition_ScannedWorkspaceUsesCurrentDiskForUnopenedFilesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-scan-stale-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1367,7 +1345,7 @@ func Beta(): void {
     [Fact]
     public async Task Definition_DegradedStandaloneDirectoryWithUnsavedPeer_DoesNotUseStaleDiskSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-stale-disk-peer-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1415,7 +1393,7 @@ func peerUnsaved(): void {
     public async Task Definition_ProjectSnapshotLoadFailure_LogsStructuredDegradedStateAsync()
     {
         var logger = new CapturingLogger<DocumentManager>();
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver, logger);
+        var harness = new LspTestHarness(_fixture.TypeResolver, logger);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1460,7 +1438,7 @@ func main(): void {
     [Fact]
     public async Task References_EmptyPosition_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1478,7 +1456,7 @@ func main(): void
     [Fact]
     public async Task References_NoDocument_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         // Request references for a document that hasn't been opened
         var refs = await harness.GetReferencesAsync("file:///nonexistent.nl", 0, 0);
@@ -1489,7 +1467,7 @@ func main(): void
     [Fact]
     public async Task References_CrossFile_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1508,7 +1486,7 @@ func main(): void
     [Fact]
     public async Task TypeUseNavigation_DuplicateTypeNames_UsesProjectSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-type-use-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
         Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
@@ -1597,7 +1575,7 @@ func Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widg
     [Fact]
     public async Task References_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-refs-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1684,7 +1662,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Definition_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-def-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1765,7 +1743,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Rename_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-rename-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1852,7 +1830,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task References_ExcludeDeclaration_FiltersDefinitionAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1881,7 +1859,7 @@ func main(): void
     [Fact]
     public void Diagnostics_SyntaxError()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1898,7 +1876,7 @@ func main(: void";
     [Fact]
     public void Diagnostics_ValidCode_NoDiagnostics()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1921,7 +1899,7 @@ func main(): void
     [Fact]
     public async Task DocumentUpdate_CompletionsReflectChangesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         // Initial document
@@ -1944,7 +1922,7 @@ func main(): void
     [Fact]
     public async Task Completion_EmptyDocumentAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "");
@@ -1959,7 +1937,7 @@ func main(): void
     [Fact]
     public async Task Hover_InvalidPositionAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -1974,7 +1952,7 @@ func main(): void
     [Fact]
     public async Task Completion_AfterDot_NoIdentifierAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1996,7 +1974,7 @@ func main(): void
     [Fact]
     public async Task Completion_NestedFunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2021,7 +1999,7 @@ func outer(): void
     [Fact]
     public async Task Rename_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
         var programUri = new Uri(programPath).AbsoluteUri;
@@ -2046,7 +2024,7 @@ func outer(): void
     [Fact]
     public async Task Rename_DegradedProjectSnapshot_RefusesTextOnlyRenameWithReasonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2077,7 +2055,7 @@ func main(): void
     [Fact]
     public async Task Rename_ProjectCommentWord_RefusesSemanticFallbackRenameAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-comment-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2121,7 +2099,7 @@ func Main(): void
     [Fact]
     public async Task Rename_ShadowedLocalVariable_OnlyRenamesBoundSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-shadow-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2176,7 +2154,7 @@ func Helper(): void
     [Fact]
     public void DocumentManager_FileUriRelativeImport_ResolvesAgainstFilesystemPath()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2231,7 +2209,7 @@ class PersonService {
     [Fact]
     public void DocumentManager_TypeImport_ReportsDiagnostic()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-invalid-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2277,7 +2255,7 @@ func Main() {
     [Fact]
     public async Task Completion_MemberAccess_NSharpClassAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/nsharp-class.nl";
 
         var source = @"
@@ -2310,7 +2288,7 @@ func main(): void
     {
         _ = ConflictingClrPersonType.Value;
 
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/nsharp-class-clr-collision.nl";
 
         var source = @"
@@ -2340,7 +2318,7 @@ func main(): void
     [Fact]
     public async Task Completion_ImportContext_OnlySuggestsNamespacesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/imports.nl";
 
         var source = "import System.";
@@ -2363,7 +2341,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InferredStringType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_string.nl";
 
         var source = @"func main() {
@@ -2386,7 +2364,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InferredIntType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_int.nl";
 
         var source = @"func main() {
@@ -2408,7 +2386,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_ExplicitType_NoHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_explicit.nl";
 
         // When type is explicitly annotated, no inlay hint should be shown
@@ -2427,7 +2405,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_MultipleDeclarations_ShowsAllHintsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_multi.nl";
 
         var source = @"func main() {
@@ -2451,7 +2429,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_RangeFiltering_OnlyReturnsVisibleHintsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_range.nl";
 
         var source = @"func main() {
@@ -2477,7 +2455,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_BoolType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_bool.nl";
 
         var source = @"func main() {
@@ -2496,7 +2474,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_HintPositionAfterVariableName_CorrectColumnAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_position.nl";
 
         var source = @"func main() {
@@ -2521,7 +2499,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_EmptyDocument_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_empty.nl";
 
         harness.OpenDocument(uri, "");
@@ -2534,7 +2512,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_NoInitializer_NoHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_no_init.nl";
 
         // A declaration without initializer shouldn't produce a hint
@@ -2552,7 +2530,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_NestedInIfBlock_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_nested.nl";
 
         var source = @"func main() {
@@ -2573,7 +2551,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_HintLabelFormat_StartsWithColonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_format.nl";
 
         var source = @"func main() {
@@ -2594,7 +2572,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InsideClassMethod_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_class.nl";
 
         var source = @"class Greeter {
@@ -2615,7 +2593,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_ConstDeclaration_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_const.nl";
 
         var source = @"func main() {
@@ -2634,7 +2612,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_DoubleType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_double.nl";
 
         var source = @"func main() {
@@ -2660,7 +2638,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_FunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"func greet(name: string): string
@@ -2690,7 +2668,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_ClassWithMembersAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"class Person {
@@ -2724,7 +2702,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_StructAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"struct Point {
@@ -2750,7 +2728,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_SoaRecordAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/soa_symbols.nl";
 
         var source = @"soa record NodeTable {
@@ -2781,7 +2759,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_InterfaceAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"interface Greeter {
@@ -2804,7 +2782,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_EnumAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"enum Color {
@@ -2837,7 +2815,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_EmptyDocument_ReturnsNullAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///empty.nl";
 
         // Document not opened - should return null
@@ -2848,7 +2826,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_MixedDeclarationsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"enum Status {
@@ -2886,7 +2864,7 @@ func createUser(name: string): User
     [Fact]
     public async Task DocumentSymbol_ZeroBasedLineNumbersAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"func hello(): void
@@ -2913,7 +2891,7 @@ func createUser(name: string): User
     [Fact]
     public async Task DocumentSymbol_SelectionRangeContainedInRangeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"class Foo {
@@ -2947,7 +2925,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesKeywords()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens.nl";
         var source = @"func main() {
     let x := 42
@@ -2982,7 +2960,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesNumberLiterals()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_num.nl";
         var source = @"func main() {
     let x := 42
@@ -3015,7 +2993,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesStringLiterals()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_str.nl";
         var source = @"func main() {
     let x := ""hello""
@@ -3041,7 +3019,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_DoesNotClassifyInterpolatedStringAsSingleStringToken()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_interpolated_str.nl";
         var source = """
 func main() {
@@ -3083,7 +3061,7 @@ func main() {
     [Fact]
     public void SemanticTokens_DoesNotClassifyInterpolatedRawStringAsSingleStringToken()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_interpolated_raw_str.nl";
         var source = "func main() {\n    name := \"Spencer\"\n    print $\"\"\"Hello, {name}!\"\"\"\n}\n";
         harness.OpenDocument(uri, source);
@@ -3119,7 +3097,7 @@ func main() {
     [Fact]
     public void SemanticTokens_ClassifiesTypeNames()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_type.nl";
         var source = @"class Person {
     name: string
@@ -3141,7 +3119,7 @@ func main() {
     [Fact]
     public void SemanticTokens_ClassifiesFunctionNames()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_func.nl";
         var source = @"func greet(name: string): string {
     return ""Hello "" + name
@@ -3158,7 +3136,7 @@ func main() {
     [Fact]
     public void SemanticTokens_MarksCatchResultBinding()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_catch_result.nl";
         var source = @"func MightFail(): int {
     return 1
@@ -3197,7 +3175,7 @@ func main() {
     [Fact]
     public void SemanticTokens_MarksOnlyFinalErrInMultiValueCatchDeconstruction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_multi_catch_result.nl";
         var source = @"func GetValues(): (int, int, int) {
     return (1, 2, 3)
@@ -3248,7 +3226,7 @@ func main() {
     [Fact]
     public async Task WorkspaceSymbols_FindsTypeDeclarations()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols.nl";
         var source = @"class Person {
     name: string
@@ -3268,7 +3246,7 @@ func greet(): string {
     [Fact]
     public async Task WorkspaceSymbols_EmptyQueryReturnsAllSymbols()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols_all.nl";
         var source = @"class Foo {
     bar: int
@@ -3297,7 +3275,7 @@ func baz(): void {
     [Fact]
     public async Task WorkspaceSymbols_IncludesMembers()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols_members.nl";
         var source = @"class Person {
     name: string
@@ -3321,7 +3299,7 @@ func baz(): void {
     [Fact]
     public async Task WorkspaceSymbols_IncludesSoaRecordColumns()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols_soa.nl";
         var source = @"soa record NodeTable {
     kind: int
@@ -3345,7 +3323,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding.nl";
         var source = @"func main() {
     let x := 42
@@ -3367,7 +3345,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding_class.nl";
         var source = @"class Person {
     name: string
@@ -3390,7 +3368,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsSoaRecord()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding_soa.nl";
         var source = @"soa record NodeTable {
     kind: int
@@ -3410,7 +3388,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsImports()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding_imports.nl";
         var source = @"import System
 import System.Collections.Generic
@@ -3436,7 +3414,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsKeyword()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_kw.nl";
         var source = @"func main() {
     let x := 42
@@ -3456,7 +3434,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsPrimitiveType()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_prim.nl";
         var source = @"func main() {
     let x: int = 42
@@ -3474,7 +3452,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsStringLiteralContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_string_literal.nl";
         var source = @"func main() {
     message := ""oldName""
@@ -3492,7 +3470,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsEscapedInterpolatedBraceLiteralContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_interpolated_escaped_braces.nl";
         var source = """
 func main() {
@@ -3511,7 +3489,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsMultiLineRawStringContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_raw_string_literal.nl";
         var source = """"
 func main() {
@@ -3532,7 +3510,7 @@ oldName
     [Fact]
     public async Task PrepareRename_ProjectSemanticMemberUsage_AcceptsStrictProjectTargetAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-project-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -3580,7 +3558,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task PrepareRename_DegradedProjectSnapshot_RefusesWithReasonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -3615,7 +3593,7 @@ func main(): void
     [Fact]
     public async Task Hover_KeywordIncludesRange()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/hover_kw_range.nl";
         var source = @"func main() {
 }
@@ -3634,7 +3612,7 @@ func main(): void
     [Fact]
     public async Task Hover_PrimitiveTypeIncludesRange()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/hover_prim_range.nl";
         var source = @"func main() {
     let x: int = 42
@@ -3659,7 +3637,7 @@ func main(): void
     [Fact]
     public async Task DocumentFormatting_ReturnsEditsForUnformattedCode()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/formatting.nl";
         // Badly indented source
         var source = "func main() {\n  let x := 42\n      let y := 43\n}\n";
@@ -3683,7 +3661,7 @@ func main(): void
     [Fact]
     public async Task DocumentFormatting_NullForMissingDocument()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var edits = await harness.FormatDocumentAsync("file:///nonexistent.nl");
 
@@ -3693,7 +3671,7 @@ func main(): void
     [Fact]
     public async Task DocumentFormatting_EmptyContainerWhenAlreadyFormatted()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/formatting_clean.nl";
         // Well-formatted single-line source
         var source = "func main() {\n    let x := 42\n}\n";
@@ -3713,7 +3691,7 @@ func main(): void
     [Fact]
     public async Task GoToImplementation_ClassFindsSubclasses()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/impl.nl";
         // NOTE: The parser treats the first type after ':' as BaseClass.
         // Use a class hierarchy to test go-to-implementation on a base class.
@@ -3751,7 +3729,7 @@ class Dog : Animal {
     [Fact]
     public async Task GoToImplementation_NonInterfaceReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/impl_none.nl";
         var source = @"func main() {
     let x := 42
@@ -3767,7 +3745,7 @@ class Dog : Animal {
     [Fact]
     public async Task GoToImplementation_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var result = await harness.GetImplementationAsync("file:///nonexistent.nl", 0, 0);
         Assert.Null(result);
@@ -3780,7 +3758,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_VariableUsedMultipleTimes()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/highlight.nl";
         var source = @"func main() {
     let count := 1
@@ -3800,7 +3778,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_EmptyPositionReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/highlight_empty.nl";
         var source = @"func main() {
     let x := 42
@@ -3817,7 +3795,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_MissingDocumentReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var highlights = await harness.GetDocumentHighlightsAsync("file:///nonexistent.nl", 0, 0);
         Assert.NotNull(highlights);
@@ -3831,7 +3809,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_ReturnsNestedChain()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/selrange.nl";
         var source = @"func main() {
     if true {
@@ -3857,7 +3835,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var result = await harness.GetSelectionRangesAsync("file:///nonexistent.nl", new Position(0, 0));
         Assert.Null(result);
@@ -3866,7 +3844,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_MultiplePositions()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/selrange_multi.nl";
         var source = @"func foo() {
     let a := 1
@@ -3889,7 +3867,7 @@ func bar() {
     [Fact]
     public async Task SelectionRange_ReturnsSoaColumnChain()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/selrange_soa.nl";
         var source = @"soa record NodeTable {
     kind: int
@@ -3914,7 +3892,7 @@ func bar() {
     [Fact]
     public async Task CallHierarchy_PrepareOnFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy.nl";
         var source = @"func greet(name: string): string {
     return ""Hello, "" + name
@@ -3937,7 +3915,7 @@ func main() {
     [Fact]
     public async Task CallHierarchy_PrepareOnNonFunction_ReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy_none.nl";
         var source = @"class Foo {
     bar: int
@@ -3953,7 +3931,7 @@ func main() {
     [Fact]
     public async Task CallHierarchy_OutgoingCallsFromFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy_outgoing.nl";
         var source = @"func helper(): void {
     return
@@ -3987,7 +3965,7 @@ func main() {
     [Fact]
     public async Task TypeHierarchy_PrepareOnClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4012,7 +3990,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_PrepareOnInterface()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_iface.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4031,7 +4009,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_SupertypesOfDerivedClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_super.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4058,7 +4036,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_SubtypesOfInterface()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_sub.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4094,7 +4072,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task TypeHierarchy_PrepareOnNonType_ReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_nontype.nl";
         var source = @"func main() {
     let x := 42
@@ -4114,7 +4092,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_FindsUrlInComment()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/doclink.nl";
         var source = "// See https://example.com/docs for more info\nfunc main() {\n    print(\"hello\")\n}\n";
         harness.OpenDocument(uri, source);
@@ -4143,7 +4121,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_NoUrlsReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/doclink_empty.nl";
         var source = @"func main() {
     let x := 42
@@ -4159,7 +4137,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var links = await harness.GetDocumentLinksAsync("file:///nonexistent.nl");
         Assert.Null(links);
@@ -4172,7 +4150,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task OnTypeFormatting_CloseBraceAlignsWithMatchingOpen()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ontypeformat_brace.nl";
         // Simulate: user typed '}' with wrong indentation
         var source = "func main() {\n    let x := 42\n        }\n";
@@ -4189,7 +4167,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task OnTypeFormatting_NewlineAfterOpenBrace()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ontypeformat_newline.nl";
         // Simulate: user pressed Enter after '{' with no indentation on the new line
         var source = "func main() {\n\n}\n";
@@ -4213,7 +4191,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task OnTypeFormatting_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var edits = await harness.OnTypeFormattingAsync("file:///nonexistent.nl", 0, 0, "}");
         Assert.Null(edits);

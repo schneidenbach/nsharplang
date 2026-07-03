@@ -19,26 +19,9 @@ public class LanguageServerAutoImportTests
     private sealed class Harness
     {
         private readonly object _lock = new();
-        private XmlDocReader? _xmlDocReader;
         private TypeResolver? _typeResolver;
         private DocumentManager? _documentManager;
         private CompletionHandler? _completionHandler;
-
-        public XmlDocReader XmlDocReader
-        {
-            get
-            {
-                if (_xmlDocReader == null)
-                {
-                    lock (_lock)
-                    {
-                        _xmlDocReader ??= new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-                    }
-                }
-
-                return _xmlDocReader;
-            }
-        }
 
         public TypeResolver TypeResolver
         {
@@ -48,7 +31,7 @@ public class LanguageServerAutoImportTests
                 {
                     lock (_lock)
                     {
-                        _typeResolver ??= new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+                        _typeResolver ??= new TypeResolver(NullLogger<TypeResolver>.Instance);
                     }
                 }
 
