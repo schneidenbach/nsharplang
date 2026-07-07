@@ -181,39 +181,6 @@ partial class Program
         return result.ExitCode;
     }
 
-    private sealed record BuildCommandResult(int ExitCode, BuildPerfReportFacts PerfFacts)
-    {
-        public static BuildCommandResult Failure(int exitCode = 1, BuildPerfReportFacts? perfFacts = null)
-            => new(exitCode, perfFacts ?? BuildPerfReportFacts.Empty);
-    }
-
-    private sealed record BuildPerfReportFacts(
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> AllocationSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> DelegateSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> BoxingSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> DispatchSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ClosureCaptures,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> PoolSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ResourceSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> BoundaryLeakSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> HotReadinessSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportSite> ImplicitTrapSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.PerfReportTrustedSite> TrustedSites)
-    {
-        public static BuildPerfReportFacts Empty { get; } = new(
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.PerfReportTrustedSite>());
-    }
-
     static string CreateTempBuildDirectory()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");
