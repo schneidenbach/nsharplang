@@ -254,6 +254,117 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func DiagnosticsToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "diagnostics"
+        envelope["ok"] = summary.Errors == 0
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["results"] = BuildDiagnosticResults(results)
+        envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func CheckToJson(results: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int): string {
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "check"
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["checkedFiles"] = checkedFiles
+        envelope["ok"] = summary.Errors == 0
+        envelope["results"] = BuildDiagnosticResults(results)
+        envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func LintToJson(results: List<DiagnosticResult>, projectRoot: string?, lintedFiles: int): string {
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "lint"
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["lintedFiles"] = lintedFiles
+        envelope["ok"] = summary.Errors == 0
+        envelope["results"] = BuildDiagnosticResults(results)
+        envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildDiagnosticResults(results: List<DiagnosticResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildDiagnosticResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildDiagnosticResult(result: DiagnosticResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["code"] = result.Code
+        payload["severity"] = result.Severity
+        payload["message"] = result.Message
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["length"] = result.Length
+
+        if result.SourceSnippet != null {
+            payload["sourceSnippet"] = result.SourceSnippet ?? ""
+        }
+
+        if result.Explanation != null {
+            payload["explanation"] = result.Explanation ?? ""
+        }
+
+        if result.Suggestion != null {
+            payload["suggestion"] = result.Suggestion ?? ""
+        }
+
+        if result.Hint != null {
+            payload["hint"] = result.Hint ?? ""
+        }
+
+        if result.ExpectedType != null {
+            payload["expectedType"] = result.ExpectedType ?? ""
+        }
+
+        if result.ActualType != null {
+            payload["actualType"] = result.ActualType ?? ""
+        }
+
+        if result.DocsUrl != null {
+            payload["docsUrl"] = result.DocsUrl ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildDiagnosticSummary(summary: DiagnosticSummary): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["errors"] = summary.Errors
+        payload["warnings"] = summary.Warnings
+        payload["info"] = summary.Info
+        return payload
+    }
+
     static func BuildSymbolResults(results: List<SymbolResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
         foreach result in results {

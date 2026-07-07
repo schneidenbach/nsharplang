@@ -236,17 +236,7 @@ public static class OutputFormatter
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = SummarizeDiagnostics(results);
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "diagnostics",
-            ok = summary.Errors == 0,
-            projectRoot = NormalizePath(projectRoot),
-            results = results.Select(Normalize).ToList(),
-            summary
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.DiagnosticsToJson(results, projectRoot);
     }
 
     public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
@@ -267,36 +257,12 @@ public static class OutputFormatter
 
     public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
     {
-        var summary = SummarizeDiagnostics(results);
-
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "check",
-            projectRoot = NormalizePath(projectRoot),
-            checkedFiles,
-            ok = summary.Errors == 0,
-            results = results.Select(Normalize).ToList(),
-            summary
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.CheckToJson(results, projectRoot, checkedFiles);
     }
 
     public static string LintToJson(List<DiagnosticResult> results, string? projectRoot, int lintedFiles)
     {
-        var summary = SummarizeDiagnostics(results);
-
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "lint",
-            projectRoot = NormalizePath(projectRoot),
-            lintedFiles,
-            ok = summary.Errors == 0,
-            results = results.Select(Normalize).ToList(),
-            summary
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.LintToJson(results, projectRoot, lintedFiles);
     }
 
     public static string TypeToJson(TypeResult result, string file, int line, int col)
