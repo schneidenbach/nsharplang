@@ -497,7 +497,7 @@ internal static class BatchQueryRunner
     }
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)
-        => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", Normalize(request));
+        => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", NormalizeForErrorDetails(request));
 
     private static string InvalidMissingRequiredInput(BatchQueryCommandKind commandKind, string? projectRoot, BatchQueryRequest request)
         => InvalidRequest(
@@ -506,11 +506,20 @@ internal static class BatchQueryRunner
             projectRoot,
             request);
 
-    private static BatchQueryRequest Normalize(BatchQueryRequest request) => request with
-    {
-        Command = BatchQueryKernels.NormalizeCommand(request.Command),
-        File = NormalizePath(request.File)
-    };
+    private static object NormalizeForErrorDetails(BatchQueryRequest request)
+        => BatchQueryOutputKernels.NormalizeForErrorDetails(
+            request.Command,
+            request.Id,
+            request.File,
+            request.Pos,
+            request.Name,
+            request.Query,
+            request.Kind,
+            request.Severity,
+            request.IncludeKeywords,
+            request.Summary,
+            request.Compact,
+            request.Clusters);
 
     private static object NormalizeForOutput(BatchQueryRequest request)
         => BatchQueryOutputKernels.NormalizeForOutput(
