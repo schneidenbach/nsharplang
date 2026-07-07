@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli.Commands
 
 import NSharpLang.Compiler.CodeIntelligence
+import System
+import System.IO
 
 public enum QuerySubcommandKind {
     Unknown = 0,
@@ -24,6 +26,18 @@ public enum QuerySubcommandKind {
 }
 
 public class QueryCommandDogfoodKernels {
+    public static func GetCallGraphLimit(limitText: string?): int {
+        defaultLimit := 100
+        if limitText != null {
+            parsedLimit := 0
+            if QueryCommandKernels.ParsePositiveInt(limitText, out parsedLimit) {
+                return parsedLimit
+            }
+        }
+
+        return defaultLimit
+    }
+
     public static func GetSubcommandKind(subcommand: string): QuerySubcommandKind {
         if subcommand == "batch" {
             return QuerySubcommandKind.Batch
@@ -96,7 +110,27 @@ public class QueryCommandDogfoodKernels {
         return QuerySubcommandKind.Unknown
     }
 
+    public static func MatchesFile(candidate: string?, query: string): bool {
+        if string.IsNullOrWhiteSpace(candidate ?? "") {
+            return false
+        }
+
+        normalizedCandidate := NormalizePath(candidate ?? "")
+        normalizedQuery := NormalizePath(query)
+        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase)
+    }
+
+    public static func GetRelativePath(basePath: string, filePath: string): string {
+        return Path.GetRelativePath(basePath, filePath)
+    }
+
     public static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
         return new OutlineResult(outputFile, result.Imports, result.Outline)
+    }
+
+    static func NormalizePath(path: string): string {
+        return OutputFormatterNormalizationKernels.NormalizePath(path) ?? path
     }
 }

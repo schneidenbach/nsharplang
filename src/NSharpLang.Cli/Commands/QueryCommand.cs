@@ -195,7 +195,7 @@ public static class QueryCommand
         var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
         var commandSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         var functionName = commandSummary.Function;
-        var limit = GetCallGraphLimit(commandSummary.Limit);
+        var limit = QueryCommandDogfoodKernels.GetCallGraphLimit(commandSummary.Limit);
 
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
@@ -212,15 +212,6 @@ public static class QueryCommand
         }
 
         return 0;
-    }
-
-    private static int GetCallGraphLimit(string? limitStr)
-    {
-        const int defaultLimit = 100;
-        if (limitStr != null && QueryCommandKernels.ParsePositiveInt(limitStr, out var parsedLimit))
-            return parsedLimit;
-
-        return defaultLimit;
     }
 
     private static int PerformanceCommand(string[] args, QueryOptions options)
@@ -255,7 +246,7 @@ public static class QueryCommand
                 var keyFile = key.Item1;
                 var keyLine = key.Item2;
                 var keyColumn = key.Item3;
-                if (MatchesFile(keyFile, file) && keyLine == line && keyColumn == col)
+                if (QueryCommandDogfoodKernels.MatchesFile(keyFile, file) && keyLine == line && keyColumn == col)
                 {
                     facts.Add(new
                     {
@@ -276,7 +267,7 @@ public static class QueryCommand
 
         foreach (var finding in snapshot.SystemsReport.Findings)
         {
-            if (MatchesFile(finding.File, file) && finding.Line == line)
+            if (QueryCommandDogfoodKernels.MatchesFile(finding.File, file) && finding.Line == line)
             {
                 facts.Add(new
                 {
@@ -294,7 +285,7 @@ public static class QueryCommand
 
         foreach (var function in snapshot.SystemsReport.Functions)
         {
-            if (MatchesFile(function.File, file) && function.Line == line)
+            if (QueryCommandDogfoodKernels.MatchesFile(function.File, file) && function.Line == line)
             {
                 facts.Add(new
                 {
@@ -326,18 +317,6 @@ public static class QueryCommand
 
         Console.Write(OutputFormatter.TrustedToJson(snapshot.SystemsReport, snapshot.ProjectRoot));
         return 0;
-    }
-
-    private static bool MatchesFile(string? candidate, string query)
-    {
-        if (string.IsNullOrWhiteSpace(candidate))
-            return false;
-
-        var normalizedCandidate = NormalizePath(candidate);
-        var normalizedQuery = NormalizePath(query);
-        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ImplementorsCommand(string[] args, QueryOptions options)
@@ -506,7 +485,7 @@ public static class QueryCommand
         var result = Service.GetOutlineSingleFile(filePath);
 
         // Make the file path relative to project root for output
-        result = QueryCommandDogfoodKernels.WithOutlineFile(result, GetRelativePath(projectRoot, filePath));
+        result = QueryCommandDogfoodKernels.WithOutlineFile(result, QueryCommandDogfoodKernels.GetRelativePath(projectRoot, filePath));
 
         if (outputMode == 2)
         {
@@ -1016,9 +995,6 @@ public static class QueryCommand
             });
         return Service.LoadProject(projectDir, config);
     }
-
-    private static string GetRelativePath(string basePath, string filePath)
-        => Path.GetRelativePath(basePath, filePath);
 
     private static string NormalizePath(string path)
         => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
