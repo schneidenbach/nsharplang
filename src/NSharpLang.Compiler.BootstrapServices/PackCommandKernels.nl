@@ -1,7 +1,9 @@
 namespace NSharpLang.Cli.Commands
 
 import System
+import System.Collections.Generic
 import System.Text
+import System.Text.Json
 
 public class PackOptionSummary {
     projectOptionValue: string?
@@ -246,6 +248,30 @@ public class PackCommandKernels {
         return "Pack failed: " + message
     }
 
+    public static func SuccessJson(projectRoot: string, projectName: string, version: string, packagePath: string): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "pack"
+        envelope["ok"] = true
+        envelope["projectRoot"] = projectRoot
+        envelope["name"] = projectName
+        envelope["version"] = version
+        envelope["packagePath"] = packagePath
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func ErrorJson(message: string): string {
+        error := new Dictionary<string, object>()
+        error["message"] = message
+
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "pack"
+        envelope["ok"] = false
+        envelope["error"] = error
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
     public static func GetNuspecText(
         projectName: string,
         version: string,
@@ -351,6 +377,10 @@ public class PackCommandKernels {
     static func AppendLine(builder: StringBuilder, text: string) {
         builder.Append(text)
         builder.Append((char)10)
+    }
+
+    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions { WriteIndented: true }
     }
 
     static func XmlEscape(value: string): string {

@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
 
@@ -36,7 +35,7 @@ public static class PackCommand
         {
             if (outputMode == 1)
             {
-                WriteErrorJson(PackCommandKernels.GetMissingProjectFileJsonMessage());
+                Console.WriteLine(PackCommandKernels.ErrorJson(PackCommandKernels.GetMissingProjectFileJsonMessage()));
             }
             else
             {
@@ -53,7 +52,7 @@ public static class PackCommand
         catch (Exception ex)
         {
             if (outputMode == 1)
-                WriteErrorJson(PackCommandKernels.GetParseFailedJsonMessage(ex.Message));
+                Console.WriteLine(PackCommandKernels.ErrorJson(PackCommandKernels.GetParseFailedJsonMessage(ex.Message)));
             else
                 WriteTextError(PackCommandKernels.GetParseFailedTextMessage(ex.Message));
             return 1;
@@ -78,7 +77,7 @@ public static class PackCommand
             if (effectiveVersion == null)
             {
                 if (outputMode == 1)
-                    WriteErrorJson(PackCommandKernels.GetMissingVersionJsonMessage());
+                    Console.WriteLine(PackCommandKernels.ErrorJson(PackCommandKernels.GetMissingVersionJsonMessage()));
                 else
                     WriteTextError(PackCommandKernels.GetMissingVersionTextMessage());
                 return 1;
@@ -94,7 +93,7 @@ public static class PackCommand
             if (assemblyPath == null)
             {
                 if (outputMode == 1)
-                    WriteErrorJson(PackCommandKernels.GetBuildFailedJsonMessage());
+                    Console.WriteLine(PackCommandKernels.ErrorJson(PackCommandKernels.GetBuildFailedJsonMessage()));
                 else
                     WriteTextError(PackCommandKernels.GetBuildFailedTextMessage());
                 return 1;
@@ -116,16 +115,7 @@ public static class PackCommand
 
             if (outputMode == 1)
             {
-                WriteJson(writer =>
-                {
-                    writer.WriteNumber("schemaVersion", 1);
-                    writer.WriteString("command", "pack");
-                    writer.WriteBoolean("ok", true);
-                    writer.WriteString("projectRoot", projectRoot);
-                    writer.WriteString("name", projectName);
-                    writer.WriteString("version", effectiveVersion);
-                    writer.WriteString("packagePath", packagePath);
-                });
+                Console.WriteLine(PackCommandKernels.SuccessJson(projectRoot, projectName, effectiveVersion, packagePath));
             }
             else
             {
@@ -138,7 +128,7 @@ public static class PackCommand
         catch (Exception ex)
         {
             if (outputMode == 1)
-                WriteErrorJson(PackCommandKernels.GetFailedJsonMessage(ex.Message));
+                Console.WriteLine(PackCommandKernels.ErrorJson(PackCommandKernels.GetFailedJsonMessage(ex.Message)));
             else
                 WriteTextError(PackCommandKernels.GetFailedTextMessage(ex.Message));
             return 1;
@@ -217,30 +207,6 @@ public static class PackCommand
         var entry = archive.CreateEntry(entryName);
         using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
         writer.Write(contents);
-    }
-
-    static void WriteJson(Action<Utf8JsonWriter> write)
-    {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-        writer.WriteStartObject();
-        write(writer);
-        writer.WriteEndObject();
-        writer.Flush();
-        Console.WriteLine(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
-    }
-
-    static void WriteErrorJson(string message)
-    {
-        WriteJson(writer =>
-        {
-            writer.WriteNumber("schemaVersion", 1);
-            writer.WriteString("command", "pack");
-            writer.WriteBoolean("ok", false);
-            writer.WriteStartObject("error");
-            writer.WriteString("message", message);
-            writer.WriteEndObject();
-        });
     }
 
 }
