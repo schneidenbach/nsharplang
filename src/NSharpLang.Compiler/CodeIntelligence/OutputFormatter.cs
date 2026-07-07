@@ -548,22 +548,7 @@ public static class OutputFormatter
 
     public static string ImplementorsToJson(ImplementorsResult result)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "implementors",
-            ok = true,
-            @interface = result.Interface,
-            results = result.Results.Select(r => new
-            {
-                typeName = r.TypeName,
-                kind = r.Kind,
-                file = NormalizePath(r.File),
-                line = r.Line,
-                column = r.Column
-            }).ToList()
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.ImplementorsToJson(result);
     }
 
     public static string ImplementorsToText(ImplementorsResult result)

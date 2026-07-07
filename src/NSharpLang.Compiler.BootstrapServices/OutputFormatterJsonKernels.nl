@@ -87,6 +87,39 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
+    public static func ImplementorsToJson(result: ImplementorsResult): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "implementors"
+        envelope["ok"] = true
+        envelope["interface"] = result.Interface
+        envelope["results"] = BuildImplementorResults(result.Results)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildImplementorResults(results: List<ImplementorResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildImplementorResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildImplementorResult(result: ImplementorResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["typeName"] = result.TypeName
+        payload["kind"] = result.Kind
+
+        if result.File != null {
+            payload["file"] = OutputFormatterNormalizationKernels.NormalizePath(result.File) ?? ""
+        }
+
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        return payload
+    }
+
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
         foreach site in sites {
