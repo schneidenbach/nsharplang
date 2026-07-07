@@ -16,4 +16,16 @@ public class DaemonClientKernels {
     public static func GetStartFailedWithReasonMessage(messageText: string): string {
         return "Failed to start daemon: " + messageText
     }
+
+    public static func ShouldDeleteStaleSocket(socketErrorCode: int, timedOutSocketErrorCode: int): bool {
+        return socketErrorCode != timedOutSocketErrorCode
+    }
+
+    public static func GetStartWaitAttemptCount(): int {
+        return 50
+    }
+
+    public static func GetStartWaitDelayMilliseconds(): int {
+        return 100
+    }
 }

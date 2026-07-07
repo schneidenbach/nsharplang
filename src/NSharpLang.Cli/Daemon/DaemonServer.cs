@@ -94,7 +94,8 @@ public class DaemonServer
 
             Console.Error.WriteLine(DaemonServerKernels.GetListeningMessage(_socketPath, Environment.ProcessId));
             Console.Error.WriteLine(DaemonServerKernels.GetProjectMessage(_projectRoot));
-            Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutMessage(FormatDuration(_idleTimeout)));
+            Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutMessage(
+                DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(_idleTimeout.TotalMilliseconds))));
 
             // Idle timeout thread
             var idleThread = new Thread(() =>
@@ -106,7 +107,7 @@ public class DaemonServer
                     if (idle >= _idleTimeout)
                     {
                         Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
-                            FormatDuration(_idleTimeout)));
+                            DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(_idleTimeout.TotalMilliseconds))));
                         _running = false;
                         // Connect to self to unblock Accept()
                         try
@@ -596,15 +597,6 @@ public class DaemonServer
         var responseJson = JsonSerializer.Serialize(response, DaemonJsonOptions);
         var responseBytes = Encoding.UTF8.GetBytes(responseJson);
         SendAll(socket, responseBytes);
-    }
-
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration.TotalMinutes >= 1)
-            return $"{duration.TotalMinutes:0.#}m";
-        if (duration.TotalSeconds >= 1)
-            return $"{duration.TotalSeconds:0.#}s";
-        return $"{duration.TotalMilliseconds:0}ms";
     }
 
     private sealed class DaemonProtocolException : Exception

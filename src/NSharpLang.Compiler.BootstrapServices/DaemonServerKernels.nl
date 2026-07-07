@@ -140,6 +140,29 @@ public class DaemonServerKernels {
         return DaemonServerMessageKernels.GetMalformedRequestParamMessage(key, typeName, messageText)
     }
 
+    public static func FormatDurationMilliseconds(totalMilliseconds: long): string {
+        if totalMilliseconds >= 60000 {
+            return FormatDurationUnit(totalMilliseconds, 60000, "m")
+        }
+
+        if totalMilliseconds >= 1000 {
+            return FormatDurationUnit(totalMilliseconds, 1000, "s")
+        }
+
+        return totalMilliseconds.ToString() + "ms"
+    }
+
+    static func FormatDurationUnit(totalMilliseconds: long, unitMilliseconds: long, suffix: string): string {
+        tenths := (totalMilliseconds * 10 + unitMilliseconds / 2) / unitMilliseconds
+        whole := tenths / 10
+        fraction := tenths - whole * 10
+        if fraction == 0 {
+            return whole.ToString() + suffix
+        }
+
+        return whole.ToString() + "." + fraction.ToString() + suffix
+    }
+
     static func TryParseIntSegment(text: string, start: int, end: int, out result: int): bool {
         result = 0
 

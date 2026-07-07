@@ -83,7 +83,7 @@ public static class DaemonClient
         catch (SocketException ex)
         {
             // Daemon not running or socket stale — clean up only when connect proved it stale.
-            if (ShouldDeleteStaleSocket(ex))
+            if (DaemonClientKernels.ShouldDeleteStaleSocket((int)ex.SocketErrorCode, (int)SocketError.TimedOut))
             {
                 try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
@@ -128,7 +128,7 @@ public static class DaemonClient
         catch (SocketException ex)
         {
             // Socket exists but daemon is dead — clean up only when connect proved it stale.
-            if (ShouldDeleteStaleSocket(ex))
+            if (DaemonClientKernels.ShouldDeleteStaleSocket((int)ex.SocketErrorCode, (int)SocketError.TimedOut))
             {
                 try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
@@ -184,9 +184,9 @@ public static class DaemonClient
 
             // Wait for socket to appear
             var socketPath = DaemonConstants.GetSocketPath(projectRoot);
-            for (int i = 0; i < 50; i++) // Up to 5 seconds
+            for (var i = 0; i < DaemonClientKernels.GetStartWaitAttemptCount(); i++)
             {
-                Thread.Sleep(100);
+                Thread.Sleep(DaemonClientKernels.GetStartWaitDelayMilliseconds());
                 if (File.Exists(socketPath) && IsRunning(projectRoot))
                     return true;
             }
@@ -230,11 +230,6 @@ public static class DaemonClient
             dir = Directory.GetParent(dir)?.FullName;
         }
         return null;
-    }
-
-    private static bool ShouldDeleteStaleSocket(SocketException ex)
-    {
-        return ex.SocketErrorCode != SocketError.TimedOut;
     }
 
     private static void SendAll(Socket socket, byte[] bytes)

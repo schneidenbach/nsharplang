@@ -18,7 +18,7 @@ public static class DaemonCommand
             return 0;
         }
 
-        var projectDir = options.ProjectOption ?? Directory.GetCurrentDirectory();
+        var projectDir = DaemonCommandKernels.ResolveProjectDirectory(options.ProjectOption, Directory.GetCurrentDirectory());
         switch (options.SubcommandKind)
         {
             case DaemonSubcommandKind.Start:

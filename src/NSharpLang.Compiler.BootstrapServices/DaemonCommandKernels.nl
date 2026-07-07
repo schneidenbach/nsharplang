@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
 import System
+import System.IO
 
 public enum DaemonSubcommandKind {
     Unknown = 0,
@@ -23,6 +24,14 @@ public class DaemonOptionSummary {
 }
 
 public class DaemonCommandKernels {
+    public static func ResolveProjectDirectory(projectOption: string?, currentDirectory: string): string {
+        if projectOption == null {
+            return currentDirectory
+        }
+
+        return Path.GetFullPath(projectOption)
+    }
+
     public static func GetOptionSummary(args: string[]): DaemonOptionSummary {
         subcommandKind := DaemonSubcommandKind.Unknown
         projectOption: string? = null
