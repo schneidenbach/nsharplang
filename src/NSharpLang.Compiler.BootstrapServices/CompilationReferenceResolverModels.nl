@@ -177,36 +177,6 @@ public class ReferenceTypeFilterScratch {
     }
 }
 
-public class SharedFrameworkCandidateScratch {
-    MajorVersions: int[]
-    MinorVersions: int[]
-    BuildVersions: int[]
-    RevisionVersions: int[]
-
-    public func EnsureCapacity(candidateCount: int) {
-        EnsureInitialized()
-        if MajorVersions.Length >= candidateCount {
-            return
-        }
-
-        MajorVersions = new int[](candidateCount)
-        MinorVersions = new int[](candidateCount)
-        BuildVersions = new int[](candidateCount)
-        RevisionVersions = new int[](candidateCount)
-    }
-
-    func EnsureInitialized() {
-        if MajorVersions != null {
-            return
-        }
-
-        MajorVersions = new int[](0)
-        MinorVersions = new int[](0)
-        BuildVersions = new int[](0)
-        RevisionVersions = new int[](0)
-    }
-}
-
 public class NuGetPackageAssets {
     compileAssembliesValue: HashSet<string>?
     runtimeAssembliesValue: HashSet<string>?
@@ -258,16 +228,6 @@ public class PackageDependency {
 
     constructor(Id: string, Version: string?) {
         this.Id = Id
-        this.Version = Version
-    }
-}
-
-public class FrameworkCandidate {
-    Directory: string
-    Version: Version
-
-    constructor(Directory: string, Version: Version) {
-        this.Directory = Directory
         this.Version = Version
     }
 }

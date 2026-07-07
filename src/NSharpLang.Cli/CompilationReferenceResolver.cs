@@ -4,7 +4,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -534,43 +533,21 @@ internal static class CompilationReferenceResolver
                 continue;
             }
 
-            var candidates = Directory.GetDirectories(frameworkRoot)
-                .Select(directory => new
-                {
-                    Directory = directory,
-                    Version = TryParseVersion(Path.GetFileName(directory))
-                })
-                .Where(candidate => candidate.Version != null)
-                .Select(candidate => new FrameworkCandidate(candidate.Directory, candidate.Version!))
+            // MECHANICAL-GLUE: directory enumeration only; version parsing and selection live in CompilationReferenceResolverKernels.nl.
+            var candidateDirectories = Directory.GetDirectories(frameworkRoot);
+            var candidateVersions = candidateDirectories
+                .Select(directory => Path.GetFileName(directory) ?? string.Empty)
                 .ToArray();
-
-            if (candidates.Length == 0)
+            var selectedIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkDirectoryIndex(
+                candidateVersions,
+                targetVersion);
+            if (selectedIndex >= 0)
             {
-                continue;
+                return candidateDirectories[selectedIndex];
             }
-
-            return SelectSharedFrameworkDirectory(candidates, targetVersion);
         }
 
         return null;
-    }
-
-    private static string SelectSharedFrameworkDirectory(
-        FrameworkCandidate[] candidates,
-        TargetFrameworkVersionParseResult targetVersion)
-    {
-        var versions = new Version[candidates.Length];
-        for (var i = 0; i < candidates.Length; i++)
-            versions[i] = candidates[i].Version;
-
-        var targetMajor = targetVersion.Parsed ? targetVersion.Major : (int?)null;
-        var dogfoodIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkCandidateIndex(
-            versions,
-            targetMajor);
-        if (dogfoodIndex >= 0)
-            return candidates[dogfoodIndex].Directory;
-
-        throw new InvalidOperationException("N# reference resolver kernel did not select a shared-framework directory.");
     }
 
     private static IEnumerable<string> EnumerateDotnetSharedRoots()
@@ -603,8 +580,5 @@ internal static class CompilationReferenceResolver
             }
         }
     }
-
-    private static Version? TryParseVersion(string? value)
-        => Version.TryParse(value, out var version) ? version : null;
 
 }

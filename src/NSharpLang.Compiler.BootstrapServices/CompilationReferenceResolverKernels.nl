@@ -239,6 +239,48 @@ public class CompilationReferenceResolverKernels {
         return bestOverallIndex
     }
 
+    public static func SelectSharedFrameworkDirectoryIndex(
+        versionNames: string[],
+        targetVersion: TargetFrameworkVersionParseResult): int {
+        current := new int[](4)
+        bestOverall := new int[](4)
+        bestMatching := new int[](4)
+        bestOverallIndex := -1
+        bestMatchingIndex := -1
+
+        index := 0
+        while index < versionNames.Length {
+            if TryParseSharedFrameworkVersionInto(versionNames[index], current) {
+                if bestOverallIndex < 0 || CompareVersionParts(current, bestOverall) > 0 {
+                    CopyVersionParts(current, bestOverall)
+                    bestOverallIndex = index
+                }
+
+                matchesTarget := false
+                if !targetVersion.Parsed {
+                    matchesTarget = true
+                } else if current[0] == targetVersion.Major {
+                    matchesTarget = true
+                }
+
+                if matchesTarget {
+                    if bestMatchingIndex < 0 || CompareVersionParts(current, bestMatching) > 0 {
+                        CopyVersionParts(current, bestMatching)
+                        bestMatchingIndex = index
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        if bestMatchingIndex >= 0 {
+            return bestMatchingIndex
+        }
+
+        return bestOverallIndex
+    }
+
     public static func SelectLatestNuGetVersionIndex(versions: string[]): int {
         if versions.Length == 0 {
             return -1
@@ -320,6 +362,132 @@ public class CompilationReferenceResolverKernels {
         }
 
         return CompareInt(left.Revision, right.Revision)
+    }
+
+    static func TryParseSharedFrameworkVersionInto(value: string?, result: int[]): bool {
+        if result.Length < 4 {
+            return false
+        }
+
+        result[0] = -1
+        result[1] = -1
+        result[2] = -1
+        result[3] = -1
+
+        text := value ?? ""
+        start := 0
+        while start < text.Length {
+            if !char.IsWhiteSpace(text[start]) {
+                break
+            }
+
+            start = start + 1
+        }
+
+        end := text.Length
+        while end > start {
+            if !char.IsWhiteSpace(text[end - 1]) {
+                break
+            }
+
+            end = end - 1
+        }
+
+        if start >= end {
+            return false
+        }
+
+        segmentStart := start
+        segmentCount := 0
+        while segmentStart < end {
+            if segmentCount >= 4 {
+                return false
+            }
+
+            segmentEnd := segmentStart
+            while segmentEnd < end {
+                if text[segmentEnd] == '.' {
+                    break
+                }
+
+                segmentEnd = segmentEnd + 1
+            }
+
+            if !TryParseVersionIntSegment(text, segmentStart, segmentEnd, result, segmentCount) {
+                return false
+            }
+
+            segmentCount = segmentCount + 1
+            if segmentEnd >= end {
+                break
+            }
+
+            segmentStart = segmentEnd + 1
+            if segmentStart >= end {
+                return false
+            }
+        }
+
+        return segmentCount > 0
+    }
+
+    static func TryParseVersionIntSegment(
+        text: string,
+        start: int,
+        end: int,
+        result: int[],
+        resultIndex: int): bool {
+        if start >= end {
+            return false
+        }
+
+        value := 0
+        index := start
+        while index < end {
+            ch := text[index]
+            if ch < '0' || ch > '9' {
+                return false
+            }
+
+            digit := ch - '0'
+            if value > 214748364 {
+                return false
+            }
+
+            if value == 214748364 {
+                if digit > 7 {
+                    return false
+                }
+            }
+
+            value = value * 10 + digit
+            index = index + 1
+        }
+
+        result[resultIndex] = value
+        return true
+    }
+
+    static func CompareVersionParts(left: int[], right: int[]): int {
+        index := 0
+        while index < 4 {
+            compare := CompareInt(left[index], right[index])
+            if compare != 0 {
+                return compare
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    static func CopyVersionParts(source: int[], destination: int[]) {
+        index := 0
+        while index < 4 {
+            destination[index] = source[index]
+            index = index + 1
+        }
     }
 
     static func CompareInt(left: int, right: int): int {
