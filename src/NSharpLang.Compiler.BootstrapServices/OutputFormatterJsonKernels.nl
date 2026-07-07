@@ -120,6 +120,45 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
+    public static func HoverToJson(result: HoverResult, fileName: string, line: int, col: int): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "hover"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["result"] = BuildHoverResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildPosition(line: int, col: int): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["line"] = line
+        payload["column"] = col
+        return payload
+    }
+
+    static func BuildHoverResult(result: HoverResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["signature"] = result.Signature
+
+        if result.Documentation != null {
+            payload["documentation"] = result.Documentation ?? ""
+        }
+
+        if result.DefinedIn != null {
+            payload["definedIn"] = OutputFormatterNormalizationKernels.NormalizePath(result.DefinedIn) ?? ""
+        }
+
+        payload["kind"] = result.Kind
+        return payload
+    }
+
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
         foreach site in sites {

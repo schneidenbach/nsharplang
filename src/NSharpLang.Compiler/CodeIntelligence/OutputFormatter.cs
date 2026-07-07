@@ -509,22 +509,7 @@ public static class OutputFormatter
 
     public static string HoverToJson(HoverResult result, string file, int line, int col)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "hover",
-            ok = true,
-            file = NormalizePath(file),
-            position = new { line, column = col },
-            result = new
-            {
-                signature = result.Signature,
-                documentation = result.Documentation,
-                definedIn = NormalizePath(result.DefinedIn),
-                kind = result.Kind
-            }
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.HoverToJson(result, file, line, col);
     }
 
     public static string HoverToText(HoverResult result, string file, int line, int col)
