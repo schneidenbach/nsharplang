@@ -451,12 +451,12 @@ public class DocQuery
 
     private string[] GetBaseTypes(Type type)
     {
-        var result = new List<string>();
-        if (type.BaseType != null && DocQueryKernels.ShouldIncludeBaseType(type.BaseType.FullName ?? ""))
-            result.Add(FormatType(type.BaseType));
-        foreach (var iface in type.GetInterfaces())
-            result.Add(FormatType(iface));
-        return result.ToArray();
+        var baseTypeDisplayName = type.BaseType != null ? FormatType(type.BaseType) : null;
+        var interfaceDisplayNames = type.GetInterfaces().Select(FormatType).ToArray();
+        return DocQueryKernels.FormatBaseTypeList(
+            type.BaseType?.FullName,
+            baseTypeDisplayName,
+            interfaceDisplayNames);
     }
 
     private static string FormatType(Type type)
@@ -500,45 +500,42 @@ public class DocQuery
     private static string FormatTypeForDocId(Type type)
     {
         if (type.IsByRef)
-            return $"{FormatTypeForDocId(type.GetElementType()!)}@";
+            return DocQueryKernels.FormatByRefTypeDocId(FormatTypeForDocId(type.GetElementType()!));
 
         if (type.IsPointer)
-            return $"{FormatTypeForDocId(type.GetElementType()!)}*";
+            return DocQueryKernels.FormatPointerTypeDocId(FormatTypeForDocId(type.GetElementType()!));
 
         if (type.IsArray)
         {
             var elementType = FormatTypeForDocId(type.GetElementType()!);
-            if (type.GetArrayRank() == 1) return $"{elementType}[]";
-
-            var bounds = string.Join(",", Enumerable.Repeat("0:", type.GetArrayRank()));
-            return $"{elementType}[{bounds}]";
+            return DocQueryKernels.FormatArrayTypeDocId(elementType, type.GetArrayRank());
         }
 
         if (type.IsGenericParameter)
         {
-            var prefix = type.DeclaringMethod != null ? "``" : "`";
-            return $"{prefix}{type.GenericParameterPosition}";
+            return DocQueryKernels.FormatGenericParameterDocId(
+                type.DeclaringMethod != null,
+                type.GenericParameterPosition);
         }
 
         if (type.IsGenericType)
         {
             var genericType = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
-            var typeName = genericType.FullName?.Replace('+', '.');
-            var args = type.GetGenericArguments();
-            return $"{typeName}{{{string.Join(",", args.Select(FormatTypeForDocId))}}}";
+            var parameterTypeDocIds = type.GetGenericArguments().Select(FormatTypeForDocId).ToArray();
+            return DocQueryKernels.FormatGenericTypeDocId(genericType.FullName, parameterTypeDocIds);
         }
 
-        return type.FullName?.Replace('+', '.') ?? type.Name;
+        return DocQueryKernels.FormatNamedTypeDocId(type.FullName, type.Name);
     }
 
     private static string GetTypeKind(Type type)
     {
-        if (type.IsEnum) return "enum";
-        if (type.IsInterface) return "interface";
-        if (type.IsValueType) return "struct";
-        if (type.IsAbstract && type.IsSealed) return "static class";
-        if (type.IsAbstract) return "abstract class";
-        return "class";
+        return DocQueryKernels.GetReflectionTypeKind(
+            type.IsEnum,
+            type.IsInterface,
+            type.IsValueType,
+            type.IsAbstract,
+            type.IsSealed);
     }
 
     private void AddAssembly(Assembly assembly)

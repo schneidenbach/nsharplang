@@ -536,6 +536,101 @@ public class DocQueryKernels {
         return (namespaceName ?? "") + "." + typeName
     }
 
+    public static func FormatByRefTypeDocId(elementTypeDocId: string): string {
+        return elementTypeDocId + "@"
+    }
+
+    public static func FormatPointerTypeDocId(elementTypeDocId: string): string {
+        return elementTypeDocId + "*"
+    }
+
+    public static func FormatArrayTypeDocId(elementTypeDocId: string, rank: int): string {
+        if rank == 1 {
+            return elementTypeDocId + "[]"
+        }
+
+        builder := new StringBuilder()
+        builder.Append(elementTypeDocId)
+        builder.Append("[")
+        i := 0
+        while i < rank {
+            if i > 0 {
+                builder.Append(",")
+            }
+
+            builder.Append("0:")
+            i = i + 1
+        }
+
+        builder.Append("]")
+        return builder.ToString()
+    }
+
+    public static func FormatGenericParameterDocId(isMethodGenericParameter: bool, position: int): string {
+        if isMethodGenericParameter {
+            return "``" + position.ToString()
+        }
+
+        return "`" + position.ToString()
+    }
+
+    public static func FormatGenericTypeDocId(genericTypeFullName: string?, parameterTypeDocIds: string[]): string {
+        ownerName := genericTypeFullName ?? ""
+        return ownerName.Replace('+', '.') + "{" + string.Join(",", parameterTypeDocIds) + "}"
+    }
+
+    public static func FormatNamedTypeDocId(fullName: string?, fallbackName: string): string {
+        if fullName == null {
+            return fallbackName
+        }
+
+        return fullName.Replace('+', '.')
+    }
+
+    public static func GetReflectionTypeKind(
+        isEnum: bool,
+        isInterface: bool,
+        isValueType: bool,
+        isAbstract: bool,
+        isSealed: bool): string {
+        if isEnum {
+            return "enum"
+        }
+
+        if isInterface {
+            return "interface"
+        }
+
+        if isValueType {
+            return "struct"
+        }
+
+        if isAbstract && isSealed {
+            return "static class"
+        }
+
+        if isAbstract {
+            return "abstract class"
+        }
+
+        return "class"
+    }
+
+    public static func FormatBaseTypeList(baseTypeFullName: string?, baseTypeDisplayName: string?, interfaceDisplayNames: string[]): string[] {
+        result := new List<string>()
+        if baseTypeFullName != null && baseTypeDisplayName != null && ShouldIncludeBaseType(baseTypeFullName) {
+            result.Add(baseTypeDisplayName)
+        }
+
+        i := 0
+        while i < interfaceDisplayNames.Length {
+            result.Add(interfaceDisplayNames[i])
+            i = i + 1
+        }
+
+        return result.ToArray()
+    }
+
     public static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
     }
