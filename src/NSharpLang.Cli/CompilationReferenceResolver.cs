@@ -482,23 +482,22 @@ internal static class CompilationReferenceResolver
             return Array.Empty<string>();
         }
 
+        // MECHANICAL-GLUE: directory and file enumeration only; compatibility and ordering live in CompilationReferenceResolverKernels.nl.
         var candidateDirectories = Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly);
-        var scores = new int[candidateDirectories.Length];
-        for (var i = 0; i < candidateDirectories.Length; i++)
-            scores[i] = CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(
-                Path.GetFileName(candidateDirectories[i]),
-                targetFramework);
-
-        var bestDirectoryIndex = CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
+        var candidateFrameworks = candidateDirectories
+            .Select(directory => Path.GetFileName(directory) ?? string.Empty)
+            .ToArray();
+        var bestDirectoryIndex = CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(
+            candidateFrameworks,
+            targetFramework);
         var bestDirectory = bestDirectoryIndex >= 0
             ? candidateDirectories[bestDirectoryIndex]
             : null;
 
         return bestDirectory == null
             ? Array.Empty<string>()
-            : Directory.GetFiles(bestDirectory, "*.dll", SearchOption.TopDirectoryOnly)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            : CompilationReferenceResolverKernels.SortPathsIgnoreCase(
+                Directory.GetFiles(bestDirectory, "*.dll", SearchOption.TopDirectoryOnly));
     }
 
     private static void AddDllReference(ProjectConfig config, string assemblyPath)

@@ -139,6 +139,29 @@ public class CompilationReferenceResolverKernels {
         return result[0]
     }
 
+    public static func SelectBestAssetDirectoryIndex(candidateFrameworks: string[], targetFramework: string): int {
+        scores := new int[](candidateFrameworks.Length)
+        index := 0
+        while index < candidateFrameworks.Length {
+            scores[index] = GetFrameworkCompatibilityScore(candidateFrameworks[index], targetFramework)
+            index = index + 1
+        }
+
+        return SelectBestScoreIndex(scores, scores.Length)
+    }
+
+    public static func SortPathsIgnoreCase(paths: string[]): string[] {
+        sorted := new string[](paths.Length)
+        index := 0
+        while index < paths.Length {
+            sorted[index] = paths[index]
+            index = index + 1
+        }
+
+        Array.Sort(sorted, 0, sorted.Length, StringComparer.OrdinalIgnoreCase)
+        return sorted
+    }
+
     public static func NormalizeNuGetDependencyVersion(version: string?): string? {
         source := version ?? ""
         result := new int[](2)
