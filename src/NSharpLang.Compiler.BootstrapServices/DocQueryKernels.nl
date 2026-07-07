@@ -425,6 +425,117 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
+    public static func FormatBuiltinTypeName(fullName: string?): string? {
+        if fullName == "System.Void" {
+            return "void"
+        }
+
+        if fullName == "System.Int32" {
+            return "int"
+        }
+
+        if fullName == "System.Int64" {
+            return "long"
+        }
+
+        if fullName == "System.Single" {
+            return "float"
+        }
+
+        if fullName == "System.Double" {
+            return "double"
+        }
+
+        if fullName == "System.Boolean" {
+            return "bool"
+        }
+
+        if fullName == "System.String" {
+            return "string"
+        }
+
+        if fullName == "System.Char" {
+            return "char"
+        }
+
+        if fullName == "System.Byte" {
+            return "byte"
+        }
+
+        if fullName == "System.Object" {
+            return "object"
+        }
+
+        return null
+    }
+
+    public static func FormatGenericTypeName(rawName: string, formattedArgs: string[]): string {
+        return StripGenericArity(rawName) + "<" + string.Join(", ", formattedArgs) + ">"
+    }
+
+    public static func FormatArrayTypeName(elementTypeName: string): string {
+        return elementTypeName + "[]"
+    }
+
+    public static func GetMethodSignatureName(methodName: string, declaringTypeName: string?, isConstructor: bool): string {
+        if isConstructor && declaringTypeName != null {
+            return StripGenericArity(declaringTypeName)
+        }
+
+        return methodName
+    }
+
+    public static func FormatMethodSignature(methodName: string, parameterNames: string[], parameterTypeNames: string[]): string {
+        builder := new StringBuilder()
+        builder.Append(methodName)
+        builder.Append("(")
+        i := 0
+        while i < parameterTypeNames.Length {
+            if i > 0 {
+                builder.Append(", ")
+            }
+
+            builder.Append(parameterTypeNames[i])
+            builder.Append(" ")
+            builder.Append(parameterNames[i])
+            i = i + 1
+        }
+
+        builder.Append(")")
+        return builder.ToString()
+    }
+
+    public static func FormatParameterList(parameterNames: string[], parameterTypeNames: string[]): string {
+        builder := new StringBuilder()
+        builder.Append("(")
+        i := 0
+        while i < parameterTypeNames.Length {
+            if i > 0 {
+                builder.Append(", ")
+            }
+
+            builder.Append(parameterNames[i])
+            builder.Append(": ")
+            builder.Append(parameterTypeNames[i])
+            i = i + 1
+        }
+
+        builder.Append(")")
+        return builder.ToString()
+    }
+
+    public static func FormatNestedQualifiedTypeName(declaringTypeName: string, nestedTypeName: string): string {
+        return declaringTypeName + "." + nestedTypeName
+    }
+
+    public static func FormatQualifiedTypeName(namespaceName: string?, typeName: string): string {
+        if string.IsNullOrWhiteSpace(namespaceName) {
+            return typeName
+        }
+
+        return (namespaceName ?? "") + "." + typeName
+    }
+
     public static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
     }

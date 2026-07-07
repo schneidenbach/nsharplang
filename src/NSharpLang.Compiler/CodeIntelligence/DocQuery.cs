@@ -462,26 +462,17 @@ public class DocQuery
     private static string FormatType(Type type)
     {
         if (type.IsGenericParameter) return type.Name;
-        if (type.FullName == "System.Void") return "void";
-        if (type.FullName == "System.Int32") return "int";
-        if (type.FullName == "System.Int64") return "long";
-        if (type.FullName == "System.Single") return "float";
-        if (type.FullName == "System.Double") return "double";
-        if (type.FullName == "System.Boolean") return "bool";
-        if (type.FullName == "System.String") return "string";
-        if (type.FullName == "System.Char") return "char";
-        if (type.FullName == "System.Byte") return "byte";
-        if (type.FullName == "System.Object") return "object";
+        var builtinName = DocQueryKernels.FormatBuiltinTypeName(type.FullName);
+        if (builtinName != null) return builtinName;
 
         if (type.IsGenericType)
         {
-            var name = type.Name.Split('`')[0];
-            var args = type.GetGenericArguments();
-            return $"{name}<{string.Join(", ", args.Select(FormatType))}>";
+            var formattedArgs = type.GetGenericArguments().Select(FormatType).ToArray();
+            return DocQueryKernels.FormatGenericTypeName(type.Name, formattedArgs);
         }
 
         if (type.IsArray)
-            return $"{FormatType(type.GetElementType()!)}[]";
+            return DocQueryKernels.FormatArrayTypeName(FormatType(type.GetElementType()!));
 
         return StripGenericArity(type.Name);
     }
@@ -489,17 +480,21 @@ public class DocQuery
     private static string FormatMethodSignature(MethodBase method)
     {
         var parameters = method.GetParameters();
-        var paramStr = string.Join(", ", parameters.Select(p => $"{FormatType(p.ParameterType)} {p.Name}"));
-        var name = method is ConstructorInfo && method.DeclaringType != null
-            ? StripGenericArity(method.DeclaringType.Name)
-            : method.Name;
-        return $"{name}({paramStr})";
+        var parameterNames = parameters.Select(p => p.Name ?? "").ToArray();
+        var parameterTypeNames = parameters.Select(p => FormatType(p.ParameterType)).ToArray();
+        var name = DocQueryKernels.GetMethodSignatureName(
+            method.Name,
+            method.DeclaringType?.Name,
+            method is ConstructorInfo);
+        return DocQueryKernels.FormatMethodSignature(name, parameterNames, parameterTypeNames);
     }
 
     private static string FormatParameters(MethodBase method)
     {
         var parameters = method.GetParameters();
-        return $"({string.Join(", ", parameters.Select(p => $"{p.Name}: {FormatType(p.ParameterType)}"))})";
+        var parameterNames = parameters.Select(p => p.Name ?? "").ToArray();
+        var parameterTypeNames = parameters.Select(p => FormatType(p.ParameterType)).ToArray();
+        return DocQueryKernels.FormatParameterList(parameterNames, parameterTypeNames);
     }
 
     private static string FormatTypeForDocId(Type type)
@@ -815,11 +810,12 @@ public class DocQuery
 
         if (type.IsNested && type.DeclaringType != null)
         {
-            return $"{FormatQualifiedType(type.DeclaringType)}.{FormatTypeName(type)}";
+            return DocQueryKernels.FormatNestedQualifiedTypeName(
+                FormatQualifiedType(type.DeclaringType),
+                FormatTypeName(type));
         }
 
-        var prefix = string.IsNullOrWhiteSpace(type.Namespace) ? "" : $"{type.Namespace}.";
-        return $"{prefix}{FormatTypeName(type)}";
+        return DocQueryKernels.FormatQualifiedTypeName(type.Namespace, FormatTypeName(type));
     }
 
     private static string FormatTypeName(Type type)
@@ -835,7 +831,7 @@ public class DocQuery
             ? args.Select(a => a.Name)
             : args.Select(FormatType);
 
-        return $"{name}<{string.Join(", ", formattedArgs)}>";
+        return DocQueryKernels.FormatGenericTypeName(name, formattedArgs.ToArray());
     }
 
     private static string StripGenericArity(string name)
