@@ -513,23 +513,18 @@ internal static class BatchQueryRunner
     };
 
     private static object NormalizeForOutput(BatchQueryRequest request)
-    {
-        var normalized = Normalize(request);
-        return new
-        {
-            command = normalized.Command,
-            file = normalized.File,
-            pos = normalized.Pos,
-            name = normalized.Name,
-            query = normalized.Query,
-            kind = normalized.Kind,
-            severity = normalized.Severity,
-            includeKeywords = normalized.IncludeKeywords ? true : (bool?)null,
-            summary = normalized.Summary ? true : (bool?)null,
-            compact = normalized.Compact ? true : (bool?)null,
-            clusters = normalized.Clusters ? true : (bool?)null
-        };
-    }
+        => BatchQueryOutputKernels.NormalizeForOutput(
+            request.Command,
+            request.File,
+            request.Pos,
+            request.Name,
+            request.Query,
+            request.Kind,
+            request.Severity,
+            request.IncludeKeywords,
+            request.Summary,
+            request.Compact,
+            request.Clusters);
 
     private static string? NormalizePath(string? path)
         => OutputFormatterNormalizationKernels.NormalizePath(path);
