@@ -59,6 +59,59 @@ public class CompilationReferenceResolverKernels {
         return candidates.ToArray()
     }
 
+    public static func GetProjectAssemblyName(projectRoot: string, configuredName: string?): string {
+        if !string.IsNullOrWhiteSpace(configuredName ?? "") {
+            return configuredName ?? ""
+        }
+
+        projectName := Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot)))
+        return projectName ?? "Project"
+    }
+
+    public static func GetStableOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
+        return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
+    }
+
+    public static func ResolveProjectReferencePath(projectRoot: string, projectReference: string): string {
+        if Path.IsPathRooted(projectReference) {
+            return projectReference
+        }
+
+        return Path.Combine(projectRoot, projectReference)
+    }
+
+    public static func GetFrameworkReferenceNames(sdk: string, references: IEnumerable<Reference>): string[] {
+        names := new List<string>()
+        seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        if sdk.Contains("Web", StringComparison.OrdinalIgnoreCase) {
+            AddUniqueText(names, seen, "Microsoft.AspNetCore.App")
+        }
+
+        foreach reference in references {
+            if reference.Type == ReferenceType.Framework {
+                AddUniqueText(names, seen, reference.Framework ?? "")
+            }
+        }
+
+        return names.ToArray()
+    }
+
+    public static func ShouldAddDllReference(references: IEnumerable<Reference>, fullPath: string): bool {
+        foreach reference in references {
+            if reference.Type == ReferenceType.Dll {
+                referencePath := reference.Dll
+                if !string.IsNullOrWhiteSpace(referencePath ?? "") {
+                    if string.Equals(Path.GetFullPath(referencePath), fullPath, StringComparison.OrdinalIgnoreCase) {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+
     public static func GetImplicitTestDependencyPlan(
         includeTests: bool,
         hasTests: bool,
@@ -1339,6 +1392,12 @@ public class CompilationReferenceResolverKernels {
     static func AddSharedRootCandidate(candidates: List<string>, yielded: HashSet<string>, candidate: string) {
         if !string.IsNullOrWhiteSpace(candidate) && yielded.Add(candidate) {
             candidates.Add(candidate)
+        }
+    }
+
+    static func AddUniqueText(values: List<string>, seen: HashSet<string>, value: string) {
+        if !string.IsNullOrWhiteSpace(value) && seen.Add(value) {
+            values.Add(value)
         }
     }
 }

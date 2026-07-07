@@ -29,12 +29,10 @@ internal static class CompilationReferenceResolver
     }
 
     internal static string GetProjectAssemblyName(string projectRoot, ProjectConfig config)
-        => !string.IsNullOrWhiteSpace(config.Name)
-            ? config.Name!
-            : Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot))) ?? "Project";
+        => CompilationReferenceResolverKernels.GetProjectAssemblyName(projectRoot, config.Name);
 
     internal static string GetStableOutputDirectory(string projectRoot, ProjectConfig config, string configuration)
-        => Path.Combine(projectRoot, "bin", configuration, config.TargetFramework);
+        => CompilationReferenceResolverKernels.GetStableOutputDirectory(projectRoot, configuration, config.TargetFramework);
 
     private static ReferenceResolutionResult ResolveProjectReferences(
         string projectRoot,
@@ -83,7 +81,7 @@ internal static class CompilationReferenceResolver
                 continue;
             }
 
-            var resolvedProjectReferencePath = ResolveProjectReferencePath(projectRoot, projectReference.Project!);
+            var resolvedProjectReferencePath = CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, projectReference.Project!);
             var referencedProjectRoot = ProjectReferenceResolver.ResolveNSharpProjectRoot(
                 resolvedProjectReferencePath);
             var referencedProjectYml = Path.Combine(referencedProjectRoot, "project.yml");
@@ -227,27 +225,10 @@ internal static class CompilationReferenceResolver
         config.TestDependencies.Add(new Reference { Nuget = plan.PackageName, Version = plan.Version });
     }
 
-    private static string ResolveProjectReferencePath(string projectRoot, string projectReference)
-        => Path.IsPathRooted(projectReference)
-            ? projectReference
-            : Path.Combine(projectRoot, projectReference);
-
     private static IReadOnlyList<string> ResolveFrameworkReferenceDirectories(string projectRoot, ProjectConfig config)
     {
-        var frameworkNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (config.Sdk.Contains("Web", StringComparison.OrdinalIgnoreCase))
-        {
-            frameworkNames.Add("Microsoft.AspNetCore.App");
-        }
-
-        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Framework))
-        {
-            frameworkNames.Add(reference.Framework!);
-        }
-
         var directories = new List<string>();
-        foreach (var frameworkName in frameworkNames)
+        foreach (var frameworkName in CompilationReferenceResolverKernels.GetFrameworkReferenceNames(config.Sdk, config.Dependencies))
         {
             var directory = FindSharedFrameworkDirectory(frameworkName, config.TargetFramework);
             if (directory == null)
@@ -507,11 +488,7 @@ internal static class CompilationReferenceResolver
         }
 
         var fullPath = Path.GetFullPath(assemblyPath);
-        var alreadyPresent = config.Dependencies.Any(dependency =>
-            dependency.Type == ReferenceType.Dll
-            && string.Equals(Path.GetFullPath(dependency.Dll!), fullPath, StringComparison.OrdinalIgnoreCase));
-
-        if (!alreadyPresent)
+        if (CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath))
         {
             config.Dependencies.Add(new Reference { Dll = fullPath });
         }
