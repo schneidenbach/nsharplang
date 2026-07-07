@@ -256,7 +256,7 @@ partial class Program
                         "0.000s",
                         FormatXunitFailure(error),
                         "xUnit runner"));
-                    AddOutcomeRank(GetNativeTestOutcomeRank("failed"));
+                    AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank("failed"));
                     break;
                 case ITestAssemblyFinished:
                     _finished.Set();
@@ -297,7 +297,7 @@ partial class Program
                 GetXunitDescription(testCase) ?? displayName);
 
             _results.Add(result);
-            AddOutcomeRank(GetNativeTestOutcomeRank(outcome));
+            AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank(outcome));
 
             if (!verbose)
             {
@@ -369,7 +369,7 @@ partial class Program
             {
                 var result = RunNativeTest(testCase, verbose, timeoutMs);
                 results.Add(result);
-                outcomeRanks[outcomeCount] = GetNativeTestOutcomeRank(result.Outcome);
+                outcomeRanks[outcomeCount] = TestCommandKernels.GetNativeTestOutcomeRank(result.Outcome);
                 outcomeCount++;
             }
 
@@ -659,15 +659,6 @@ partial class Program
             dogfoodSummary.Skipped);
     }
 
-    private static int GetNativeTestOutcomeRank(string outcome) =>
-        outcome switch
-        {
-            "passed" => 1,
-            "failed" => 2,
-            "skipped" => 3,
-            _ => 0
-        };
-
     private static void OutputNativeTestJson(
         string projectRoot,
         bool ok,
@@ -676,33 +667,7 @@ partial class Program
         NativeTestSummary? summary = null)
     {
         var summaryValue = summary ?? throw new InvalidOperationException("N# test JSON output requires an N# outcome summary.");
-
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "test",
-            ok,
-            projectRoot = projectRoot.Replace('\\', '/'),
-            error = errorMessage,
-            summary = new
-            {
-                total = summaryValue.Total,
-                passed = summaryValue.Passed,
-                failed = summaryValue.Failed,
-                skipped = summaryValue.Skipped,
-                duration = "0s"
-            },
-            results = testResults
-        };
-
-        var options = new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        };
-
-        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(envelope, options));
+        Console.WriteLine(TestCommandKernels.NativeTestJson(projectRoot, ok, testResults, errorMessage, summaryValue));
     }
 
 }

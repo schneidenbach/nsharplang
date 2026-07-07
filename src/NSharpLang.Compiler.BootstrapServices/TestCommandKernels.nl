@@ -4,6 +4,8 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Text
+import System.Text.Json
+import NSharpLang.Compiler.CodeIntelligence
 
 public class NativeTestCase {
     DisplayName: string
@@ -153,6 +155,22 @@ public class TestOptionSummary {
 }
 
 public class TestCommandKernels {
+    public static func GetNativeTestOutcomeRank(outcome: string): int {
+        if outcome == "passed" {
+            return 1
+        }
+
+        if outcome == "failed" {
+            return 2
+        }
+
+        if outcome == "skipped" {
+            return 3
+        }
+
+        return 0
+    }
+
     public static func SummarizeOutcomeRanks(outcomeRanks: int[], outcomeCount: int): TestOutcomeSummary {
         if outcomeCount < 0 || outcomeCount > outcomeRanks.Length {
             throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.")
@@ -180,6 +198,66 @@ public class TestCommandKernels {
         }
 
         return new TestOutcomeSummary(nonOk == 0, passed, failed, skipped)
+    }
+
+    public static func NativeTestJson(
+        projectRoot: string,
+        ok: bool,
+        testResults: IReadOnlyList<NativeTestResult>,
+        errorMessage: string?,
+        summary: NativeTestSummary): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "test"
+        envelope["ok"] = ok
+        envelope["projectRoot"] = NormalizePath(projectRoot)
+
+        if errorMessage != null {
+            envelope["error"] = errorMessage ?? ""
+        }
+
+        envelope["summary"] = BuildNativeTestSummary(summary)
+        envelope["results"] = BuildNativeTestResults(testResults)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildNativeTestSummary(summary: NativeTestSummary): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["total"] = summary.Total
+        payload["passed"] = summary.Passed
+        payload["failed"] = summary.Failed
+        payload["skipped"] = summary.Skipped
+        payload["duration"] = "0s"
+        return payload
+    }
+
+    static func BuildNativeTestResults(testResults: IReadOnlyList<NativeTestResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        i := 0
+        while i < testResults.Count {
+            payload.Add(BuildNativeTestResult(testResults[i]))
+            i = i + 1
+        }
+
+        return payload
+    }
+
+    static func BuildNativeTestResult(result: NativeTestResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["displayName"] = result.DisplayName
+        payload["outcome"] = result.Outcome
+        payload["duration"] = result.Duration
+
+        if result.ErrorMessage != null {
+            payload["errorMessage"] = result.ErrorMessage ?? ""
+        }
+
+        if result.NsharpDescription != null {
+            payload["nsharpDescription"] = result.NsharpDescription ?? ""
+        }
+
+        return payload
     }
 
     public static func GetOptionSummary(args: string[]): TestOptionSummary {
@@ -495,6 +573,19 @@ public class TestCommandKernels {
 
     static func ContainsIgnoreCase(text: string, part: string): bool {
         return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0
+    }
+
+    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions { WriteIndented: true }
+    }
+
+    static func NormalizePath(path: string): string {
+        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
+        if normalized != null {
+            return normalized ?? ""
+        }
+
+        return path
     }
 
     static func AppendLine(builder: StringBuilder, text: string) {
