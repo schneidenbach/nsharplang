@@ -25,7 +25,51 @@ public enum QuerySubcommandKind {
     Help = 17
 }
 
+public class QueryDaemonParameterPlan {
+    File: string?
+    Pos: string?
+    Name: string?
+    Kind: string?
+    Severity: string?
+    IncludeKeywords: bool
+    Summary: bool
+    Clusters: bool
+
+    constructor(
+        filePath: string?,
+        pos: string?,
+        name: string?,
+        kind: string?,
+        severity: string?,
+        includeKeywords: bool,
+        summary: bool,
+        clusters: bool) {
+        File = filePath
+        Pos = pos
+        Name = name
+        Kind = kind
+        Severity = severity
+        IncludeKeywords = includeKeywords
+        Summary = summary
+        Clusters = clusters
+    }
+}
+
 public class QueryCommandDogfoodKernels {
+    public static func GetDaemonParameterPlan(args: string[], options: QueryOptions): QueryDaemonParameterPlan {
+        parameterSummary := QueryCommandKernels.GetDaemonParameterSummary(args)
+
+        return new QueryDaemonParameterPlan(
+            SelectDaemonString(parameterSummary.File, options.File),
+            SelectDaemonString(parameterSummary.Pos, options.Pos),
+            SelectDaemonString(parameterSummary.Name, null),
+            SelectDaemonString(parameterSummary.Kind, null),
+            SelectDaemonString(parameterSummary.Severity, null),
+            parameterSummary.IncludeKeywords,
+            options.InspectCompact,
+            parameterSummary.Clusters)
+    }
+
     public static func GetCallGraphLimit(limitText: string?): int {
         defaultLimit := 100
         if limitText != null {
@@ -132,5 +176,17 @@ public class QueryCommandDogfoodKernels {
 
     static func NormalizePath(path: string): string {
         return OutputFormatterNormalizationKernels.NormalizePath(path) ?? path
+    }
+
+    static func SelectDaemonString(primary: string?, fallback: string?): string? {
+        if !string.IsNullOrWhiteSpace(primary ?? "") {
+            return primary
+        }
+
+        if !string.IsNullOrWhiteSpace(fallback ?? "") {
+            return fallback
+        }
+
+        return null
     }
 }

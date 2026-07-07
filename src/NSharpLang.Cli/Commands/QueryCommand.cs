@@ -58,7 +58,7 @@ public static class QueryCommand
     private static int SymbolsCommand(string[] args, QueryOptions options)
     {
         var outputMode = QueryCommandKernels.GetTextJsonOutputMode(options.UseText);
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -504,7 +504,7 @@ public static class QueryCommand
         var parameterSummary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var wantsClusters = parameterSummary.Clusters;
         var outputMode = QueryCommandKernels.GetDiagnosticsOutputMode(options.UseText, wantsClusters);
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -554,7 +554,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodType, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodType, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -610,7 +610,7 @@ public static class QueryCommand
                 return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
             }
 
-            if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, BuildDaemonParameters(args, options), out var daemonExitCode))
+            if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, MaterializeDaemonParameters(args, options), out var daemonExitCode))
                 return daemonExitCode;
 
             var snapshot = LoadProjectOrFail(options);
@@ -677,7 +677,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodInspect, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodInspect, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -768,7 +768,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodReferences, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodReferences, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -859,7 +859,7 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
-        if (TryExecuteViaDaemon(options, DaemonConstants.MethodCompletions, BuildDaemonParameters(args, options), out var daemonExitCode))
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodCompletions, MaterializeDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
@@ -1002,34 +1002,25 @@ public static class QueryCommand
     private static string GetProjectRoot(QueryOptions options)
         => Path.GetFullPath(options.ProjectDir ?? Directory.GetCurrentDirectory());
 
-    private static Dictionary<string, object?> BuildDaemonParameters(string[] args, QueryOptions options)
+    private static Dictionary<string, object?> MaterializeDaemonParameters(string[] args, QueryOptions options)
     {
+        var plan = QueryCommandDogfoodKernels.GetDaemonParameterPlan(args, options);
         var parameters = new Dictionary<string, object?>();
-        var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
-        var file = summary.File ?? options.File;
-        var pos = summary.Pos ?? options.Pos;
-        var name = summary.Name;
-        var kind = summary.Kind;
-        var severity = summary.Severity;
-        var includeKeywords = summary.IncludeKeywords;
-        var compactMode = options.InspectCompact;
-        var clusters = summary.Clusters;
-
-        if (!string.IsNullOrWhiteSpace(file))
-            parameters["file"] = file;
-        if (!string.IsNullOrWhiteSpace(pos))
-            parameters["pos"] = pos;
-        if (!string.IsNullOrWhiteSpace(name))
-            parameters["name"] = name;
-        if (!string.IsNullOrWhiteSpace(kind))
-            parameters["kind"] = kind;
-        if (!string.IsNullOrWhiteSpace(severity))
-            parameters["severity"] = severity;
-        if (includeKeywords)
+        if (plan.File != null)
+            parameters["file"] = plan.File;
+        if (plan.Pos != null)
+            parameters["pos"] = plan.Pos;
+        if (plan.Name != null)
+            parameters["name"] = plan.Name;
+        if (plan.Kind != null)
+            parameters["kind"] = plan.Kind;
+        if (plan.Severity != null)
+            parameters["severity"] = plan.Severity;
+        if (plan.IncludeKeywords)
             parameters["includeKeywords"] = true;
-        if (compactMode)
+        if (plan.Summary)
             parameters["summary"] = true;
-        if (clusters)
+        if (plan.Clusters)
             parameters["clusters"] = true;
 
         return parameters;
