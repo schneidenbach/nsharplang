@@ -107,24 +107,16 @@ internal static class CompilationReferenceResolver
 
     private static void AddImplicitNSharpRuntimeAsset(ReferenceResolutionResult result)
     {
-        foreach (var candidate in GetImplicitNSharpRuntimeAssetCandidates())
+        var compilerDirectory = Path.GetDirectoryName(typeof(ProjectConfig).Assembly.Location);
+        foreach (var candidate in CompilationReferenceResolverKernels.GetImplicitNSharpRuntimeAssetCandidates(
+                     AppContext.BaseDirectory,
+                     compilerDirectory))
         {
             if (File.Exists(candidate))
             {
                 result.AddRuntimeAsset(candidate);
                 return;
             }
-        }
-    }
-
-    private static IEnumerable<string> GetImplicitNSharpRuntimeAssetCandidates()
-    {
-        yield return Path.Combine(AppContext.BaseDirectory, "NSharpLang.Runtime.dll");
-
-        var compilerDirectory = Path.GetDirectoryName(typeof(ProjectConfig).Assembly.Location);
-        if (!string.IsNullOrWhiteSpace(compilerDirectory))
-        {
-            yield return Path.Combine(compilerDirectory, "NSharpLang.Runtime.dll");
         }
     }
 
@@ -528,18 +520,9 @@ internal static class CompilationReferenceResolver
     }
 
     private static string GetGlobalPackagesFolder()
-    {
-        var configured = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return Path.GetFullPath(configured);
-        }
-
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nuget",
-            "packages");
-    }
+        => CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     private static string? FindSharedFrameworkDirectory(string frameworkName, string targetFramework)
     {

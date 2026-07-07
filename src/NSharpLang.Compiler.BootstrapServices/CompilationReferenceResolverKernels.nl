@@ -2,6 +2,7 @@ namespace NSharpLang.Cli
 
 import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 
 public class TargetFrameworkVersionParseResult {
@@ -18,6 +19,27 @@ public class TargetFrameworkVersionParseResult {
 }
 
 public class CompilationReferenceResolverKernels {
+    public static func GetImplicitNSharpRuntimeAssetCandidates(
+        baseDirectory: string,
+        compilerDirectory: string?): string[] {
+        candidates := new List<string>()
+        candidates.Add(Path.Combine(baseDirectory, "NSharpLang.Runtime.dll"))
+
+        if !string.IsNullOrWhiteSpace(compilerDirectory ?? "") {
+            candidates.Add(Path.Combine(compilerDirectory, "NSharpLang.Runtime.dll"))
+        }
+
+        return candidates.ToArray()
+    }
+
+    public static func GetGlobalPackagesFolder(configuredPackagesFolder: string?, userProfileFolder: string): string {
+        if !string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
+            return Path.GetFullPath(configuredPackagesFolder)
+        }
+
+        return Path.Combine(Path.Combine(userProfileFolder, ".nuget"), "packages")
+    }
+
     public static func GetImplicitTestDependencyPlan(
         includeTests: bool,
         hasTests: bool,
