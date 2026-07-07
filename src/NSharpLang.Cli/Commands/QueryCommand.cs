@@ -1007,7 +1007,8 @@ public static class QueryCommand
         Dictionary<string, object?> parameters, out int exitCode)
     {
         exitCode = 0;
-        if (!QueryCommandKernels.ShouldUseDaemon(options.UseText, options.NoDaemon))
+        var methodKind = DaemonProtocolKernels.GetMethodKind(method);
+        if (!QueryCommandDogfoodKernels.ShouldUseDaemon(options.UseText, options.NoDaemon, methodKind))
             return false;
 
         var projectRoot = GetProjectRoot(options);
@@ -1043,14 +1044,14 @@ public static class QueryCommand
         {
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.TryGetProperty("ok", out var okElement))
-                return okElement.ValueKind == JsonValueKind.True ? 0 : 1;
+                return QueryCommandDogfoodKernels.GetDaemonJsonExitCode(true, okElement.ValueKind == JsonValueKind.True);
         }
         catch
         {
             // Fall back to success when daemon returned malformed/non-envelope JSON.
         }
 
-        return 0;
+        return QueryCommandDogfoodKernels.GetDaemonJsonExitCode(false, false);
     }
 
     private static int QueryError(string message)

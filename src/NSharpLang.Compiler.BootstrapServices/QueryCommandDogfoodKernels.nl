@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import NSharpLang.Cli.Daemon
 import NSharpLang.Compiler.CodeIntelligence
 import System
 import System.IO
@@ -56,6 +57,23 @@ public class QueryDaemonParameterPlan {
 }
 
 public class QueryCommandDogfoodKernels {
+    public static func ShouldUseDaemon(useText: bool, noDaemon: bool, methodKind: DaemonMethodKind): bool {
+        return QueryCommandKernels.ShouldUseDaemon(useText, noDaemon)
+            && DaemonProtocolKernels.IsQueryMethod(methodKind)
+    }
+
+    public static func GetDaemonJsonExitCode(hasOk: bool, ok: bool): int {
+        if !hasOk {
+            return 0
+        }
+
+        if ok {
+            return 0
+        }
+
+        return 1
+    }
+
     public static func GetDaemonParameterPlan(args: string[], options: QueryOptions): QueryDaemonParameterPlan {
         parameterSummary := QueryCommandKernels.GetDaemonParameterSummary(args)
 
