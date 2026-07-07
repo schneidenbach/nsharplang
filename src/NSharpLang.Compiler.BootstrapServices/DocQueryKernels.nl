@@ -631,6 +631,50 @@ public class DocQueryKernels {
         return result.ToArray()
     }
 
+    public static func IsDocMemberNameMatch(candidateName: string, requestedName: string): bool {
+        return DocQueryEqualsIgnoreCase(StripGenericArity(candidateName), requestedName)
+    }
+
+    public static func IsConstructorMemberMatch(requestedName: string, containingTypeName: string): bool {
+        if DocQueryEqualsIgnoreCase(requestedName, "#ctor") {
+            return true
+        }
+
+        if DocQueryEqualsIgnoreCase(requestedName, "ctor") {
+            return true
+        }
+
+        return DocQueryEqualsIgnoreCase(StripGenericArity(containingTypeName), requestedName)
+    }
+
+    public static func IsMethodMemberMatch(methodName: string, requestedName: string, isSpecialName: bool): bool {
+        return !isSpecialName && DocQueryEqualsIgnoreCase(methodName, requestedName)
+    }
+
+    public static func GetOverloadKindText(kind: string, overloadCount: int): string {
+        if overloadCount == 1 {
+            return kind
+        }
+
+        return kind + " (" + overloadCount.ToString() + " overloads)"
+    }
+
+    public static func FormatMemberFullName(containingTypeName: string, memberName: string): string {
+        return containingTypeName + "." + memberName
+    }
+
+    public static func ShouldIncludePublicType(isPublic: bool, isNestedPublic: bool): bool {
+        return isPublic || isNestedPublic
+    }
+
+    public static func GetQualifiedTypeIndexName(fullName: string?): string? {
+        if string.IsNullOrWhiteSpace(fullName) {
+            return null
+        }
+
+        return (fullName ?? "").Replace('+', '.')
+    }
+
     public static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
     }

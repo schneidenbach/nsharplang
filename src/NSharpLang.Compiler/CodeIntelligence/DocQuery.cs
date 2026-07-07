@@ -131,17 +131,14 @@ public class DocQuery
     private DocResult? LookupMember(Type type, string memberName)
     {
         var nestedType = type.GetNestedTypes(BindingFlags.Public)
-            .FirstOrDefault(t => StripGenericArity(t.Name).Equals(memberName, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(t => DocQueryKernels.IsDocMemberNameMatch(t.Name, memberName));
         if (nestedType != null)
         {
             return DescribeType(nestedType);
         }
 
         var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
-            .Where(c =>
-                memberName.Equals("#ctor", StringComparison.OrdinalIgnoreCase) ||
-                memberName.Equals("ctor", StringComparison.OrdinalIgnoreCase) ||
-                StripGenericArity(type.Name).Equals(memberName, StringComparison.OrdinalIgnoreCase))
+            .Where(c => DocQueryKernels.IsConstructorMemberMatch(memberName, type.Name))
             .ToArray();
 
         if (constructors.Length > 0)
@@ -157,7 +154,7 @@ public class DocQuery
             return new DocResult(
                 Name: StripGenericArity(type.Name),
                 FullName: FormatQualifiedType(type),
-                Kind: constructors.Length == 1 ? "constructor" : $"constructor ({constructors.Length} overloads)",
+                Kind: DocQueryKernels.GetOverloadKindText("constructor", constructors.Length),
                 Summary: GetMethodSummary(constructors[0]),
                 Namespace: type.Namespace,
                 Members: overloads,
@@ -171,7 +168,7 @@ public class DocQuery
 
         // Look for methods
         var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-            .Where(m => m.Name.Equals(memberName, StringComparison.OrdinalIgnoreCase) && !m.IsSpecialName)
+            .Where(m => DocQueryKernels.IsMethodMemberMatch(m.Name, memberName, m.IsSpecialName))
             .ToArray();
 
         if (methods.Length > 0)
@@ -189,8 +186,8 @@ public class DocQuery
 
             return new DocResult(
                 Name: memberName,
-                FullName: $"{FormatQualifiedType(type)}.{memberName}",
-                Kind: methods.Length == 1 ? "method" : $"method ({methods.Length} overloads)",
+                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), memberName),
+                Kind: DocQueryKernels.GetOverloadKindText("method", methods.Length),
                 Summary: firstDoc,
                 Namespace: type.Namespace,
                 Members: overloads,
@@ -209,7 +206,7 @@ public class DocQuery
         {
             return new DocResult(
                 Name: prop.Name,
-                FullName: $"{FormatQualifiedType(type)}.{prop.Name}",
+                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), prop.Name),
                 Kind: "property",
                 Summary: GetPropertySummary(prop),
                 Namespace: type.Namespace,
@@ -227,7 +224,7 @@ public class DocQuery
         {
             return new DocResult(
                 Name: field.Name,
-                FullName: $"{FormatQualifiedType(type)}.{field.Name}",
+                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), field.Name),
                 Kind: "field",
                 Summary: GetFieldSummary(field),
                 Namespace: type.Namespace,
@@ -244,7 +241,7 @@ public class DocQuery
         {
             return new DocResult(
                 Name: evt.Name,
-                FullName: $"{FormatQualifiedType(type)}.{evt.Name}",
+                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), evt.Name),
                 Kind: "event",
                 Summary: GetEventSummary(evt),
                 Namespace: type.Namespace,
@@ -553,8 +550,8 @@ public class DocQuery
             AddTypeIndex(_typesBySimpleName, StripGenericArity(type.Name), type);
             AddTypeIndex(_typesByQualifiedName, GetLookupTypeName(type), type);
 
-            var fullName = type.FullName?.Replace('+', '.');
-            if (!string.IsNullOrWhiteSpace(fullName))
+            var fullName = DocQueryKernels.GetQualifiedTypeIndexName(type.FullName);
+            if (fullName != null)
             {
                 AddTypeIndex(_typesByQualifiedName, fullName, type);
             }
@@ -563,7 +560,7 @@ public class DocQuery
 
     private static IEnumerable<Type> GetPublicTypes(Assembly assembly)
     {
-            return assembly.GetTypes().Where(t => t.IsPublic || t.IsNestedPublic);
+            return assembly.GetTypes().Where(t => DocQueryKernels.ShouldIncludePublicType(t.IsPublic, t.IsNestedPublic));
     }
 
     private static void AddTypeIndex(Dictionary<string, List<Type>> index, string key, Type type)
@@ -596,7 +593,7 @@ public class DocQuery
         foreach (var part in parts)
         {
             var next = current.GetNestedTypes(BindingFlags.Public)
-                .FirstOrDefault(t => StripGenericArity(t.Name).Equals(part, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(t => DocQueryKernels.IsDocMemberNameMatch(t.Name, part));
 
             if (next == null)
             {
