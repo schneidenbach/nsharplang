@@ -149,3 +149,7 @@ public record PlaygroundDiagnostic(
     Suggestion: string?,
     Hint: string?) {
 }
+
+public record RuntimeError(
+    Message: string) {
+}

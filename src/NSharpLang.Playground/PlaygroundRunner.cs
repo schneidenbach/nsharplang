@@ -949,8 +949,6 @@ internal sealed class PlaygroundRunner
 
     private sealed record RuntimeUnionCase(UnionDeclaration Union, string CaseName);
 
-    private sealed record RuntimeError(string Message);
-
     private sealed class ReturnSignal(object? value) : Exception
     {
         public object? Value { get; } = value;
