@@ -271,3 +271,15 @@ public class FrameworkCandidate {
         this.Version = Version
     }
 }
+
+public class ImplicitTestDependencyPlan {
+    ShouldAdd: bool
+    PackageName: string
+    Version: string
+
+    constructor(ShouldAdd: bool, PackageName: string, Version: string) {
+        this.ShouldAdd = ShouldAdd
+        this.PackageName = PackageName
+        this.Version = Version
+    }
+}

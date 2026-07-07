@@ -18,6 +18,29 @@ public class TargetFrameworkVersionParseResult {
 }
 
 public class CompilationReferenceResolverKernels {
+    public static func GetImplicitTestDependencyPlan(
+        includeTests: bool,
+        hasTests: bool,
+        testFramework: string?,
+        existingPackageIds: string[]): ImplicitTestDependencyPlan {
+        if !includeTests || !hasTests {
+            return new ImplicitTestDependencyPlan(false, "", "")
+        }
+
+        packageName := "xunit"
+        version := "2.9.2"
+        if string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase) {
+            packageName = "NUnit"
+            version = "4.3.2"
+        }
+
+        if ContainsPackageId(existingPackageIds, packageName) {
+            return new ImplicitTestDependencyPlan(false, "", "")
+        }
+
+        return new ImplicitTestDependencyPlan(true, packageName, version)
+    }
+
     public static func FilterReferencesByType(
         references: IEnumerable<Reference>,
         targetType: ReferenceType): List<Reference> {
@@ -1055,5 +1078,18 @@ public class CompilationReferenceResolverKernels {
 
     static func PathCharsEqualIgnoreCase(left: char, right: char): bool {
         return Char.ToLowerInvariant(left) == Char.ToLowerInvariant(right)
+    }
+
+    static func ContainsPackageId(packageIds: string[], packageName: string): bool {
+        index := 0
+        while index < packageIds.Length {
+            if string.Equals(packageIds[index], packageName, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
     }
 }

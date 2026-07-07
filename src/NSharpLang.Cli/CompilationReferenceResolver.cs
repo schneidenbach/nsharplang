@@ -216,37 +216,24 @@ internal static class CompilationReferenceResolver
 
     private static void AddImplicitTestDependencies(string projectRoot, ProjectConfig config, ReferenceResolutionOptions options)
     {
-        if (!options.IncludeTests)
-        {
-            return;
-        }
-
+        // MECHANICAL-GLUE: filesystem scan and project mutation only; package policy lives in CompilationReferenceResolverKernels.nl.
         var hasTests = Directory.Exists(projectRoot)
             && Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories).Length > 0;
-        if (!hasTests)
+        var existingPackageIds = CompilationReferenceResolverKernels
+            .FilterReferencesByType(config.TestDependencies, ReferenceType.NuGet)
+            .Select(reference => reference.Nuget ?? string.Empty)
+            .ToArray();
+        var plan = CompilationReferenceResolverKernels.GetImplicitTestDependencyPlan(
+            options.IncludeTests,
+            hasTests,
+            config.TestFramework,
+            existingPackageIds);
+        if (!plan.ShouldAdd)
         {
             return;
         }
 
-        if (string.Equals(config.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase))
-        {
-            AddPackageReferenceIfMissing(config.TestDependencies, "NUnit", "4.3.2");
-            return;
-        }
-
-        AddPackageReferenceIfMissing(config.TestDependencies, "xunit", "2.9.2");
-    }
-
-    private static void AddPackageReferenceIfMissing(List<Reference> references, string packageName, string version)
-    {
-        if (references.Any(reference =>
-                reference.Type == ReferenceType.NuGet
-                && string.Equals(reference.Nuget, packageName, StringComparison.OrdinalIgnoreCase)))
-        {
-            return;
-        }
-
-        references.Add(new Reference { Nuget = packageName, Version = version });
+        config.TestDependencies.Add(new Reference { Nuget = plan.PackageName, Version = plan.Version });
     }
 
     private static string ResolveProjectReferencePath(string projectRoot, string projectReference)
