@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -17,27 +16,6 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
-    private sealed record NativeTestCase(
-        string DisplayName,
-        string FullyQualifiedName,
-        MethodInfo Method,
-        object?[] Arguments,
-        string? SkipReason);
-
-    private sealed record NativeTestResult(
-        string Name,
-        string DisplayName,
-        string Outcome,
-        string Duration,
-        string? ErrorMessage,
-        [property: JsonPropertyName("nsharpDescription")]
-        string? NSharpDescription);
-
-    private sealed record NativeTestRun(
-        IReadOnlyList<NativeTestResult> Results,
-        int[] OutcomeRanks,
-        int OutcomeCount);
-
     private sealed class NativeTestLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(NativeTestLoadContext), isCollectible: true)
     {

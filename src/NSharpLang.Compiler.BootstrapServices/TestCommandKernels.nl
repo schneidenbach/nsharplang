@@ -1,7 +1,66 @@
 namespace NSharpLang.Cli
 
 import System
+import System.Collections.Generic
+import System.Reflection
 import System.Text
+
+public class NativeTestCase {
+    DisplayName: string
+    FullyQualifiedName: string
+    Method: MethodInfo
+    Arguments: object?[]
+    SkipReason: string?
+
+    constructor(
+        displayName: string,
+        fullyQualifiedName: string,
+        method: MethodInfo,
+        arguments: object?[],
+        skipReason: string?) {
+        DisplayName = displayName
+        FullyQualifiedName = fullyQualifiedName
+        Method = method
+        Arguments = arguments
+        SkipReason = skipReason
+    }
+}
+
+public class NativeTestResult {
+    Name: string
+    DisplayName: string
+    Outcome: string
+    Duration: string
+    ErrorMessage: string?
+    NsharpDescription: string?
+
+    constructor(
+        name: string,
+        displayName: string,
+        outcome: string,
+        duration: string,
+        errorMessage: string?,
+        nsharpDescription: string?) {
+        Name = name
+        DisplayName = displayName
+        Outcome = outcome
+        Duration = duration
+        ErrorMessage = errorMessage
+        NsharpDescription = nsharpDescription
+    }
+}
+
+public class NativeTestRun {
+    Results: IReadOnlyList<NativeTestResult>
+    OutcomeRanks: int[]
+    OutcomeCount: int
+
+    constructor(results: IReadOnlyList<NativeTestResult>, outcomeRanks: int[], outcomeCount: int) {
+        Results = results
+        OutcomeRanks = outcomeRanks
+        OutcomeCount = outcomeCount
+    }
+}
 
 public class TestOutcomeSummary {
     okValue: bool
