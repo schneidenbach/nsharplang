@@ -4,18 +4,19 @@ import System
 import System.Collections.Generic
 
 public class DiagnosticShadowSuppressionScratch {
-    CodeIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
-    FileRanksByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    CodeIdsByText: Dictionary<string, int>
+    FileRanksByText: Dictionary<string, int>
 
-    CodeIds: int[] = new int[](0)
-    FileRanks: int[] = new int[](0)
-    Files: string[] = new string[](0)
-    ResultIndices: int[] = new int[](0)
-    ShadowFileFlags: int[] = new int[](0)
-    UniqueFiles: string[] = new string[](0)
+    CodeIds: int[]
+    FileRanks: int[]
+    Files: string[]
+    ResultIndices: int[]
+    ShadowFileFlags: int[]
+    UniqueFiles: string[]
     UniqueFileCount: int
 
     public func EnsureCapacity(diagnosticCount: int, shadowedFileCount: int) {
+        EnsureInitialized()
         if CodeIds.Length != diagnosticCount {
             CodeIds = new int[](diagnosticCount)
             FileRanks = new int[](diagnosticCount)
@@ -35,6 +36,7 @@ public class DiagnosticShadowSuppressionScratch {
     }
 
     public func GetCodeId(text: string): int {
+        EnsureInitialized()
         if CodeIdsByText.ContainsKey(text) {
             return CodeIdsByText[text]
         }
@@ -45,6 +47,7 @@ public class DiagnosticShadowSuppressionScratch {
     }
 
     public func AddFile(text: string) {
+        EnsureInitialized()
         if FileRanksByText.ContainsKey(text) {
             return
         }
@@ -55,6 +58,7 @@ public class DiagnosticShadowSuppressionScratch {
     }
 
     public func BuildFileRanks() {
+        EnsureInitialized()
         Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.OrdinalIgnoreCase)
 
         i := 0
@@ -65,6 +69,7 @@ public class DiagnosticShadowSuppressionScratch {
     }
 
     public func GetFileRank(text: string): int {
+        EnsureInitialized()
         if FileRanksByText.ContainsKey(text) {
             return FileRanksByText[text]
         }
@@ -73,18 +78,21 @@ public class DiagnosticShadowSuppressionScratch {
     }
 
     public func ClearFiles(count: int) {
+        EnsureInitialized()
         if count > 0 {
             Array.Clear(Files, 0, count)
         }
     }
 
     public func ClearShadowFileFlags() {
+        EnsureInitialized()
         if ShadowFileFlags.Length > 0 {
             Array.Clear(ShadowFileFlags, 0, ShadowFileFlags.Length)
         }
     }
 
     public func Reset() {
+        EnsureInitialized()
         CodeIdsByText.Clear()
         FileRanksByText.Clear()
         if UniqueFileCount > 0 {
@@ -92,25 +100,41 @@ public class DiagnosticShadowSuppressionScratch {
             UniqueFileCount = 0
         }
     }
+
+    func EnsureInitialized() {
+        if CodeIdsByText != null {
+            return
+        }
+
+        CodeIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        FileRanksByText = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        CodeIds = new int[](0)
+        FileRanks = new int[](0)
+        Files = new string[](0)
+        ResultIndices = new int[](0)
+        ShadowFileFlags = new int[](0)
+        UniqueFiles = new string[](0)
+    }
 }
 
 public class DiagnosticDeduplicationScratch {
-    CodeIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
-    FileRanksByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
-    MessageIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
+    CodeIdsByText: Dictionary<string, int>
+    FileRanksByText: Dictionary<string, int>
+    MessageIdsByText: Dictionary<string, int>
 
-    CodeIds: int[] = new int[](0)
-    Columns: int[] = new int[](0)
-    FileRanks: int[] = new int[](0)
-    Files: string[] = new string[](0)
-    LineNumbers: int[] = new int[](0)
-    MessageIds: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    SlotIndices: int[] = new int[](0)
-    UniqueFiles: string[] = new string[](0)
+    CodeIds: int[]
+    Columns: int[]
+    FileRanks: int[]
+    Files: string[]
+    LineNumbers: int[]
+    MessageIds: int[]
+    ResultIndices: int[]
+    SlotIndices: int[]
+    UniqueFiles: string[]
     UniqueFileCount: int
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if CodeIds.Length != count {
             CodeIds = new int[](count)
             FileRanks = new int[](count)
@@ -129,18 +153,22 @@ public class DiagnosticDeduplicationScratch {
     }
 
     public func GetCodeId(text: string): int {
+        EnsureInitialized()
         return GetId(CodeIdsByText, text)
     }
 
     public func GetFileId(text: string): int {
+        EnsureInitialized()
         return GetId(FileRanksByText, text)
     }
 
     public func GetMessageId(text: string): int {
+        EnsureInitialized()
         return GetId(MessageIdsByText, text)
     }
 
     public func AddFile(text: string) {
+        EnsureInitialized()
         if FileRanksByText.ContainsKey(text) {
             return
         }
@@ -151,6 +179,7 @@ public class DiagnosticDeduplicationScratch {
     }
 
     public func BuildFileRanks() {
+        EnsureInitialized()
         Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.Ordinal)
 
         i := 0
@@ -161,14 +190,17 @@ public class DiagnosticDeduplicationScratch {
     }
 
     public func GetFileRank(text: string): int {
+        EnsureInitialized()
         return FileRanksByText[text]
     }
 
     public func ClearFiles(count: int) {
+        EnsureInitialized()
         Array.Clear(Files, 0, count)
     }
 
     public func ResetIds() {
+        EnsureInitialized()
         CodeIdsByText.Clear()
         FileRanksByText.Clear()
         MessageIdsByText.Clear()
@@ -176,6 +208,25 @@ public class DiagnosticDeduplicationScratch {
             Array.Clear(UniqueFiles, 0, UniqueFileCount)
             UniqueFileCount = 0
         }
+    }
+
+    func EnsureInitialized() {
+        if CodeIdsByText != null {
+            return
+        }
+
+        CodeIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        FileRanksByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        MessageIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        CodeIds = new int[](0)
+        Columns = new int[](0)
+        FileRanks = new int[](0)
+        Files = new string[](0)
+        LineNumbers = new int[](0)
+        MessageIds = new int[](0)
+        ResultIndices = new int[](0)
+        SlotIndices = new int[](0)
+        UniqueFiles = new string[](0)
     }
 
     static func GetId(ids: Dictionary<string, int>, text: string): int {
@@ -190,18 +241,19 @@ public class DiagnosticDeduplicationScratch {
 }
 
 public class ReferenceDeduplicationScratch {
-    FileRanksByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
+    FileRanksByText: Dictionary<string, int>
 
-    Columns: int[] = new int[](0)
-    FileRanks: int[] = new int[](0)
-    Files: string[] = new string[](0)
-    LineNumbers: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    SlotIndices: int[] = new int[](0)
-    UniqueFiles: string[] = new string[](0)
+    Columns: int[]
+    FileRanks: int[]
+    Files: string[]
+    LineNumbers: int[]
+    ResultIndices: int[]
+    SlotIndices: int[]
+    UniqueFiles: string[]
     UniqueFileCount: int
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if FileRanks.Length != count {
             FileRanks = new int[](count)
             LineNumbers = new int[](count)
@@ -218,6 +270,7 @@ public class ReferenceDeduplicationScratch {
     }
 
     public func AddFile(text: string) {
+        EnsureInitialized()
         if FileRanksByText.ContainsKey(text) {
             return
         }
@@ -228,6 +281,7 @@ public class ReferenceDeduplicationScratch {
     }
 
     public func BuildFileRanks() {
+        EnsureInitialized()
         Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.Ordinal)
 
         i := 0
@@ -238,18 +292,36 @@ public class ReferenceDeduplicationScratch {
     }
 
     public func GetFileRank(text: string): int {
+        EnsureInitialized()
         return FileRanksByText[text]
     }
 
     public func ClearFiles(count: int) {
+        EnsureInitialized()
         Array.Clear(Files, 0, count)
     }
 
     public func ResetFiles() {
+        EnsureInitialized()
         FileRanksByText.Clear()
         if UniqueFileCount > 0 {
             Array.Clear(UniqueFiles, 0, UniqueFileCount)
             UniqueFileCount = 0
         }
+    }
+
+    func EnsureInitialized() {
+        if FileRanksByText != null {
+            return
+        }
+
+        FileRanksByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        Columns = new int[](0)
+        FileRanks = new int[](0)
+        Files = new string[](0)
+        LineNumbers = new int[](0)
+        ResultIndices = new int[](0)
+        SlotIndices = new int[](0)
+        UniqueFiles = new string[](0)
     }
 }

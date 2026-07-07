@@ -4,7 +4,22 @@ import System.Collections.Generic
 import NSharpLang.Compiler
 
 public class TypeReference {
-    Span: SourceSpan = SourceSpan.None
+    spanValue: SourceSpan
+    spanAssignedValue: bool
+
+    Span: SourceSpan {
+        get {
+            if !spanAssignedValue {
+                return SourceSpan.None
+            }
+
+            return spanValue
+        }
+        set {
+            spanValue = value
+            spanAssignedValue = true
+        }
+    }
 }
 
 public class SimpleTypeReference: TypeReference {

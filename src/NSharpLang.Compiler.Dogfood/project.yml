@@ -1,4 +1,0 @@
-name: NSharpLang.Compiler.Dogfood
-backend: il
-outputType: library
-targetFramework: net10.0

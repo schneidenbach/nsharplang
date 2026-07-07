@@ -18,18 +18,19 @@ public class CompletionReceiverScratch {
 }
 
 public class CompletionItemGroupingScratch {
-    kindIds: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
+    kindIds: Dictionary<string, int>
 
-    KindCounts: int[] = new int[](0)
-    KindIds: int[] = new int[](0)
-    KindNames: string[] = new string[](0)
-    KindOffsets: int[] = new int[](0)
-    ResultCounts: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    ResultKindIds: int[] = new int[](0)
-    ResultStarts: int[] = new int[](0)
+    KindCounts: int[]
+    KindIds: int[]
+    KindNames: string[]
+    KindOffsets: int[]
+    ResultCounts: int[]
+    ResultIndices: int[]
+    ResultKindIds: int[]
+    ResultStarts: int[]
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if KindIds.Length != count {
             KindIds = new int[](count)
             ResultKindIds = new int[](count)
@@ -47,6 +48,7 @@ public class CompletionItemGroupingScratch {
     }
 
     public func GetKindId(kind: string): int {
+        EnsureInitialized()
         id := 0
         if kindIds.TryGetValue(kind, out id) {
             return id
@@ -59,6 +61,7 @@ public class CompletionItemGroupingScratch {
     }
 
     public func GetKindName(id: int): string {
+        EnsureInitialized()
         if id > 0 && id < KindNames.Length {
             name := KindNames[id]
             if name != null {
@@ -70,9 +73,26 @@ public class CompletionItemGroupingScratch {
     }
 
     public func ResetKindIds() {
+        EnsureInitialized()
         if kindIds.Count > 0 {
             Array.Clear(KindNames, 1, kindIds.Count)
             kindIds.Clear()
         }
+    }
+
+    func EnsureInitialized() {
+        if kindIds != null {
+            return
+        }
+
+        kindIds = new Dictionary<string, int>(StringComparer.Ordinal)
+        KindCounts = new int[](0)
+        KindIds = new int[](0)
+        KindNames = new string[](0)
+        KindOffsets = new int[](0)
+        ResultCounts = new int[](0)
+        ResultIndices = new int[](0)
+        ResultKindIds = new int[](0)
+        ResultStarts = new int[](0)
     }
 }

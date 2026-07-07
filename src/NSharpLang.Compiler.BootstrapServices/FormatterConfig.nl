@@ -4,9 +4,54 @@ import System
 import System.IO
 
 public class FormatterConfig {
-    IndentSize: int = 4
-    UseSpaces: bool = true
-    MaxLineLength: int = 100
+    indentSizeValue: int
+    indentSizeAssignedValue: bool
+    useSpacesValue: bool
+    useSpacesAssignedValue: bool
+    maxLineLengthValue: int
+    maxLineLengthAssignedValue: bool
+
+    IndentSize: int {
+        get {
+            if !indentSizeAssignedValue {
+                return 4
+            }
+
+            return indentSizeValue
+        }
+        set {
+            indentSizeValue = value
+            indentSizeAssignedValue = true
+        }
+    }
+
+    UseSpaces: bool {
+        get {
+            if !useSpacesAssignedValue {
+                return true
+            }
+
+            return useSpacesValue
+        }
+        set {
+            useSpacesValue = value
+            useSpacesAssignedValue = true
+        }
+    }
+
+    MaxLineLength: int {
+        get {
+            if !maxLineLengthAssignedValue {
+                return 100
+            }
+
+            return maxLineLengthValue
+        }
+        set {
+            maxLineLengthValue = value
+            maxLineLengthAssignedValue = true
+        }
+    }
 
     public static func FromEditorConfig(directory: string): FormatterConfig {
         config := new FormatterConfig()

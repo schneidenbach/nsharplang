@@ -164,7 +164,6 @@ derive_filter_from_diff() {
             # --- sibling projects ---
             src/NSharpLang.LanguageServer/*)           terms="$terms LanguageServer" ;;
             src/NSharpLang.Cli/*)                      terms="$terms Cli" ;;
-            src/NSharpLang.Compiler.Dogfood/*)         terms="$terms Dogfood" ;;
             src/NSharpLang.Playground*/*)              terms="$terms Playground" ;;
             # --- a changed test file: run that file's own tests (class == file stem) ---
             tests/*.cs)

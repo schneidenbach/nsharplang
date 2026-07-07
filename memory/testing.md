@@ -77,8 +77,8 @@ public void TestFullCompilation()
 ```
 
 ### 4. Emitted Assemblies Load Into Collectible Scopes
-Tests that reflect over or invoke an emitted assembly (columnar parity programs, the compiled
-dogfood project, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
+Tests that reflect over or invoke an emitted assembly (columnar parity programs, compiled
+BootstrapServices or CLI outputs, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
 (tests/CollectibleAssemblyScope.cs):
 
 ```text

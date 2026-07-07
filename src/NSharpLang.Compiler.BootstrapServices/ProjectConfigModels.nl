@@ -8,16 +8,16 @@ public class ProjectConfig {
     nameValue: string?
     versionValue: string?
     entryValue: string?
-    backendValue: string = "il"
-    outputTypeValue: string = "exe"
-    targetFrameworkValue: string = "net10.0"
-    sdkValue: string = "Microsoft.NET.Sdk"
-    dependenciesValue: List<Reference> = new List<Reference>()
-    testDependenciesValue: List<Reference> = new List<Reference>()
-    excludeValue: List<string> = new List<string>()
-    testFrameworkValue: string = "xunit"
-    definesValue: List<string> = new List<string>()
-    languageValue: LanguageConfig = new LanguageConfig()
+    backendValue: string?
+    outputTypeValue: string?
+    targetFrameworkValue: string?
+    sdkValue: string?
+    dependenciesValue: List<Reference>?
+    testDependenciesValue: List<Reference>?
+    excludeValue: List<string>?
+    testFrameworkValue: string?
+    definesValue: List<string>?
+    languageValue: LanguageConfig?
     packageValue: PackageConfig?
 
     Name: string? {
@@ -49,6 +49,10 @@ public class ProjectConfig {
 
     Backend: string {
         get {
+            if backendValue == null {
+                return "il"
+            }
+
             return backendValue
         }
         set {
@@ -58,6 +62,10 @@ public class ProjectConfig {
 
     OutputType: string {
         get {
+            if outputTypeValue == null {
+                return "exe"
+            }
+
             return outputTypeValue
         }
         set {
@@ -67,6 +75,10 @@ public class ProjectConfig {
 
     TargetFramework: string {
         get {
+            if targetFrameworkValue == null {
+                return "net10.0"
+            }
+
             return targetFrameworkValue
         }
         set {
@@ -76,6 +88,10 @@ public class ProjectConfig {
 
     Sdk: string {
         get {
+            if sdkValue == null {
+                return "Microsoft.NET.Sdk"
+            }
+
             return sdkValue
         }
         set {
@@ -85,6 +101,10 @@ public class ProjectConfig {
 
     Dependencies: List<Reference> {
         get {
+            if dependenciesValue == null {
+                dependenciesValue = new List<Reference>()
+            }
+
             return dependenciesValue
         }
         set {
@@ -94,6 +114,10 @@ public class ProjectConfig {
 
     TestDependencies: List<Reference> {
         get {
+            if testDependenciesValue == null {
+                testDependenciesValue = new List<Reference>()
+            }
+
             return testDependenciesValue
         }
         set {
@@ -103,6 +127,10 @@ public class ProjectConfig {
 
     Exclude: List<string> {
         get {
+            if excludeValue == null {
+                excludeValue = new List<string>()
+            }
+
             return excludeValue
         }
         set {
@@ -116,6 +144,10 @@ public class ProjectConfig {
 
     TestFramework: string {
         get {
+            if testFrameworkValue == null {
+                return "xunit"
+            }
+
             return testFrameworkValue
         }
         set {
@@ -125,6 +157,10 @@ public class ProjectConfig {
 
     Defines: List<string> {
         get {
+            if definesValue == null {
+                definesValue = new List<string>()
+            }
+
             return definesValue
         }
         set {
@@ -138,6 +174,10 @@ public class ProjectConfig {
 
     Language: LanguageConfig {
         get {
+            if languageValue == null {
+                languageValue = new LanguageConfig()
+            }
+
             return languageValue
         }
         set {
@@ -294,13 +334,17 @@ public class PackageConfig {
 }
 
 public class LanguageConfig {
-    profileValue: string = "default"
-    asyncDefaultTypeValue: string = "ValueTask"
+    profileValue: string?
+    asyncDefaultTypeValue: string?
     pooledAsyncValue: bool
-    systemsValue: SystemsConfig = new SystemsConfig()
+    systemsValue: SystemsConfig?
 
     Profile: string {
         get {
+            if profileValue == null {
+                return "default"
+            }
+
             return profileValue
         }
         set {
@@ -310,6 +354,10 @@ public class LanguageConfig {
 
     AsyncDefaultType: string {
         get {
+            if asyncDefaultTypeValue == null {
+                return "ValueTask"
+            }
+
             return asyncDefaultTypeValue
         }
         set {
@@ -328,6 +376,10 @@ public class LanguageConfig {
 
     Systems: SystemsConfig {
         get {
+            if systemsValue == null {
+                systemsValue = new SystemsConfig()
+            }
+
             return systemsValue
         }
         set {
@@ -337,16 +389,21 @@ public class LanguageConfig {
 }
 
 public class SystemsConfig {
-    modeValue: string = "strict"
-    unknownExternalCallsValue: string = "warn"
-    aotTargetValue: string = "nativeaot"
-    warmupValue: List<string> = new List<string>()
-    stackBudgetBytesValue: int = 4096
-    hotSummaryFilesValue: List<string> = new List<string>()
+    modeValue: string?
+    unknownExternalCallsValue: string?
+    aotTargetValue: string?
+    warmupValue: List<string>?
+    stackBudgetBytesValue: int
+    stackBudgetBytesAssignedValue: bool
+    hotSummaryFilesValue: List<string>?
     allowHotSidecarsValue: bool
 
     Mode: string {
         get {
+            if modeValue == null {
+                return "strict"
+            }
+
             return modeValue
         }
         set {
@@ -356,6 +413,10 @@ public class SystemsConfig {
 
     UnknownExternalCalls: string {
         get {
+            if unknownExternalCallsValue == null {
+                return "warn"
+            }
+
             return unknownExternalCallsValue
         }
         set {
@@ -365,6 +426,10 @@ public class SystemsConfig {
 
     AotTarget: string {
         get {
+            if aotTargetValue == null {
+                return "nativeaot"
+            }
+
             return aotTargetValue
         }
         set {
@@ -374,6 +439,10 @@ public class SystemsConfig {
 
     Warmup: List<string> {
         get {
+            if warmupValue == null {
+                warmupValue = new List<string>()
+            }
+
             return warmupValue
         }
         set {
@@ -383,15 +452,24 @@ public class SystemsConfig {
 
     StackBudgetBytes: int {
         get {
+            if !stackBudgetBytesAssignedValue {
+                return 4096
+            }
+
             return stackBudgetBytesValue
         }
         set {
             stackBudgetBytesValue = value
+            stackBudgetBytesAssignedValue = true
         }
     }
 
     HotSummaryFiles: List<string> {
         get {
+            if hotSummaryFilesValue == null {
+                hotSummaryFilesValue = new List<string>()
+            }
+
             return hotSummaryFilesValue
         }
         set {

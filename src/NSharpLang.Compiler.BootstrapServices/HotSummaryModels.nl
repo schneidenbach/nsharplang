@@ -7,20 +7,30 @@ import System.Text.Json
 import NSharpLang.Compiler
 
 public class HotSummaryDocument {
-    schemaVersionValue: int = 1
-    entriesValue: List<HotSummaryEntry> = new List<HotSummaryEntry>()
+    schemaVersionValue: int
+    schemaVersionAssignedValue: bool
+    entriesValue: List<HotSummaryEntry>?
 
     SchemaVersion: int {
         get {
+            if !schemaVersionAssignedValue {
+                return 1
+            }
+
             return schemaVersionValue
         }
         set {
             schemaVersionValue = value
+            schemaVersionAssignedValue = true
         }
     }
 
     Entries: List<HotSummaryEntry> {
         get {
+            if entriesValue == null {
+                entriesValue = new List<HotSummaryEntry>()
+            }
+
             return entriesValue
         }
         set {
@@ -30,35 +40,45 @@ public class HotSummaryDocument {
 }
 
 public class HotSummaryEntry {
-    schemaVersionValue: int = 1
-    assemblyIdentityValue: string = ""
+    schemaVersionValue: int
+    schemaVersionAssignedValue: bool
+    assemblyIdentityValue: string?
     publicKeyTokenValue: string?
     packageIdValue: string?
     packageVersionValue: string?
-    targetFrameworkValue: string = "*"
+    targetFrameworkValue: string?
     runtimeIdentifierValue: string?
-    methodValue: string = ""
+    methodValue: string?
     genericArityValue: int
     bodyIdentityValue: string?
-    effectsValue: HotSummaryEffects = new HotSummaryEffects()
-    genericConditionsValue: List<string> = new List<string>()
-    preconditionsValue: List<string> = new List<string>()
-    hotReadinessRequirementsValue: List<string> = new List<string>()
-    sourceValue: string = HotSummarySource.Compiler
+    effectsValue: HotSummaryEffects?
+    genericConditionsValue: List<string>?
+    preconditionsValue: List<string>?
+    hotReadinessRequirementsValue: List<string>?
+    sourceValue: string?
 
     public static None: HotSummaryEntry => new HotSummaryEntry()
 
     SchemaVersion: int {
         get {
+            if !schemaVersionAssignedValue {
+                return 1
+            }
+
             return schemaVersionValue
         }
         set {
             schemaVersionValue = value
+            schemaVersionAssignedValue = true
         }
     }
 
     AssemblyIdentity: string {
         get {
+            if assemblyIdentityValue == null {
+                return ""
+            }
+
             return assemblyIdentityValue
         }
         set {
@@ -95,6 +115,10 @@ public class HotSummaryEntry {
 
     TargetFramework: string {
         get {
+            if targetFrameworkValue == null {
+                return "*"
+            }
+
             return targetFrameworkValue
         }
         set {
@@ -113,6 +137,10 @@ public class HotSummaryEntry {
 
     Method: string {
         get {
+            if methodValue == null {
+                return ""
+            }
+
             return methodValue
         }
         set {
@@ -140,6 +168,10 @@ public class HotSummaryEntry {
 
     Effects: HotSummaryEffects {
         get {
+            if effectsValue == null {
+                effectsValue = new HotSummaryEffects()
+            }
+
             return effectsValue
         }
         set {
@@ -149,6 +181,10 @@ public class HotSummaryEntry {
 
     GenericConditions: List<string> {
         get {
+            if genericConditionsValue == null {
+                genericConditionsValue = new List<string>()
+            }
+
             return genericConditionsValue
         }
         set {
@@ -158,6 +194,10 @@ public class HotSummaryEntry {
 
     Preconditions: List<string> {
         get {
+            if preconditionsValue == null {
+                preconditionsValue = new List<string>()
+            }
+
             return preconditionsValue
         }
         set {
@@ -167,6 +207,10 @@ public class HotSummaryEntry {
 
     HotReadinessRequirements: List<string> {
         get {
+            if hotReadinessRequirementsValue == null {
+                hotReadinessRequirementsValue = new List<string>()
+            }
+
             return hotReadinessRequirementsValue
         }
         set {
@@ -176,6 +220,10 @@ public class HotSummaryEntry {
 
     Source: string {
         get {
+            if sourceValue == null {
+                return HotSummarySource.Compiler
+            }
+
             return sourceValue
         }
         set {
@@ -223,9 +271,11 @@ public class HotSummaryEffects {
     usesPoolValue: bool
     usesConcurrencyPrimitiveValue: bool
     requiresWarmupValue: bool
-    aotSafeValue: bool = true
-    trimSafeValue: bool = true
-    aotSafeTargetsValue: List<string> = new List<string>()
+    aotSafeValue: bool
+    aotSafeAssignedValue: bool
+    trimSafeValue: bool
+    trimSafeAssignedValue: bool
+    aotSafeTargetsValue: List<string>?
 
     Allocates: bool {
         get {
@@ -355,24 +405,38 @@ public class HotSummaryEffects {
 
     AotSafe: bool {
         get {
+            if !aotSafeAssignedValue {
+                return true
+            }
+
             return aotSafeValue
         }
         set {
             aotSafeValue = value
+            aotSafeAssignedValue = true
         }
     }
 
     TrimSafe: bool {
         get {
+            if !trimSafeAssignedValue {
+                return true
+            }
+
             return trimSafeValue
         }
         set {
             trimSafeValue = value
+            trimSafeAssignedValue = true
         }
     }
 
     AotSafeTargets: List<string> {
         get {
+            if aotSafeTargetsValue == null {
+                aotSafeTargetsValue = new List<string>()
+            }
+
             return aotSafeTargetsValue
         }
         set {

@@ -10,6 +10,11 @@ The executable toolchain is now IL-only:
 
 `project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`.
 
+CLI command decision kernels live in `NSharpLang.Compiler.BootstrapServices` and are statically
+referenced by the CLI. Do not add product-path `Assembly.Load` or delegate-reflection binding for
+compiler-service kernels. New kernel shapes must compile under the pinned stage-0 SDK; repin with
+`./scripts/setup-local.sh` before relying on tip-only language/backend support inside kernels.
+
 ---
 
 ## Command Reference

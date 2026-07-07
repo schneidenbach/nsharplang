@@ -12,10 +12,6 @@ public class FixApplicatorTests
     [Fact]
     public void DogfoodTextEditOrdering_IsActuallyExercisedInTests()
     {
-        // M13: the Compiler project (and its dogfood DLL) is referenced WITHOUT
-        // SkipNSharpDogfoodCompilerServices, so the dogfood adapters must actually load and run in
-        // the test process; prove that through the dogfood route itself instead of a side-channel
-        // availability probe.
         var edits = new[] { new TextEdit(1, 0, 1, 1, "x") };
         var ordered = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
         Assert.Equal(edits, ordered);
@@ -24,9 +20,6 @@ public class FixApplicatorTests
     [Fact]
     public void DogfoodTextEditOrdering_MatchesBaseline_AcrossRandomizedEdits()
     {
-        // M12: differential test of the dogfood text-edit ordering (TextEditOrderIndices) against
-        // the baseline, across randomized edit sets including overlapping ranges, zero-width
-        // inserts, and same-position ties (the same-start tiebreak is ThenByDescending(inputIndex)).
         for (var seed = 0; seed < 200; seed++)
         {
             var rng = new Random(seed);

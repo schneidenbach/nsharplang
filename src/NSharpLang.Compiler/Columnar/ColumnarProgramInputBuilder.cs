@@ -6,8 +6,6 @@ namespace NSharpLang.Compiler.Columnar;
 
 internal static class ColumnarProgramInputBuilder
 {
-    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
-
     private static bool Decline(string siteId, string message, int spanStart = -1, int spanLength = 0, string memberName = "")
     {
         ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName);
@@ -33,11 +31,7 @@ internal static class ColumnarProgramInputBuilder
     internal static bool TryBuild(string source, out ColumnarProgramInput program)
     {
         program = null!;
-        var bindings = s_bindings.Value;
-        if (bindings is null)
-            return Decline("parse.bindings-unavailable", "columnar parser bindings are unavailable");
-
-        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+        if (!TryTokenizeColumnarSource(source, out var tokens))
         {
             return Decline("parse.tokenize", "columnar tokenization failed");
         }
@@ -52,7 +46,7 @@ internal static class ColumnarProgramInputBuilder
         var structReferenceFlags = new int[n + 1];
         var structRecordFlags = new int[n + 1];
         var declarationResult = new int[6];
-        var declarationRowCount = bindings.TopLevelColumnarProgramDeclarationIndices(
+        var declarationRowCount = global::Program.TopLevelColumnarProgramDeclarationIndicesInto(
             source,
             tokens.RawKinds,
             tokens.RawStarts,
@@ -79,23 +73,23 @@ internal static class ColumnarProgramInputBuilder
                 0);
         }
 
-        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))
+        if (!TryGetColumnarFunctionInputs(source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))
         {
             return Decline("parse.function", "function declaration materialization failed");
         }
-        if (!TryGetColumnarEnumInputs(bindings, source, tokens, enumIndices, declarationResult[2], out var enums))
+        if (!TryGetColumnarEnumInputs(source, tokens, enumIndices, declarationResult[2], out var enums))
         {
             return Decline("parse.enum", "enum declaration materialization failed");
         }
-        if (!TryGetColumnarStructInputs(bindings, source, tokens, structIndices, structReferenceFlags, structRecordFlags, declarationResult[5], out var structs))
+        if (!TryGetColumnarStructInputs(source, tokens, structIndices, structReferenceFlags, structRecordFlags, declarationResult[5], out var structs))
         {
             return Decline("parse.struct", "struct/class/record declaration materialization failed");
         }
-        if (!TryGetColumnarUnionInputs(bindings, source, tokens, unionIndices, declarationResult[3], out var unions))
+        if (!TryGetColumnarUnionInputs(source, tokens, unionIndices, declarationResult[3], out var unions))
         {
             return Decline("parse.union", "union declaration materialization failed");
         }
-        if (!TryGetColumnarInterfaceInputs(bindings, source, tokens, interfaceIndices, declarationResult[4], out var interfaceInputs))
+        if (!TryGetColumnarInterfaceInputs(source, tokens, interfaceIndices, declarationResult[4], out var interfaceInputs))
         {
             return Decline("parse.interface", "interface declaration materialization failed");
         }
@@ -104,7 +98,7 @@ internal static class ColumnarProgramInputBuilder
         return true;
     }
 
-    private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
+    private static bool TryTokenizeColumnarSource(string source, out ColumnarTokenizedSource tokens)
     {
         tokens = null!;
         {
@@ -116,7 +110,7 @@ internal static class ColumnarProgramInputBuilder
             var starts = new int[capacity];
             var valueLengths = new int[capacity];
             var resultCounts = new int[2];
-            var count = bindings.TokenizeColumnarSource(
+            var count = global::Program.TokenizeColumnarSourceInto(
                 source,
                 rawKinds,
                 rawStarts,
@@ -137,7 +131,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarFunctionInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] funcIndices, int[] funcAsyncFlags, int funcIndexCount,
+        string source, ColumnarTokenizedSource tokens, int[] funcIndices, int[] funcAsyncFlags, int funcIndexCount,
         out List<ColumnarFunctionInput> inputs)
     {
         inputs = [];
@@ -149,7 +143,7 @@ internal static class ColumnarProgramInputBuilder
 
             for (var fi = 0; fi < funcIndexCount; fi++)
             {
-                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1))
+                if (!TryParseColumnarFunctionAt(ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1))
                     return DeclineAtToken("parse.function", "function declaration could not be parsed into columnar input", cs, cv, funcIndices[fi]);
                 inputs.Add(input);
             }
@@ -158,7 +152,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarEnumInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] enumIndices, int enumIndexCount,
+        string source, ColumnarTokenizedSource tokens, int[] enumIndices, int enumIndexCount,
         out List<ColumnarEnumInput> enums)
     {
         enums = [];
@@ -177,7 +171,7 @@ internal static class ColumnarProgramInputBuilder
                 var outMemberStringValues = new string[cap];
                 var outEnumNameTexts = new string[1];
                 var outResult = new int[3];
-                var memberCount = bindings.ParseColumnarEnumInfo(
+                var memberCount = global::Program.ParseColumnarEnumInfoInto(
                     source, ck, cs, cv, n, enumIndex, outNameTexts, outMemberValues, outMemberStringValues, outEnumNameTexts, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
                 {
@@ -207,7 +201,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarStructInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        string source, ColumnarTokenizedSource tokens,
         int[] declIndices, int[] declReferenceFlags, int[] declRecordFlags, int declCount,
         out List<ColumnarStructInput> structs)
     {
@@ -240,7 +234,7 @@ internal static class ColumnarProgramInputBuilder
                 var outBaseNameTexts = new string[cap];
                 var outStructNameTexts = new string[1];
                 var outResult = new int[10];
-                var fieldCount = bindings.ParseColumnarStructInfo(
+                var fieldCount = global::Program.ParseColumnarStructInfoInto(
                     source, ck, cs, cv, n, structIndex, isReference ? 1 : 0, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
                     outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
@@ -300,7 +294,7 @@ internal static class ColumnarProgramInputBuilder
                 for (var m = 0; m < methodCount; m++)
                 {
                     var methodModifierFlags = outMethodStaticFlags[m];
-                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, modifierFlags: methodModifierFlags))
+                    if (!TryParseColumnarFunctionAt(ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, modifierFlags: methodModifierFlags))
                     {
                         return DeclineAtToken("parse.struct.method", "struct/class/record method could not be parsed into columnar input", cs, cv, outMethodFuncIndices[m], structName);
                     }
@@ -311,7 +305,7 @@ internal static class ColumnarProgramInputBuilder
                 var constructors = new List<ColumnarConstructorInput>(ctorCount);
                 for (var c = 0; c < ctorCount; c++)
                 {
-                    if (!TryParseColumnarConstructorAt(bindings, ck, cs, cv, n, outCtorIndices[c], source, out var ctorInput))
+                    if (!TryParseColumnarConstructorAt(ck, cs, cv, n, outCtorIndices[c], source, out var ctorInput))
                     {
                         return DeclineAtToken("parse.struct.constructor", "constructor could not be parsed into columnar input", cs, cv, outCtorIndices[c], structName);
                     }
@@ -322,7 +316,7 @@ internal static class ColumnarProgramInputBuilder
                 var properties = new List<ColumnarPropertyInput>(propCount);
                 for (var pr = 0; pr < propCount; pr++)
                 {
-                    if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput, isStatic: outPropStaticFlags[pr] == 1))
+                    if (!TryParseColumnarPropertyAt(ck, cs, cv, n, outPropIndices[pr], source, out var propInput, isStatic: outPropStaticFlags[pr] == 1))
                     {
                         return DeclineAtToken("parse.struct.property", "property could not be parsed into columnar input", cs, cv, outPropIndices[pr], structName);
                     }
@@ -336,7 +330,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarUnionInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] unionIndices, int unionIndexCount,
+        string source, ColumnarTokenizedSource tokens, int[] unionIndices, int unionIndexCount,
         out List<ColumnarUnionInput> unions)
     {
         unions = [];
@@ -357,7 +351,7 @@ internal static class ColumnarProgramInputBuilder
                 var outTypeParamTexts = new string[cap];
                 var outUnionNameTexts = new string[1];
                 var outResult = new int[4];
-                var caseCount = bindings.ParseColumnarUnionInfo(
+                var caseCount = global::Program.ParseColumnarUnionInfoInto(
                     source, ck, cs, cv, n, unionIndex, outCaseNameTexts, outCaseFieldCounts,
                     outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
@@ -375,7 +369,7 @@ internal static class ColumnarProgramInputBuilder
                 // struct directly), so this flag selects the value-struct emit path instead of the class-hierarchy
                 // one — preserving the public value-struct ABI on the columnar-routed build. The eligibility
                 // decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
-                var isValueStruct = bindings.UnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1;
+                var isValueStruct = global::Program.ColumnarUnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1;
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
@@ -417,7 +411,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryParseColumnarFunctionAt(
-        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
+        int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
         out ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false, int modifierFlags = 0)
     {
         input = null!;
@@ -449,7 +443,7 @@ internal static class ColumnarProgramInputBuilder
         var localFunctionNodeIndices = new int[cap];
         var localFunctionTokenIndices = new int[cap];
         var result = new int[9];
-        var paramCount = bindings.ParseColumnarProductFunctionInfo(
+        var paramCount = global::Program.ParseColumnarProductFunctionInfoInto(
             source, ck, cs, cv, n, funcIndex, isLocalFunction ? 1 : 0, functionNameTexts, returnTypeTexts,
             paramNameTexts, paramTypeTexts, paramModifierKinds, paramDefaultKinds, paramDefaultTexts,
             paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
@@ -569,7 +563,7 @@ internal static class ColumnarProgramInputBuilder
         }
         for (var lf = 0; lf < localFunctionCount; lf++)
         {
-            if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn, isLocalFunction: true))
+            if (!TryParseColumnarFunctionAt(ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn, isLocalFunction: true))
             {
                 return DeclineAtToken("parse.local-function", "local function could not be parsed into columnar input", cs, cv, localFunctionTokenIndices[lf], functionName);
             }
@@ -579,7 +573,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryParseColumnarConstructorAt(
-        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
+        int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
         out ColumnarConstructorInput input)
     {
         input = null!;
@@ -599,7 +593,7 @@ internal static class ColumnarProgramInputBuilder
         var bss = new int[cap];
         var bsl = new int[cap];
         var ctorResult = new int[6];
-        var paramCount = bindings.ParseColumnarConstructorInfo(
+        var paramCount = global::Program.ParseColumnarConstructorInfoInto(
             source, ck, cs, cv, n, ctorIndex,
             paramNameTexts, paramTypeTexts, caKinds, caStarts, caLengths, caTexts,
             bk, bvs, bvl, bcs, bcc, bci, bss, bsl, ctorResult);
@@ -669,7 +663,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryParseColumnarPropertyAt(
-        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
+        int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
         out ColumnarPropertyInput input, bool isStatic = false)
     {
         input = null!;
@@ -693,7 +687,7 @@ internal static class ColumnarProgramInputBuilder
         var propInfo = new int[10];
         var propNameTexts = new string[1];
         var propTypeTexts = new string[1];
-        var accessorKind = bindings.ParseColumnarPropertyInfo(
+        var accessorKind = global::Program.ParseColumnarPropertyInfoInto(
             source, ck, cs, cv, n, propIndex, propNameTexts, propTypeTexts,
             gk, gvs, gvl, gcs, gcc, gci, gss, gsl,
             stk, stvs, stvl, stcs, stcc, stci, stss, stsl,
@@ -751,7 +745,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarInterfaceInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] interfaceIndices, int interfaceIndexCount,
+        string source, ColumnarTokenizedSource tokens, int[] interfaceIndices, int interfaceIndexCount,
         out List<ColumnarInterfaceInput> interfaceInputs)
     {
         interfaceInputs = [];
@@ -775,7 +769,7 @@ internal static class ColumnarProgramInputBuilder
                 var outMethodParamNameTexts = new string[cap];
                 var outMethodParamTypeTexts = new string[cap];
                 var outResult = new int[8];
-                var methodCount = bindings.ParseColumnarInterfaceInfo(source, ck, cs, cv, n, interfaceIndex,
+                var methodCount = global::Program.ParseColumnarInterfaceInfoInto(source, ck, cs, cv, n, interfaceIndex,
                     outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts,
                     outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
                     outMethodParamNameTexts, outMethodParamTypeTexts, outResult);
@@ -820,7 +814,7 @@ internal static class ColumnarProgramInputBuilder
                     paramCursor += paramCount;
                     if (outMethodBodyFlags[m] == 1)
                     {
-                        if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var bodyInput))
+                        if (!TryParseColumnarFunctionAt(ck, cs, cv, n, outMethodFuncIndices[m], source, out var bodyInput))
                             return DeclineAtToken("parse.interface.method-body", "default interface method body could not be parsed into columnar input", cs, cv, outMethodFuncIndices[m], interfaceName + "." + methodName);
                         methodBodies[m] = bodyInput;
                     }
@@ -837,156 +831,5 @@ internal static class ColumnarProgramInputBuilder
             return true;
         }
     }
-
-    private static Bindings? LoadBindings()
-        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<TokenizeColumnarSourceInto>(
-                programType,
-                "TokenizeColumnarSourceInto"),
-            DogfoodKernelLoader.CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
-                programType,
-                "TopLevelColumnarProgramDeclarationIndicesInto"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarProductFunctionInfoInto>(
-                programType,
-                "ParseColumnarProductFunctionInfoInto"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarPropertyInfoInto>(
-                programType,
-                "ParseColumnarPropertyInfoInto"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarInterfaceInfoInto>(
-                programType,
-                "ParseColumnarInterfaceInfoInto"),
-            CreateParseColumnarEnumInfo(programType),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarStructInfoInto>(
-                programType,
-                "ParseColumnarStructInfoInto"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarUnionInfoInto>(
-                programType,
-                "ParseColumnarUnionInfoInto"),
-            DogfoodKernelLoader.CreateDelegate<ColumnarUnionIsValueStructEmittable>(
-                programType,
-                "ColumnarUnionIsValueStructEmittable"),
-            DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
-                programType,
-                "ParseColumnarConstructorInfoInto")));
-
-    private static ParseColumnarEnumInfoInto CreateParseColumnarEnumInfo(Type programType)
-    {
-        try
-        {
-            return DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
-                programType,
-                "ParseColumnarEnumInfoInto");
-        }
-        catch (MissingMethodException)
-        {
-            var legacy = DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoIntoLegacy>(
-                programType,
-                "ParseColumnarEnumInfoInto");
-            return (source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex,
-                outNameTexts, outMemberValues, outMemberStringValues, outEnumNameTexts, outResult) =>
-                legacy(source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex,
-                    outNameTexts, outMemberValues, outEnumNameTexts, outResult);
-        }
-    }
-
-    private delegate int TokenizeColumnarSourceInto(
-        string source,
-        int[] rawKinds,
-        int[] rawStarts,
-        int[] rawValueLengths,
-        int[] compactKinds,
-        int[] compactStarts,
-        int[] compactValueLengths,
-        int[] resultCounts);
-
-    private delegate int TopLevelColumnarProgramDeclarationIndicesInto(
-        string source,
-        int[] rawTokenKinds, int[] rawTokenStarts, int[] rawTokenValueLengths, int rawCount,
-        int[] compactTokenKinds, int compactCount,
-        int[] outFuncIndices, int[] outFuncAsyncFlags,
-        int[] outEnumIndices, int[] outUnionIndices, int[] outInterfaceIndices,
-        int[] outStructIndices, int[] outStructReferenceFlags, int[] outStructRecordFlags,
-        int[] outResult);
-
-    private delegate int ParseColumnarProductFunctionInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex, int isLocalFunction,
-        string[] outFunctionNameTexts, string[] outReturnTypeTexts,
-        string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamModifierKinds,
-        int[] outParamDefaultKinds, string[] outParamDefaultTexts,
-        int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
-        string[] outReturnTupleNameTexts, string[] outTypeParamTexts, int[] outTypeParamSpecials,
-        int[] outTypeParamConstraintCounts, string[] outTypeParamConstraintTypeTexts,
-        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
-        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
-        int[] outLocalFunctionNodeIndices, int[] outLocalFunctionTokenIndices, int[] outResult);
-
-    private delegate int ParseColumnarPropertyInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int propIndex,
-        string[] outNameTexts, string[] outTypeTexts,
-        int[] outGetNodeKinds, int[] outGetValueStarts, int[] outGetValueLengths, int[] outGetChildStart, int[] outGetChildCount,
-        int[] outGetChildIndices, int[] outGetSpanStarts, int[] outGetSpanLengths,
-        int[] outSetNodeKinds, int[] outSetValueStarts, int[] outSetValueLengths, int[] outSetChildStart, int[] outSetChildCount,
-        int[] outSetChildIndices, int[] outSetSpanStarts, int[] outSetSpanLengths, int[] outResult);
-
-    private delegate int ParseColumnarInterfaceInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
-        int[] outMethodFuncIndices, string[] outBaseNameTexts, string[] outInterfaceNameTexts,
-        string[] outMethodNameTexts, string[] outMethodReturnTexts,
-        int[] outMethodParamCounts, int[] outMethodBodyFlags,
-        string[] outMethodParamNameTexts, string[] outMethodParamTypeTexts, int[] outResult);
-
-    private delegate int ParseColumnarEnumInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
-        string[] outNameTexts, int[] outMemberValues, string[] outMemberStringValues, string[] outEnumNameTexts, int[] outResult);
-
-    private delegate int ParseColumnarEnumInfoIntoLegacy(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
-        string[] outNameTexts, int[] outMemberValues, string[] outEnumNameTexts, int[] outResult);
-
-    private delegate int ParseColumnarStructInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
-        int isReference,
-        int isRecord,
-        string[] outFieldNameTexts, string[] outFieldTypeTexts,
-        int[] outFieldStaticFlags, int[] outFieldInitKinds, string[] outFieldInitTexts,
-        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
-        string[] outTypeParamTexts, string[] outBaseNameTexts,
-        string[] outStructNameTexts, int[] outResult);
-
-    private delegate int ParseColumnarUnionInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
-        string[] outCaseNameTexts, int[] outCaseFieldCounts,
-        string[] outFieldNameTexts, string[] outFieldTypeTexts, string[] outTypeParamTexts,
-        string[] outUnionNameTexts, int[] outResult);
-
-    private delegate int ColumnarUnionIsValueStructEmittable(
-        int[] caseFieldCounts, int caseCount, int typeParamCount);
-
-    private delegate int ParseColumnarConstructorInfoInto(
-        string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
-        string[] outParamNameTexts, string[] outParamTypeTexts,
-        int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, string[] outArgTexts,
-        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
-        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
-
-    private sealed record Bindings(
-        TokenizeColumnarSourceInto TokenizeColumnarSource,
-        TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
-        ParseColumnarProductFunctionInfoInto ParseColumnarProductFunctionInfo,
-        ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
-        ParseColumnarInterfaceInfoInto ParseColumnarInterfaceInfo,
-        ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
-        ParseColumnarStructInfoInto ParseColumnarStructInfo,
-        ParseColumnarUnionInfoInto ParseColumnarUnionInfo,
-        ColumnarUnionIsValueStructEmittable UnionIsValueStructEmittable,
-        ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
 }

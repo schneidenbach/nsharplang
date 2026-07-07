@@ -3,11 +3,12 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 
 public class DocQueryBestTypeScratch {
-    FullNames: string[] = new string[](0)
-    NamespaceLengths: int[] = new int[](0)
-    Scores: int[] = new int[](0)
+    FullNames: string[]
+    NamespaceLengths: int[]
+    Scores: int[]
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if Scores.Length < count {
             Scores = new int[](count)
             NamespaceLengths = new int[](count)
@@ -16,8 +17,19 @@ public class DocQueryBestTypeScratch {
     }
 
     public func ClearFullNames(count: int) {
+        EnsureInitialized()
         if count > 0 {
             Array.Clear(FullNames, 0, count)
         }
+    }
+
+    func EnsureInitialized() {
+        if FullNames != null {
+            return
+        }
+
+        FullNames = new string[](0)
+        NamespaceLengths = new int[](0)
+        Scores = new int[](0)
     }
 }

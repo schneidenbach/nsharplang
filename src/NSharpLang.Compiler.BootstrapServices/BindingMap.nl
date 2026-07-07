@@ -255,27 +255,51 @@ public class BindingReferenceResult {
 }
 
 public class BindingMap {
-    bindingIndexByKey: Dictionary<string, int> = new Dictionary<string, int>()
-    bindingKeys: List<BindingPositionKey> = new List<BindingPositionKey>()
-    bindingDeclarations: List<SymbolDeclaration> = new List<SymbolDeclaration>()
+    bindingIndexByKey: Dictionary<string, int>
+    bindingKeys: List<BindingPositionKey>
+    bindingDeclarations: List<SymbolDeclaration>
 
-    declarationIndexByKey: Dictionary<string, int> = new Dictionary<string, int>()
-    declarationKeys: List<BindingPositionKey> = new List<BindingPositionKey>()
-    declarations: List<SymbolDeclaration> = new List<SymbolDeclaration>()
+    declarationIndexByKey: Dictionary<string, int>
+    declarationKeys: List<BindingPositionKey>
+    declarations: List<SymbolDeclaration>
 
-    referenceIndexByKey: Dictionary<string, int> = new Dictionary<string, int>()
-    referenceKeys: List<BindingPositionKey> = new List<BindingPositionKey>()
-    referenceBuckets: List<SymbolUsageBucket> = new List<SymbolUsageBucket>()
+    referenceIndexByKey: Dictionary<string, int>
+    referenceKeys: List<BindingPositionKey>
+    referenceBuckets: List<SymbolUsageBucket>
 
     versionValue: int
 
-    AllDeclarations: List<SymbolDeclaration> => declarations
-    BindingEntries: BindingEntryCollection => new BindingEntryCollection(bindingKeys, bindingDeclarations)
-    DeclarationEntries: BindingDeclarationEntryCollection => new BindingDeclarationEntryCollection(declarations)
+    AllDeclarations: List<SymbolDeclaration> {
+        get {
+            EnsureInitialized()
+            return declarations
+        }
+    }
+
+    BindingEntries: BindingEntryCollection {
+        get {
+            EnsureInitialized()
+            return new BindingEntryCollection(bindingKeys, bindingDeclarations)
+        }
+    }
+
+    DeclarationEntries: BindingDeclarationEntryCollection {
+        get {
+            EnsureInitialized()
+            return new BindingDeclarationEntryCollection(declarations)
+        }
+    }
+
     Version: int => versionValue
-    BindingCount: int => bindingKeys.Count
+    BindingCount: int {
+        get {
+            EnsureInitialized()
+            return bindingKeys.Count
+        }
+    }
 
     public func RecordBinding(usageFile: string?, usageLine: int, usageCol: int, usageLength: int, declaration: SymbolDeclaration) {
+        EnsureInitialized()
         usageKey := MakeBindingKey(usageFile, usageLine, usageCol)
         usageText := KeyText(usageKey)
 
@@ -308,6 +332,7 @@ public class BindingMap {
     }
 
     public func RecordDeclaration(declaration: SymbolDeclaration) {
+        EnsureInitialized()
         key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
         text := KeyText(key)
 
@@ -324,6 +349,7 @@ public class BindingMap {
     }
 
     public func GetBindingAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
+        EnsureInitialized()
         key := MakeBindingKey(filePath, line, col)
         text := KeyText(key)
 
@@ -352,6 +378,7 @@ public class BindingMap {
     }
 
     public func GetReferences(declaration: SymbolDeclaration?): List<SymbolUsage> {
+        EnsureInitialized()
         if declaration == null {
             return new List<SymbolUsage>()
         }
@@ -374,6 +401,7 @@ public class BindingMap {
     }
 
     public func FindAllReferences(filePath: string?, line: int, col: int): BindingReferenceResult {
+        EnsureInitialized()
         declaration := GetBindingAt(filePath, line, col)
         if declaration == null {
             declaration = FindDeclarationNear(filePath, line, col)
@@ -445,6 +473,8 @@ public class BindingMap {
     }
 
     public func Merge(other: BindingMap) {
+        EnsureInitialized()
+        other.EnsureInitialized()
         i := 0
         while i < other.declarations.Count {
             SetDeclaration(other.declarations[i])
@@ -592,6 +622,22 @@ public class BindingMap {
 
     static func IsInternalDeclaration(name: string): bool {
         return name == "this" || name == "value"
+    }
+
+    func EnsureInitialized() {
+        if bindingIndexByKey != null {
+            return
+        }
+
+        bindingIndexByKey = new Dictionary<string, int>()
+        bindingKeys = new List<BindingPositionKey>()
+        bindingDeclarations = new List<SymbolDeclaration>()
+        declarationIndexByKey = new Dictionary<string, int>()
+        declarationKeys = new List<BindingPositionKey>()
+        declarations = new List<SymbolDeclaration>()
+        referenceIndexByKey = new Dictionary<string, int>()
+        referenceKeys = new List<BindingPositionKey>()
+        referenceBuckets = new List<SymbolUsageBucket>()
     }
 }
 

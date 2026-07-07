@@ -10,6 +10,12 @@ Do not use documentation to justify keeping legacy fallback/legacy emitter owner
 `*DogfoodAdapter` layers alive. Old dogfood/columnar strategy logs that normalized fallback work have
 been deleted.
 
+Compiler-service kernels are statically compiled through `NSharpLang.Compiler.BootstrapServices`;
+product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because
+BootstrapServices is built by the pinned stage-0 SDK, any kernel that uses a tip-only language or
+backend feature requires a local SDK repin with `./scripts/setup-local.sh` before it is a valid
+kernel shape.
+
 ## Quick Lookup
 
 | Question | Read |

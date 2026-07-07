@@ -4,20 +4,21 @@ import System
 import System.Collections.Generic
 
 public class DocQueryMemberOrderScratch {
-    NameRanksByValue: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    NameRanksByValue: Dictionary<string, int>
 
-    KindCounts: int[] = new int[](0)
-    KindOffsets: int[] = new int[](0)
-    KindRanks: int[] = new int[](0)
-    NameCounts: int[] = new int[](0)
-    NameOffsets: int[] = new int[](0)
-    NameRanks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    TempIndices: int[] = new int[](0)
-    UniqueNames: string[] = new string[](0)
+    KindCounts: int[]
+    KindOffsets: int[]
+    KindRanks: int[]
+    NameCounts: int[]
+    NameOffsets: int[]
+    NameRanks: int[]
+    ResultIndices: int[]
+    TempIndices: int[]
+    UniqueNames: string[]
     UniqueNameCount: int
 
     public func EnsureCapacity(memberCount: int) {
+        EnsureInitialized()
         if KindRanks.Length != memberCount {
             KindRanks = new int[](memberCount)
             NameRanks = new int[](memberCount)
@@ -39,6 +40,7 @@ public class DocQueryMemberOrderScratch {
     }
 
     public func AddName(name: string) {
+        EnsureInitialized()
         if NameRanksByValue.ContainsKey(name) {
             return
         }
@@ -49,6 +51,7 @@ public class DocQueryMemberOrderScratch {
     }
 
     public func BuildSortedNameRanks() {
+        EnsureInitialized()
         Array.Sort(UniqueNames, 0, UniqueNameCount, StringComparer.OrdinalIgnoreCase)
 
         i := 0
@@ -59,14 +62,33 @@ public class DocQueryMemberOrderScratch {
     }
 
     public func GetNameRank(name: string): int {
+        EnsureInitialized()
         return NameRanksByValue[name]
     }
 
     public func ResetNames() {
+        EnsureInitialized()
         NameRanksByValue.Clear()
         if UniqueNameCount > 0 {
             Array.Clear(UniqueNames, 0, UniqueNameCount)
             UniqueNameCount = 0
         }
+    }
+
+    func EnsureInitialized() {
+        if NameRanksByValue != null {
+            return
+        }
+
+        NameRanksByValue = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        KindCounts = new int[](0)
+        KindOffsets = new int[](0)
+        KindRanks = new int[](0)
+        NameCounts = new int[](0)
+        NameOffsets = new int[](0)
+        NameRanks = new int[](0)
+        ResultIndices = new int[](0)
+        TempIndices = new int[](0)
+        UniqueNames = new string[](0)
     }
 }

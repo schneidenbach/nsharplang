@@ -33,6 +33,4 @@
     <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
   </ItemGroup>
 
-  <Import Project="..\NSharpLang.Compiler.Dogfood\NSharpLang.Compiler.Dogfood.targets" />
-
 </Project>

@@ -11,6 +11,14 @@ public class ReferenceResolutionOptions {
     quietValue: bool
     aotModeValue: bool
 
+    constructor() {
+        configurationValue = "Debug"
+        includeTestsValue = false
+        buildProjectReferencesValue = true
+        quietValue = false
+        aotModeValue = false
+    }
+
     Configuration: string {
         get { return configurationValue }
         set { configurationValue = value }
@@ -36,14 +44,6 @@ public class ReferenceResolutionOptions {
         set { aotModeValue = value }
     }
 
-    constructor() {
-        configurationValue = "Debug"
-        includeTestsValue = false
-        buildProjectReferencesValue = true
-        quietValue = false
-        aotModeValue = false
-    }
-
     constructor(Configuration: string, IncludeTests: bool, BuildProjectReferences: bool, Quiet: bool, AotMode: bool) {
         configurationValue = Configuration
         includeTestsValue = IncludeTests
@@ -54,13 +54,13 @@ public class ReferenceResolutionOptions {
 }
 
 public class ReferenceResolutionResult {
-    runtimeAssets: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    runtimeAssets: HashSet<string>?
 
     RuntimeAssets: IReadOnlyList<string> => BuildRuntimeAssets()
 
     public func AddRuntimeAsset(path: string) {
         if !string.IsNullOrWhiteSpace(path) && File.Exists(path) {
-            runtimeAssets.Add(Path.GetFullPath(path))
+            RuntimeAssetSet.Add(Path.GetFullPath(path))
         }
     }
 
@@ -84,9 +84,9 @@ public class ReferenceResolutionResult {
     }
 
     func BuildRuntimeAssets(): string[] {
-        assets := new string[](runtimeAssets.Count)
+        assets := new string[](RuntimeAssetSet.Count)
         index := 0
-        foreach asset in runtimeAssets {
+        foreach asset in RuntimeAssetSet {
             assets[index] = asset
             index = index + 1
         }
@@ -94,12 +94,52 @@ public class ReferenceResolutionResult {
         Array.Sort(assets, 0, index, StringComparer.OrdinalIgnoreCase)
         return assets
     }
+
+    RuntimeAssetSet: HashSet<string> {
+        get {
+            if runtimeAssets == null {
+                runtimeAssets = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return runtimeAssets
+        }
+    }
 }
 
 public class ResolutionContext {
-    PackageAssets: Dictionary<string, NuGetPackageAssets> = new Dictionary<string, NuGetPackageAssets>(StringComparer.OrdinalIgnoreCase)
-    ProjectOutputs: Dictionary<string, ResolvedProjectReference> = new Dictionary<string, ResolvedProjectReference>(StringComparer.OrdinalIgnoreCase)
-    ActiveProjectRoots: Stack<string> = new Stack<string>()
+    packageAssetsValue: Dictionary<string, NuGetPackageAssets>?
+    projectOutputsValue: Dictionary<string, ResolvedProjectReference>?
+    activeProjectRootsValue: Stack<string>?
+
+    PackageAssets: Dictionary<string, NuGetPackageAssets> {
+        get {
+            if packageAssetsValue == null {
+                packageAssetsValue = new Dictionary<string, NuGetPackageAssets>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return packageAssetsValue
+        }
+    }
+
+    ProjectOutputs: Dictionary<string, ResolvedProjectReference> {
+        get {
+            if projectOutputsValue == null {
+                projectOutputsValue = new Dictionary<string, ResolvedProjectReference>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return projectOutputsValue
+        }
+    }
+
+    ActiveProjectRoots: Stack<string> {
+        get {
+            if activeProjectRootsValue == null {
+                activeProjectRootsValue = new Stack<string>()
+            }
+
+            return activeProjectRootsValue
+        }
+    }
 }
 
 public class ResolvedProjectReference {
@@ -113,10 +153,11 @@ public class ResolvedProjectReference {
 }
 
 public class ReferenceTypeFilterScratch {
-    TypeRanks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
+    TypeRanks: int[]
+    ResultIndices: int[]
 
     public func EnsureCapacity(referenceCount: int) {
+        EnsureInitialized()
         if TypeRanks.Length != referenceCount {
             TypeRanks = new int[](referenceCount)
         }
@@ -125,15 +166,25 @@ public class ReferenceTypeFilterScratch {
             ResultIndices = new int[](referenceCount)
         }
     }
+
+    func EnsureInitialized() {
+        if TypeRanks != null {
+            return
+        }
+
+        TypeRanks = new int[](0)
+        ResultIndices = new int[](0)
+    }
 }
 
 public class SharedFrameworkCandidateScratch {
-    MajorVersions: int[] = new int[](0)
-    MinorVersions: int[] = new int[](0)
-    BuildVersions: int[] = new int[](0)
-    RevisionVersions: int[] = new int[](0)
+    MajorVersions: int[]
+    MinorVersions: int[]
+    BuildVersions: int[]
+    RevisionVersions: int[]
 
     public func EnsureCapacity(candidateCount: int) {
+        EnsureInitialized()
         if MajorVersions.Length >= candidateCount {
             return
         }
@@ -143,11 +194,42 @@ public class SharedFrameworkCandidateScratch {
         BuildVersions = new int[](candidateCount)
         RevisionVersions = new int[](candidateCount)
     }
+
+    func EnsureInitialized() {
+        if MajorVersions != null {
+            return
+        }
+
+        MajorVersions = new int[](0)
+        MinorVersions = new int[](0)
+        BuildVersions = new int[](0)
+        RevisionVersions = new int[](0)
+    }
 }
 
 public class NuGetPackageAssets {
-    CompileAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    RuntimeAssemblies: HashSet<string> = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    compileAssembliesValue: HashSet<string>?
+    runtimeAssembliesValue: HashSet<string>?
+
+    CompileAssemblies: HashSet<string> {
+        get {
+            if compileAssembliesValue == null {
+                compileAssembliesValue = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return compileAssembliesValue
+        }
+    }
+
+    RuntimeAssemblies: HashSet<string> {
+        get {
+            if runtimeAssembliesValue == null {
+                runtimeAssembliesValue = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return runtimeAssembliesValue
+        }
+    }
 
     public func Add(other: NuGetPackageAssets) {
         foreach assembly in other.CompileAssemblies {

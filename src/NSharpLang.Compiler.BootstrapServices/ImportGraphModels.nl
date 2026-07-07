@@ -177,7 +177,7 @@ public class ImportCycleDiagnosticReporter {
             edge.Column,
             ErrorSeverity.Error) {
             FileName: edge.SourceFile,
-            SourceSnippet: sourceSnippet,
+            SourceSnippet: TrimTrailingCarriageReturn(sourceSnippet),
             Length: Math.Max(1, edge.Length),
             HumanExplanation: "File imports form a cycle: " + cycle.DisplayPath,
             ContextualHint:
@@ -186,6 +186,22 @@ public class ImportCycleDiagnosticReporter {
             Suggestion: "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
             DocsUrl: "https://docs.n-sharp.dev/errors/NL703"
         })
+    }
+
+    static func TrimTrailingCarriageReturn(sourceSnippet: string?): string? {
+        if sourceSnippet == null {
+            return null
+        }
+
+        if sourceSnippet.Length == 0 {
+            return sourceSnippet
+        }
+
+        if sourceSnippet[sourceSnippet.Length - 1] == '\r' {
+            return sourceSnippet.Substring(0, sourceSnippet.Length - 1)
+        }
+
+        return sourceSnippet
     }
 
     static func CountCircularImportErrors(errors: List<CompilerError>): int {

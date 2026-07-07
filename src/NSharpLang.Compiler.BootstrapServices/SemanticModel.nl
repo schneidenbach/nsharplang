@@ -71,18 +71,6 @@ public class SemanticModel {
     typeMembersValue: Dictionary<string, Dictionary<string, TypeInfo>>
     scopeVersionValue: int
 
-    ExpressionTypes: Dictionary<(Line: int, Column: int), TypeInfo> => expressionTypesValue
-    ExpressionNullStates: Dictionary<(Line: int, Column: int), NullState> => expressionNullStatesValue
-    TypeReferenceTypes: Dictionary<(Line: int, Column: int), TypeInfo> => typeReferenceTypesValue
-    Variables: Dictionary<string, TypeInfo> => variablesValue
-    Functions: Dictionary<string, TypeInfo> => functionsValue
-    Properties: Dictionary<string, TypeInfo> => propertiesValue
-    Fields: Dictionary<string, TypeInfo> => fieldsValue
-    Types: Dictionary<string, TypeInfo> => typesValue
-    TypeMembers: Dictionary<string, Dictionary<string, TypeInfo>> => typeMembersValue
-    Scopes: IReadOnlyList<ScopeInfo> => scopesValue
-    ScopeVersion: int => scopeVersionValue
-
     constructor() {
         scopesValue = new List<ScopeInfo>()
         expressionTypesValue = new Dictionary<(Line: int, Column: int), TypeInfo>()
@@ -96,6 +84,18 @@ public class SemanticModel {
         typeMembersValue = new Dictionary<string, Dictionary<string, TypeInfo>>()
         scopeVersionValue = 0
     }
+
+    ExpressionTypes: Dictionary<(Line: int, Column: int), TypeInfo> => expressionTypesValue
+    ExpressionNullStates: Dictionary<(Line: int, Column: int), NullState> => expressionNullStatesValue
+    TypeReferenceTypes: Dictionary<(Line: int, Column: int), TypeInfo> => typeReferenceTypesValue
+    Variables: Dictionary<string, TypeInfo> => variablesValue
+    Functions: Dictionary<string, TypeInfo> => functionsValue
+    Properties: Dictionary<string, TypeInfo> => propertiesValue
+    Fields: Dictionary<string, TypeInfo> => fieldsValue
+    Types: Dictionary<string, TypeInfo> => typesValue
+    TypeMembers: Dictionary<string, Dictionary<string, TypeInfo>> => typeMembersValue
+    Scopes: IReadOnlyList<ScopeInfo> => scopesValue
+    ScopeVersion: int => scopeVersionValue
 
     public func OpenScope(parentId: int, startLine: int, startColumn: int): int {
         id := scopesValue.Count

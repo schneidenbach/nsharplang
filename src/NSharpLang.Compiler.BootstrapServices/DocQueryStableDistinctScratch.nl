@@ -4,13 +4,14 @@ import System
 import System.Collections.Generic
 
 public class StableDistinctStringScratch {
-    RanksByValue: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-    Ranks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    SeenRanks: int[] = new int[](0)
+    RanksByValue: Dictionary<string, int>
+    Ranks: int[]
+    ResultIndices: int[]
+    SeenRanks: int[]
     UniqueRankCount: int
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
             ResultIndices = new int[](count)
@@ -18,6 +19,7 @@ public class StableDistinctStringScratch {
     }
 
     public func EnsureRankCapacity(uniqueRankCount: int) {
+        EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {
             SeenRanks = new int[](rankCapacity)
@@ -25,19 +27,32 @@ public class StableDistinctStringScratch {
     }
 
     public func Reset() {
+        EnsureInitialized()
         RanksByValue.Clear()
         UniqueRankCount = 0
+    }
+
+    func EnsureInitialized() {
+        if RanksByValue != null {
+            return
+        }
+
+        RanksByValue = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        Ranks = new int[](0)
+        ResultIndices = new int[](0)
+        SeenRanks = new int[](0)
     }
 }
 
 public class StableDistinctTypeScratch {
-    RanksByValue: Dictionary<Type, int> = new Dictionary<Type, int>()
-    Ranks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    SeenRanks: int[] = new int[](0)
+    RanksByValue: Dictionary<Type, int>
+    Ranks: int[]
+    ResultIndices: int[]
+    SeenRanks: int[]
     UniqueRankCount: int
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
             ResultIndices = new int[](count)
@@ -45,6 +60,7 @@ public class StableDistinctTypeScratch {
     }
 
     public func EnsureRankCapacity(uniqueRankCount: int) {
+        EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {
             SeenRanks = new int[](rankCapacity)
@@ -52,7 +68,19 @@ public class StableDistinctTypeScratch {
     }
 
     public func Reset() {
+        EnsureInitialized()
         RanksByValue.Clear()
         UniqueRankCount = 0
+    }
+
+    func EnsureInitialized() {
+        if RanksByValue != null {
+            return
+        }
+
+        RanksByValue = new Dictionary<Type, int>()
+        Ranks = new int[](0)
+        ResultIndices = new int[](0)
+        SeenRanks = new int[](0)
     }
 }

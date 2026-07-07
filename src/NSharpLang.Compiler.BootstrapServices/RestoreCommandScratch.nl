@@ -4,10 +4,11 @@ import System
 import System.Collections.Generic
 
 public class ReferenceTypeFilterScratch {
-    TypeRanks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
+    TypeRanks: int[]
+    ResultIndices: int[]
 
     public func EnsureCapacity(referenceCount: int) {
+        EnsureInitialized()
         if TypeRanks.Length != referenceCount {
             TypeRanks = new int[](referenceCount)
         }
@@ -16,15 +17,25 @@ public class ReferenceTypeFilterScratch {
             ResultIndices = new int[](referenceCount)
         }
     }
+
+    func EnsureInitialized() {
+        if TypeRanks != null {
+            return
+        }
+
+        TypeRanks = new int[](0)
+        ResultIndices = new int[](0)
+    }
 }
 
 public class StableDistinctScratch {
-    RanksByReference: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-    Ranks: int[] = new int[](0)
-    ResultIndices: int[] = new int[](0)
-    SeenRanks: int[] = new int[](0)
+    RanksByReference: Dictionary<string, int>
+    Ranks: int[]
+    ResultIndices: int[]
+    SeenRanks: int[]
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
         }
@@ -35,9 +46,21 @@ public class StableDistinctScratch {
     }
 
     public func EnsureRankCapacity(uniqueRankCount: int) {
+        EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {
             SeenRanks = new int[](rankCapacity)
         }
+    }
+
+    func EnsureInitialized() {
+        if RanksByReference != null {
+            return
+        }
+
+        RanksByReference = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        Ranks = new int[](0)
+        ResultIndices = new int[](0)
+        SeenRanks = new int[](0)
     }
 }

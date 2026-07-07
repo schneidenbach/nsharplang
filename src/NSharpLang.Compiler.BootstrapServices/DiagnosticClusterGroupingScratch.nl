@@ -25,30 +25,31 @@ public class DiagnosticClusterGrouping {
 }
 
 public class DiagnosticClusterGroupingScratch {
-    CodeIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
-    MessagePatternIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
-    SeverityIdsByText: Dictionary<string, int> = new Dictionary<string, int>(StringComparer.Ordinal)
+    CodeIdsByText: Dictionary<string, int>
+    MessagePatternIdsByText: Dictionary<string, int>
+    SeverityIdsByText: Dictionary<string, int>
 
-    CategoryIds: int[] = new int[](0)
-    CodeIds: int[] = new int[](0)
-    Columns: int[] = new int[](0)
-    Files: string[] = new string[](0)
-    Counts: int[] = new int[](0)
-    GroupFirstMemberIndices: int[] = new int[](0)
-    GroupKeyIndices: int[] = new int[](0)
-    Lines: int[] = new int[](0)
-    MemberIndices: int[] = new int[](0)
-    MemberNextIndices: int[] = new int[](0)
-    MemberStarts: int[] = new int[](0)
-    MessagePatternIds: int[] = new int[](0)
-    RecipeIds: int[] = new int[](0)
-    RiskIds: int[] = new int[](0)
-    RootIndices: int[] = new int[](0)
-    SeverityIds: int[] = new int[](0)
-    SlotGroups: int[] = new int[](0)
-    SourceConstructIds: int[] = new int[](0)
+    CategoryIds: int[]
+    CodeIds: int[]
+    Columns: int[]
+    Files: string[]
+    Counts: int[]
+    GroupFirstMemberIndices: int[]
+    GroupKeyIndices: int[]
+    Lines: int[]
+    MemberIndices: int[]
+    MemberNextIndices: int[]
+    MemberStarts: int[]
+    MessagePatternIds: int[]
+    RecipeIds: int[]
+    RiskIds: int[]
+    RootIndices: int[]
+    SeverityIds: int[]
+    SlotGroups: int[]
+    SourceConstructIds: int[]
 
     public func EnsureCapacity(count: int) {
+        EnsureInitialized()
         if CodeIds.Length != count {
             CodeIds = new int[](count)
             SeverityIds = new int[](count)
@@ -76,25 +77,58 @@ public class DiagnosticClusterGroupingScratch {
     }
 
     public func GetCodeId(text: string): int {
+        EnsureInitialized()
         return GetId(CodeIdsByText, text)
     }
 
     public func GetSeverityId(text: string): int {
+        EnsureInitialized()
         return GetId(SeverityIdsByText, text)
     }
 
     public func GetMessagePatternId(text: string): int {
+        EnsureInitialized()
         return GetId(MessagePatternIdsByText, text)
     }
 
     public func ClearFiles(count: int) {
+        EnsureInitialized()
         Array.Clear(Files, 0, count)
     }
 
     public func ResetIds() {
+        EnsureInitialized()
         CodeIdsByText.Clear()
         SeverityIdsByText.Clear()
         MessagePatternIdsByText.Clear()
+    }
+
+    func EnsureInitialized() {
+        if CodeIdsByText != null {
+            return
+        }
+
+        CodeIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        MessagePatternIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        SeverityIdsByText = new Dictionary<string, int>(StringComparer.Ordinal)
+        CategoryIds = new int[](0)
+        CodeIds = new int[](0)
+        Columns = new int[](0)
+        Files = new string[](0)
+        Counts = new int[](0)
+        GroupFirstMemberIndices = new int[](0)
+        GroupKeyIndices = new int[](0)
+        Lines = new int[](0)
+        MemberIndices = new int[](0)
+        MemberNextIndices = new int[](0)
+        MemberStarts = new int[](0)
+        MessagePatternIds = new int[](0)
+        RecipeIds = new int[](0)
+        RiskIds = new int[](0)
+        RootIndices = new int[](0)
+        SeverityIds = new int[](0)
+        SlotGroups = new int[](0)
+        SourceConstructIds = new int[](0)
     }
 
     static func GetId(ids: Dictionary<string, int>, text: string): int {
