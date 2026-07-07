@@ -77,35 +77,33 @@ public class DocQuery
             return DescribeType(exactType);
         }
 
-        var parts = query.Split('.');
-        if (parts.Length < 2)
+        var splitPlans = DocQueryKernels.GetLookupSplitPlans(query);
+        if (splitPlans.Length == 0)
         {
             return null;
         }
 
-        for (int i = parts.Length - 1; i >= 1; i--)
+        foreach (var splitPlan in splitPlans)
         {
-            var typeCandidate = string.Join(".", parts.Take(i));
-            var remainder = parts.Skip(i).ToArray();
-            var type = ResolveType(typeCandidate);
+            var type = ResolveType(splitPlan.TypeCandidate);
             if (type == null) continue;
 
-            var nestedType = ResolveNestedTypeChain(type, remainder);
+            var nestedType = ResolveNestedTypeChain(type, splitPlan.RemainderParts);
             if (nestedType != null)
             {
                 return DescribeType(nestedType);
             }
 
-            if (remainder.Length > 1)
+            if (splitPlan.HasContainingType)
             {
-                var containingType = ResolveNestedTypeChain(type, remainder.Take(remainder.Length - 1));
+                var containingType = ResolveNestedTypeChain(type, splitPlan.ContainingTypeParts);
                 if (containingType != null)
                 {
-                    return LookupMember(containingType, remainder[^1]);
+                    return LookupMember(containingType, splitPlan.LastRemainder);
                 }
             }
 
-            return LookupMember(type, remainder[0]);
+            return LookupMember(type, splitPlan.FirstRemainder);
         }
 
         return null;

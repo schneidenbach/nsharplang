@@ -5,6 +5,34 @@ import System.Collections.Generic
 import System.IO
 import System.Text
 
+public class DocQueryLookupSplitPlan {
+    typeCandidateValue: string
+    remainderPartsValue: string[]
+    containingTypePartsValue: string[]
+    firstRemainderValue: string
+    lastRemainderValue: string
+
+    TypeCandidate: string => typeCandidateValue
+    RemainderParts: string[] => remainderPartsValue
+    ContainingTypeParts: string[] => containingTypePartsValue
+    FirstRemainder: string => firstRemainderValue
+    LastRemainder: string => lastRemainderValue
+    HasContainingType: bool => containingTypePartsValue.Length > 0
+
+    constructor(
+        typeCandidate: string,
+        remainderParts: string[],
+        containingTypeParts: string[],
+        firstRemainder: string,
+        lastRemainder: string) {
+        typeCandidateValue = typeCandidate
+        remainderPartsValue = remainderParts
+        containingTypePartsValue = containingTypeParts
+        firstRemainderValue = firstRemainder
+        lastRemainderValue = lastRemainder
+    }
+}
+
 public class DocQueryKernels {
     public static func DeduplicateStableStringsOrdinalIgnoreCase(values: IReadOnlyList<string>): string[] {
         items := new List<string>()
@@ -379,6 +407,47 @@ public class DocQueryKernels {
         return sorted
     }
 
+    public static func GetLookupSplitPlans(query: string): DocQueryLookupSplitPlan[] {
+        parts := query.Split('.')
+        if parts.Length < 2 {
+            return new DocQueryLookupSplitPlan[](0)
+        }
+
+        planCount := parts.Length - 1
+        plans := new DocQueryLookupSplitPlan[](planCount)
+        planIndex := 0
+        i := parts.Length - 1
+        while i >= 1 {
+            remainderCount := parts.Length - i
+            remainderParts := new string[](remainderCount)
+            r := 0
+            while r < remainderCount {
+                remainderParts[r] = parts[i + r]
+                r = r + 1
+            }
+
+            containingCount := remainderCount - 1
+            containingTypeParts := new string[](containingCount)
+            r = 0
+            while r < containingCount {
+                containingTypeParts[r] = remainderParts[r]
+                r = r + 1
+            }
+
+            plans[planIndex] = new DocQueryLookupSplitPlan(
+                JoinDocQueryParts(parts, 0, i),
+                remainderParts,
+                containingTypeParts,
+                remainderParts[0],
+                remainderParts[remainderCount - 1])
+
+            planIndex = planIndex + 1
+            i = i - 1
+        }
+
+        return plans
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,
@@ -591,5 +660,20 @@ public class DocQueryKernels {
 
     static func DocQueryIsDigit(ch: char): bool {
         return ch >= '0' && ch <= '9'
+    }
+
+    static func JoinDocQueryParts(parts: string[], start: int, count: int): string {
+        builder := new StringBuilder()
+        i := 0
+        while i < count {
+            if i > 0 {
+                builder.Append(".")
+            }
+
+            builder.Append(parts[start + i])
+            i = i + 1
+        }
+
+        return builder.ToString()
     }
 }
