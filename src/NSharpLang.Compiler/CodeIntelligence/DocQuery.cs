@@ -115,17 +115,14 @@ public class DocQuery
         var members = GetTypeMembers(type);
         var baseTypes = GetBaseTypes(type);
 
-        return new DocResult(
-            Name: StripGenericArity(type.Name),
-            FullName: FormatQualifiedType(type),
-            Kind: GetTypeKind(type),
-            Summary: summary,
-            Namespace: type.Namespace,
-            Members: members,
-            Parameters: null,
-            ReturnType: null,
-            ReturnDoc: null,
-            BaseTypes: baseTypes);
+        return DocQueryKernels.CreateTypeDocResult(
+            StripGenericArity(type.Name),
+            FormatQualifiedType(type),
+            GetTypeKind(type),
+            summary,
+            type.Namespace,
+            members,
+            baseTypes);
     }
 
     private DocResult? LookupMember(Type type, string memberName)
@@ -143,27 +140,26 @@ public class DocQuery
 
         if (constructors.Length > 0)
         {
-            var overloads = constructors.Select(c => new DocMemberResult(
-                Name: FormatMethodSignature(c),
-                Kind: "constructor",
-                Type: null,
-                Summary: GetMethodSummary(c),
-                Parameters: FormatParameters(c)
+            var overloads = constructors.Select(c => DocQueryKernels.CreateDocMemberResult(
+                FormatMethodSignature(c),
+                "constructor",
+                null,
+                GetMethodSummary(c),
+                FormatParameters(c)
             )).ToArray();
 
-            return new DocResult(
-                Name: StripGenericArity(type.Name),
-                FullName: FormatQualifiedType(type),
-                Kind: DocQueryKernels.GetOverloadKindText("constructor", constructors.Length),
-                Summary: GetMethodSummary(constructors[0]),
-                Namespace: type.Namespace,
-                Members: overloads,
-                Parameters: constructors[0].GetParameters().Select(p => new DocParameterResult(
-                    p.Name ?? "?", FormatType(p.ParameterType), GetParameterSummary(constructors[0], p.Name)
+            return DocQueryKernels.CreateCallableDocResult(
+                StripGenericArity(type.Name),
+                FormatQualifiedType(type),
+                DocQueryKernels.GetOverloadKindText("constructor", constructors.Length),
+                GetMethodSummary(constructors[0]),
+                type.Namespace,
+                overloads,
+                constructors[0].GetParameters().Select(p => DocQueryKernels.CreateDocParameterResult(
+                    p.Name, FormatType(p.ParameterType), GetParameterSummary(constructors[0], p.Name)
                 )).ToArray(),
-                ReturnType: null,
-                ReturnDoc: null,
-                BaseTypes: null);
+                null,
+                null);
         }
 
         // Look for methods
@@ -174,29 +170,28 @@ public class DocQuery
         if (methods.Length > 0)
         {
             // Return all overloads
-            var overloads = methods.Select(m => new DocMemberResult(
-                Name: FormatMethodSignature(m),
-                Kind: "method",
-                Type: FormatType(m.ReturnType),
-                Summary: GetMethodSummary(m),
-                Parameters: FormatParameters(m)
+            var overloads = methods.Select(m => DocQueryKernels.CreateDocMemberResult(
+                FormatMethodSignature(m),
+                "method",
+                FormatType(m.ReturnType),
+                GetMethodSummary(m),
+                FormatParameters(m)
             )).ToArray();
 
             var firstDoc = GetMethodSummary(methods[0]);
 
-            return new DocResult(
-                Name: memberName,
-                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), memberName),
-                Kind: DocQueryKernels.GetOverloadKindText("method", methods.Length),
-                Summary: firstDoc,
-                Namespace: type.Namespace,
-                Members: overloads,
-                Parameters: methods[0].GetParameters().Select(p => new DocParameterResult(
-                    p.Name ?? "?", FormatType(p.ParameterType), GetParameterSummary(methods[0], p.Name)
+            return DocQueryKernels.CreateCallableDocResult(
+                memberName,
+                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), memberName),
+                DocQueryKernels.GetOverloadKindText("method", methods.Length),
+                firstDoc,
+                type.Namespace,
+                overloads,
+                methods[0].GetParameters().Select(p => DocQueryKernels.CreateDocParameterResult(
+                    p.Name, FormatType(p.ParameterType), GetParameterSummary(methods[0], p.Name)
                 )).ToArray(),
-                ReturnType: FormatType(methods[0].ReturnType),
-                ReturnDoc: GetReturnsSummary(methods[0]),
-                BaseTypes: null);
+                FormatType(methods[0].ReturnType),
+                GetReturnsSummary(methods[0]));
         }
 
         // Look for properties
@@ -204,17 +199,13 @@ public class DocQuery
             BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase);
         if (prop != null)
         {
-            return new DocResult(
-                Name: prop.Name,
-                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), prop.Name),
-                Kind: "property",
-                Summary: GetPropertySummary(prop),
-                Namespace: type.Namespace,
-                Members: null,
-                Parameters: null,
-                ReturnType: FormatType(prop.PropertyType),
-                ReturnDoc: null,
-                BaseTypes: null);
+            return DocQueryKernels.CreateValueDocResult(
+                prop.Name,
+                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), prop.Name),
+                "property",
+                GetPropertySummary(prop),
+                type.Namespace,
+                FormatType(prop.PropertyType));
         }
 
         // Look for fields
@@ -222,34 +213,26 @@ public class DocQuery
             BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase);
         if (field != null)
         {
-            return new DocResult(
-                Name: field.Name,
-                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), field.Name),
-                Kind: "field",
-                Summary: GetFieldSummary(field),
-                Namespace: type.Namespace,
-                Members: null,
-                Parameters: null,
-                ReturnType: FormatType(field.FieldType),
-                ReturnDoc: null,
-                BaseTypes: null);
+            return DocQueryKernels.CreateValueDocResult(
+                field.Name,
+                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), field.Name),
+                "field",
+                GetFieldSummary(field),
+                type.Namespace,
+                FormatType(field.FieldType));
         }
 
         var evt = type.GetEvent(memberName,
             BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase);
         if (evt != null)
         {
-            return new DocResult(
-                Name: evt.Name,
-                FullName: DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), evt.Name),
-                Kind: "event",
-                Summary: GetEventSummary(evt),
-                Namespace: type.Namespace,
-                Members: null,
-                Parameters: null,
-                ReturnType: evt.EventHandlerType != null ? FormatType(evt.EventHandlerType) : null,
-                ReturnDoc: null,
-                BaseTypes: null);
+            return DocQueryKernels.CreateValueDocResult(
+                evt.Name,
+                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), evt.Name),
+                "event",
+                GetEventSummary(evt),
+                type.Namespace,
+                evt.EventHandlerType != null ? FormatType(evt.EventHandlerType) : null);
         }
 
         return null;
@@ -396,7 +379,7 @@ public class DocQuery
 
         foreach (var nestedType in type.GetNestedTypes(BindingFlags.Public))
         {
-            results.Add(new DocMemberResult(
+            results.Add(DocQueryKernels.CreateDocMemberResult(
                 StripGenericArity(nestedType.Name),
                 "nested type",
                 FormatQualifiedType(nestedType),
@@ -406,7 +389,7 @@ public class DocQuery
 
         foreach (var ctor in type.GetConstructors(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(new DocMemberResult(
+            results.Add(DocQueryKernels.CreateDocMemberResult(
                 FormatMethodSignature(ctor),
                 "constructor",
                 null,
@@ -417,7 +400,7 @@ public class DocQuery
         // Properties
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(new DocMemberResult(prop.Name, "property", FormatType(prop.PropertyType),
+            results.Add(DocQueryKernels.CreateDocMemberResult(prop.Name, "property", FormatType(prop.PropertyType),
                 GetPropertySummary(prop), null));
         }
 
@@ -425,20 +408,20 @@ public class DocQuery
         foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
             .Where(m => !m.IsSpecialName))
         {
-            results.Add(new DocMemberResult(method.Name, "method", FormatType(method.ReturnType),
+            results.Add(DocQueryKernels.CreateDocMemberResult(method.Name, "method", FormatType(method.ReturnType),
                 GetMethodSummary(method), FormatParameters(method)));
         }
 
         // Fields
         foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(new DocMemberResult(field.Name, "field", FormatType(field.FieldType),
+            results.Add(DocQueryKernels.CreateDocMemberResult(field.Name, "field", FormatType(field.FieldType),
                 GetFieldSummary(field), null));
         }
 
         foreach (var evt in type.GetEvents(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(new DocMemberResult(evt.Name, "event",
+            results.Add(DocQueryKernels.CreateDocMemberResult(evt.Name, "event",
                 evt.EventHandlerType != null ? FormatType(evt.EventHandlerType) : null,
                 GetEventSummary(evt), null));
         }

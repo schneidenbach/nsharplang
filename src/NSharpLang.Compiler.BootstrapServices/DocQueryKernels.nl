@@ -959,6 +959,86 @@ public class DocQueryKernels {
         return childText
     }
 
+    public static func CreateDocMemberResult(
+        name: string,
+        kind: string,
+        typeName: string?,
+        summary: string?,
+        parameters: string?): DocMemberResult {
+        return new DocMemberResult(name, kind, typeName, summary, parameters)
+    }
+
+    public static func CreateDocParameterResult(
+        parameterName: string?,
+        typeName: string,
+        summary: string?): DocParameterResult {
+        return new DocParameterResult(parameterName ?? "?", typeName, summary)
+    }
+
+    public static func CreateTypeDocResult(
+        name: string,
+        fullName: string,
+        kind: string,
+        summary: string?,
+        namespaceName: string?,
+        members: DocMemberResult[]?,
+        baseTypes: string[]?): DocResult {
+        return new DocResult(
+            name,
+            fullName,
+            kind,
+            summary,
+            namespaceName,
+            members,
+            null,
+            null,
+            null,
+            baseTypes)
+    }
+
+    public static func CreateCallableDocResult(
+        name: string,
+        fullName: string,
+        kind: string,
+        summary: string?,
+        namespaceName: string?,
+        overloads: DocMemberResult[]?,
+        parameters: DocParameterResult[]?,
+        returnType: string?,
+        returnDoc: string?): DocResult {
+        return new DocResult(
+            name,
+            fullName,
+            kind,
+            summary,
+            namespaceName,
+            overloads,
+            parameters,
+            returnType,
+            returnDoc,
+            null)
+    }
+
+    public static func CreateValueDocResult(
+        name: string,
+        fullName: string,
+        kind: string,
+        summary: string?,
+        namespaceName: string?,
+        returnType: string?): DocResult {
+        return new DocResult(
+            name,
+            fullName,
+            kind,
+            summary,
+            namespaceName,
+            null,
+            null,
+            returnType,
+            null,
+            null)
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,
