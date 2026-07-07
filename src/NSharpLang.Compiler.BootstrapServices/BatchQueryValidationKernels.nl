@@ -2,7 +2,33 @@ namespace NSharpLang.Cli
 
 import System
 
+public enum BatchQueryPayloadShapeKind {
+    Invalid = 0,
+    RootArray = 1,
+    NestedRequestsArray = 2
+}
+
 public class BatchQueryValidationKernels {
+    public static func GetPayloadShapeKind(
+        rootIsArray: bool,
+        rootIsObject: bool,
+        hasRequests: bool,
+        requestsIsArray: bool): BatchQueryPayloadShapeKind {
+        if rootIsArray {
+            return BatchQueryPayloadShapeKind.RootArray
+        }
+
+        if rootIsObject && hasRequests && requestsIsArray {
+            return BatchQueryPayloadShapeKind.NestedRequestsArray
+        }
+
+        return BatchQueryPayloadShapeKind.Invalid
+    }
+
+    public static func IsRequestItemObject(itemIsObject: bool): bool {
+        return itemIsObject
+    }
+
     public static func HasRequiredInput(
         commandKind: BatchQueryCommandKind,
         filePath: string?,

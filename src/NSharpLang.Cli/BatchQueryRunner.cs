@@ -63,14 +63,22 @@ internal static class BatchQueryRunner
 
         using var document = JsonDocument.Parse(File.ReadAllText(path));
 
+        var rootElement = document.RootElement;
+        JsonElement nestedRequests = default;
+        var hasNestedRequests = rootElement.ValueKind == JsonValueKind.Object &&
+                                rootElement.TryGetProperty("requests", out nestedRequests);
+        var payloadShape = BatchQueryValidationKernels.GetPayloadShapeKind(
+            rootElement.ValueKind == JsonValueKind.Array,
+            rootElement.ValueKind == JsonValueKind.Object,
+            hasNestedRequests,
+            hasNestedRequests && nestedRequests.ValueKind == JsonValueKind.Array);
+
         JsonElement requestsElement;
-        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        if (payloadShape == BatchQueryPayloadShapeKind.RootArray)
         {
-            requestsElement = document.RootElement;
+            requestsElement = rootElement;
         }
-        else if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                 document.RootElement.TryGetProperty("requests", out var nestedRequests) &&
-                 nestedRequests.ValueKind == JsonValueKind.Array)
+        else if (payloadShape == BatchQueryPayloadShapeKind.NestedRequestsArray)
         {
             requestsElement = nestedRequests;
         }
@@ -82,7 +90,7 @@ internal static class BatchQueryRunner
         var requests = new List<BatchQueryRequest>();
         foreach (var item in requestsElement.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object)
+            if (!BatchQueryValidationKernels.IsRequestItemObject(item.ValueKind == JsonValueKind.Object))
             {
                 throw new InvalidDataException(BatchQueryKernels.GetRequestObjectRequiredMessage());
             }
