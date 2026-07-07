@@ -1,5 +1,10 @@
 namespace NSharpLang.Cli
 
+import System.Collections.Generic
+import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
+import NSharpLang.Compiler.Performance
+
 public class BuildOperandSummary {
     Count: int
     FirstOperandIndex: int
@@ -301,6 +306,86 @@ public class BuildCommandKernels {
             + "  Total:      " + totalElapsed
     }
 
+    public static func ApplyEffectiveDefines(config: ProjectConfig, debug: bool, cliDefines: IReadOnlyList<string>?) {
+        if debug && !ContainsDefine(config.Defines, "DEBUG") {
+            config.Defines.Add("DEBUG")
+        }
+
+        if cliDefines == null {
+            return
+        }
+
+        foreach symbol in cliDefines {
+            if !String.IsNullOrWhiteSpace(symbol) && !ContainsDefine(config.Defines, symbol) {
+                config.Defines.Add(symbol)
+            }
+        }
+    }
+
+    public static func ToPerfReportFacts(report: SystemsReport): BuildPerfReportFacts {
+        allocationSites := new List<PerfReportSite>()
+        delegateSites := new List<PerfReportSite>()
+        boxingSites := new List<PerfReportSite>()
+        dispatchSites := new List<PerfReportSite>()
+        closureCaptures := new List<PerfReportSite>()
+        poolSites := new List<PerfReportSite>()
+        resourceSites := new List<PerfReportSite>()
+        boundaryLeakSites := new List<PerfReportSite>()
+        hotReadinessSites := new List<PerfReportSite>()
+        implicitTrapSites := new List<PerfReportSite>()
+
+        foreach finding in report.Findings {
+            site := new PerfReportSite(
+                finding.Code,
+                finding.Effect,
+                finding.File,
+                finding.Line,
+                finding.Column,
+                finding.Message,
+                finding.Function,
+                finding.Suggestion)
+
+            AddPerfReportSite(site,
+                allocationSites,
+                delegateSites,
+                boxingSites,
+                dispatchSites,
+                closureCaptures,
+                poolSites,
+                resourceSites,
+                boundaryLeakSites,
+                hotReadinessSites,
+                implicitTrapSites)
+        }
+
+        trustedSites := new List<PerfReportTrustedSite>()
+        foreach site in report.TrustedSites {
+            trustedSites.Add(new PerfReportTrustedSite(
+                site.Function,
+                site.File,
+                site.Line,
+                site.Column,
+                site.Owner,
+                site.Review,
+                site.Expires,
+                site.HasUnsafe,
+                site.BodyStatementCount))
+        }
+
+        return new BuildPerfReportFacts(
+            allocationSites.ToArray(),
+            delegateSites.ToArray(),
+            boxingSites.ToArray(),
+            dispatchSites.ToArray(),
+            closureCaptures.ToArray(),
+            poolSites.ToArray(),
+            resourceSites.ToArray(),
+            boundaryLeakSites.ToArray(),
+            hotReadinessSites.ToArray(),
+            implicitTrapSites.ToArray(),
+            trustedSites.ToArray())
+    }
+
     static func BuildOptionSummaryKind(arg: string): int {
         if arg == "--output" {
             return 1
@@ -343,6 +428,51 @@ public class BuildCommandKernels {
         }
 
         return 0
+    }
+
+    static func ContainsDefine(defines: List<string>, symbol: string): bool {
+        foreach define in defines {
+            if define == symbol {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func AddPerfReportSite(
+        site: PerfReportSite,
+        allocationSites: List<PerfReportSite>,
+        delegateSites: List<PerfReportSite>,
+        boxingSites: List<PerfReportSite>,
+        dispatchSites: List<PerfReportSite>,
+        closureCaptures: List<PerfReportSite>,
+        poolSites: List<PerfReportSite>,
+        resourceSites: List<PerfReportSite>,
+        boundaryLeakSites: List<PerfReportSite>,
+        hotReadinessSites: List<PerfReportSite>,
+        implicitTrapSites: List<PerfReportSite>) {
+        if site.Effect == "allocation" {
+            allocationSites.Add(site)
+        } else if site.Effect == "delegate" {
+            delegateSites.Add(site)
+        } else if site.Effect == "boxing" {
+            boxingSites.Add(site)
+        } else if site.Effect == "dispatch" {
+            dispatchSites.Add(site)
+        } else if site.Effect == "closure" {
+            closureCaptures.Add(site)
+        } else if site.Effect == "pool" {
+            poolSites.Add(site)
+        } else if site.Effect == "resource" {
+            resourceSites.Add(site)
+        } else if site.Effect == "boundaryLeak" {
+            boundaryLeakSites.Add(site)
+        } else if site.Effect == "hotReadiness" {
+            hotReadinessSites.Add(site)
+        } else if site.Effect == "implicitTrap" {
+            implicitTrapSites.Add(site)
+        }
     }
 
     static func BuildArgumentKind(arg: string): int {

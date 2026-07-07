@@ -4,8 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.CodeIntelligence;
-using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Cli;
 
@@ -30,7 +28,7 @@ partial class Program
 
             var config = ProjectFileParser.Parse(projectYmlPath);
             var configuration = release ? "Release" : "Debug";
-            ApplyEffectiveDefines(config, debug: !release, cliDefines);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
                 : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
@@ -83,7 +81,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-            ApplyEffectiveDefines(config, debug: !release, cliDefines);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
                 : Path.Combine(sourceDir, "bin", release ? "Release" : "Debug", config.TargetFramework);
@@ -130,7 +128,7 @@ partial class Program
             }
 
             var configuration = "Debug";
-            ApplyEffectiveDefines(config, debug: true, cliDefines);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
             var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
@@ -165,7 +163,7 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-            ApplyEffectiveDefines(config, debug: true, cliDefines);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
             if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
             {
                 return Error(RunCommandKernels.GetLibrarySourceFileMessage());
@@ -207,7 +205,7 @@ partial class Program
         bool aotMode = false)
     {
         projectRoot = Path.GetFullPath(projectRoot);
-        ApplyEffectiveDefines(config, debug: !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase), cliDefines: null);
+        BuildCommandKernels.ApplyEffectiveDefines(config, debug: !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase), cliDefines: null);
         var resolvedOutputDir = outputDir != null
             ? Path.GetFullPath(outputDir)
             : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
@@ -337,7 +335,7 @@ partial class Program
         compiler.AotMode = aotMode;
         var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
         var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
-        perfFacts = ToPerfReportFacts(compiler);
+        perfFacts = BuildCommandKernels.ToPerfReportFacts(compiler.SystemsReport);
         EmitCompilationDiagnostics(result);
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
@@ -370,69 +368,4 @@ partial class Program
         return config;
     }
 
-    /// <summary>
-    /// Folds build-configuration and CLI conditional-compilation symbols into
-    /// <see cref="ProjectConfig.Defines"/> (which already holds the project.yml-authored
-    /// symbols). Defines <c>DEBUG</c> for debug builds — matching MSBuild conventions — and adds
-    /// any <c>--define</c> values. Symbols are case-sensitive and de-duplicated.
-    /// </summary>
-    private static void ApplyEffectiveDefines(ProjectConfig config, bool debug, IReadOnlyList<string>? cliDefines)
-    {
-        if (debug && !config.Defines.Contains("DEBUG"))
-        {
-            config.Defines.Add("DEBUG");
-        }
-
-        if (cliDefines == null)
-        {
-            return;
-        }
-
-        foreach (var symbol in cliDefines)
-        {
-            if (!string.IsNullOrWhiteSpace(symbol) && !config.Defines.Contains(symbol))
-            {
-                config.Defines.Add(symbol);
-            }
-        }
-    }
-
-    private static BuildPerfReportFacts ToPerfReportFacts(MultiFileCompiler compiler)
-    {
-        var sites = compiler.SystemsReport.Findings
-            .Select(finding => new PerfReportSite(
-                finding.Code,
-                finding.Effect,
-                finding.File,
-                finding.Line,
-                finding.Column,
-                finding.Message,
-                finding.Function,
-                finding.Suggestion))
-            .ToArray();
-
-        return new BuildPerfReportFacts(
-            sites.Where(site => site.Effect is "allocation").ToArray(),
-            sites.Where(site => site.Effect is "delegate").ToArray(),
-            sites.Where(site => site.Effect is "boxing").ToArray(),
-            sites.Where(site => site.Effect is "dispatch").ToArray(),
-            sites.Where(site => site.Effect is "closure").ToArray(),
-            sites.Where(site => site.Effect is "pool").ToArray(),
-            sites.Where(site => site.Effect is "resource").ToArray(),
-            sites.Where(site => site.Effect is "boundaryLeak").ToArray(),
-            sites.Where(site => site.Effect is "hotReadiness").ToArray(),
-            sites.Where(site => site.Effect is "implicitTrap").ToArray(),
-            compiler.SystemsReport.TrustedSites
-                .Select(site => new PerfReportTrustedSite(
-                    site.Function,
-                    site.File,
-                    site.Line,
-                    site.Column,
-                    site.Owner,
-                    site.Review,
-                    site.Expires,
-                    site.HasUnsafe,
-                    site.BodyStatementCount))
-                .ToArray());
-    }
 }
