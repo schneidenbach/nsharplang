@@ -115,7 +115,7 @@ partial class Program
                     summary.Failed,
                     summary.Skipped,
                     summary.Total));
-                Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(FormatElapsed(stopwatch.Elapsed)));
+                Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
             return summary.Ok ? 0 : 1;
@@ -124,7 +124,7 @@ partial class Program
         {
             if (outputMode == 2)
             {
-                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(stopwatch.Elapsed)));
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
             if (outputMode == 1)

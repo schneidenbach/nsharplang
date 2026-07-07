@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using NSharpLang.Cli;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -168,12 +169,12 @@ public static class LintCommand
                 {
                     Console.Error.WriteLine(LintCommandKernels.GetNoIssuesMessage(
                         lintedFileCount,
-                        FormatElapsed(sw.Elapsed)));
+                        ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(allDiagnostics));
-                    Console.Error.WriteLine(LintCommandKernels.GetLintedInMessage(FormatElapsed(sw.Elapsed)));
+                    Console.Error.WriteLine(LintCommandKernels.GetLintedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
                 }
             }
 
@@ -197,13 +198,6 @@ public static class LintCommand
         }
 
         return 1;
-    }
-
-    private static string FormatElapsed(TimeSpan elapsed)
-    {
-        if (elapsed.TotalMinutes >= 1)
-            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
-        return $"{elapsed.TotalSeconds:F1}s";
     }
 
     private static string NormalizePath(string path)

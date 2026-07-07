@@ -52,19 +52,19 @@ partial class Program
             compileSw.Stop();
             if (outputPath == null)
             {
-                Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(FormatElapsed(totalSw.Elapsed)));
+                Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
                 return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
-            Console.WriteLine(BuildCommandKernels.GetSuccessElapsedMessage(release, FormatElapsed(totalSw.Elapsed)));
+            Console.WriteLine(BuildCommandKernels.GetSuccessElapsedMessage(release, ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
             Console.WriteLine(BuildCommandKernels.GetOutputPathMessage(outputPath));
 
             if (timings)
             {
                 Console.Error.WriteLine(BuildCommandKernels.GetTimingsMessage(
-                    FormatElapsed(resolveSw.Elapsed),
-                    FormatElapsed(compileSw.Elapsed),
-                    FormatElapsed(totalSw.Elapsed)));
+                    ProgramCommandKernels.FormatElapsedMilliseconds(resolveSw.ElapsedMilliseconds),
+                    ProgramCommandKernels.FormatElapsedMilliseconds(compileSw.ElapsedMilliseconds),
+                    ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
             }
 
             return new BuildCommandResult(0, perfFacts);

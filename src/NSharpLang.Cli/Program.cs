@@ -564,7 +564,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         catch (Exception ex)
         {
             if (outputMode == 2)
-                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
             if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure); return 1; }
             return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
@@ -788,13 +788,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static string NormalizePath(string path)
         => NSharpLang.Compiler.CodeIntelligence.OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
-
-    static string FormatElapsed(TimeSpan elapsed)
-    {
-        if (elapsed.TotalMinutes >= 1)
-            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
-        return $"{elapsed.TotalSeconds:F1}s";
-    }
 
     internal static string GetVersion()
     {

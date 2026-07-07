@@ -84,12 +84,12 @@ public static class CheckCommand
                     var fileCount = snapshot.SourceFiles.Count;
                     Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
                         fileCount,
-                        FormatElapsed(sw.Elapsed)));
+                        ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
-                    Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(FormatElapsed(sw.Elapsed)));
+                    Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
                 }
             }
             else if (outputMode == 3)
@@ -110,7 +110,7 @@ public static class CheckCommand
         catch (Exception ex)
         {
             if (useText)
-                Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
+                Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
             return EmitError(useText, CheckCommandKernels.GetFailedMessage(ex.Message), projectDir);
         }
     }
@@ -161,10 +161,4 @@ public static class CheckCommand
         return 1;
     }
 
-    private static string FormatElapsed(TimeSpan elapsed)
-    {
-        if (elapsed.TotalMinutes >= 1)
-            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
-        return $"{elapsed.TotalSeconds:F1}s";
-    }
 }

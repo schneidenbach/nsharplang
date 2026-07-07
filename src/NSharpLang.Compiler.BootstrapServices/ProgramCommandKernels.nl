@@ -199,6 +199,24 @@ public class ProgramCommandKernels {
         return "Error: " + message
     }
 
+    public static func FormatElapsedMilliseconds(elapsedMilliseconds: long): string {
+        if elapsedMilliseconds >= 60000 {
+            minutes := elapsedMilliseconds / 60000
+            seconds := (elapsedMilliseconds / 1000) - minutes * 60
+            secondsText := seconds.ToString()
+            if seconds < 10 {
+                secondsText = "0" + secondsText
+            }
+
+            return minutes.ToString() + "m " + secondsText + "s"
+        }
+
+        tenths := (elapsedMilliseconds + 50) / 100
+        whole := tenths / 10
+        fraction := tenths - whole * 10
+        return whole.ToString() + "." + fraction.ToString() + "s"
+    }
+
     static func CommandEquals(command: string, expected: string): bool {
         return String.Compare(command, expected, StringComparison.OrdinalIgnoreCase) == 0
     }
