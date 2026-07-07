@@ -139,15 +139,7 @@ public static class OutputFormatter
 
     public static string SymbolsToJson(List<SymbolResult> results, string? projectRoot = null)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "symbols",
-            ok = true,
-            projectRoot = NormalizePath(projectRoot),
-            results = results.Select(Normalize).ToList()
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.SymbolsToJson(results, projectRoot);
     }
 
     public static string OutlineToJson(OutlineResult result)

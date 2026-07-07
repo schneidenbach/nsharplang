@@ -239,6 +239,102 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func SymbolsToJson(results: List<SymbolResult>, projectRoot: string?): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "symbols"
+        envelope["ok"] = true
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["results"] = BuildSymbolResults(results)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildSymbolResults(results: List<SymbolResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildSymbolResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildSymbolArray(results: SymbolResult[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildSymbolResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildOptionalSymbolArray(results: SymbolResult[]?): List<Dictionary<string, object>>? {
+        if results == null {
+            return null
+        }
+
+        return BuildSymbolArray(results)
+    }
+
+    static func BuildSymbolResult(result: SymbolResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["kind"] = SymbolKindToJsonText(result.Kind)
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+
+        if result.TypeName != null {
+            payload["typeName"] = result.TypeName ?? ""
+        }
+
+        if result.Modifiers != null {
+            payload["modifiers"] = result.Modifiers
+        }
+
+        members := BuildOptionalSymbolArray(result.Members)
+        if members != null {
+            payload["members"] = members
+        }
+
+        parameters := BuildOptionalParameterResults(result.Parameters)
+        if parameters != null {
+            payload["parameters"] = parameters
+        }
+
+        return payload
+    }
+
+    static func BuildOptionalParameterResults(parameters: ParameterResult[]?): List<Dictionary<string, object>>? {
+        if parameters == null {
+            return null
+        }
+
+        payload := new List<Dictionary<string, object>>()
+        foreach parameter in parameters {
+            payload.Add(BuildParameterResult(parameter))
+        }
+
+        return payload
+    }
+
+    static func BuildParameterResult(parameter: ParameterResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = parameter.Name
+        payload["type"] = parameter.Type
+        payload["hasDefault"] = parameter.HasDefault
+
+        if parameter.DefaultValue != null {
+            payload["defaultValue"] = parameter.DefaultValue ?? ""
+        }
+
+        return payload
+    }
+
     static func BuildOutlineEntries(entries: OutlineEntry[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
         foreach entry in entries {
