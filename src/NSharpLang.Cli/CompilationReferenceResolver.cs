@@ -450,13 +450,13 @@ internal static class CompilationReferenceResolver
         }
         else
         {
-            var scores = new int[dependencyGroups.Length];
-            for (var i = 0; i < dependencyGroups.Length; i++)
-                scores[i] = CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore(
-                    dependencyGroups[i].TargetFramework,
-                    targetFramework);
-
-            var bestGroupIndex = CompilationReferenceResolverKernels.SelectBestScoreIndex(scores, scores.Length);
+            // MECHANICAL-GLUE: XDocument flatten only; group compatibility lives in CompilationReferenceResolverKernels.nl.
+            var groupTargetFrameworks = dependencyGroups
+                .Select(group => group.TargetFramework)
+                .ToArray();
+            var bestGroupIndex = CompilationReferenceResolverKernels.SelectBestDependencyGroupIndex(
+                groupTargetFrameworks,
+                targetFramework);
             dependencies = bestGroupIndex >= 0
                 ? dependencyGroups[bestGroupIndex].Dependencies
                 : Array.Empty<XElement>();

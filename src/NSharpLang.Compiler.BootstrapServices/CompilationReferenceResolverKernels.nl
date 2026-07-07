@@ -150,6 +150,17 @@ public class CompilationReferenceResolverKernels {
         return SelectBestScoreIndex(scores, scores.Length)
     }
 
+    public static func SelectBestDependencyGroupIndex(groupTargetFrameworks: string?[], targetFramework: string): int {
+        scores := new int[](groupTargetFrameworks.Length)
+        index := 0
+        while index < groupTargetFrameworks.Length {
+            scores[index] = GetFrameworkCompatibilityScore(groupTargetFrameworks[index], targetFramework)
+            index = index + 1
+        }
+
+        return SelectBestScoreIndex(scores, scores.Length)
+    }
+
     public static func SortPathsIgnoreCase(paths: string[]): string[] {
         sorted := new string[](paths.Length)
         index := 0
