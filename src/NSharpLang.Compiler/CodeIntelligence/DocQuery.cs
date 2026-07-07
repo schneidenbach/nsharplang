@@ -302,7 +302,7 @@ public class DocQuery
     // ── XML Doc Helpers ──────────────────────────────────────────────────
 
     private string? GetTypeSummary(Type type) =>
-        GetDocSummary(type.Assembly, $"T:{type.FullName?.Replace('+', '.')}");
+        GetDocSummary(type.Assembly, DocQueryKernels.GetReflectionTypeDocId(type));
 
     private string? GetMethodSummary(MethodBase method) =>
         GetDocSummary(method.DeclaringType?.Assembly, GetMethodDocId(method));
@@ -451,7 +451,7 @@ public class DocQuery
     private string[] GetBaseTypes(Type type)
     {
         var result = new List<string>();
-        if (type.BaseType != null && type.BaseType.FullName != "System.Object" && type.BaseType.FullName != "System.ValueType")
+        if (type.BaseType != null && DocQueryKernels.ShouldIncludeBaseType(type.BaseType.FullName ?? ""))
             result.Add(FormatType(type.BaseType));
         foreach (var iface in type.GetInterfaces())
             result.Add(FormatType(iface));

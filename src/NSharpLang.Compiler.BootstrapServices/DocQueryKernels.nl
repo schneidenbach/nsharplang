@@ -340,6 +340,19 @@ public class DocQueryKernels {
         return StripGenericArity(fullName)
     }
 
+    public static func GetReflectionTypeDocId(reflectionType: Type): string {
+        fullName := reflectionType.FullName
+        if fullName == null {
+            return "T:"
+        }
+
+        return "T:" + fullName.Replace('+', '.')
+    }
+
+    public static func ShouldIncludeBaseType(fullName: string): bool {
+        return fullName != "System.Object" && fullName != "System.ValueType"
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,
