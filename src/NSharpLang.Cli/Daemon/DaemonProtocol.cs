@@ -78,21 +78,21 @@ public class DaemonStatus
 }
 
 /// <summary>
-/// Constants for daemon communication.
+/// Wire DTOs stay in C# until N# emits JSON attributes; constants are owned by DaemonProtocolKernels.nl.
 /// </summary>
 public static class DaemonConstants
 {
-    public const string SocketDir = ".nlc";
-    public const string SocketName = "daemon.sock";
-    public const int IdleTimeoutMinutes = 30;
-    public const int ConnectionTimeoutMs = 5000;
-    public const int PingTimeoutMs = 2000;
+    public static string SocketDir => DaemonProtocolKernels.GetSocketDir();
+    public static string SocketName => DaemonProtocolKernels.GetSocketName();
+    public static int IdleTimeoutMinutes => DaemonProtocolKernels.GetIdleTimeoutMinutes();
+    public static int ConnectionTimeoutMs => DaemonProtocolKernels.GetConnectionTimeoutMilliseconds();
+    public static int PingTimeoutMs => DaemonProtocolKernels.GetPingTimeoutMilliseconds();
 
-    public const int ErrorParse = -32700;
-    public const int ErrorInvalidRequest = -32600;
-    public const int ErrorMethodNotFound = -32601;
-    public const int ErrorInvalidParams = -32602;
-    public const int ErrorInternal = -32603;
+    public static int ErrorParse => DaemonProtocolKernels.GetParseErrorCode();
+    public static int ErrorInvalidRequest => DaemonProtocolKernels.GetInvalidRequestErrorCode();
+    public static int ErrorMethodNotFound => DaemonProtocolKernels.GetMethodNotFoundErrorCode();
+    public static int ErrorInvalidParams => DaemonProtocolKernels.GetInvalidParamsErrorCode();
+    public static int ErrorInternal => DaemonProtocolKernels.GetInternalErrorCode();
 
     public static string GetSocketPath(string projectRoot)
     {
@@ -109,17 +109,16 @@ public static class DaemonConstants
             useProjectLocalSocket);
     }
 
-    // JSON-RPC method names
-    public const string MethodPing = "daemon/ping";
-    public const string MethodShutdown = "daemon/shutdown";
-    public const string MethodStatus = "daemon/status";
-    public const string MethodSymbols = "query/symbols";
-    public const string MethodBatch = "query/batch";
-    public const string MethodOutline = "query/outline";
-    public const string MethodDiagnostics = "query/diagnostics";
-    public const string MethodType = "query/type";
-    public const string MethodDefinition = "query/definition";
-    public const string MethodReferences = "query/references";
-    public const string MethodCompletions = "query/completions";
-    public const string MethodInspect = "query/inspect";
+    public static string MethodPing => DaemonProtocolKernels.GetPingMethod();
+    public static string MethodShutdown => DaemonProtocolKernels.GetShutdownMethod();
+    public static string MethodStatus => DaemonProtocolKernels.GetStatusMethod();
+    public static string MethodSymbols => DaemonProtocolKernels.GetSymbolsMethod();
+    public static string MethodBatch => DaemonProtocolKernels.GetBatchMethod();
+    public static string MethodOutline => DaemonProtocolKernels.GetOutlineMethod();
+    public static string MethodDiagnostics => DaemonProtocolKernels.GetDiagnosticsMethod();
+    public static string MethodType => DaemonProtocolKernels.GetTypeMethod();
+    public static string MethodDefinition => DaemonProtocolKernels.GetDefinitionMethod();
+    public static string MethodReferences => DaemonProtocolKernels.GetReferencesMethod();
+    public static string MethodCompletions => DaemonProtocolKernels.GetCompletionsMethod();
+    public static string MethodInspect => DaemonProtocolKernels.GetInspectMethod();
 }

@@ -31,6 +31,94 @@ public class DaemonParameterValidation {
 }
 
 public class DaemonProtocolKernels {
+    public static func GetSocketDir(): string {
+        return ".nlc"
+    }
+
+    public static func GetSocketName(): string {
+        return "daemon.sock"
+    }
+
+    public static func GetIdleTimeoutMinutes(): int {
+        return 30
+    }
+
+    public static func GetConnectionTimeoutMilliseconds(): int {
+        return 5000
+    }
+
+    public static func GetPingTimeoutMilliseconds(): int {
+        return 2000
+    }
+
+    public static func GetParseErrorCode(): int {
+        return -32700
+    }
+
+    public static func GetInvalidRequestErrorCode(): int {
+        return -32600
+    }
+
+    public static func GetMethodNotFoundErrorCode(): int {
+        return -32601
+    }
+
+    public static func GetInvalidParamsErrorCode(): int {
+        return -32602
+    }
+
+    public static func GetInternalErrorCode(): int {
+        return -32603
+    }
+
+    public static func GetPingMethod(): string {
+        return "daemon/ping"
+    }
+
+    public static func GetShutdownMethod(): string {
+        return "daemon/shutdown"
+    }
+
+    public static func GetStatusMethod(): string {
+        return "daemon/status"
+    }
+
+    public static func GetSymbolsMethod(): string {
+        return "query/symbols"
+    }
+
+    public static func GetBatchMethod(): string {
+        return "query/batch"
+    }
+
+    public static func GetOutlineMethod(): string {
+        return "query/outline"
+    }
+
+    public static func GetDiagnosticsMethod(): string {
+        return "query/diagnostics"
+    }
+
+    public static func GetTypeMethod(): string {
+        return "query/type"
+    }
+
+    public static func GetDefinitionMethod(): string {
+        return "query/definition"
+    }
+
+    public static func GetReferencesMethod(): string {
+        return "query/references"
+    }
+
+    public static func GetCompletionsMethod(): string {
+        return "query/completions"
+    }
+
+    public static func GetInspectMethod(): string {
+        return "query/inspect"
+    }
+
     public static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
         dir := Path.Combine(canonicalRoot, socketDir)
         projectLocalPath := Path.Combine(dir, socketName)
@@ -47,51 +135,51 @@ public class DaemonProtocolKernels {
     }
 
     public static func GetMethodKind(method: string): DaemonMethodKind {
-        if method == "daemon/ping" {
+        if method == GetPingMethod() {
             return DaemonMethodKind.Ping
         }
 
-        if method == "daemon/shutdown" {
+        if method == GetShutdownMethod() {
             return DaemonMethodKind.Shutdown
         }
 
-        if method == "daemon/status" {
+        if method == GetStatusMethod() {
             return DaemonMethodKind.Status
         }
 
-        if method == "query/batch" {
+        if method == GetBatchMethod() {
             return DaemonMethodKind.Batch
         }
 
-        if method == "query/symbols" {
+        if method == GetSymbolsMethod() {
             return DaemonMethodKind.Symbols
         }
 
-        if method == "query/outline" {
+        if method == GetOutlineMethod() {
             return DaemonMethodKind.Outline
         }
 
-        if method == "query/diagnostics" {
+        if method == GetDiagnosticsMethod() {
             return DaemonMethodKind.Diagnostics
         }
 
-        if method == "query/type" {
+        if method == GetTypeMethod() {
             return DaemonMethodKind.Type
         }
 
-        if method == "query/definition" {
+        if method == GetDefinitionMethod() {
             return DaemonMethodKind.Definition
         }
 
-        if method == "query/references" {
+        if method == GetReferencesMethod() {
             return DaemonMethodKind.References
         }
 
-        if method == "query/completions" {
+        if method == GetCompletionsMethod() {
             return DaemonMethodKind.Completions
         }
 
-        if method == "query/inspect" {
+        if method == GetInspectMethod() {
             return DaemonMethodKind.Inspect
         }
 
