@@ -416,16 +416,7 @@ public static class OutputFormatter
     public static string ReferencesToJson(string symbolName, string symbolKind,
         LocationResult? definedAt, List<ReferenceResult> results)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "references",
-            ok = true,
-            symbol = new { name = symbolName, kind = symbolKind, definedAt = definedAt != null ? Normalize(definedAt) : null },
-            count = results.Count,
-            results = results.Select(Normalize).ToList()
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 
     public static string CompletionsToJson(CompletionResult result, string file, int line, int col)

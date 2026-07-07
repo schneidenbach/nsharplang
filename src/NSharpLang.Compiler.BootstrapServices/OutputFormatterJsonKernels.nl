@@ -175,6 +175,54 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func ReferencesToJson(symbolName: string, symbolKind: string, definedAt: LocationResult?, results: List<ReferenceResult>): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "references"
+        envelope["ok"] = true
+        envelope["symbol"] = BuildReferenceSymbol(symbolName, symbolKind, definedAt)
+        envelope["count"] = results.Count
+        envelope["results"] = BuildReferenceResults(results)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildReferenceSymbol(symbolName: string, symbolKind: string, definedAt: LocationResult?): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = symbolName
+        payload["kind"] = symbolKind
+
+        definition := BuildLocationResult(definedAt)
+        if definition != null {
+            payload["definedAt"] = definition
+        }
+
+        return payload
+    }
+
+    static func BuildReferenceResults(results: List<ReferenceResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildReferenceResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildReferenceResult(result: ReferenceResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["length"] = result.Length
+
+        if result.Context != null {
+            payload["context"] = result.Context ?? ""
+        }
+
+        payload["isDefinition"] = result.IsDefinition
+        return payload
+    }
+
     static func BuildTypeResult(result: TypeResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["name"] = result.Name
@@ -199,7 +247,7 @@ public class OutputFormatterJsonKernels {
         }
 
         payload := new Dictionary<string, object>()
-        payload["file"] = OutputFormatterNormalizationKernels.NormalizePath(location.File) ?? ""
+        payload["file"] = location.File
         payload["line"] = location.Line
         payload["column"] = location.Column
         return payload
