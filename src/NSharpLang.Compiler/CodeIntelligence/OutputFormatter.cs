@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -33,90 +32,6 @@ public static class OutputFormatter
     };
 
     private static string? NormalizePath(string? path) => OutputFormatterNormalizationKernels.NormalizePath(path);
-
-    private static SymbolResult Normalize(SymbolResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeSymbol(result);
-        return result;
-    }
-
-    private static OutlineResult Normalize(OutlineResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeOutline(result);
-        return result;
-    }
-
-    private static OutlineEntry Normalize(OutlineEntry entry)
-    {
-        OutputFormatterNormalizationKernels.NormalizeOutlineEntry(entry);
-        return entry;
-    }
-
-    private static DiagnosticResult Normalize(DiagnosticResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeDiagnostic(result);
-        return result;
-    }
-
-    private static TypeResult Normalize(TypeResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeType(result);
-        return result;
-    }
-
-    private static DefinitionResult Normalize(DefinitionResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeDefinition(result);
-        return result;
-    }
-
-    private static ReferenceResult Normalize(ReferenceResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeReference(result);
-        return result;
-    }
-
-    private static LocationResult Normalize(LocationResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeLocation(result);
-        return result;
-    }
-
-    private static InspectSymbolResult Normalize(InspectSymbolResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspectSymbol(result);
-        return result;
-    }
-
-    private static InspectReferencesResult Normalize(InspectReferencesResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspectReferences(result);
-        return result;
-    }
-
-    private static InspectResult Normalize(InspectResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspect(result);
-        return result;
-    }
-
-    private static InspectReferenceSummaryResult Normalize(InspectReferenceSummaryResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspectReferenceSummary(result);
-        return result;
-    }
-
-    private static InspectSummaryReferencesResult Normalize(InspectSummaryReferencesResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspectSummaryReferences(result);
-        return result;
-    }
-
-    private static InspectSummaryResult Normalize(InspectSummaryResult result)
-    {
-        OutputFormatterNormalizationKernels.NormalizeInspectSummary(result);
-        return result;
-    }
 
     public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
         => OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results);
@@ -241,18 +156,7 @@ public static class OutputFormatter
 
     public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = SummarizeDiagnostics(results);
-        var clusters = OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results);
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "diagnostics.clusters",
-            ok = summary.Errors == 0,
-            projectRoot = NormalizePath(projectRoot),
-            clusters,
-            summary
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.DiagnosticClustersToJson(results, projectRoot);
     }
 
     public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
@@ -290,28 +194,20 @@ public static class OutputFormatter
         IReadOnlyList<PerfReportSite>? implicitTrapSites = null,
         IReadOnlyList<PerfReportTrustedSite>? trustedSites = null)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "build",
+        return OutputFormatterJsonKernels.BuildPerfReportToJson(
+            projectRoot,
             ok,
-            projectRoot = NormalizePath(projectRoot),
-            perfReport = new
-            {
-                allocationSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(allocationSites ?? Array.Empty<PerfReportSite>()),
-                delegateSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(delegateSites ?? Array.Empty<PerfReportSite>()),
-                boxingSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(boxingSites ?? Array.Empty<PerfReportSite>()),
-                dispatchSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(dispatchSites ?? Array.Empty<PerfReportSite>()),
-                closureCaptures = OutputFormatterNormalizationKernels.NormalizePerfReportSites(closureCaptures ?? Array.Empty<PerfReportSite>()),
-                poolSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(poolSites ?? Array.Empty<PerfReportSite>()),
-                resourceSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(resourceSites ?? Array.Empty<PerfReportSite>()),
-                boundaryLeakSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(boundaryLeakSites ?? Array.Empty<PerfReportSite>()),
-                hotReadinessSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(hotReadinessSites ?? Array.Empty<PerfReportSite>()),
-                implicitTrapSites = OutputFormatterNormalizationKernels.NormalizePerfReportSites(implicitTrapSites ?? Array.Empty<PerfReportSite>()),
-                trustedSites = OutputFormatterNormalizationKernels.NormalizePerfReportTrustedSites(trustedSites ?? Array.Empty<PerfReportTrustedSite>()),
-            }
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+            allocationSites ?? Array.Empty<PerfReportSite>(),
+            delegateSites ?? Array.Empty<PerfReportSite>(),
+            boxingSites ?? Array.Empty<PerfReportSite>(),
+            dispatchSites ?? Array.Empty<PerfReportSite>(),
+            closureCaptures ?? Array.Empty<PerfReportSite>(),
+            poolSites ?? Array.Empty<PerfReportSite>(),
+            resourceSites ?? Array.Empty<PerfReportSite>(),
+            boundaryLeakSites ?? Array.Empty<PerfReportSite>(),
+            hotReadinessSites ?? Array.Empty<PerfReportSite>(),
+            implicitTrapSites ?? Array.Empty<PerfReportSite>(),
+            trustedSites ?? Array.Empty<PerfReportTrustedSite>());
     }
 
     public static string CheckSystemsReportToJson(
@@ -320,20 +216,11 @@ public static class OutputFormatter
         int checkedFiles,
         SystemsReport report)
     {
-        var summary = SummarizeDiagnostics(diagnostics);
-
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "check.systemsReport",
-            projectRoot = NormalizePath(projectRoot),
+        return OutputFormatterJsonKernels.CheckSystemsReportToJson(
+            diagnostics,
+            projectRoot,
             checkedFiles,
-            ok = summary.Errors == 0,
-            diagnostics = diagnostics.Select(Normalize).ToList(),
-            summary,
-            systemsReport = OutputFormatterNormalizationKernels.NormalizeSystemsReport(report)
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+            report);
     }
 
     public static string TrustedToJson(SystemsReport report, string? projectRoot)

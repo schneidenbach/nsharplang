@@ -271,6 +271,24 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func DiagnosticClustersToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
+        clusters := OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "diagnostics.clusters"
+        envelope["ok"] = summary.Errors == 0
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["clusters"] = BuildDiagnosticClusters(clusters)
+        envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
     public static func CheckToJson(results: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
         envelope := new Dictionary<string, object>()
@@ -304,6 +322,70 @@ public class OutputFormatterJsonKernels {
         envelope["ok"] = summary.Errors == 0
         envelope["results"] = BuildDiagnosticResults(results)
         envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func BuildPerfReportToJson(
+        projectRoot: string?,
+        ok: bool,
+        allocationSites: IReadOnlyList<PerfReportSite>,
+        delegateSites: IReadOnlyList<PerfReportSite>,
+        boxingSites: IReadOnlyList<PerfReportSite>,
+        dispatchSites: IReadOnlyList<PerfReportSite>,
+        closureCaptures: IReadOnlyList<PerfReportSite>,
+        poolSites: IReadOnlyList<PerfReportSite>,
+        resourceSites: IReadOnlyList<PerfReportSite>,
+        boundaryLeakSites: IReadOnlyList<PerfReportSite>,
+        hotReadinessSites: IReadOnlyList<PerfReportSite>,
+        implicitTrapSites: IReadOnlyList<PerfReportSite>,
+        trustedSites: IReadOnlyList<PerfReportTrustedSite>): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "build"
+        envelope["ok"] = ok
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        perfReport := new Dictionary<string, object>()
+        perfReport["allocationSites"] = BuildPerfReportSites(allocationSites)
+        perfReport["delegateSites"] = BuildPerfReportSites(delegateSites)
+        perfReport["boxingSites"] = BuildPerfReportSites(boxingSites)
+        perfReport["dispatchSites"] = BuildPerfReportSites(dispatchSites)
+        perfReport["closureCaptures"] = BuildPerfReportSites(closureCaptures)
+        perfReport["poolSites"] = BuildPerfReportSites(poolSites)
+        perfReport["resourceSites"] = BuildPerfReportSites(resourceSites)
+        perfReport["boundaryLeakSites"] = BuildPerfReportSites(boundaryLeakSites)
+        perfReport["hotReadinessSites"] = BuildPerfReportSites(hotReadinessSites)
+        perfReport["implicitTrapSites"] = BuildPerfReportSites(implicitTrapSites)
+        perfReport["trustedSites"] = BuildPerfReportTrustedSites(trustedSites)
+        envelope["perfReport"] = perfReport
+
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func CheckSystemsReportToJson(
+        diagnostics: List<DiagnosticResult>,
+        projectRoot: string?,
+        checkedFiles: int,
+        report: SystemsReport): string {
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(diagnostics)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "check.systemsReport"
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        envelope["checkedFiles"] = checkedFiles
+        envelope["ok"] = summary.Errors == 0
+        envelope["diagnostics"] = BuildDiagnosticResults(diagnostics)
+        envelope["summary"] = BuildDiagnosticSummary(summary)
+        envelope["systemsReport"] = BuildSystemsReport(OutputFormatterNormalizationKernels.NormalizeSystemsReport(report))
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
@@ -428,6 +510,281 @@ public class OutputFormatterJsonKernels {
         payload["errors"] = summary.Errors
         payload["warnings"] = summary.Warnings
         payload["info"] = summary.Info
+        return payload
+    }
+
+    static func BuildDiagnosticClusters(clusters: List<DiagnosticCluster>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach cluster in clusters {
+            payload.Add(BuildDiagnosticCluster(cluster))
+        }
+
+        return payload
+    }
+
+    static func BuildDiagnosticCluster(cluster: DiagnosticCluster): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["id"] = cluster.Id
+        payload["category"] = cluster.Category
+        payload["recipe"] = cluster.Recipe
+        payload["risk"] = cluster.Risk
+        payload["count"] = cluster.Count
+        payload["severity"] = cluster.Severity
+        payload["files"] = cluster.Files
+        payload["relatedDiagnostics"] = BuildDiagnosticClusterRelatedDiagnostics(cluster.RelatedDiagnostics)
+        payload["nextCommand"] = cluster.NextCommand
+        payload["rootLocation"] = BuildDiagnosticClusterLocation(cluster.RootLocation)
+        payload["messagePattern"] = cluster.MessagePattern
+        payload["sourceConstruct"] = cluster.SourceConstruct
+        payload["suggestedNextActions"] = cluster.SuggestedNextActions
+        payload["examples"] = BuildDiagnosticClusterExamples(cluster.Examples)
+        return payload
+    }
+
+    static func BuildDiagnosticClusterLocation(location: DiagnosticClusterLocation): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["file"] = location.File
+        payload["line"] = location.Line
+        payload["column"] = location.Column
+        return payload
+    }
+
+    static func BuildDiagnosticClusterRelatedDiagnostics(results: DiagnosticClusterRelatedDiagnostic[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildDiagnosticClusterRelatedDiagnostic(result))
+        }
+
+        return payload
+    }
+
+    static func BuildDiagnosticClusterRelatedDiagnostic(result: DiagnosticClusterRelatedDiagnostic): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["code"] = result.Code
+        payload["severity"] = result.Severity
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["message"] = result.Message
+        return payload
+    }
+
+    static func BuildDiagnosticClusterExamples(results: DiagnosticClusterExample[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildDiagnosticClusterExample(result))
+        }
+
+        return payload
+    }
+
+    static func BuildDiagnosticClusterExample(result: DiagnosticClusterExample): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["message"] = result.Message
+
+        if result.SourceSnippet != null {
+            payload["sourceSnippet"] = result.SourceSnippet ?? ""
+        }
+
+        if result.Suggestion != null {
+            payload["suggestion"] = result.Suggestion ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildPerfReportSites(sites: IReadOnlyList<PerfReportSite>): List<Dictionary<string, object>> {
+        normalizedSites := OutputFormatterNormalizationKernels.NormalizePerfReportSites(sites)
+        return BuildPerfReportSiteJsonArray(normalizedSites)
+    }
+
+    static func BuildPerfReportSiteJsonArray(sites: PerfReportSiteJson[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach site in sites {
+            payload.Add(BuildPerfReportSite(site))
+        }
+
+        return payload
+    }
+
+    static func BuildPerfReportSite(site: PerfReportSiteJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["code"] = site.Code
+        payload["effect"] = site.Effect
+        payload["file"] = site.File
+        payload["line"] = site.Line
+        payload["column"] = site.Column
+        payload["message"] = site.Message
+
+        if site.Function != null {
+            payload["function"] = site.Function ?? ""
+        }
+
+        if site.Suggestion != null {
+            payload["suggestion"] = site.Suggestion ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildPerfReportTrustedSites(sites: IReadOnlyList<PerfReportTrustedSite>): List<Dictionary<string, object>> {
+        normalizedSites := OutputFormatterNormalizationKernels.NormalizePerfReportTrustedSites(sites)
+        return BuildPerfReportTrustedSiteJsonArray(normalizedSites)
+    }
+
+    static func BuildPerfReportTrustedSiteJsonArray(sites: PerfReportTrustedSiteJson[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach site in sites {
+            payload.Add(BuildPerfReportTrustedSite(site))
+        }
+
+        return payload
+    }
+
+    static func BuildPerfReportTrustedSite(site: PerfReportTrustedSiteJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["function"] = site.Function
+        payload["file"] = site.File
+        payload["line"] = site.Line
+        payload["column"] = site.Column
+
+        if site.Owner != null {
+            payload["owner"] = site.Owner ?? ""
+        }
+
+        if site.Review != null {
+            payload["review"] = site.Review ?? ""
+        }
+
+        if site.Expires != null {
+            payload["expires"] = site.Expires ?? ""
+        }
+
+        payload["hasUnsafe"] = site.HasUnsafe
+        payload["bodyStatementCount"] = site.BodyStatementCount
+        return payload
+    }
+
+    static func BuildSystemsReport(report: SystemsReportJsonPayload): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["schemaVersion"] = report.SchemaVersion
+        payload["profile"] = report.Profile
+        payload["mode"] = report.Mode
+        payload["aotTarget"] = report.AotTarget
+        payload["aot"] = BuildSystemsAotReport(report.Aot)
+        payload["warmup"] = report.Warmup
+        payload["functions"] = BuildSystemsFunctionSummaries(report.Functions)
+        payload["findings"] = BuildSystemsFindings(report.Findings)
+        payload["trustedSites"] = BuildTrustedResults(report.TrustedSites)
+        payload["summary"] = BuildSystemsReportSummary(report.Summary)
+        return payload
+    }
+
+    static func BuildSystemsAotReport(report: SystemsAotReportJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["target"] = report.Target
+        payload["analysis"] = report.Analysis
+        payload["nativeImageEmitted"] = report.NativeImageEmitted
+        payload["trimSafe"] = report.TrimSafe
+        return payload
+    }
+
+    static func BuildSystemsFunctionSummaries(functions: SystemsFunctionSummaryJson[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach function in functions {
+            payload.Add(BuildSystemsFunctionSummary(function))
+        }
+
+        return payload
+    }
+
+    static func BuildSystemsFunctionSummary(function: SystemsFunctionSummaryJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = function.Name
+        payload["file"] = function.File
+        payload["line"] = function.Line
+        payload["column"] = function.Column
+        payload["isHot"] = function.IsHot
+        payload["isBoundary"] = function.IsBoundary
+        payload["allocNone"] = function.AllocNone
+        payload["summarySource"] = function.SummarySource
+        payload["effects"] = BuildSystemsEffectFacts(function.Effects)
+        payload["calls"] = function.Calls
+        return payload
+    }
+
+    static func BuildSystemsEffectFacts(effects: SystemsEffectFactsJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["allocates"] = effects.Allocates
+        payload["boxes"] = effects.Boxes
+        payload["constructsDelegate"] = effects.ConstructsDelegate
+        payload["capturesClosure"] = effects.CapturesClosure
+        payload["usesRuntimeDispatch"] = effects.UsesRuntimeDispatch
+        payload["usesReflection"] = effects.UsesReflection
+        payload["usesDynamicCode"] = effects.UsesDynamicCode
+        payload["throws"] = effects.Throws
+        payload["hasImplicitTrapObligation"] = effects.HasImplicitTrapObligation
+        payload["usesUnknownExternalCall"] = effects.UsesUnknownExternalCall
+        payload["usesResource"] = effects.UsesResource
+        payload["usesPool"] = effects.UsesPool
+        payload["usesConcurrencyPrimitive"] = effects.UsesConcurrencyPrimitive
+        payload["requiresWarmup"] = effects.RequiresWarmup
+        payload["aotSafe"] = effects.AotSafe
+        return payload
+    }
+
+    static func BuildSystemsFindings(findings: SystemsFindingJson[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach finding in findings {
+            payload.Add(BuildSystemsFinding(finding))
+        }
+
+        return payload
+    }
+
+    static func BuildSystemsFinding(finding: SystemsFindingJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["code"] = finding.Code
+        payload["severity"] = finding.Severity
+        payload["effect"] = finding.Effect
+        payload["message"] = finding.Message
+        payload["file"] = finding.File
+        payload["line"] = finding.Line
+        payload["column"] = finding.Column
+        payload["length"] = finding.Length
+
+        if finding.Function != null {
+            payload["function"] = finding.Function ?? ""
+        }
+
+        if finding.Policy != null {
+            payload["policy"] = finding.Policy ?? ""
+        }
+
+        if finding.SummarySource != null {
+            payload["summarySource"] = finding.SummarySource ?? ""
+        }
+
+        if finding.Suggestion != null {
+            payload["suggestion"] = finding.Suggestion ?? ""
+        }
+
+        payload["callPath"] = finding.CallPath
+        return payload
+    }
+
+    static func BuildSystemsReportSummary(summary: SystemsReportSummaryJson): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["functions"] = summary.Functions
+        payload["hotFunctions"] = summary.HotFunctions
+        payload["boundaryFunctions"] = summary.BoundaryFunctions
+        payload["findings"] = summary.Findings
+        payload["errors"] = summary.Errors
+        payload["warnings"] = summary.Warnings
+        payload["trustedSites"] = summary.TrustedSites
         return payload
     }
 
