@@ -76,6 +76,30 @@ public class QueryTopLevelOptionSummary {
     }
 }
 
+public class QueryOptions {
+    ProjectDir: string?
+    File: string?
+    Pos: string?
+    UseText: bool
+    NoDaemon: bool
+    InspectCompact: bool
+
+    constructor(
+        projectDir: string?,
+        filePath: string?,
+        pos: string?,
+        useText: bool,
+        noDaemon: bool,
+        inspectCompact: bool) {
+        ProjectDir = projectDir
+        File = filePath
+        Pos = pos
+        UseText = useText
+        NoDaemon = noDaemon
+        InspectCompact = inspectCompact
+    }
+}
+
 public class QuerySymbolKindParseResult {
     HasValue: bool
     value: int

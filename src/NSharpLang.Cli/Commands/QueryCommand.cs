@@ -947,14 +947,6 @@ public static class QueryCommand
 
     // ── Option Parsing ──────────────────────────────────────────────────
 
-    private record QueryOptions(
-        string? ProjectDir,
-        string? File,
-        string? Pos,
-        bool UseText,
-        bool NoDaemon,
-        bool InspectCompact);
-
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
         var summary = QueryCommandKernels.GetTopLevelOptionSummary(args);
