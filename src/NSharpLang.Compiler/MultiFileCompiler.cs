@@ -676,14 +676,4 @@ public class MultiFileCompiler
         File.AppendAllText(logPath, message + Environment.NewLine);
     }
 
-    private readonly record struct ColumnarDeclineDiagnostic(
-        string? Detail,
-        string? FileName,
-        int Line,
-        int Column,
-        int SpanLength)
-    {
-        public static ColumnarDeclineDiagnostic Empty { get; } = new(null, null, 0, 0, 1);
-    }
-
 }
