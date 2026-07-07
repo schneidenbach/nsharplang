@@ -378,6 +378,53 @@ public class DocQueryKernels {
         return "T:" + fullName.Replace('+', '.')
     }
 
+    public static func ShouldSearchQualifiedSuffix(strippedName: string): bool {
+        return strippedName.IndexOf('.') >= 0
+    }
+
+    public static func GetResolveTypeShortName(strippedName: string): string {
+        return StripGenericArity(GetLastDocQuerySegment(strippedName))
+    }
+
+    public static func GetDocMemberDocId(prefix: string, declaringTypeFullName: string?, memberName: string): string {
+        ownerName := declaringTypeFullName ?? ""
+        return prefix + ownerName.Replace('+', '.') + "." + memberName
+    }
+
+    public static func GetMethodDocMemberName(methodName: string, isConstructor: bool): string {
+        if isConstructor {
+            return "#ctor"
+        }
+
+        return methodName
+    }
+
+    public static func GetMethodDocId(declaringTypeFullName: string?, memberName: string, parameterTypeDocIds: string[]): string {
+        ownerName := declaringTypeFullName ?? ""
+        builder := new StringBuilder()
+        builder.Append("M:")
+        builder.Append(ownerName.Replace('+', '.'))
+        builder.Append(".")
+        builder.Append(memberName)
+
+        if parameterTypeDocIds.Length > 0 {
+            builder.Append("(")
+            i := 0
+            while i < parameterTypeDocIds.Length {
+                if i > 0 {
+                    builder.Append(",")
+                }
+
+                builder.Append(parameterTypeDocIds[i])
+                i = i + 1
+            }
+
+            builder.Append(")")
+        }
+
+        return builder.ToString()
+    }
+
     public static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
     }

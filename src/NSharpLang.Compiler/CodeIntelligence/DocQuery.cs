@@ -275,7 +275,7 @@ public class DocQuery
             return CacheType(name, SelectBestType(name, strippedMatches));
         }
 
-        if (strippedName.Contains('.'))
+        if (DocQueryKernels.ShouldSearchQualifiedSuffix(strippedName))
         {
             var suffixMatches = DeduplicateTypeCandidates(_typesByQualifiedName
                 .Where(kvp => kvp.Key.EndsWith($".{strippedName}", StringComparison.OrdinalIgnoreCase))
@@ -288,7 +288,7 @@ public class DocQuery
             }
         }
 
-        var shortName = StripGenericArity(strippedName.Split('.').Last());
+        var shortName = DocQueryKernels.GetResolveTypeShortName(strippedName);
         if (_typesBySimpleName.TryGetValue(shortName, out var simpleMatches) && simpleMatches.Count > 0)
         {
             return CacheType(name, SelectBestType(name, simpleMatches));
@@ -306,13 +306,16 @@ public class DocQuery
         GetDocSummary(method.DeclaringType?.Assembly, GetMethodDocId(method));
 
     private string? GetPropertySummary(PropertyInfo prop) =>
-        GetDocSummary(prop.DeclaringType?.Assembly, $"P:{prop.DeclaringType?.FullName?.Replace('+', '.')}.{prop.Name}");
+        GetDocSummary(prop.DeclaringType?.Assembly,
+            DocQueryKernels.GetDocMemberDocId("P:", prop.DeclaringType?.FullName, prop.Name));
 
     private string? GetFieldSummary(FieldInfo field) =>
-        GetDocSummary(field.DeclaringType?.Assembly, $"F:{field.DeclaringType?.FullName?.Replace('+', '.')}.{field.Name}");
+        GetDocSummary(field.DeclaringType?.Assembly,
+            DocQueryKernels.GetDocMemberDocId("F:", field.DeclaringType?.FullName, field.Name));
 
     private string? GetEventSummary(EventInfo evt) =>
-        GetDocSummary(evt.DeclaringType?.Assembly, $"E:{evt.DeclaringType?.FullName?.Replace('+', '.')}.{evt.Name}");
+        GetDocSummary(evt.DeclaringType?.Assembly,
+            DocQueryKernels.GetDocMemberDocId("E:", evt.DeclaringType?.FullName, evt.Name));
 
     private string? GetParameterSummary(MethodBase method, string? paramName)
     {
@@ -631,13 +634,10 @@ public class DocQuery
 
     private static string GetMethodDocId(MethodBase method)
     {
-        var typePrefix = method.DeclaringType?.FullName?.Replace('+', '.');
-        var memberName = method is ConstructorInfo ? "#ctor" : method.Name;
         var parameters = method.GetParameters();
-        var parameterList = parameters.Length > 0
-            ? $"({string.Join(",", parameters.Select(p => FormatTypeForDocId(p.ParameterType)))})"
-            : "";
-        return $"M:{typePrefix}.{memberName}{parameterList}";
+        var parameterTypeDocIds = parameters.Select(p => FormatTypeForDocId(p.ParameterType)).ToArray();
+        var memberName = DocQueryKernels.GetMethodDocMemberName(method.Name, method is ConstructorInfo);
+        return DocQueryKernels.GetMethodDocId(method.DeclaringType?.FullName, memberName, parameterTypeDocIds);
     }
 
     private string GetXmlDocPath(Assembly assembly)
