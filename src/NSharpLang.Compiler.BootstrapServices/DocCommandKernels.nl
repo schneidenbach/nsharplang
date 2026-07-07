@@ -3,6 +3,7 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 import System.Text
+import System.Text.Json
 import NSharpLang.Compiler.CodeIntelligence
 
 public class DocOptionSummary {
@@ -143,6 +144,30 @@ public class DocCommandKernels {
 
     public static func GetOpenFailedWithDetailMessage(indexPath: string, exceptionMessage: string): string {
         return "Generated docs, but failed to open " + indexPath + ": " + exceptionMessage
+    }
+
+    public static func ResultJson(projectRoot: string, outputDir: string, manifest: DocManifest): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "doc"
+        envelope["ok"] = true
+        envelope["projectRoot"] = NormalizePath(projectRoot)
+        envelope["outputDir"] = NormalizePath(outputDir)
+        envelope["result"] = BuildManifest(manifest)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func ErrorJson(projectRoot: string, message: string): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "doc"
+        envelope["ok"] = false
+        envelope["projectRoot"] = NormalizePath(projectRoot)
+
+        errorPayload := new Dictionary<string, object>()
+        errorPayload["message"] = message
+        envelope["error"] = errorPayload
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
     public static func GetLocationText(relativePath: string, line: int, column: int): string {
@@ -352,5 +377,45 @@ public class DocCommandKernels {
         }
 
         return ""
+    }
+
+    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions { WriteIndented: true }
+    }
+
+    static func NormalizePath(path: string): string {
+        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
+        if normalized != null {
+            return normalized ?? ""
+        }
+
+        return path
+    }
+
+    static func BuildManifest(manifest: DocManifest): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["indexPath"] = manifest.IndexPath
+        payload["pageCount"] = manifest.PageCount
+        payload["pages"] = BuildPages(manifest.Pages)
+        return payload
+    }
+
+    static func BuildPages(pages: IReadOnlyList<DocPage>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        i := 0
+        while i < pages.Count {
+            payload.Add(BuildPage(pages[i]))
+            i = i + 1
+        }
+
+        return payload
+    }
+
+    static func BuildPage(page: DocPage): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = page.Name
+        payload["kind"] = page.Kind
+        payload["path"] = page.Path
+        return payload
     }
 }

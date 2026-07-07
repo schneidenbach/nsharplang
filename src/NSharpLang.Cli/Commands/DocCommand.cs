@@ -4,22 +4,12 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
 
 public static class DocCommand
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
-
     public static int Execute(string[] args)
     {
         var options = DocCommandKernels.GetOptionSummary(args);
@@ -52,15 +42,7 @@ public static class DocCommand
 
             if (outputMode == 1)
             {
-                Console.Write(JsonSerializer.Serialize(new
-                {
-                    schemaVersion = 1,
-                    command = "doc",
-                    ok = true,
-                    projectRoot = NormalizePath(projectRoot),
-                    outputDir = NormalizePath(outputDir),
-                    result = manifest
-                }, JsonOptions));
+                Console.Write(DocCommandKernels.ResultJson(projectRoot, outputDir, manifest));
             }
             else
             {
@@ -83,17 +65,7 @@ public static class DocCommand
     {
         if (outputMode == 1)
         {
-            Console.Write(JsonSerializer.Serialize(new
-            {
-                schemaVersion = 1,
-                command = "doc",
-                ok = false,
-                projectRoot = NormalizePath(projectRoot),
-                error = new
-                {
-                    message
-                }
-            }, JsonOptions));
+            Console.Write(DocCommandKernels.ErrorJson(projectRoot, message));
         }
         else
         {
