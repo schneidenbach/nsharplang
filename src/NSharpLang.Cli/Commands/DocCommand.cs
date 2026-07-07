@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net;
-using System.Text;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -114,8 +111,6 @@ public static class DocCommand
         }
     }
 
-    private static string NormalizePath(string path)
-        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }
 
 internal static class ProjectDocGenerator
@@ -147,197 +142,18 @@ internal static class ProjectDocGenerator
             var slug = slugs[i];
             var relativePath = NormalizePath(Path.Combine("symbols", $"{slug}.html"));
             var absolutePath = Path.Combine(outputDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            File.WriteAllText(absolutePath, RenderSymbolPage(symbol, projectRoot));
-            pages.Add(new DocPage(symbol.Name, symbol.Kind.ToString().ToLowerInvariant(), relativePath));
+            File.WriteAllText(absolutePath, DocCommandKernels.RenderSymbolPage(symbol, projectRoot));
+            pages.Add(new DocPage(symbol.Name, DocCommandKernels.GetPageKindText(symbol.Kind), relativePath));
         }
 
         var indexPath = Path.Combine(outputDir, "index.html");
-        File.WriteAllText(indexPath, RenderIndexPage(orderedSymbols, pages, projectRoot));
+        File.WriteAllText(indexPath, DocCommandKernels.RenderIndexPage(orderedSymbols, pages, projectRoot));
 
         return new DocManifest(
             NormalizePath(indexPath),
             pages.Count,
             pages);
     }
-
-    private static string RenderIndexPage(IReadOnlyList<SymbolResult> symbols, IReadOnlyList<DocPage> pages, string projectRoot)
-    {
-        var grouped = new List<string>();
-        var index = 0;
-        while (index < symbols.Count)
-        {
-            var kind = symbols[index].Kind;
-            var items = new List<string>();
-            while (index < symbols.Count && symbols[index].Kind == kind)
-            {
-                var symbol = symbols[index];
-                var page = pages.First(p => p.Name == symbol.Name && p.Kind == symbol.Kind.ToString().ToLowerInvariant());
-                items.Add($"<li><a href=\"{WebUtility.HtmlEncode(page.Path)}\">{WebUtility.HtmlEncode(symbol.Name)}</a><span>{WebUtility.HtmlEncode(DescribeLocation(projectRoot, symbol))}</span></li>");
-                index++;
-            }
-
-            grouped.Add($"""
-<section>
-  <h2>{WebUtility.HtmlEncode(kind.ToString())}</h2>
-  <ul class="symbol-list">
-    {string.Join(Environment.NewLine + "    ", items)}
-  </ul>
-</section>
-""");
-        }
-
-        return WrapHtml(
-            title: "N# API Docs",
-            body: $"""
-<header>
-  <p class="eyebrow">N# API Reference</p>
-  <h1>{WebUtility.HtmlEncode(Path.GetFileName(projectRoot))}</h1>
-  <p>{symbols.Count} documented symbols</p>
-</header>
-{string.Join(Environment.NewLine, grouped)}
-""");
-    }
-
-    private static string RenderSymbolPage(SymbolResult symbol, string projectRoot)
-    {
-        var orderedMembers = symbol.Members is { Length: > 0 }
-            ? DocCommandKernels.OrderMembersForGeneration(symbol.Members)
-            : Enumerable.Empty<SymbolResult>();
-        var members = orderedMembers
-            .Select(member => $"<li><code>{WebUtility.HtmlEncode(FormatSignature(member))}</code></li>")
-            .ToArray();
-
-        var parameters = symbol.Parameters?.Length > 0
-            ? $"<p><strong>Parameters:</strong> {WebUtility.HtmlEncode(string.Join(", ", symbol.Parameters.Select(FormatParameter)))}</p>"
-            : string.Empty;
-
-        var membersSection = members.Length > 0
-            ? $"""
-<section>
-  <h2>Members</h2>
-  <ul class="member-list">
-    {string.Join(Environment.NewLine + "    ", members)}
-  </ul>
-</section>
-"""
-            : string.Empty;
-
-        return WrapHtml(
-            title: $"N# API Docs - {symbol.Name}",
-            body: $"""
-<nav><a href="../index.html">Back to index</a></nav>
-<header>
-  <p class="eyebrow">{WebUtility.HtmlEncode(symbol.Kind.ToString())}</p>
-  <h1>{WebUtility.HtmlEncode(symbol.Name)}</h1>
-  <p><code>{WebUtility.HtmlEncode(FormatSignature(symbol))}</code></p>
-  <p>{WebUtility.HtmlEncode(DescribeLocation(projectRoot, symbol))}</p>
-  {parameters}
-</header>
-{membersSection}
-""");
-    }
-
-    private static string WrapHtml(string title, string body) => $$$"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{{WebUtility.HtmlEncode(title)}}}</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f6f3ee;
-      --card: #fffdf8;
-      --ink: #1f1b18;
-      --muted: #5d534b;
-      --line: #d9cfc5;
-      --accent: #a6401b;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
-      background:
-        radial-gradient(circle at top left, rgba(166, 64, 27, 0.08), transparent 35%),
-        linear-gradient(180deg, #fbf9f4 0%, var(--bg) 100%);
-      color: var(--ink);
-    }}
-    main {{
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 48px 24px 80px;
-    }}
-    header, nav, section {{
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 24px;
-      margin-bottom: 20px;
-      box-shadow: 0 10px 40px rgba(39, 28, 20, 0.05);
-    }}
-    h1, h2 {{ margin: 0 0 12px; }}
-    .eyebrow {{
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-size: 0.78rem;
-      color: var(--accent);
-      margin: 0 0 8px;
-    }}
-    code {{
-      font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
-      font-size: 0.95rem;
-    }}
-    ul {{
-      margin: 0;
-      padding-left: 20px;
-    }}
-    li {{
-      margin: 8px 0;
-    }}
-    li span {{
-      color: var(--muted);
-      margin-left: 12px;
-    }}
-    a {{
-      color: var(--accent);
-      text-decoration: none;
-    }}
-    a:hover {{
-      text-decoration: underline;
-    }}
-  </style>
-</head>
-<body>
-  <main>
-    {{{body}}}
-  </main>
-</body>
-</html>
-""";
-
-    private static string DescribeLocation(string projectRoot, SymbolResult symbol)
-    {
-        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, symbol.File));
-        return DocCommandKernels.GetLocationText(relativePath, symbol.Line, symbol.Column);
-    }
-
-    private static string FormatSignature(SymbolResult symbol)
-    {
-        var hasParameterList = symbol.Parameters != null;
-        var parameters = hasParameterList
-            ? string.Join(", ", symbol.Parameters!.Select(FormatParameter))
-            : string.Empty;
-        var typeName = string.IsNullOrWhiteSpace(symbol.TypeName) ? string.Empty : symbol.TypeName!;
-        return DocCommandKernels.GetSignatureText(symbol.Kind, symbol.Name, hasParameterList, parameters, typeName);
-    }
-
-    private static string FormatParameter(ParameterResult parameter)
-        => DocCommandKernels.GetParameterText(
-            parameter.Name,
-            parameter.Type,
-            parameter.HasDefault,
-            parameter.DefaultValue ?? string.Empty);
 
     private static string NormalizePath(string path)
         => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
