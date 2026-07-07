@@ -485,6 +485,37 @@ public class DocQueryKernels {
         return StripGenericArity(GetLastDocQuerySegment(value))
     }
 
+    public static func FormatDocTextRaw(raw: string): string? {
+        if string.IsNullOrWhiteSpace(raw) {
+            return null
+        }
+
+        builder := new StringBuilder()
+        pendingSpace := false
+        wroteText := false
+        i := 0
+        while i < raw.Length {
+            ch := raw[i]
+            if char.IsWhiteSpace(ch) {
+                if wroteText {
+                    pendingSpace = true
+                }
+            } else {
+                if pendingSpace && builder.Length > 0 {
+                    builder.Append(" ")
+                }
+
+                builder.Append(ch)
+                wroteText = true
+                pendingSpace = false
+            }
+
+            i = i + 1
+        }
+
+        return builder.ToString()
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,

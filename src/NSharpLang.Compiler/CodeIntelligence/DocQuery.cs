@@ -846,10 +846,7 @@ public class DocQuery
         if (element == null) return null;
 
         var raw = string.Concat(element.Nodes().Select(FormatDocNode));
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-
-        return string.Join(" ", raw
-            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return DocQueryKernels.FormatDocTextRaw(raw);
     }
 
     private static string FormatDocNode(XNode node)
