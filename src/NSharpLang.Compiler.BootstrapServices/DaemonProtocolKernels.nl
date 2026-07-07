@@ -18,6 +18,18 @@ public enum DaemonMethodKind {
     Inspect = 12
 }
 
+public class DaemonParameterValidation {
+    IsValid: bool
+    QueryCommand: string
+    Message: string
+
+    constructor(isValid: bool, queryCommand: string, message: string) {
+        IsValid = isValid
+        QueryCommand = queryCommand
+        Message = message
+    }
+}
+
 public class DaemonProtocolKernels {
     public static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
         dir := Path.Combine(canonicalRoot, socketDir)
@@ -96,5 +108,37 @@ public class DaemonProtocolKernels {
             || kind == DaemonMethodKind.References
             || kind == DaemonMethodKind.Completions
             || kind == DaemonMethodKind.Inspect
+    }
+
+    public static func ValidateRequiredParameters(kind: DaemonMethodKind, hasFile: bool): DaemonParameterValidation {
+        if kind == DaemonMethodKind.Outline && !hasFile {
+            return InvalidParameters("outline", DaemonServerMessageKernels.GetFileParameterRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Type && !hasFile {
+            return InvalidParameters("type", DaemonServerMessageKernels.GetFileAndPosParametersRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Definition && !hasFile {
+            return InvalidParameters("definition", DaemonServerMessageKernels.GetDefinitionTargetRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.References && !hasFile {
+            return InvalidParameters("references", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Completions && !hasFile {
+            return InvalidParameters("completions", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Inspect && !hasFile {
+            return InvalidParameters("inspect", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        return new DaemonParameterValidation(true, "", "")
+    }
+
+    static func InvalidParameters(queryCommand: string, message: string): DaemonParameterValidation {
+        return new DaemonParameterValidation(false, queryCommand, message)
     }
 }

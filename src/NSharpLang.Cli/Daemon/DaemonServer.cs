@@ -296,18 +296,26 @@ public class DaemonServer
             if (posStr != null)
                 DaemonServerKernels.ParsePosition(posStr, out line, out col);
 
+            var parameterValidation = DaemonProtocolKernels.ValidateRequiredParameters(methodKind, file != null);
+            if (!parameterValidation.IsValid)
+            {
+                return Ok(request.Id, OutputFormatter.ErrorToJson(
+                    parameterValidation.QueryCommand,
+                    parameterValidation.Message));
+            }
+
             // Query methods
             string result = methodKind switch
             {
                 DaemonMethodKind.Batch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
                 DaemonMethodKind.Symbols => HandleSymbols(file, kind),
-                DaemonMethodKind.Outline => HandleOutline(file),
+                DaemonMethodKind.Outline => HandleOutline(file!),
                 DaemonMethodKind.Diagnostics => HandleDiagnostics(file, severity, clusters),
-                DaemonMethodKind.Type => HandleType(file, line, col),
-                DaemonMethodKind.Definition => HandleDefinition(file, line, col, name),
-                DaemonMethodKind.References => HandleReferences(file, line, col),
-                DaemonMethodKind.Completions => HandleCompletions(file, line, col, includeKeywords),
-                DaemonMethodKind.Inspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
+                DaemonMethodKind.Type => HandleType(file!, line, col),
+                DaemonMethodKind.Definition => HandleDefinition(file!, line, col),
+                DaemonMethodKind.References => HandleReferences(file!, line, col),
+                DaemonMethodKind.Completions => HandleCompletions(file!, line, col, includeKeywords),
+                DaemonMethodKind.Inspect => HandleInspect(file!, line, col, includeKeywords, summary || compact),
                 _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             };
 
@@ -339,9 +347,8 @@ public class DaemonServer
         return OutputFormatter.SymbolsToJson(results, _snapshot!.ProjectRoot);
     }
 
-    private string HandleOutline(string? file)
+    private string HandleOutline(string file)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("outline", DaemonServerKernels.GetFileParameterRequiredMessage());
         var result = _service.GetOutline(_snapshot!, file);
         return OutputFormatter.OutlineToJson(result);
     }
@@ -356,9 +363,8 @@ public class DaemonServer
             : OutputFormatter.DiagnosticsToJson(results, _snapshot!.ProjectRoot);
     }
 
-    private string HandleType(string? file, int line, int col)
+    private string HandleType(string file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("type", DaemonServerKernels.GetFileAndPosParametersRequiredMessage());
         var result = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         if (result == null)
         {
@@ -377,9 +383,8 @@ public class DaemonServer
         return OutputFormatter.TypeToJson(result, file, line, col);
     }
 
-    private string HandleDefinition(string? file, int line, int col, string? name)
+    private string HandleDefinition(string file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("definition", DaemonServerKernels.GetDefinitionTargetRequiredMessage());
         var result = _service.FindDefinition(_snapshot!, file, line, col);
         if (result == null)
         {
@@ -398,10 +403,8 @@ public class DaemonServer
         return OutputFormatter.DefinitionToJson(result);
     }
 
-    private string HandleReferences(string? file, int line, int col)
+    private string HandleReferences(string file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("references", DaemonServerKernels.GetFileAndPosRequiredMessage());
-
         // Resolve symbol metadata (same as CLI path — don't hardcode placeholders)
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
         if (definition == null)
@@ -441,17 +444,14 @@ public class DaemonServer
         return OutputFormatter.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 
-    private string HandleCompletions(string? file, int line, int col, bool includeKeywords)
+    private string HandleCompletions(string file, int line, int col, bool includeKeywords)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("completions", DaemonServerKernels.GetFileAndPosRequiredMessage());
         var result = _completionEngine.GetCompletions(_snapshot!, file, line, col, includeKeywords);
         return OutputFormatter.CompletionsToJson(result, file, line, col);
     }
 
-    private string HandleInspect(string? file, int line, int col, bool includeKeywords, bool summary)
+    private string HandleInspect(string file, int line, int col, bool includeKeywords, bool summary)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("inspect", DaemonServerKernels.GetFileAndPosRequiredMessage());
-
         var type = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
         var references = definition != null
