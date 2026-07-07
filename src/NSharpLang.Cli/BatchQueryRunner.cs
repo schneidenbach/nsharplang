@@ -226,13 +226,17 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (string.IsNullOrWhiteSpace(request.File))
+        if (!BatchQueryValidationKernels.HasRequiredInput(
+                BatchQueryCommandKind.Outline,
+                request.File,
+                request.Pos,
+                request.Query))
         {
-            return InvalidRequest("outline", BatchQueryKernels.GetOutlineFileRequiredMessage(), projectRoot, request);
+            return InvalidMissingRequiredInput(BatchQueryCommandKind.Outline, projectRoot, request);
         }
 
         var snapshot = getSnapshot();
-        var result = service.GetOutline(snapshot, request.File);
+        var result = service.GetOutline(snapshot, request.File!);
         return OutputFormatter.OutlineToJson(result);
     }
 
@@ -260,7 +264,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "type", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Type, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -292,7 +296,7 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "inspect", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Inspect, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -356,7 +360,7 @@ internal static class BatchQueryRunner
     {
         var snapshot = getSnapshot();
 
-        if (!TryGetFileAndPosition(request, projectRoot, "definition", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Definition, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -386,7 +390,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "references", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.References, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -434,7 +438,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CompletionEngine completionEngine)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "completions", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Completions, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -447,24 +451,29 @@ internal static class BatchQueryRunner
 
     private static string ExecuteDoc(BatchQueryRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Query))
+        if (!BatchQueryValidationKernels.HasRequiredInput(
+                BatchQueryCommandKind.Doc,
+                request.File,
+                request.Pos,
+                request.Query))
         {
-            return InvalidRequest("doc", BatchQueryKernels.GetDocQueryRequiredMessage(), null, request);
+            return InvalidMissingRequiredInput(BatchQueryCommandKind.Doc, null, request);
         }
 
-        var result = DocQuery.Value.Lookup(request.Query);
+        var query = request.Query!;
+        var result = DocQuery.Value.Lookup(query);
         if (result == null)
         {
-            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(request.Query));
+            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query));
         }
 
-        return OutputFormatter.DocToJson(result, request.Query);
+        return OutputFormatter.DocToJson(result, query);
     }
 
     private static bool TryGetFileAndPosition(
         BatchQueryRequest request,
         string? projectRoot,
-        string command,
+        BatchQueryCommandKind commandKind,
         out string? file,
         out int line,
         out int column,
@@ -475,16 +484,16 @@ internal static class BatchQueryRunner
         column = 0;
         invalid = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(request.Pos))
+        if (!BatchQueryValidationKernels.HasRequiredInput(commandKind, file, request.Pos, request.Query))
         {
-            invalid = InvalidRequest(command, BatchQueryKernels.GetFileAndPosRequiredMessage(), projectRoot, request);
+            invalid = InvalidMissingRequiredInput(commandKind, projectRoot, request);
             return false;
         }
 
         if (!QueryCommandKernels.ParsePosition(request.Pos, out line, out column))
         {
             invalid = InvalidRequest(
-                command,
+                BatchQueryValidationKernels.GetCommandName(commandKind),
                 BatchQueryKernels.GetInvalidPositionMessage(request.Pos),
                 projectRoot,
                 request);
@@ -496,6 +505,13 @@ internal static class BatchQueryRunner
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)
         => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", Normalize(request));
+
+    private static string InvalidMissingRequiredInput(BatchQueryCommandKind commandKind, string? projectRoot, BatchQueryRequest request)
+        => InvalidRequest(
+            BatchQueryValidationKernels.GetCommandName(commandKind),
+            BatchQueryValidationKernels.GetRequiredInputMessage(commandKind),
+            projectRoot,
+            request);
 
     private static BatchQueryRequest Normalize(BatchQueryRequest request) => request with
     {
