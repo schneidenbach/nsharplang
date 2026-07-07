@@ -552,29 +552,10 @@ internal static class CompilationReferenceResolver
 
     private static IEnumerable<string> EnumerateDotnetSharedRoots()
     {
-        var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
-        var current = runtimeDirectory;
-        while (!string.IsNullOrWhiteSpace(current))
+        // MECHANICAL-GLUE: runtime probing and existence filter only; ordering and dedupe live in CompilationReferenceResolverKernels.nl.
+        foreach (var root in CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory()))
         {
-            if (string.Equals(Path.GetFileName(current), "shared", StringComparison.OrdinalIgnoreCase)
-                && Directory.Exists(current)
-                && yielded.Add(current))
-            {
-                yield return current;
-            }
-
-            current = Path.GetDirectoryName(current);
-        }
-
-        foreach (var root in new[]
-                 {
-                     "/usr/local/share/dotnet/shared",
-                     "/opt/homebrew/share/dotnet/shared",
-                     "/usr/share/dotnet/shared"
-                 })
-        {
-            if (Directory.Exists(root) && yielded.Add(root))
+            if (Directory.Exists(root))
             {
                 yield return root;
             }

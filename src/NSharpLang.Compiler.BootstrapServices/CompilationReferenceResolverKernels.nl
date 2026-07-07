@@ -40,6 +40,25 @@ public class CompilationReferenceResolverKernels {
         return Path.Combine(Path.Combine(userProfileFolder, ".nuget"), "packages")
     }
 
+    public static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
+        candidates := new List<string>()
+        yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        current := runtimeDirectory ?? ""
+        while !string.IsNullOrWhiteSpace(current) {
+            if string.Equals(Path.GetFileName(current), "shared", StringComparison.OrdinalIgnoreCase) {
+                AddSharedRootCandidate(candidates, yielded, current)
+            }
+
+            current = Path.GetDirectoryName(current) ?? ""
+        }
+
+        AddSharedRootCandidate(candidates, yielded, "/usr/local/share/dotnet/shared")
+        AddSharedRootCandidate(candidates, yielded, "/opt/homebrew/share/dotnet/shared")
+        AddSharedRootCandidate(candidates, yielded, "/usr/share/dotnet/shared")
+        return candidates.ToArray()
+    }
+
     public static func GetImplicitTestDependencyPlan(
         includeTests: bool,
         hasTests: bool,
@@ -1315,5 +1334,11 @@ public class CompilationReferenceResolverKernels {
         }
 
         return false
+    }
+
+    static func AddSharedRootCandidate(candidates: List<string>, yielded: HashSet<string>, candidate: string) {
+        if !string.IsNullOrWhiteSpace(candidate) && yielded.Add(candidate) {
+            candidates.Add(candidate)
+        }
     }
 }
