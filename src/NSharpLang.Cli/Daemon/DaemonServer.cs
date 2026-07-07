@@ -220,17 +220,19 @@ public class DaemonServer
     {
         try
         {
+            var methodKind = DaemonProtocolKernels.GetMethodKind(request.Method);
+
             // Daemon control methods
-            switch (request.Method)
+            switch (methodKind)
             {
-                case DaemonConstants.MethodPing:
+                case DaemonMethodKind.Ping:
                     return Ok(request.Id, "\"pong\"");
 
-                case DaemonConstants.MethodShutdown:
+                case DaemonMethodKind.Shutdown:
                     _running = false;
                     return Ok(request.Id, "\"shutting down\"");
 
-                case DaemonConstants.MethodStatus:
+                case DaemonMethodKind.Status:
                     var uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
                     var status = new DaemonStatus
                     {
@@ -243,7 +245,7 @@ public class DaemonServer
                     return Ok(request.Id, JsonSerializer.Serialize(status));
             }
 
-            if (!IsQueryMethod(request.Method))
+            if (!DaemonProtocolKernels.IsQueryMethod(methodKind))
             {
                 return Error(request.Id, DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method));
             }
@@ -256,7 +258,7 @@ public class DaemonServer
                 return Error(request.Id, DaemonConstants.ErrorInternal, DaemonServerKernels.GetFailedLoadProjectMessage());
             }
 
-            if (request.Method == DaemonConstants.MethodBatch)
+            if (methodKind == DaemonMethodKind.Batch)
             {
                 var requests = GetParam<List<BatchQueryRequest>>(request.Params, "requests");
                 if (requests == null || requests.Count == 0)
@@ -295,17 +297,17 @@ public class DaemonServer
                 DaemonServerKernels.ParsePosition(posStr, out line, out col);
 
             // Query methods
-            string result = request.Method switch
+            string result = methodKind switch
             {
-                DaemonConstants.MethodBatch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
-                DaemonConstants.MethodSymbols => HandleSymbols(file, kind),
-                DaemonConstants.MethodOutline => HandleOutline(file),
-                DaemonConstants.MethodDiagnostics => HandleDiagnostics(file, severity, clusters),
-                DaemonConstants.MethodType => HandleType(file, line, col),
-                DaemonConstants.MethodDefinition => HandleDefinition(file, line, col, name),
-                DaemonConstants.MethodReferences => HandleReferences(file, line, col),
-                DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
-                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
+                DaemonMethodKind.Batch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
+                DaemonMethodKind.Symbols => HandleSymbols(file, kind),
+                DaemonMethodKind.Outline => HandleOutline(file),
+                DaemonMethodKind.Diagnostics => HandleDiagnostics(file, severity, clusters),
+                DaemonMethodKind.Type => HandleType(file, line, col),
+                DaemonMethodKind.Definition => HandleDefinition(file, line, col, name),
+                DaemonMethodKind.References => HandleReferences(file, line, col),
+                DaemonMethodKind.Completions => HandleCompletions(file, line, col, includeKeywords),
+                DaemonMethodKind.Inspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
                 _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             };
 
@@ -607,19 +609,6 @@ public class DaemonServer
         }
 
         public int Code { get; }
-    }
-
-    private static bool IsQueryMethod(string method)
-    {
-        return method is DaemonConstants.MethodBatch
-            or DaemonConstants.MethodSymbols
-            or DaemonConstants.MethodOutline
-            or DaemonConstants.MethodDiagnostics
-            or DaemonConstants.MethodType
-            or DaemonConstants.MethodDefinition
-            or DaemonConstants.MethodReferences
-            or DaemonConstants.MethodCompletions
-            or DaemonConstants.MethodInspect;
     }
 
     private static T? GetParam<T>(JsonElement? paramsElement, string key)
