@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <Using Include="NSharpLang.Cli" />
+    <InternalsVisibleTo Include="Tests" />
     <ProjectReference Include="..\NSharpLang.Compiler.BootstrapServices\NSharpLang.Compiler.BootstrapServices.csproj" />
     <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
     <!-- Keep compiler runtime dependencies explicit for publish/deps.json.
