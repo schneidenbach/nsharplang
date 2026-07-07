@@ -2,7 +2,11 @@ namespace NSharpLang.Cli.Commands
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Text
+import System.Text.Json
 import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 
 public class FixEntry {
     File: string
@@ -36,6 +40,10 @@ public class FixAppliedFileGrouping {
 }
 
 public class FixCommandKernels {
+    public static func ToFixEntry(relativeFile: string, fix: CodeAction): FixEntry {
+        return new FixEntry(NormalizePath(relativeFile), fix.DiagnosticCode, fix.Title, fix.Edits, GetFixSafetyJsonName(fix.Safety))
+    }
+
     public static func FilterBySafety(fixes: IReadOnlyList<CodeAction>, includeReviewNeeded: bool): List<CodeAction> {
         items := CodeActionList(fixes)
         fixCount := items.Count
@@ -166,6 +174,123 @@ public class FixCommandKernels {
         }
 
         return new FixAppliedFileGrouping(files, starts, counts, indices)
+    }
+
+    public static func ResultText(
+        results: IReadOnlyList<FixEntry>,
+        applied: IReadOnlyList<FixEntry>,
+        filesModified: int,
+        dryRun: bool,
+        includeReviewNeeded: bool): string {
+        resultItems := FixEntryList(results)
+        appliedItems := FixEntryList(applied)
+        builder := new StringBuilder()
+
+        if resultItems.Count == 0 {
+            AppendLine(builder, GetNothingToFixMessage())
+            return builder.ToString()
+        }
+
+        if appliedItems.Count > 0 {
+            AppendLine(builder, GetAppliedHeader(appliedItems.Count, filesModified, dryRun))
+
+            groupedApplied := GroupAppliedEntriesByFile(appliedItems)
+            groupIndex := 0
+            while groupIndex < groupedApplied.GroupCount {
+                AppendLine(builder, GetAppliedFileHeader(groupedApplied.Files[groupIndex]))
+                start := groupedApplied.Starts[groupIndex]
+                count := groupedApplied.Counts[groupIndex]
+                i := 0
+                while i < count {
+                    sourceIndex := groupedApplied.Indices[start + i]
+                    fix := appliedItems[sourceIndex]
+                    AppendLine(builder, GetEntryLine(fix.DiagnosticCode, fix.Title))
+                    i = i + 1
+                }
+
+                groupIndex = groupIndex + 1
+            }
+        }
+
+        skipped := SelectSkippedEntries(resultItems, includeReviewNeeded)
+        if skipped.Count > 0 {
+            AppendLine(builder, "")
+            AppendLine(builder, GetSkippedHeader(skipped.Count))
+
+            foreach fix in skipped {
+                reason := GetSkippedReason(fix.Safety)
+                AppendLine(builder, GetSkippedLine(fix.DiagnosticCode, fix.Title, reason))
+            }
+        }
+
+        return builder.ToString()
+    }
+
+    public static func ResultJson(
+        projectDir: string,
+        dryRun: bool,
+        includeReviewNeeded: bool,
+        results: IReadOnlyList<FixEntry>,
+        applied: IReadOnlyList<FixEntry>,
+        filesModified: int): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 2
+        envelope["command"] = "fix"
+        envelope["projectRoot"] = NormalizePath(Path.GetFullPath(projectDir))
+        envelope["dryRun"] = dryRun
+        envelope["includeReviewNeeded"] = includeReviewNeeded
+        envelope["ok"] = !dryRun || filesModified == 0
+        envelope["filesModified"] = filesModified
+        envelope["results"] = BuildJsonEntries(results)
+        envelope["fixesApplied"] = BuildJsonEntries(applied)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildJsonEntries(entries: IReadOnlyList<FixEntry>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        items := FixEntryList(entries)
+
+        i := 0
+        while i < items.Count {
+            payload.Add(BuildJsonEntry(items[i]))
+            i = i + 1
+        }
+
+        return payload
+    }
+
+    static func BuildJsonEntry(entry: FixEntry): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["file"] = NormalizePath(entry.File)
+        payload["diagnostic"] = entry.DiagnosticCode
+        payload["title"] = entry.Title
+        payload["safety"] = entry.Safety
+        payload["edits"] = BuildJsonEdits(entry.Edits)
+        return payload
+    }
+
+    static func BuildJsonEdits(edits: IReadOnlyList<TextEdit>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        i := 0
+        while i < edits.Count {
+            payload.Add(BuildJsonEdit(edits[i]))
+            i = i + 1
+        }
+
+        return payload
+    }
+
+    static func BuildJsonEdit(edit: TextEdit): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["startLine"] = edit.StartLine
+        payload["startColumn"] = edit.StartColumn
+        payload["endLine"] = edit.EndLine
+        payload["endColumn"] = edit.EndColumn
+        if edit.NewText != null {
+            payload["newText"] = edit.NewText
+        }
+
+        return payload
     }
 
     public static func GetHelpText(): string {
@@ -413,6 +538,22 @@ public class FixCommandKernels {
         return 0
     }
 
+    static func GetFixSafetyJsonName(safety: FixSafety): string {
+        if safety == FixSafety.Safe {
+            return "safe"
+        }
+
+        if safety == FixSafety.ReviewNeeded {
+            return "reviewNeeded"
+        }
+
+        if safety == FixSafety.SuggestionOnly {
+            return "suggestionOnly"
+        }
+
+        return "unknown"
+    }
+
     static func GetFixEntrySafetyRank(safety: string): int {
         if safety == "safe" {
             return 1
@@ -445,5 +586,23 @@ public class FixCommandKernels {
         }
 
         return items
+    }
+
+    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions { WriteIndented: true }
+    }
+
+    static func NormalizePath(path: string): string {
+        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
+        if normalized != null {
+            return normalized ?? ""
+        }
+
+        return path
+    }
+
+    static func AppendLine(builder: StringBuilder, text: string) {
+        builder.Append(text)
+        builder.Append((char)10)
     }
 }

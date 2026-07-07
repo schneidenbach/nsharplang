@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -22,14 +20,6 @@ namespace NSharpLang.Cli.Commands;
 /// </summary>
 public static class FixCommand
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
-
     public static int Execute(string[] args)
     {
         var arguments = FixCommandArgumentKernels.GetArgumentSummary(args);
@@ -78,7 +68,7 @@ public static class FixCommand
                 if (useText)
                     Console.Error.WriteLine(FixCommandKernels.GetNoFilesFoundMessage());
                 else
-                    Console.Write(ResultJson(projectDir, dryRun, includeReviewNeeded,
+                    Console.Write(FixCommandKernels.ResultJson(projectDir, dryRun, includeReviewNeeded,
                         Array.Empty<FixEntry>(), Array.Empty<FixEntry>(), 0));
                 return 0;
             }
@@ -96,20 +86,20 @@ public static class FixCommand
 
                 if (fixes.Count == 0) continue;
 
-                var relativeFile = NormalizePath(Path.GetRelativePath(projectDir, file));
+                var relativeFile = Path.GetRelativePath(projectDir, file);
 
                 var safeActions = FixCommandKernels.FilterBySafety(fixes, includeReviewNeeded);
 
                 foreach (var fix in fixes)
                 {
-                    var entry = ToFixEntry(relativeFile, fix);
+                    var entry = FixCommandKernels.ToFixEntry(relativeFile, fix);
                     allResults.Add(entry);
                 }
 
                 var fileApplied = new List<FixEntry>(safeActions.Count);
                 foreach (var fix in safeActions)
                 {
-                    fileApplied.Add(ToFixEntry(relativeFile, fix));
+                    fileApplied.Add(FixCommandKernels.ToFixEntry(relativeFile, fix));
                 }
                 allApplied.AddRange(fileApplied);
 
@@ -148,11 +138,11 @@ public static class FixCommand
             // Output results
             if (useText)
             {
-                OutputText(allResults, allApplied, filesModified, dryRun, includeReviewNeeded);
+                Console.Error.Write(FixCommandKernels.ResultText(allResults, allApplied, filesModified, dryRun, includeReviewNeeded));
             }
             else
             {
-                Console.Write(ResultJson(projectDir, dryRun, includeReviewNeeded, allResults, allApplied, filesModified));
+                Console.Write(FixCommandKernels.ResultJson(projectDir, dryRun, includeReviewNeeded, allResults, allApplied, filesModified));
             }
 
             return dryRun && filesModified > 0 ? 1 : 0;
@@ -161,112 +151,6 @@ public static class FixCommand
         {
             return EmitError(useText, FixCommandKernels.GetFailedMessage(ex.Message), projectDir);
         }
-    }
-
-    private static void OutputText(
-        List<FixEntry> results,
-        List<FixEntry> applied,
-        int filesModified,
-        bool dryRun,
-        bool includeReviewNeeded)
-    {
-        if (results.Count == 0)
-        {
-            Console.Error.WriteLine(FixCommandKernels.GetNothingToFixMessage());
-            return;
-        }
-
-        // Report applied fixes
-        if (applied.Count > 0)
-        {
-            Console.Error.WriteLine(FixCommandKernels.GetAppliedHeader(applied.Count, filesModified, dryRun));
-
-            var groupedApplied = FixCommandKernels.GroupAppliedEntriesByFile(applied);
-
-            for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
-            {
-                Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(groupedApplied.Files[groupIndex]));
-                var start = groupedApplied.Starts[groupIndex];
-                var count = groupedApplied.Counts[groupIndex];
-                for (var i = 0; i < count; i++)
-                {
-                    var sourceIndex = groupedApplied.Indices[start + i];
-                    var fix = applied[sourceIndex];
-                    Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
-                }
-            }
-        }
-
-        // Report skipped fixes
-        var skipped = FixCommandKernels.SelectSkippedEntries(results, includeReviewNeeded);
-
-        if (skipped.Count > 0)
-        {
-            Console.Error.WriteLine();
-            Console.Error.WriteLine(FixCommandKernels.GetSkippedHeader(skipped.Count));
-            foreach (var fix in skipped)
-            {
-                var reason = FixCommandKernels.GetSkippedReason(fix.Safety);
-                Console.Error.WriteLine(FixCommandKernels.GetSkippedLine(fix.DiagnosticCode, fix.Title, reason));
-            }
-        }
-    }
-
-    private static string ResultJson(
-        string projectDir,
-        bool dryRun,
-        bool includeReviewNeeded,
-        IReadOnlyCollection<FixEntry> results,
-        IReadOnlyCollection<FixEntry> applied,
-        int filesModified)
-    {
-        var normalizedProjectRoot = NormalizePath(Path.GetFullPath(projectDir));
-
-        var envelope = new
-        {
-            schemaVersion = 2,
-            command = "fix",
-            projectRoot = normalizedProjectRoot,
-            dryRun,
-            includeReviewNeeded,
-            ok = !dryRun || filesModified == 0,
-            filesModified,
-            results = results.Select(ToJsonEntry).ToList(),
-            fixesApplied = applied.Select(ToJsonEntry).ToList()
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
-    }
-
-    private static object ToJsonEntry(FixEntry f)
-    {
-        return new
-        {
-            file = NormalizePath(f.File),
-            diagnostic = f.DiagnosticCode,
-            title = f.Title,
-            safety = f.Safety,
-            edits = f.Edits.Select(e => new
-            {
-                startLine = e.StartLine,
-                startColumn = e.StartColumn,
-                endLine = e.EndLine,
-                endColumn = e.EndColumn,
-                newText = e.NewText
-            }).ToList()
-        };
-    }
-
-    private static FixEntry ToFixEntry(string relativeFile, CodeAction fix)
-    {
-        var safetyStr = fix.Safety switch
-        {
-            FixSafety.Safe => "safe",
-            FixSafety.ReviewNeeded => "reviewNeeded",
-            FixSafety.SuggestionOnly => "suggestionOnly",
-            _ => "unknown"
-        };
-
-        return new FixEntry(relativeFile, fix.DiagnosticCode, fix.Title, fix.Edits, safetyStr);
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)
@@ -304,6 +188,4 @@ public static class FixCommand
         }
     }
 
-    private static string NormalizePath(string path)
-        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }
