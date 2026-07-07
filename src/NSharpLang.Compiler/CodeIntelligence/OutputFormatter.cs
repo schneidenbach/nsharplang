@@ -370,47 +370,17 @@ public static class OutputFormatter
 
     public static string CompletionsToJson(CompletionResult result, string file, int line, int col)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "completions",
-            ok = true,
-            file = NormalizePath(file),
-            position = new { line, column = col },
-            context = result.Context.ToString().ToLowerInvariant(),
-            receiver = result.Receiver != null ? new { name = result.Receiver, type = result.ReceiverType } : null,
-            completions = result.Completions
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.CompletionsToJson(result, file, line, col);
     }
 
     public static string InspectToJson(InspectResult result, string file, int line, int col)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "inspect",
-            ok = true,
-            file = NormalizePath(file),
-            position = new { line, column = col },
-            result = Normalize(result)
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.InspectToJson(result, file, line, col);
     }
 
     public static string InspectSummaryToJson(InspectResult result, string file, int line, int col)
     {
-        var summary = Normalize(InspectSummaryBuilder.Build(result));
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "inspect",
-            ok = true,
-            file = NormalizePath(file),
-            position = new { line, column = col },
-            summary
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.InspectSummaryToJson(result, file, line, col);
     }
 
     public static string CompletionsToText(CompletionResult result, string file, int line, int col)
@@ -425,15 +395,7 @@ public static class OutputFormatter
 
     public static string DocToJson(DocResult result, string query)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "doc",
-            ok = true,
-            query,
-            result
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.DocToJson(result, query);
     }
 
     // ── Hover ──────────────────────────────────────────────────────────────

@@ -307,6 +307,72 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func CompletionsToJson(result: CompletionResult, fileName: string, line: int, col: int): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "completions"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["context"] = CompletionContextToJsonText(result.Context)
+
+        receiver := BuildCompletionReceiver(result)
+        if receiver != null {
+            envelope["receiver"] = receiver
+        }
+
+        envelope["completions"] = BuildCompletionGroups(result.Completions)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func InspectToJson(result: InspectResult, fileName: string, line: int, col: int): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "inspect"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["result"] = BuildInspectResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func InspectSummaryToJson(result: InspectResult, fileName: string, line: int, col: int): string {
+        summary := InspectSummaryBuilder.Build(result)
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "inspect"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["summary"] = BuildInspectSummaryResult(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func DocToJson(result: DocResult, query: string): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "doc"
+        envelope["ok"] = true
+        envelope["query"] = query
+        envelope["result"] = BuildDocResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
     static func BuildDiagnosticResults(results: List<DiagnosticResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
         foreach result in results {
@@ -362,6 +428,363 @@ public class OutputFormatterJsonKernels {
         payload["errors"] = summary.Errors
         payload["warnings"] = summary.Warnings
         payload["info"] = summary.Info
+        return payload
+    }
+
+    static func BuildCompletionReceiver(result: CompletionResult): Dictionary<string, object>? {
+        if result.Receiver == null {
+            return null
+        }
+
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Receiver ?? ""
+
+        if result.ReceiverType != null {
+            payload["type"] = result.ReceiverType ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildCompletionGroups(completions: Dictionary<string, List<CompletionItem>>): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        foreach entry in completions {
+            payload[entry.Key] = BuildCompletionItems(entry.Value)
+        }
+
+        return payload
+    }
+
+    static func BuildCompletionItems(items: List<CompletionItem>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach item in items {
+            payload.Add(BuildCompletionItem(item))
+        }
+
+        return payload
+    }
+
+    static func BuildCompletionItem(item: CompletionItem): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = item.Name
+        payload["kind"] = item.Kind
+
+        if item.Type != null {
+            payload["type"] = item.Type ?? ""
+        }
+
+        if item.Parameters != null {
+            payload["parameters"] = item.Parameters ?? ""
+        }
+
+        if item.Documentation != null {
+            payload["documentation"] = item.Documentation ?? ""
+        }
+
+        payload["isStatic"] = item.IsStatic
+        return payload
+    }
+
+    static func CompletionContextToJsonText(context: CompletionContext): string {
+        if context == CompletionContext.MemberAccess {
+            return "memberaccess"
+        }
+
+        if context == CompletionContext.Identifier {
+            return "identifier"
+        }
+
+        if context == CompletionContext.Namespace {
+            return "namespace"
+        }
+
+        return "unknown"
+    }
+
+    static func BuildInspectResult(result: InspectResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+
+        symbol := BuildInspectSymbolResult(result.Symbol)
+        if symbol != null {
+            payload["symbol"] = symbol
+        }
+
+        typeResult := BuildOptionalTypeResult(result.Type)
+        if typeResult != null {
+            payload["type"] = typeResult
+        }
+
+        definition := BuildOptionalDefinitionResult(result.Definition)
+        if definition != null {
+            payload["definition"] = definition
+        }
+
+        payload["references"] = BuildInspectReferencesResult(result.References)
+        payload["completions"] = BuildCompletionResult(result.Completions)
+        return payload
+    }
+
+    static func BuildInspectSymbolResult(result: InspectSymbolResult?): Dictionary<string, object>? {
+        if result == null {
+            return null
+        }
+
+        symbol := (InspectSymbolResult)result
+        payload := new Dictionary<string, object>()
+        payload["name"] = symbol.Name
+        payload["kind"] = symbol.Kind
+
+        definition := BuildLocationResult(symbol.Definition)
+        if definition != null {
+            payload["definition"] = definition
+        }
+
+        return payload
+    }
+
+    static func BuildOptionalTypeResult(result: TypeResult?): Dictionary<string, object>? {
+        if result == null {
+            return null
+        }
+
+        return BuildTypeResult((TypeResult)result)
+    }
+
+    static func BuildOptionalDefinitionResult(result: DefinitionResult?): Dictionary<string, object>? {
+        if result == null {
+            return null
+        }
+
+        return BuildDefinitionResult((DefinitionResult)result)
+    }
+
+    static func BuildInspectReferencesResult(result: InspectReferencesResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["count"] = result.Count
+        payload["definitionCount"] = result.DefinitionCount
+        payload["results"] = BuildReferenceArray(result.Results)
+        return payload
+    }
+
+    static func BuildReferenceArray(results: ReferenceResult[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildReferenceResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildCompletionResult(result: CompletionResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["context"] = CompletionContextToJsonText(result.Context)
+
+        if result.Receiver != null {
+            payload["receiver"] = result.Receiver ?? ""
+        }
+
+        if result.ReceiverType != null {
+            payload["receiverType"] = result.ReceiverType ?? ""
+        }
+
+        payload["completions"] = BuildCompletionGroups(result.Completions)
+        return payload
+    }
+
+    static func BuildInspectSummaryResult(result: InspectSummaryResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+
+        symbol := BuildInspectSummarySymbolResult(result.Symbol)
+        if symbol != null {
+            payload["symbol"] = symbol
+        }
+
+        typeResult := BuildInspectSummaryTypeResult(result.Type)
+        if typeResult != null {
+            payload["type"] = typeResult
+        }
+
+        definition := BuildLocationResult(result.Definition)
+        if definition != null {
+            payload["definition"] = definition
+        }
+
+        payload["references"] = BuildInspectSummaryReferencesResult(result.References)
+        payload["completions"] = BuildInspectSummaryCompletionsResult(result.Completions)
+        return payload
+    }
+
+    static func BuildInspectSummarySymbolResult(result: InspectSummarySymbolResult?): Dictionary<string, object>? {
+        if result == null {
+            return null
+        }
+
+        symbol := (InspectSummarySymbolResult)result
+        payload := new Dictionary<string, object>()
+        payload["name"] = symbol.Name
+        payload["kind"] = symbol.Kind
+        return payload
+    }
+
+    static func BuildInspectSummaryTypeResult(result: InspectSummaryTypeResult?): Dictionary<string, object>? {
+        if result == null {
+            return null
+        }
+
+        typeResult := (InspectSummaryTypeResult)result
+        payload := new Dictionary<string, object>()
+        payload["name"] = typeResult.Name
+        payload["resolvedType"] = typeResult.ResolvedType
+        payload["kind"] = typeResult.Kind
+
+        if typeResult.Nullability != null {
+            payload["nullability"] = typeResult.Nullability ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildInspectSummaryReferencesResult(result: InspectSummaryReferencesResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["count"] = result.Count
+        payload["definitionCount"] = result.DefinitionCount
+        payload["files"] = result.Files
+        payload["sample"] = BuildInspectReferenceSummaryArray(result.Sample)
+        return payload
+    }
+
+    static func BuildInspectReferenceSummaryArray(results: InspectReferenceSummaryResult[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildInspectReferenceSummaryResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildInspectReferenceSummaryResult(result: InspectReferenceSummaryResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["isDefinition"] = result.IsDefinition
+        return payload
+    }
+
+    static func BuildInspectSummaryCompletionsResult(result: InspectSummaryCompletionsResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["context"] = result.Context
+
+        if result.Receiver != null {
+            payload["receiver"] = result.Receiver ?? ""
+        }
+
+        if result.ReceiverType != null {
+            payload["receiverType"] = result.ReceiverType ?? ""
+        }
+
+        payload["totalCount"] = result.TotalCount
+        payload["groupCounts"] = result.GroupCounts
+        payload["groups"] = result.Groups
+        return payload
+    }
+
+    static func BuildDocResult(result: DocResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["fullName"] = result.FullName
+        payload["kind"] = result.Kind
+
+        if result.Summary != null {
+            payload["summary"] = result.Summary ?? ""
+        }
+
+        if result.Namespace != null {
+            payload["namespace"] = result.Namespace ?? ""
+        }
+
+        members := BuildDocMemberResults(result.Members)
+        if members != null {
+            payload["members"] = members
+        }
+
+        parameters := BuildDocParameterResults(result.Parameters)
+        if parameters != null {
+            payload["parameters"] = parameters
+        }
+
+        if result.ReturnType != null {
+            payload["returnType"] = result.ReturnType ?? ""
+        }
+
+        if result.ReturnDoc != null {
+            payload["returnDoc"] = result.ReturnDoc ?? ""
+        }
+
+        if result.BaseTypes != null {
+            payload["baseTypes"] = result.BaseTypes ?? new string[](0)
+        }
+
+        return payload
+    }
+
+    static func BuildDocMemberResults(results: DocMemberResult[]?): List<Dictionary<string, object>>? {
+        if results == null {
+            return null
+        }
+
+        payload := new List<Dictionary<string, object>>()
+        items := results ?? new DocMemberResult[](0)
+        foreach result in items {
+            payload.Add(BuildDocMemberResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildDocMemberResult(result: DocMemberResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["kind"] = result.Kind
+
+        if result.Type != null {
+            payload["type"] = result.Type ?? ""
+        }
+
+        if result.Summary != null {
+            payload["summary"] = result.Summary ?? ""
+        }
+
+        if result.Parameters != null {
+            payload["parameters"] = result.Parameters ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildDocParameterResults(results: DocParameterResult[]?): List<Dictionary<string, object>>? {
+        if results == null {
+            return null
+        }
+
+        payload := new List<Dictionary<string, object>>()
+        items := results ?? new DocParameterResult[](0)
+        foreach result in items {
+            payload.Add(BuildDocParameterResult(result))
+        }
+
+        return payload
+    }
+
+    static func BuildDocParameterResult(result: DocParameterResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["type"] = result.Type
+
+        if result.Summary != null {
+            payload["summary"] = result.Summary ?? ""
+        }
+
         return payload
     }
 
