@@ -23,6 +23,16 @@ public class DocOptionSummary {
     }
 }
 
+public class DocOpenCommand {
+    FileName: string
+    Arguments: string
+
+    constructor(fileName: string, arguments: string) {
+        FileName = fileName
+        Arguments = arguments
+    }
+}
+
 public class DocCommandKernels {
     public static func GetOptionSummary(args: string[]): DocOptionSummary {
         projectOption: string? = null
@@ -69,6 +79,19 @@ public class DocCommandKernels {
         }
 
         return 2
+    }
+
+    public static func GetOpenCommand(path: string, isMacOs: bool, isWindows: bool): DocOpenCommand {
+        quotedPath := QuoteProcessArgument(path)
+        if isMacOs {
+            return new DocOpenCommand("open", quotedPath)
+        }
+
+        if isWindows {
+            return new DocOpenCommand("cmd", "/c start \"\" " + quotedPath)
+        }
+
+        return new DocOpenCommand("xdg-open", quotedPath)
     }
 
     public static func OrderSymbolsForGeneration(symbols: IReadOnlyList<SymbolResult>): List<SymbolResult> {
@@ -391,6 +414,10 @@ public class DocCommandKernels {
         }
 
         return builder.ToString()
+    }
+
+    static func QuoteProcessArgument(value: string): string {
+        return "\"" + value + "\""
     }
 
     static func SignaturePrefix(kind: SymbolKind): string {

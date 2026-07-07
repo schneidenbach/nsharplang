@@ -75,29 +75,11 @@ public static class DocCommand
     private static bool TryOpen(string path, out string? error)
     {
         error = null;
-
-        string fileName;
-        string arguments;
-
-        if (OperatingSystem.IsMacOS())
-        {
-            fileName = "open";
-            arguments = $"\"{path}\"";
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            fileName = "cmd";
-            arguments = $"/c start \"\" \"{path}\"";
-        }
-        else
-        {
-            fileName = "xdg-open";
-            arguments = $"\"{path}\"";
-        }
+        var command = DocCommandKernels.GetOpenCommand(path, OperatingSystem.IsMacOS(), OperatingSystem.IsWindows());
 
         try
         {
-            var result = DotnetRunner.RunProcess(fileName, arguments);
+            var result = DotnetRunner.RunProcess(command.FileName, command.Arguments);
             if (result.ExitCode == 0)
                 return true;
 
