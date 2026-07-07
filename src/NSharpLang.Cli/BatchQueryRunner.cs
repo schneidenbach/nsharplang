@@ -95,7 +95,7 @@ internal static class BatchQueryRunner
 
             requests.Add(request with
             {
-                Command = NormalizeCommand(request.Command)
+                Command = BatchQueryKernels.NormalizeCommand(request.Command)
             });
         }
 
@@ -169,22 +169,24 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
+        var normalizedCommand = BatchQueryKernels.NormalizeCommand(request.Command);
+        var commandKind = BatchQueryKernels.GetCommandKind(normalizedCommand);
         try
         {
-            return request.Command switch
+            return commandKind switch
             {
-                "symbols" => ExecuteSymbols(request, projectRoot, getSnapshot, service),
-                "outline" => ExecuteOutline(request, projectRoot, getSnapshot, service),
-                "diagnostics" => ExecuteDiagnostics(request, projectRoot, getSnapshot, service),
-                "type" => ExecuteType(request, projectRoot, getSnapshot, service),
-                "inspect" => ExecuteInspect(request, projectRoot, getSnapshot, service, completionEngine),
-                "definition" => ExecuteDefinition(request, projectRoot, getSnapshot, service),
-                "references" => ExecuteReferences(request, projectRoot, getSnapshot, service),
-                "completions" => ExecuteCompletions(request, projectRoot, getSnapshot, completionEngine),
-                "doc" => ExecuteDoc(request),
+                BatchQueryCommandKind.Symbols => ExecuteSymbols(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Outline => ExecuteOutline(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Diagnostics => ExecuteDiagnostics(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Type => ExecuteType(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Inspect => ExecuteInspect(request, projectRoot, getSnapshot, service, completionEngine),
+                BatchQueryCommandKind.Definition => ExecuteDefinition(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.References => ExecuteReferences(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Completions => ExecuteCompletions(request, projectRoot, getSnapshot, completionEngine),
+                BatchQueryCommandKind.Doc => ExecuteDoc(request),
                 _ => OutputFormatter.ErrorToJson(
-                    request.Command,
-                    BatchQueryKernels.GetUnsupportedCommandMessage(request.Command),
+                    normalizedCommand,
+                    BatchQueryKernels.GetUnsupportedCommandMessage(normalizedCommand),
                     projectRoot,
                     "unsupportedCommand")
             };
@@ -192,7 +194,7 @@ internal static class BatchQueryRunner
         catch (Exception ex)
         {
             return OutputFormatter.ErrorToJson(
-                request.Command,
+                normalizedCommand,
                 ex.Message,
                 projectRoot,
                 "executionFailed");
@@ -497,7 +499,7 @@ internal static class BatchQueryRunner
 
     private static BatchQueryRequest Normalize(BatchQueryRequest request) => request with
     {
-        Command = NormalizeCommand(request.Command),
+        Command = BatchQueryKernels.NormalizeCommand(request.Command),
         File = NormalizePath(request.File)
     };
 
@@ -519,14 +521,6 @@ internal static class BatchQueryRunner
             clusters = normalized.Clusters ? true : (bool?)null
         };
     }
-
-    private static string NormalizeCommand(string? command) => command?.Trim().ToLowerInvariant() switch
-    {
-        "def" => "definition",
-        "refs" => "references",
-        "" or null => "",
-        var normalized => normalized
-    };
 
     private static string? NormalizePath(string? path)
         => OutputFormatterNormalizationKernels.NormalizePath(path);

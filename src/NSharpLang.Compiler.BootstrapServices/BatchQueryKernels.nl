@@ -4,6 +4,19 @@ import System
 import System.Collections.Generic
 import System.Numerics
 
+public enum BatchQueryCommandKind {
+    Unknown = 0,
+    Symbols = 1,
+    Outline = 2,
+    Diagnostics = 3,
+    Type = 4,
+    Inspect = 5,
+    Definition = 6,
+    References = 7,
+    Completions = 8,
+    Doc = 9
+}
+
 public class BatchQueryExecutionResult {
     Json: string
     Ok: bool
@@ -21,6 +34,64 @@ public class BatchQueryExecutionResult {
 }
 
 public class BatchQueryKernels {
+    public static func NormalizeCommand(command: string?): string {
+        if command == null {
+            return ""
+        }
+
+        normalized := command.Trim().ToLowerInvariant()
+        if normalized == "def" {
+            return "definition"
+        }
+
+        if normalized == "refs" {
+            return "references"
+        }
+
+        return normalized
+    }
+
+    public static func GetCommandKind(command: string?): BatchQueryCommandKind {
+        normalized := NormalizeCommand(command)
+        if normalized == "symbols" {
+            return BatchQueryCommandKind.Symbols
+        }
+
+        if normalized == "outline" {
+            return BatchQueryCommandKind.Outline
+        }
+
+        if normalized == "diagnostics" {
+            return BatchQueryCommandKind.Diagnostics
+        }
+
+        if normalized == "type" {
+            return BatchQueryCommandKind.Type
+        }
+
+        if normalized == "inspect" {
+            return BatchQueryCommandKind.Inspect
+        }
+
+        if normalized == "definition" {
+            return BatchQueryCommandKind.Definition
+        }
+
+        if normalized == "references" {
+            return BatchQueryCommandKind.References
+        }
+
+        if normalized == "completions" {
+            return BatchQueryCommandKind.Completions
+        }
+
+        if normalized == "doc" {
+            return BatchQueryCommandKind.Doc
+        }
+
+        return BatchQueryCommandKind.Unknown
+    }
+
     public static func FindDuplicateRequestIds(requests: IReadOnlyList<object>): string[] {
         countsById := new Dictionary<string, int>(StringComparer.Ordinal)
         uniqueIds := new List<string>()
@@ -145,4 +216,5 @@ public class BatchQueryKernels {
 
         return null
     }
+
 }
