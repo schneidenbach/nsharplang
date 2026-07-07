@@ -448,6 +448,43 @@ public class DocQueryKernels {
         return plans
     }
 
+    public static func FormatSeeElementText(
+        elementValue: string?,
+        langword: string?,
+        href: string?,
+        cref: string?): string {
+        if !string.IsNullOrWhiteSpace(elementValue) {
+            return elementValue
+        }
+
+        if !string.IsNullOrWhiteSpace(langword) {
+            return langword
+        }
+
+        if !string.IsNullOrWhiteSpace(href) {
+            return href
+        }
+
+        if string.IsNullOrWhiteSpace(cref) {
+            return ""
+        }
+
+        value := cref
+        prefixIndex := value.IndexOf(':')
+        if prefixIndex >= 0 {
+            value = value.Substring(prefixIndex + 1)
+        }
+
+        value = value.Replace('+', '.')
+
+        parameterIndex := value.IndexOf('(')
+        if parameterIndex >= 0 {
+            value = value.Substring(0, parameterIndex)
+        }
+
+        return StripGenericArity(GetLastDocQuerySegment(value))
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,
@@ -675,5 +712,22 @@ public class DocQueryKernels {
         }
 
         return builder.ToString()
+    }
+
+    static func GetLastDocQuerySegment(value: string): string {
+        i := value.Length - 1
+        while i >= 0 {
+            if value[i] == '.' {
+                if i + 1 >= value.Length {
+                    return value
+                }
+
+                return value.Substring(i + 1)
+            }
+
+            i = i - 1
+        }
+
+        return value
     }
 }

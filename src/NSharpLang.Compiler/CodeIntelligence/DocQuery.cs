@@ -871,45 +871,10 @@ public class DocQuery
 
     private static string FormatSeeElement(XElement element)
     {
-        if (!string.IsNullOrWhiteSpace(element.Value))
-        {
-            return element.Value;
-        }
-
-        var langword = element.Attribute("langword")?.Value;
-        if (!string.IsNullOrWhiteSpace(langword))
-        {
-            return langword;
-        }
-
-        var href = element.Attribute("href")?.Value;
-        if (!string.IsNullOrWhiteSpace(href))
-        {
-            return href;
-        }
-
-        var cref = element.Attribute("cref")?.Value;
-        if (string.IsNullOrWhiteSpace(cref))
-        {
-            return "";
-        }
-
-        var value = cref;
-        var prefixIndex = value.IndexOf(':');
-        if (prefixIndex >= 0)
-        {
-            value = value[(prefixIndex + 1)..];
-        }
-
-        value = value.Replace('+', '.');
-
-        var parameterIndex = value.IndexOf('(');
-        if (parameterIndex >= 0)
-        {
-            value = value[..parameterIndex];
-        }
-
-        var lastSegment = value.Split('.').LastOrDefault() ?? value;
-        return StripGenericArity(lastSegment);
+        return DocQueryKernels.FormatSeeElementText(
+            element.Value,
+            element.Attribute("langword")?.Value,
+            element.Attribute("href")?.Value,
+            element.Attribute("cref")?.Value);
     }
 }
