@@ -60,5 +60,3 @@ public static partial class PlaygroundExports
     private static string Serialize<T>(T value)
         => JsonSerializer.Serialize(value, JsonOptions);
 }
-
-public sealed record PlaygroundVersionResponse(int SchemaVersion, string Compiler, string WasmHost);
