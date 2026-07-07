@@ -29,25 +29,26 @@ public static class QueryCommand
         // Parse global options
         var options = ParseOptions(args, out var subcommand, out var positionalArgs);
 
-        return subcommand switch
+        var subcommandKind = QueryCommandDogfoodKernels.GetSubcommandKind(subcommand);
+        return subcommandKind switch
         {
-            "batch" => BatchCommand(positionalArgs, options),
-            "symbols" => SymbolsCommand(positionalArgs, options),
-            "outline" => OutlineCommand(positionalArgs, options),
-            "ast" => AstCommand(positionalArgs, options),
-            "diagnostics" => DiagnosticsCommand(positionalArgs, options),
-            "type" => TypeCommand(positionalArgs, options),
-            "inspect" => InspectCommand(positionalArgs, options),
-            "definition" or "def" => DefinitionCommand(positionalArgs, options),
-            "references" or "refs" => ReferencesCommand(positionalArgs, options),
-            "completions" => CompletionsCommand(positionalArgs, options),
-            "doc" => DocCommand(positionalArgs, options),
-            "hover" => HoverCommand(positionalArgs, options),
-            "call-graph" => CallGraphCommand(positionalArgs, options),
-            "perf" => PerformanceCommand(positionalArgs, options),
-            "trusted" => TrustedCommand(positionalArgs, options),
-            "implementors" => ImplementorsCommand(positionalArgs, options),
-            "help" or "--help" or "-h" => ShowQueryHelp(),
+            QuerySubcommandKind.Batch => BatchCommand(positionalArgs, options),
+            QuerySubcommandKind.Symbols => SymbolsCommand(positionalArgs, options),
+            QuerySubcommandKind.Outline => OutlineCommand(positionalArgs, options),
+            QuerySubcommandKind.Ast => AstCommand(positionalArgs, options),
+            QuerySubcommandKind.Diagnostics => DiagnosticsCommand(positionalArgs, options),
+            QuerySubcommandKind.Type => TypeCommand(positionalArgs, options),
+            QuerySubcommandKind.Inspect => InspectCommand(positionalArgs, options),
+            QuerySubcommandKind.Definition => DefinitionCommand(positionalArgs, options),
+            QuerySubcommandKind.References => ReferencesCommand(positionalArgs, options),
+            QuerySubcommandKind.Completions => CompletionsCommand(positionalArgs, options),
+            QuerySubcommandKind.Doc => DocCommand(positionalArgs, options),
+            QuerySubcommandKind.Hover => HoverCommand(positionalArgs, options),
+            QuerySubcommandKind.CallGraph => CallGraphCommand(positionalArgs, options),
+            QuerySubcommandKind.Performance => PerformanceCommand(positionalArgs, options),
+            QuerySubcommandKind.Trusted => TrustedCommand(positionalArgs, options),
+            QuerySubcommandKind.Implementors => ImplementorsCommand(positionalArgs, options),
+            QuerySubcommandKind.Help => ShowQueryHelp(),
             _ => QueryError(QueryCommandKernels.GetUnknownSubcommandMessage(subcommand))
         };
     }
