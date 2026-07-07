@@ -398,16 +398,7 @@ public static class OutputFormatter
 
     public static string TrustedToJson(SystemsReport report, string? projectRoot)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "trusted",
-            ok = true,
-            projectRoot = NormalizePath(projectRoot),
-            results = OutputFormatterNormalizationKernels.NormalizeSystemsTrustedSites(report.TrustedSites),
-            summary = new { trustedSites = report.TrustedSites.Count }
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.TrustedToJson(report, projectRoot);
     }
 
     public static string PerfToJson(string file, int line, int col, string? projectRoot,
