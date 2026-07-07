@@ -629,10 +629,7 @@ public class DocQuery
     }
 
     private static string GetLookupTypeName(Type type)
-    {
-        var fullName = type.FullName?.Replace('+', '.') ?? type.Name;
-        return StripGenericArity(fullName);
-    }
+        => DocQueryKernels.GetReflectionLookupTypeName(type);
 
     private static string GetMethodDocId(MethodBase method)
     {

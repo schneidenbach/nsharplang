@@ -329,6 +329,17 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
+    public static func GetReflectionLookupTypeName(reflectionType: Type): string {
+        fullName := reflectionType.FullName
+        if fullName == null {
+            fullName = reflectionType.Name
+        } else {
+            fullName = fullName.Replace('+', '.')
+        }
+
+        return StripGenericArity(fullName)
+    }
+
     public static func ScoreTypeMatch(
         strippedQuery: string,
         qualifiedName: string,
