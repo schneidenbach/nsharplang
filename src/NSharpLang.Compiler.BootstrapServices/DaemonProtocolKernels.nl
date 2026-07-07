@@ -119,6 +119,42 @@ public class DaemonProtocolKernels {
         return "query/inspect"
     }
 
+    public static func GetPidFileName(): string {
+        return "daemon.pid"
+    }
+
+    public static func GetAlreadyRunningMessage(projectRoot: string): string {
+        return "A daemon is already running for " + projectRoot + "."
+    }
+
+    public static func GetMalformedRequestJsonMessage(): string {
+        return "Malformed daemon request JSON."
+    }
+
+    public static func GetMissingMethodMessage(): string {
+        return "Daemon request must include a method."
+    }
+
+    public static func GetPongResultJson(): string {
+        return "\"pong\""
+    }
+
+    public static func GetShutdownResultJson(): string {
+        return "\"shutting down\""
+    }
+
+    public static func FormatUptime(hours: int, minutes: int, seconds: int): string {
+        return hours.ToString() + "h " + minutes.ToString() + "m " + seconds.ToString() + "s"
+    }
+
+    public static func FormatIdleTimeoutMinutes(minutes: int): string {
+        return minutes.ToString() + "m"
+    }
+
+    public static func GetBatchDispatchAfterPrecheckMessage(): string {
+        return "Batch queries should be handled before single-request dispatch."
+    }
+
     public static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
         dir := Path.Combine(canonicalRoot, socketDir)
         projectLocalPath := Path.Combine(dir, socketName)

@@ -63,14 +63,14 @@ public class DaemonServer
     /// </summary>
     public void Run()
     {
-        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, "daemon.pid");
+        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, DaemonProtocolKernels.GetPidFileName());
         var ownsSocket = false;
 
         if (File.Exists(_socketPath))
         {
             if (DaemonClient.IsRunning(_projectRoot))
             {
-                throw new InvalidOperationException($"A daemon is already running for {_projectRoot}.");
+                throw new InvalidOperationException(DaemonProtocolKernels.GetAlreadyRunningMessage(_projectRoot));
             }
 
             File.Delete(_socketPath);
@@ -194,13 +194,13 @@ public class DaemonServer
             }
             catch (JsonException ex)
             {
-                SendResponse(client, Error(0, DaemonConstants.ErrorParse, "Malformed daemon request JSON.", new { ex.Path, ex.LineNumber, ex.BytePositionInLine }));
+                SendResponse(client, Error(0, DaemonConstants.ErrorParse, DaemonProtocolKernels.GetMalformedRequestJsonMessage(), new { ex.Path, ex.LineNumber, ex.BytePositionInLine }));
                 return;
             }
 
             if (request == null || string.IsNullOrWhiteSpace(request.Method))
             {
-                SendResponse(client, Error(request?.Id ?? 0, DaemonConstants.ErrorInvalidRequest, "Daemon request must include a method."));
+                SendResponse(client, Error(request?.Id ?? 0, DaemonConstants.ErrorInvalidRequest, DaemonProtocolKernels.GetMissingMethodMessage()));
                 return;
             }
 
@@ -226,21 +226,21 @@ public class DaemonServer
             switch (methodKind)
             {
                 case DaemonMethodKind.Ping:
-                    return Ok(request.Id, "\"pong\"");
+                    return Ok(request.Id, DaemonProtocolKernels.GetPongResultJson());
 
                 case DaemonMethodKind.Shutdown:
                     _running = false;
-                    return Ok(request.Id, "\"shutting down\"");
+                    return Ok(request.Id, DaemonProtocolKernels.GetShutdownResultJson());
 
                 case DaemonMethodKind.Status:
                     var uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
                     var status = new DaemonStatus
                     {
                         Pid = Environment.ProcessId,
-                        Uptime = $"{uptime.Hours}h {uptime.Minutes}m {uptime.Seconds}s",
+                        Uptime = DaemonProtocolKernels.FormatUptime(uptime.Hours, uptime.Minutes, uptime.Seconds),
                         ProjectRoot = _projectRoot,
                         CachedFiles = _snapshot?.CompilationUnits.Count ?? 0,
-                        IdleTimeout = $"{DaemonConstants.IdleTimeoutMinutes}m"
+                        IdleTimeout = DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes)
                     };
                     return Ok(request.Id, JsonSerializer.Serialize(status));
             }
@@ -307,7 +307,7 @@ public class DaemonServer
             // Query methods
             string result = methodKind switch
             {
-                DaemonMethodKind.Batch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
+                DaemonMethodKind.Batch => throw new InvalidOperationException(DaemonProtocolKernels.GetBatchDispatchAfterPrecheckMessage()),
                 DaemonMethodKind.Symbols => HandleSymbols(file, kind),
                 DaemonMethodKind.Outline => HandleOutline(file!),
                 DaemonMethodKind.Diagnostics => HandleDiagnostics(file, severity, clusters),
