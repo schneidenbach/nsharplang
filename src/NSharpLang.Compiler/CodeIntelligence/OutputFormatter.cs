@@ -70,6 +70,7 @@ public static class OutputFormatter
     /// the canonical AST representation for `nlc query ast` (LLM-first navigation) and for verifying a
     /// future N# parser against the C# parser. Property order is declaration order (stable per node type).
     /// </summary>
+    // DEFERRED: nlc query ast is the C#-parser-verification surface; it dies with the C# AST (Track H front-end deletion). Reason: Type.GetProperties/MetadataToken not readable from N#.
     public static string AstToJson(IReadOnlyList<(string File, CompilationUnit Unit)> units)
     {
         var files = new JsonArray();
