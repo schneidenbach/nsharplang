@@ -29,6 +29,26 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func DefinitionToJson(result: DefinitionResult): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "definition"
+        envelope["ok"] = true
+        envelope["result"] = BuildDefinitionResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildDefinitionResult(result: DefinitionResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["kind"] = result.Kind
+        payload["file"] = result.File
+        payload["line"] = result.Line
+        payload["column"] = result.Column
+        payload["length"] = result.Length
+        return payload
+    }
+
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
         foreach site in sites {

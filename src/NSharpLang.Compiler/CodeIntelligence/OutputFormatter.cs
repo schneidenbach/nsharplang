@@ -419,14 +419,7 @@ public static class OutputFormatter
 
     public static string DefinitionToJson(DefinitionResult result)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "definition",
-            ok = true,
-            result = Normalize(result)
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.DefinitionToJson(result);
     }
 
     public static string ReferencesToJson(string symbolName, string symbolKind,
