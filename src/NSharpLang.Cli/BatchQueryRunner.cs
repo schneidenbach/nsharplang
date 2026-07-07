@@ -33,13 +33,6 @@ internal sealed record BatchQueryItemResult(
     bool Ok,
     JsonElement Response);
 
-internal sealed record BatchQueryExecutionResult(
-    string Json,
-    bool Ok,
-    int RequestCount,
-    int SuccessCount,
-    int FailureCount);
-
 internal static class BatchQueryRunner
 {
     private static readonly JsonSerializerOptions JsonOptions = new()

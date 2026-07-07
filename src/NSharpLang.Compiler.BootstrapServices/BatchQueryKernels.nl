@@ -4,6 +4,22 @@ import System
 import System.Collections.Generic
 import System.Numerics
 
+public class BatchQueryExecutionResult {
+    Json: string
+    Ok: bool
+    RequestCount: int
+    SuccessCount: int
+    FailureCount: int
+
+    constructor(json: string, ok: bool, requestCount: int, successCount: int, failureCount: int) {
+        Json = json
+        Ok = ok
+        RequestCount = requestCount
+        SuccessCount = successCount
+        FailureCount = failureCount
+    }
+}
+
 public class BatchQueryKernels {
     public static func FindDuplicateRequestIds(requests: IReadOnlyList<object>): string[] {
         countsById := new Dictionary<string, int>(StringComparer.Ordinal)
