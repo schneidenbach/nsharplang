@@ -536,29 +536,7 @@ public static class OutputFormatter
 
     public static string CallGraphToJson(CallGraphResult result)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "callGraph",
-            ok = true,
-            function = result.Function,
-            callers = result.Callers.Select(c => new
-            {
-                name = c.Name,
-                file = NormalizePath(c.File),
-                line = c.Line,
-                column = c.Column
-            }).ToList(),
-            callees = result.Callees.Select(c => new
-            {
-                name = c.Name,
-                file = NormalizePath(c.File),
-                line = c.Line,
-                column = c.Column
-            }).ToList(),
-            truncated = result.Truncated
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.CallGraphToJson(result);
     }
 
     public static string CallGraphToText(CallGraphResult result)

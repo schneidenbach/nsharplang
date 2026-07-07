@@ -49,6 +49,44 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
+    public static func CallGraphToJson(result: CallGraphResult): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "callGraph"
+        envelope["ok"] = true
+
+        if result.Function != null {
+            envelope["function"] = result.Function ?? ""
+        }
+
+        envelope["callers"] = BuildCallSites(result.Callers)
+        envelope["callees"] = BuildCallSites(result.Callees)
+        envelope["truncated"] = result.Truncated
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildCallSites(sites: List<CallSiteResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach site in sites {
+            payload.Add(BuildCallSite(site))
+        }
+
+        return payload
+    }
+
+    static func BuildCallSite(site: CallSiteResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = site.Name
+
+        if site.File != null {
+            payload["file"] = OutputFormatterNormalizationKernels.NormalizePath(site.File) ?? ""
+        }
+
+        payload["line"] = site.Line
+        payload["column"] = site.Column
+        return payload
+    }
+
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
         foreach site in sites {
