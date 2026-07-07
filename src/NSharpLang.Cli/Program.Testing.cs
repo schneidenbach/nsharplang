@@ -38,16 +38,6 @@ partial class Program
         int[] OutcomeRanks,
         int OutcomeCount);
 
-    private readonly record struct NativeTestSummary(
-        bool Ok,
-        int Total,
-        int Passed,
-        int Failed,
-        int Skipped)
-    {
-        public static NativeTestSummary EmptyFailure { get; } = new(false, 0, 0, 0, 0);
-    }
-
     private sealed class NativeTestLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(NativeTestLoadContext), isCollectible: true)
     {

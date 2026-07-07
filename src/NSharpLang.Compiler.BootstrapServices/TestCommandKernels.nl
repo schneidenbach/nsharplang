@@ -22,6 +22,30 @@ public class TestOutcomeSummary {
     }
 }
 
+public class NativeTestSummary {
+    okValue: bool
+    totalValue: int
+    passedValue: int
+    failedValue: int
+    skippedValue: int
+
+    Ok: bool => okValue
+    Total: int => totalValue
+    Passed: int => passedValue
+    Failed: int => failedValue
+    Skipped: int => skippedValue
+
+    public static EmptyFailure: NativeTestSummary => new NativeTestSummary(false, 0, 0, 0, 0)
+
+    constructor(ok: bool, total: int, passed: int, failed: int, skipped: int) {
+        okValue = ok
+        totalValue = total
+        passedValue = passed
+        failedValue = failed
+        skippedValue = skipped
+    }
+}
+
 public class TestOptionSummary {
     projectOptionValue: string?
     backendOptionValue: string?
