@@ -14105,34 +14105,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private sealed class InterpolationHolePlan
-    {
-        internal LocalBuilder? RootLocal { get; init; }
-        internal int RootOrdinal { get; init; }
-        internal bool RootThis { get; init; }
-        internal MethodInfo? RootGetter { get; init; }
-        internal Type RootType { get; init; } = null!;
-        internal List<InterpolationMemberPlan> Hops { get; init; } = new();
-        internal MethodBuilder? CallBuilder { get; init; }
-        internal Type ValueType { get; set; } = null!;
-        internal string? Format { get; set; }
-        internal InterpolationHolePlan? CoalesceRight { get; set; }
-        internal int? ConstantInt { get; init; }
-    }
-
-    private sealed class InterpolationMemberPlan
-    {
-        internal FieldBuilder? Field { get; init; }
-        internal MethodBuilder? Getter { get; init; }
-        internal Type ValueType { get; init; } = null!;
-
-        internal static InterpolationMemberPlan ForField(FieldBuilder field)
-            => new() { Field = field, ValueType = field.FieldType };
-
-        internal static InterpolationMemberPlan ForGetter(MethodBuilder getter, Type valueType)
-            => new() { Getter = getter, ValueType = valueType };
-    }
-
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
     // (identifier-chain holes only — anything richer declines) and mirror the
@@ -14167,7 +14139,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         // Resolve every hole BEFORE any emission.
-        var holePlans = new List<InterpolationHolePlan>(formattedCount);
+        var holePlans = new List<ColumnarInterpolationHolePlan>(formattedCount);
         var literalLength = 0;
         foreach (var part in parts)
         {
@@ -14220,13 +14192,13 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private bool TryResolveInterpolationHolePlan(string text, string? format, out InterpolationHolePlan plan)
+    private bool TryResolveInterpolationHolePlan(string text, string? format, out ColumnarInterpolationHolePlan plan)
     {
         plan = null!;
         text = text.Trim();
         if (TryEvaluateInterpolationIntegerAdditiveExpression(text, out var constantInt))
         {
-            plan = new InterpolationHolePlan
+            plan = new ColumnarInterpolationHolePlan
             {
                 ValueType = typeof(int),
                 Format = format,
@@ -14262,12 +14234,12 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private bool TryResolveInterpolationChainPlan(string chain, out InterpolationHolePlan plan)
+    private bool TryResolveInterpolationChainPlan(string chain, out ColumnarInterpolationHolePlan plan)
     {
         plan = null!;
         if (!TryResolveInterpolationHole(chain, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var callBuilder, out var valueType))
             return false;
-        plan = new InterpolationHolePlan
+        plan = new ColumnarInterpolationHolePlan
         {
             RootLocal = rootLocal,
             RootOrdinal = rootOrdinal,
@@ -14281,7 +14253,7 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private void EmitInterpolationHoleValue(InterpolationHolePlan plan)
+    private void EmitInterpolationHoleValue(ColumnarInterpolationHolePlan plan)
     {
         if (plan.CoalesceRight != null)
         {
@@ -14298,7 +14270,7 @@ internal sealed class ColumnarIlEmitter
         EmitInterpolationSimpleHoleValue(plan);
     }
 
-    private void EmitInterpolationSimpleHoleValue(InterpolationHolePlan plan)
+    private void EmitInterpolationSimpleHoleValue(ColumnarInterpolationHolePlan plan)
     {
         if (plan.ConstantInt is { } constantInt)
         {
@@ -14366,14 +14338,14 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
-        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<InterpolationMemberPlan> hops, out MethodBuilder? callBuilder, out Type valueType)
+        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<ColumnarInterpolationMemberPlan> hops, out MethodBuilder? callBuilder, out Type valueType)
     {
         rootLocal = null;
         rootOrdinal = -1;
         rootThis = false;
         rootGetter = null;
         rootType = null!;
-        hops = new List<InterpolationMemberPlan>();
+        hops = new List<ColumnarInterpolationMemberPlan>();
         callBuilder = null;
         valueType = null!;
         string? callMember = null;
@@ -14404,7 +14376,7 @@ internal sealed class ColumnarIlEmitter
         {
             rootThis = true;
             rootType = _currentStruct.Builder;
-            hops.Add(InterpolationMemberPlan.ForField(thisField));
+            hops.Add(new ColumnarInterpolationMemberPlan(thisField, null, thisField.FieldType));
         }
         else if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out var thisProperty))
         {
@@ -14424,13 +14396,13 @@ internal sealed class ColumnarIlEmitter
                 return false;
             if (TryFindFieldOnChain(def, names[n], out var hopField))
             {
-                hops.Add(InterpolationMemberPlan.ForField(hopField));
+                hops.Add(new ColumnarInterpolationMemberPlan(hopField, null, hopField.FieldType));
                 current = hopField.FieldType;
                 continue;
             }
             if (TryFindPropertyOnChain(def, names[n], out var hopProperty))
             {
-                hops.Add(InterpolationMemberPlan.ForGetter(hopProperty.Getter, hopProperty.PropertyType));
+                hops.Add(new ColumnarInterpolationMemberPlan(null, hopProperty.Getter, hopProperty.PropertyType));
                 current = hopProperty.PropertyType;
                 continue;
             }
