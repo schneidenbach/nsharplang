@@ -169,11 +169,7 @@ public static class QueryCommand
                     QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
-                    new
-                    {
-                        file = NormalizePath(file),
-                        position = new { line, column = col }
-                    }));
+                    QueryErrorDetailKernels.Position(file, line, col)));
             }
             return 1;
         }
@@ -372,11 +368,7 @@ public static class QueryCommand
                         QueryCommandKernels.GetNoInterfaceAtPositionMessage(file, line, col),
                         GetProjectRoot(options),
                         "noInterface",
-                        new
-                        {
-                            file = NormalizePath(file),
-                            position = new { line, column = col }
-                        }));
+                        QueryErrorDetailKernels.Position(file, line, col)));
                 }
                 return 1;
             }
@@ -425,7 +417,7 @@ public static class QueryCommand
                 ex.Message,
                 GetProjectRoot(options),
                 "invalidRequestsFile",
-                new { requests = NormalizePath(requestsPath) }));
+                QueryErrorDetailKernels.Requests(requestsPath)));
             return 1;
         }
 
@@ -436,7 +428,7 @@ public static class QueryCommand
                 QueryCommandKernels.GetEmptyBatchMessage(),
                 GetProjectRoot(options),
                 "emptyBatch",
-                new { requests = NormalizePath(requestsPath) }));
+                QueryErrorDetailKernels.Requests(requestsPath)));
             return 1;
         }
 
@@ -574,11 +566,7 @@ public static class QueryCommand
                     QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
-                    new
-                    {
-                        file = NormalizePath(file),
-                        position = new { line, column = col }
-                    }));
+                    QueryErrorDetailKernels.Position(file, line, col)));
             }
             return 1;
         }
@@ -630,11 +618,7 @@ public static class QueryCommand
                         QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                         GetProjectRoot(options),
                         "noSymbol",
-                        new
-                        {
-                            file = NormalizePath(file),
-                            position = new { line, column = col }
-                        }));
+                        QueryErrorDetailKernels.Position(file, line, col)));
                 }
                 return 1;
             }
@@ -727,11 +711,7 @@ public static class QueryCommand
                     QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
-                    new
-                    {
-                        file = NormalizePath(file),
-                        position = new { line, column = col }
-                    }));
+                    QueryErrorDetailKernels.Position(file, line, col)));
             }
 
             return 1;
@@ -789,11 +769,7 @@ public static class QueryCommand
                     QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
-                    new
-                    {
-                        file = NormalizePath(file),
-                        position = new { line, column = col }
-                    }));
+                    QueryErrorDetailKernels.Position(file, line, col)));
             }
 
             return 1;
@@ -819,12 +795,13 @@ public static class QueryCommand
                     message,
                     GetProjectRoot(options),
                     "semanticReferencesUnavailable",
-                    new
-                    {
-                        file = NormalizePath(file),
-                        position = new { line, column = col },
-                        symbol = new { name = symbolName, kind = symbolKind, definedAt }
-                    }));
+                    QueryErrorDetailKernels.SemanticReferencesUnavailable(
+                        file,
+                        line,
+                        col,
+                        symbolName,
+                        symbolKind,
+                        definedAt)));
             }
 
             return 1;

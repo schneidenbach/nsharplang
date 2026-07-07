@@ -287,11 +287,7 @@ internal static class BatchQueryRunner
                 QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         return OutputFormatter.TypeToJson(result, resolvedFile, line, column);
@@ -325,11 +321,7 @@ internal static class BatchQueryRunner
                 QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         InspectSymbolResult? symbol = null;
@@ -382,11 +374,7 @@ internal static class BatchQueryRunner
                 QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         return OutputFormatter.DefinitionToJson(result);
@@ -413,11 +401,7 @@ internal static class BatchQueryRunner
                 QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         var definedAt = new LocationResult(definition.File, definition.Line, definition.Column);
@@ -429,12 +413,13 @@ internal static class BatchQueryRunner
                 QueryCommandKernels.GetSemanticReferencesUnavailableMessage(),
                 snapshot.ProjectRoot,
                 "semanticReferencesUnavailable",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column },
-                    symbol = new { name = definition.Name, kind = definition.Kind, definedAt }
-                });
+                QueryErrorDetailKernels.SemanticReferencesUnavailable(
+                    resolvedFile,
+                    line,
+                    column,
+                    definition.Name,
+                    definition.Kind,
+                    definedAt));
         }
 
         return OutputFormatter.ReferencesToJson(definition.Name, definition.Kind, definedAt, results);
