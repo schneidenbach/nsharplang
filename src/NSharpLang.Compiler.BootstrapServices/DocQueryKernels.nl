@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Text
 
 public class DocQueryKernels {
@@ -351,6 +352,31 @@ public class DocQueryKernels {
 
     public static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
+    }
+
+    public static func SortPathsByFileNameDescending(paths: string[]): string[] {
+        sorted := new string[](paths.Length)
+        i := 0
+        while i < paths.Length {
+            sorted[i] = paths[i]
+            i = i + 1
+        }
+
+        i = 1
+        while i < sorted.Length {
+            current := sorted[i]
+            currentName := Path.GetFileName(current) ?? current
+            j := i - 1
+            while j >= 0 && String.Compare(Path.GetFileName(sorted[j]) ?? sorted[j], currentName, StringComparison.CurrentCulture) < 0 {
+                sorted[j + 1] = sorted[j]
+                j = j - 1
+            }
+
+            sorted[j + 1] = current
+            i = i + 1
+        }
+
+        return sorted
     }
 
     public static func ScoreTypeMatch(

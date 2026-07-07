@@ -769,12 +769,14 @@ public class DocQuery
             {
                 foreach (var packDir in Directory.EnumerateDirectories(packsDir, "*.Ref"))
                 {
-                    foreach (var versionDir in Directory.EnumerateDirectories(packDir).OrderByDescending(Path.GetFileName))
+                    foreach (var versionDir in DocQueryKernels.SortPathsByFileNameDescending(
+                                 Directory.EnumerateDirectories(packDir).ToArray()))
                     {
                         var refRoot = Path.Combine(versionDir, "ref");
                         if (!Directory.Exists(refRoot)) continue;
 
-                        foreach (var tfmDir in Directory.EnumerateDirectories(refRoot).OrderByDescending(Path.GetFileName))
+                        foreach (var tfmDir in DocQueryKernels.SortPathsByFileNameDescending(
+                                     Directory.EnumerateDirectories(refRoot).ToArray()))
                         {
                             directories.Add(tfmDir);
                         }
