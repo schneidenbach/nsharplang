@@ -159,6 +159,52 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
+    public static func TypeToJson(result: TypeResult, fileName: string, line: int, col: int): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "type"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["result"] = BuildTypeResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildTypeResult(result: TypeResult): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = result.Name
+        payload["resolvedType"] = result.ResolvedType
+        payload["kind"] = result.Kind
+
+        definition := BuildLocationResult(result.Definition)
+        if definition != null {
+            payload["definition"] = definition
+        }
+
+        if result.Nullability != null {
+            payload["nullability"] = result.Nullability ?? ""
+        }
+
+        return payload
+    }
+
+    static func BuildLocationResult(location: LocationResult?): Dictionary<string, object>? {
+        if location == null {
+            return null
+        }
+
+        payload := new Dictionary<string, object>()
+        payload["file"] = OutputFormatterNormalizationKernels.NormalizePath(location.File) ?? ""
+        payload["line"] = location.Line
+        payload["column"] = location.Column
+        return payload
+    }
+
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
         foreach site in sites {
