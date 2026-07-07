@@ -112,6 +112,41 @@ public class CompilationReferenceResolverKernels {
         return true
     }
 
+    public static func GetNuGetReferences(
+        dependencies: IEnumerable<Reference>,
+        testDependencies: IEnumerable<Reference>,
+        includeTests: bool): List<Reference> {
+        references := new List<Reference>()
+        foreach reference in dependencies {
+            if reference.Type == ReferenceType.NuGet {
+                references.Add(reference)
+            }
+        }
+
+        if includeTests {
+            foreach reference in testDependencies {
+                if reference.Type == ReferenceType.NuGet {
+                    references.Add(reference)
+                }
+            }
+        }
+
+        return references
+    }
+
+    public static func GetProjectReferenceResolutionOptions(options: ReferenceResolutionOptions): ReferenceResolutionOptions {
+        return new ReferenceResolutionOptions(
+            options.Configuration,
+            false,
+            options.BuildProjectReferences,
+            options.Quiet,
+            options.AotMode)
+    }
+
+    public static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {
+        return compileAssemblyCount == 0
+    }
+
     public static func GetImplicitTestDependencyPlan(
         includeTests: bool,
         hasTests: bool,

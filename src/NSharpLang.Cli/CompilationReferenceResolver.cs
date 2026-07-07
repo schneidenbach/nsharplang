@@ -54,7 +54,10 @@ internal static class CompilationReferenceResolver
             }
         }
 
-        foreach (var packageReference in EnumerateNuGetReferences(config, options).ToArray())
+        foreach (var packageReference in CompilationReferenceResolverKernels.GetNuGetReferences(
+                     config.Dependencies,
+                     config.TestDependencies,
+                     options.IncludeTests))
         {
             var packageAssets = ResolveNuGetPackage(
                 packageReference.Nuget!,
@@ -142,14 +145,7 @@ internal static class CompilationReferenceResolver
             var references = ResolveProjectReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions
-                {
-                    Configuration = options.Configuration,
-                    IncludeTests = false,
-                    BuildProjectReferences = options.BuildProjectReferences,
-                    Quiet = options.Quiet,
-                    AotMode = options.AotMode
-                },
+                CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(options),
                 context);
             var outputDirectory = GetStableOutputDirectory(projectRoot, config, options.Configuration);
             Directory.CreateDirectory(outputDirectory);
@@ -182,24 +178,6 @@ internal static class CompilationReferenceResolver
         finally
         {
             _ = context.ActiveProjectRoots.Pop();
-        }
-    }
-
-    private static IEnumerable<Reference> EnumerateNuGetReferences(ProjectConfig config, ReferenceResolutionOptions options)
-    {
-        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.NuGet))
-        {
-            yield return reference;
-        }
-
-        if (!options.IncludeTests)
-        {
-            yield break;
-        }
-
-        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.TestDependencies, ReferenceType.NuGet))
-        {
-            yield return reference;
         }
     }
 
@@ -287,7 +265,7 @@ internal static class CompilationReferenceResolver
             assets.RuntimeAssemblies.Add(runtimeAssembly);
         }
 
-        if (assets.CompileAssemblies.Count == 0)
+        if (CompilationReferenceResolverKernels.ShouldUseRuntimeAssembliesForCompile(assets.CompileAssemblies.Count))
         {
             foreach (var runtimeAssembly in runtimeAssemblies)
             {
