@@ -152,16 +152,7 @@ public static class OutputFormatter
 
     public static string OutlineToJson(OutlineResult result)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "outline",
-            ok = true,
-            file = NormalizePath(result.File),
-            imports = result.Imports,
-            outline = Normalize(result).Outline
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.OutlineToJson(result);
     }
 
     /// <summary>

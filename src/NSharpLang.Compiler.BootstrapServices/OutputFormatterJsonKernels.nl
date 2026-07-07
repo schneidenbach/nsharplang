@@ -223,6 +223,130 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
+    public static func OutlineToJson(result: OutlineResult): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "outline"
+        envelope["ok"] = true
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(result.File)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["imports"] = result.Imports
+        envelope["outline"] = BuildOutlineEntries(result.Outline)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildOutlineEntries(entries: OutlineEntry[]): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach entry in entries {
+            payload.Add(BuildOutlineEntry(entry))
+        }
+
+        return payload
+    }
+
+    static func BuildOptionalOutlineEntries(entries: OutlineEntry[]?): List<Dictionary<string, object>>? {
+        if entries == null {
+            return null
+        }
+
+        return BuildOutlineEntries(entries)
+    }
+
+    static func BuildOutlineEntry(entry: OutlineEntry): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["name"] = entry.Name
+        payload["kind"] = SymbolKindToJsonText(entry.Kind)
+        payload["line"] = entry.Line
+        payload["endLine"] = entry.EndLine
+
+        if entry.ReturnType != null {
+            payload["returnType"] = entry.ReturnType ?? ""
+        }
+
+        if entry.TypeName != null {
+            payload["typeName"] = entry.TypeName ?? ""
+        }
+
+        children := BuildOptionalOutlineEntries(entry.Children)
+        if children != null {
+            payload["children"] = children
+        }
+
+        return payload
+    }
+
+    static func SymbolKindToJsonText(kind: SymbolKind): string {
+        if kind == SymbolKind.Function {
+            return "function"
+        }
+
+        if kind == SymbolKind.Class {
+            return "class"
+        }
+
+        if kind == SymbolKind.Struct {
+            return "struct"
+        }
+
+        if kind == SymbolKind.Record {
+            return "record"
+        }
+
+        if kind == SymbolKind.Interface {
+            return "interface"
+        }
+
+        if kind == SymbolKind.Enum {
+            return "enum"
+        }
+
+        if kind == SymbolKind.Union {
+            return "union"
+        }
+
+        if kind == SymbolKind.Property {
+            return "property"
+        }
+
+        if kind == SymbolKind.Field {
+            return "field"
+        }
+
+        if kind == SymbolKind.Method {
+            return "method"
+        }
+
+        if kind == SymbolKind.Variable {
+            return "variable"
+        }
+
+        if kind == SymbolKind.Parameter {
+            return "parameter"
+        }
+
+        if kind == SymbolKind.Constructor {
+            return "constructor"
+        }
+
+        if kind == SymbolKind.EnumMember {
+            return "enumMember"
+        }
+
+        if kind == SymbolKind.TypeAlias {
+            return "typeAlias"
+        }
+
+        if kind == SymbolKind.Test {
+            return "test"
+        }
+
+        return "unknown"
+    }
+
     static func BuildTypeResult(result: TypeResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["name"] = result.Name
