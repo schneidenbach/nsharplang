@@ -386,6 +386,11 @@ public class DocQueryKernels {
         return StripGenericArity(GetLastDocQuerySegment(strippedName))
     }
 
+    public static func IsQualifiedTypeSuffixMatch(qualifiedName: string, strippedName: string): bool {
+        suffix := "." + strippedName
+        return DocQueryEndsWithSubstringIgnoreCase(qualifiedName, suffix, 0, suffix.Length)
+    }
+
     public static func GetDocMemberDocId(prefix: string, declaringTypeFullName: string?, memberName: string): string {
         ownerName := declaringTypeFullName ?? ""
         return prefix + ownerName.Replace('+', '.') + "." + memberName
@@ -925,6 +930,33 @@ public class DocQueryKernels {
         }
 
         return builder.ToString()
+    }
+
+    public static func FormatDocElementNodeText(
+        localName: string,
+        elementValue: string?,
+        childText: string,
+        nameAttribute: string?,
+        langword: string?,
+        href: string?,
+        cref: string?): string {
+        if localName == "see" || localName == "seealso" {
+            return FormatSeeElementText(elementValue, langword, href, cref)
+        }
+
+        if localName == "paramref" || localName == "typeparamref" {
+            return nameAttribute ?? ""
+        }
+
+        if localName == "c" || localName == "code" {
+            return elementValue ?? ""
+        }
+
+        if localName == "para" {
+            return childText + " "
+        }
+
+        return childText
     }
 
     public static func ScoreTypeMatch(

@@ -275,7 +275,7 @@ public class DocQuery
         if (DocQueryKernels.ShouldSearchQualifiedSuffix(strippedName))
         {
             var suffixMatches = DeduplicateTypeCandidates(_typesByQualifiedName
-                .Where(kvp => kvp.Key.EndsWith($".{strippedName}", StringComparison.OrdinalIgnoreCase))
+                .Where(kvp => DocQueryKernels.IsQualifiedTypeSuffixMatch(kvp.Key, strippedName))
                 .SelectMany(kvp => kvp.Value)
                 .ToArray());
 
@@ -743,24 +743,15 @@ public class DocQuery
         return node switch
         {
             XText text => text.Value,
-            XElement element => element.Name.LocalName switch
-            {
-                "see" or "seealso" => FormatSeeElement(element),
-                "paramref" or "typeparamref" => element.Attribute("name")?.Value ?? "",
-                "c" or "code" => element.Value,
-                "para" => $"{string.Concat(element.Nodes().Select(FormatDocNode))} ",
-                _ => string.Concat(element.Nodes().Select(FormatDocNode))
-            },
+            XElement element => DocQueryKernels.FormatDocElementNodeText(
+                element.Name.LocalName,
+                element.Value,
+                string.Concat(element.Nodes().Select(FormatDocNode)),
+                element.Attribute("name")?.Value,
+                element.Attribute("langword")?.Value,
+                element.Attribute("href")?.Value,
+                element.Attribute("cref")?.Value),
             _ => ""
         };
-    }
-
-    private static string FormatSeeElement(XElement element)
-    {
-        return DocQueryKernels.FormatSeeElementText(
-            element.Value,
-            element.Attribute("langword")?.Value,
-            element.Attribute("href")?.Value,
-            element.Attribute("cref")?.Value);
     }
 }
