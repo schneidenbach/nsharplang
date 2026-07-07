@@ -962,8 +962,6 @@ internal sealed class PlaygroundRunner
     }
 }
 
-internal sealed record PlaygroundRunResult(string Stdout, string? Stderr, int ExitCode);
-
 internal sealed class PlaygroundRunUnsupportedException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;

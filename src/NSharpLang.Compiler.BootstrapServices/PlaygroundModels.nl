@@ -124,6 +124,12 @@ public record PlaygroundRunResponse(
     Summary: PlaygroundSummary) {
 }
 
+public record PlaygroundRunResult(
+    Stdout: string,
+    Stderr: string?,
+    ExitCode: int) {
+}
+
 public record PlaygroundSummary(
     Errors: int,
     Warnings: int,
