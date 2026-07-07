@@ -704,6 +704,120 @@ public class DocQueryKernels {
         return sorted
     }
 
+    public static func GetXmlDocPath(assemblyLocation: string?, assemblyNameFromMetadata: string?, referencePackDirectories: string[]): string {
+        location := assemblyLocation ?? ""
+        assemblyName := assemblyNameFromMetadata ?? ""
+        if string.IsNullOrWhiteSpace(assemblyName) {
+            assemblyName = GetPathFileNameWithoutExtension(location)
+        }
+
+        if !string.IsNullOrWhiteSpace(location) {
+            adjacentXml := ChangePathExtensionToXml(location)
+            if File.Exists(adjacentXml) {
+                return adjacentXml
+            }
+
+            assemblyDir := Path.GetDirectoryName(location)
+            if !string.IsNullOrWhiteSpace(assemblyDir) {
+                refXml := Path.Combine(Path.Combine(assemblyDir ?? "", "ref"), assemblyName + ".xml")
+                if File.Exists(refXml) {
+                    return refXml
+                }
+            }
+        }
+
+        i := 0
+        while i < referencePackDirectories.Length {
+            candidate := Path.Combine(referencePackDirectories[i], assemblyName + ".xml")
+            if File.Exists(candidate) {
+                return candidate
+            }
+
+            i = i + 1
+        }
+
+        return ""
+    }
+
+    public static func DiscoverReferencePackAssemblyNames(referencePackDirectories: string[]): string[] {
+        names := new List<string>()
+        i := 0
+        while i < referencePackDirectories.Length {
+            dllFiles := Directory.GetFiles(referencePackDirectories[i], "*.dll", SearchOption.TopDirectoryOnly)
+            fileIndex := 0
+            while fileIndex < dllFiles.Length {
+                name := GetPathFileNameWithoutExtension(dllFiles[fileIndex])
+                if !string.IsNullOrWhiteSpace(name) {
+                    names.Add(name)
+                }
+
+                fileIndex = fileIndex + 1
+            }
+
+            i = i + 1
+        }
+
+        return DeduplicateStableStringsOrdinalIgnoreCase(names)
+    }
+
+    public static func GetReferencePackDirectories(assemblyLocations: string[], dotnetRoot: string?): string[] {
+        roots := new List<string>()
+        seenRoots := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        i := 0
+        stopAfterFirstAssemblyLocation := false
+        while i < assemblyLocations.Length && !stopAfterFirstAssemblyLocation {
+            location := assemblyLocations[i]
+            if !string.IsNullOrWhiteSpace(location) {
+                candidate := FindDotNetRootCandidate(location)
+                if candidate != null {
+                    AddUniqueString(roots, seenRoots, candidate)
+                }
+
+                stopAfterFirstAssemblyLocation = true
+            }
+
+            i = i + 1
+        }
+
+        if !string.IsNullOrWhiteSpace(dotnetRoot) {
+            AddUniqueString(roots, seenRoots, dotnetRoot ?? "")
+        }
+
+        directories := new List<string>()
+        rootIndex := 0
+        while rootIndex < roots.Count {
+            packsDir := Path.Combine(roots[rootIndex], "packs")
+            if Directory.Exists(packsDir) {
+                packDirs := Directory.GetDirectories(packsDir, "*.Ref", SearchOption.TopDirectoryOnly)
+                packIndex := 0
+                while packIndex < packDirs.Length {
+                    versionDirs := SortPathsByFileNameDescending(Directory.GetDirectories(packDirs[packIndex], "*", SearchOption.TopDirectoryOnly))
+                    versionIndex := 0
+                    while versionIndex < versionDirs.Length {
+                        refRoot := Path.Combine(versionDirs[versionIndex], "ref")
+                        if Directory.Exists(refRoot) {
+                            tfmDirs := SortPathsByFileNameDescending(Directory.GetDirectories(refRoot, "*", SearchOption.TopDirectoryOnly))
+                            tfmIndex := 0
+                            while tfmIndex < tfmDirs.Length {
+                                directories.Add(tfmDirs[tfmIndex])
+                                tfmIndex = tfmIndex + 1
+                            }
+                        }
+
+                        versionIndex = versionIndex + 1
+                    }
+
+                    packIndex = packIndex + 1
+                }
+            }
+
+            rootIndex = rootIndex + 1
+        }
+
+        return DeduplicateStableStringsOrdinalIgnoreCase(directories)
+    }
+
     public static func GetLookupSplitPlans(query: string): DocQueryLookupSplitPlan[] {
         parts := query.Split('.')
         if parts.Length < 2 {
@@ -1025,6 +1139,74 @@ public class DocQueryKernels {
 
     static func DocQueryIsDigit(ch: char): bool {
         return ch >= '0' && ch <= '9'
+    }
+
+    static func AddUniqueString(values: List<string>, seen: HashSet<string>, value: string) {
+        if seen.Add(value) {
+            values.Add(value)
+        }
+    }
+
+    static func FindDotNetRootCandidate(assemblyLocation: string): string? {
+        current := Path.GetDirectoryName(assemblyLocation) ?? ""
+        while !string.IsNullOrWhiteSpace(current) {
+            if Directory.Exists(Path.Combine(current, "packs")) && Directory.Exists(Path.Combine(current, "shared")) {
+                return current
+            }
+
+            parent := Path.GetDirectoryName(current) ?? ""
+            if parent == current {
+                return null
+            }
+
+            current = parent
+        }
+
+        return null
+    }
+
+    static func GetPathFileNameWithoutExtension(path: string): string {
+        fileName := Path.GetFileName(path) ?? path
+        dotIndex := -1
+        i := fileName.Length - 1
+        while i >= 0 {
+            if fileName[i] == '.' {
+                dotIndex = i
+                i = -1
+            } else {
+                i = i - 1
+            }
+        }
+
+        if dotIndex > 0 {
+            return fileName.Substring(0, dotIndex)
+        }
+
+        return fileName
+    }
+
+    static func ChangePathExtensionToXml(path: string): string {
+        lastSeparatorIndex := -1
+        lastDotIndex := -1
+        i := path.Length - 1
+        while i >= 0 {
+            ch := path[i]
+            if lastSeparatorIndex < 0 && (ch == '/' || ch == '\\') {
+                lastSeparatorIndex = i
+            }
+
+            if lastDotIndex < 0 && ch == '.' {
+                lastDotIndex = i
+            }
+
+            i = i - 1
+        }
+
+        if lastDotIndex > lastSeparatorIndex {
+            return path.Substring(0, lastDotIndex) + ".xml"
+        }
+
+        return path + ".xml"
     }
 
     static func JoinDocQueryParts(parts: string[], start: int, count: int): string {

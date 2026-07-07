@@ -631,32 +631,10 @@ public class DocQuery
 
     private string GetXmlDocPath(Assembly assembly)
     {
-        var assemblyLocation = assembly.Location;
-        var assemblyName = assembly.GetName().Name ?? Path.GetFileNameWithoutExtension(assemblyLocation);
-
-        if (!string.IsNullOrWhiteSpace(assemblyLocation))
-        {
-            var adjacentXml = Path.ChangeExtension(assemblyLocation, ".xml");
-            if (File.Exists(adjacentXml)) return adjacentXml;
-
-            var assemblyDir = Path.GetDirectoryName(assemblyLocation);
-            if (!string.IsNullOrWhiteSpace(assemblyDir))
-            {
-                var refXml = Path.Combine(assemblyDir, "ref", $"{assemblyName}.xml");
-                if (File.Exists(refXml)) return refXml;
-            }
-        }
-
-        foreach (var refDir in GetReferencePackDirectories())
-        {
-            var candidate = Path.Combine(refDir, $"{assemblyName}.xml");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return string.Empty;
+        return DocQueryKernels.GetXmlDocPath(
+            assembly.Location,
+            assembly.GetName().Name,
+            GetReferencePackDirectories().ToArray());
     }
 
     private void EnsureGlobalDocIndex()
@@ -697,25 +675,7 @@ public class DocQuery
 
     private IEnumerable<string> DiscoverReferencePackAssemblyNames()
     {
-        var names = new List<string>();
-        foreach (var dir in GetReferencePackDirectories())
-        {
-            string[] dllFiles;
-            {
-                dllFiles = Directory.GetFiles(dir, "*.dll");
-            }
-
-            foreach (var dllFile in dllFiles)
-            {
-                var name = Path.GetFileNameWithoutExtension(dllFile);
-                if (!string.IsNullOrWhiteSpace(name))
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
-        return DeduplicateReferencePackAssemblyNames(names);
+        return DocQueryKernels.DiscoverReferencePackAssemblyNames(GetReferencePackDirectories().ToArray());
     }
 
     private static string[] DeduplicateReferencePackAssemblyNames(IReadOnlyList<string> names)
@@ -730,72 +690,11 @@ public class DocQuery
             return _referencePackDirectories;
         }
 
-        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // Discover dotnet root from loaded assemblies instead of runtime typeof()
-        foreach (var asm in _assemblies)
-        {
-            if (!string.IsNullOrWhiteSpace(asm.Location))
-            {
-                AddDotNetRootCandidate(roots, asm.Location);
-                break; // One good location is enough to find the SDK root
-            }
-        }
-
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (!string.IsNullOrWhiteSpace(dotnetRoot))
-        {
-            roots.Add(dotnetRoot);
-        }
-
-        var directories = new List<string>();
-        foreach (var root in roots)
-        {
-            var packsDir = Path.Combine(root, "packs");
-            if (!Directory.Exists(packsDir)) continue;
-
-            {
-                foreach (var packDir in Directory.EnumerateDirectories(packsDir, "*.Ref"))
-                {
-                    foreach (var versionDir in DocQueryKernels.SortPathsByFileNameDescending(
-                                 Directory.EnumerateDirectories(packDir).ToArray()))
-                    {
-                        var refRoot = Path.Combine(versionDir, "ref");
-                        if (!Directory.Exists(refRoot)) continue;
-
-                        foreach (var tfmDir in DocQueryKernels.SortPathsByFileNameDescending(
-                                     Directory.EnumerateDirectories(refRoot).ToArray()))
-                        {
-                            directories.Add(tfmDir);
-                        }
-                    }
-                }
-            }
-        }
-
-        _referencePackDirectories = DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(directories).ToList();
+        _referencePackDirectories = DocQueryKernels.GetReferencePackDirectories(
+            _assemblies.Select(assembly => assembly.Location).ToArray(),
+            Environment.GetEnvironmentVariable("DOTNET_ROOT")).ToList();
 
         return _referencePackDirectories;
-    }
-
-    private static void AddDotNetRootCandidate(HashSet<string> roots, string? assemblyLocation)
-    {
-        if (string.IsNullOrWhiteSpace(assemblyLocation))
-        {
-            return;
-        }
-
-        var dir = new DirectoryInfo(Path.GetDirectoryName(assemblyLocation)!);
-        while (dir != null)
-        {
-            if (Directory.Exists(Path.Combine(dir.FullName, "packs")) &&
-                Directory.Exists(Path.Combine(dir.FullName, "shared")))
-            {
-                roots.Add(dir.FullName);
-                return;
-            }
-
-            dir = dir.Parent;
-        }
     }
 
     private static string FormatQualifiedType(Type type)
