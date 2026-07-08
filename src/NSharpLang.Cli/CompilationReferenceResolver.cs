@@ -423,13 +423,10 @@ internal static class CompilationReferenceResolver
                 : Array.Empty<XElement>();
         }
 
-        return dependencies
-            .Select(element => new PackageDependency(
-                (string?)element.Attribute("id") ?? string.Empty,
-                CompilationReferenceResolverKernels.NormalizeNuGetDependencyVersion(
-                    (string?)element.Attribute("version"))))
-            .Where(dependency => !string.IsNullOrWhiteSpace(dependency.Id))
-            .ToArray();
+        var dependencyElements = dependencies.ToArray();
+        return CompilationReferenceResolverKernels.GetPackageDependencies(
+            dependencyElements.Select(element => (string?)element.Attribute("id")).ToArray(),
+            dependencyElements.Select(element => (string?)element.Attribute("version")).ToArray());
     }
 
     private static IReadOnlyList<string> SelectBestAssetAssemblies(

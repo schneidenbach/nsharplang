@@ -217,6 +217,25 @@ public class CompilationReferenceResolverKernels {
         return compileAssemblyCount == 0
     }
 
+    public static func GetPackageDependencies(rawIds: string?[], rawVersions: string?[]): PackageDependency[] {
+        if rawIds.Length != rawVersions.Length {
+            throw new ArgumentException("Package dependency id and version arrays must have the same length.")
+        }
+
+        dependencies := new List<PackageDependency>()
+        index := 0
+        while index < rawIds.Length {
+            id := rawIds[index] ?? ""
+            if !string.IsNullOrWhiteSpace(id) {
+                dependencies.Add(new PackageDependency(id, NormalizeNuGetDependencyVersion(rawVersions[index])))
+            }
+
+            index = index + 1
+        }
+
+        return dependencies.ToArray()
+    }
+
     public static func GetProjectReferenceCycleMessage(chainRoots: string[]): string {
         return "Project reference cycle detected: "
             + string.Join(" -> ", chainRoots)
