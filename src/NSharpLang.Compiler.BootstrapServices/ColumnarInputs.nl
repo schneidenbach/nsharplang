@@ -297,6 +297,62 @@ public class ColumnarProgramInput {
     Unions: IReadOnlyList<ColumnarUnionInput>
     Interfaces: IReadOnlyList<ColumnarInterfaceInput>
 
+    public static func CreateSingleSource(
+        source: string,
+        functions: IReadOnlyList<ColumnarFunctionInput>,
+        enums: IReadOnlyList<ColumnarEnumInput>,
+        structs: IReadOnlyList<ColumnarStructInput>,
+        unions: IReadOnlyList<ColumnarUnionInput>,
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>): ColumnarProgramInput {
+        return new ColumnarProgramInput(
+            source,
+            functions,
+            enums,
+            structs,
+            unions,
+            interfaces,
+            BuildSingleSourceFiles(source))
+    }
+
+    public static func CreateFromSourceFiles(
+        sourceFiles: ColumnarSourceFile[],
+        functions: IReadOnlyList<ColumnarFunctionInput>,
+        enums: IReadOnlyList<ColumnarEnumInput>,
+        structs: IReadOnlyList<ColumnarStructInput>,
+        unions: IReadOnlyList<ColumnarUnionInput>,
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>): ColumnarProgramInput {
+        return new ColumnarProgramInput(
+            GetFirstSource(sourceFiles),
+            functions,
+            enums,
+            structs,
+            unions,
+            interfaces,
+            sourceFiles)
+    }
+
+    public static func MergeSourceFiles(
+        sourceFiles: ColumnarSourceFile[],
+        programs: ColumnarProgramInput[]): ColumnarProgramInput {
+        functions := new List<ColumnarFunctionInput>()
+        enums := new List<ColumnarEnumInput>()
+        structs := new List<ColumnarStructInput>()
+        unions := new List<ColumnarUnionInput>()
+        interfaces := new List<ColumnarInterfaceInput>()
+
+        index := 0
+        while index < programs.Length {
+            AddFunctions(functions, programs[index].Functions)
+            AddEnums(enums, programs[index].Enums)
+            AddStructs(structs, programs[index].Structs)
+            AddUnions(unions, programs[index].Unions)
+            AddInterfaces(interfaces, programs[index].Interfaces)
+            index = index + 1
+        }
+
+        return CreateFromSourceFiles(sourceFiles, functions, enums, structs, unions, interfaces)
+    }
+
     constructor(
         source: string,
         functions: IReadOnlyList<ColumnarFunctionInput>,
@@ -328,5 +384,53 @@ public class ColumnarProgramInput {
         sources[0] = source
         fileNames[0] = ""
         return ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames)
+    }
+
+    static func GetFirstSource(sourceFiles: ColumnarSourceFile[]): string {
+        if sourceFiles.Length == 0 {
+            return ""
+        }
+
+        return sourceFiles[0].Source
+    }
+
+    static func AddFunctions(target: List<ColumnarFunctionInput>, source: IReadOnlyList<ColumnarFunctionInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
+    }
+
+    static func AddEnums(target: List<ColumnarEnumInput>, source: IReadOnlyList<ColumnarEnumInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
+    }
+
+    static func AddStructs(target: List<ColumnarStructInput>, source: IReadOnlyList<ColumnarStructInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
+    }
+
+    static func AddUnions(target: List<ColumnarUnionInput>, source: IReadOnlyList<ColumnarUnionInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
+    }
+
+    static func AddInterfaces(target: List<ColumnarInterfaceInput>, source: IReadOnlyList<ColumnarInterfaceInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
     }
 }

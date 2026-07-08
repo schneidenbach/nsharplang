@@ -94,7 +94,7 @@ internal static class ColumnarProgramInputBuilder
             return Decline("parse.interface", "interface declaration materialization failed");
         }
 
-        program = new ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
+        program = ColumnarProgramInput.CreateSingleSource(source, inputs, enums, structs, unions, interfaceInputs);
         return true;
     }
 
