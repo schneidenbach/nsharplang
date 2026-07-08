@@ -31,7 +31,7 @@ public static class CheckCommand
             return EmitError(useText, CheckCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir), projectDir);
         }
 
-        var projectYmlPath = Path.Combine(projectDir, "project.yml");
+        var projectYmlPath = CheckCommandKernels.GetProjectYmlPath(projectDir);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -59,9 +59,10 @@ public static class CheckCommand
             // verify the IL backend can emit the assembly successfully. Non-project
             // directories (standalone .nl files) skip this because they aren't meant
             // to be compiled as a single project.
-            if (summary.Errors == 0
-                && snapshot.SourceFiles.Count > 0
-                && File.Exists(projectYmlPath))
+            if (CheckCommandKernels.ShouldVerifyIlOutput(
+                    summary.Errors,
+                    snapshot.SourceFiles.Count,
+                    File.Exists(projectYmlPath)))
             {
                 var verificationDiagnostics = VerifyIlOutput(projectDir, projectConfig, aot);
                 if (verificationDiagnostics.Count > 0)
@@ -105,7 +106,7 @@ public static class CheckCommand
                 Console.Write(OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count));
             }
 
-            return summary.Errors > 0 ? 1 : 0;
+            return CheckCommandKernels.GetExitCode(summary.Errors);
         }
         catch (Exception ex)
         {
@@ -124,7 +125,9 @@ public static class CheckCommand
         try
         {
             Directory.CreateDirectory(tempDir);
-            var outputPath = Path.Combine(tempDir, $"{CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config)}.dll");
+            var outputPath = CheckCommandKernels.GetVerificationOutputPath(
+                tempDir,
+                CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config));
             var compiler = new MultiFileCompiler(projectDir, config);
             compiler.AotMode = aotMode;
             var compileResult = compiler.CompileToIlAssembly(

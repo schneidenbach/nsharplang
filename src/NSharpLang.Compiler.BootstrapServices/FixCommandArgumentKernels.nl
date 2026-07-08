@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
+import System.IO
+
 public class FixArgumentSummary {
     ProjectOption: string?
     FileOption: string?
@@ -243,6 +245,26 @@ public class CheckCommandKernels {
         }
 
         return 1
+    }
+
+    public static func GetProjectYmlPath(projectDir: string): string {
+        return Path.Combine(projectDir, "project.yml")
+    }
+
+    public static func ShouldVerifyIlOutput(errorCount: int, sourceFileCount: int, hasProjectFile: bool): bool {
+        return errorCount == 0 && sourceFileCount > 0 && hasProjectFile
+    }
+
+    public static func GetVerificationOutputPath(tempDir: string, assemblyName: string): string {
+        return Path.Combine(tempDir, assemblyName + ".dll")
+    }
+
+    public static func GetExitCode(errorCount: int): int {
+        if errorCount > 0 {
+            return 1
+        }
+
+        return 0
     }
 
     public static func GetHelpText(): string {
