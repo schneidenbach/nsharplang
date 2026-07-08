@@ -67,13 +67,7 @@ public static class PackCommand
         try
         {
             var projectName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
-            var versionSource = PackCommandKernels.GetEffectiveVersionSource(versionOverride, config.Version);
-            var effectiveVersion = versionSource switch
-            {
-                1 => versionOverride,
-                2 => config.Version,
-                _ => null
-            };
+            var effectiveVersion = PackCommandKernels.GetEffectiveVersion(versionOverride, config.Version);
             if (effectiveVersion == null)
             {
                 if (outputMode == 1)

@@ -143,6 +143,19 @@ public class PackCommandKernels {
         return 2
     }
 
+    public static func GetEffectiveVersion(versionOverride: string?, projectVersion: string?): string? {
+        source := GetEffectiveVersionSource(versionOverride, projectVersion)
+        if source == 1 {
+            return versionOverride
+        }
+
+        if source == 2 {
+            return projectVersion
+        }
+
+        return null
+    }
+
     public static func GetHelpText(): string {
         builder := new StringBuilder()
         AppendLine(builder, "N# Pack")
