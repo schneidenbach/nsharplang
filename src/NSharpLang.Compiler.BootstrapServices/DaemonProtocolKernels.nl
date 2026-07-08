@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli.Daemon
 
 import System.Collections.Generic
+import System
 import System.IO
 import System.Text.Json
 
@@ -181,6 +182,18 @@ public class DaemonProtocolKernels {
 
     public static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {
         return Utf8ByteCount(projectLocalPath) <= 100
+    }
+
+    public static func GetCanonicalProjectRoot(projectRoot: string): string {
+        return Path.GetFullPath(projectRoot)
+    }
+
+    public static func GetSocketPathForProject(canonicalRoot: string, tempPath: string, hashPrefix: string): string {
+        socketDir := GetSocketDir()
+        socketName := GetSocketName()
+        projectLocalPath := Path.Combine(Path.Combine(canonicalRoot, socketDir), socketName)
+        useProjectLocalSocket := ShouldUseProjectLocalSocket(projectLocalPath)
+        return GetSocketPath(canonicalRoot, socketDir, socketName, tempPath, hashPrefix, useProjectLocalSocket)
     }
 
     public static func GetBatchDispatchAfterPrecheckMessage(): string {

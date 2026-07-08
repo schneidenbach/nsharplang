@@ -96,17 +96,9 @@ public static class DaemonConstants
 
     public static string GetSocketPath(string projectRoot)
     {
-        var canonicalRoot = Path.GetFullPath(projectRoot);
-        var projectLocalPath = Path.Combine(Path.Combine(canonicalRoot, SocketDir), SocketName);
-        var useProjectLocalSocket = DaemonProtocolKernels.ShouldUseProjectLocalSocket(projectLocalPath);
+        var canonicalRoot = DaemonProtocolKernels.GetCanonicalProjectRoot(projectRoot);
         var hashPrefix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRoot))).ToLowerInvariant()[..16];
-        return DaemonProtocolKernels.GetSocketPath(
-            canonicalRoot,
-            SocketDir,
-            SocketName,
-            Path.GetTempPath(),
-            hashPrefix,
-            useProjectLocalSocket);
+        return DaemonProtocolKernels.GetSocketPathForProject(canonicalRoot, Path.GetTempPath(), hashPrefix);
     }
 
     public static string MethodPing => DaemonProtocolKernels.GetPingMethod();
