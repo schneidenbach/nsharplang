@@ -8393,6 +8393,25 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(TextWriter);
                         return true;
                     }
+                    if (receiverIdent == "DateTime"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                    {
+                        if (typeof(DateTime).GetProperty(Text(idx), BindingFlags.Public | BindingFlags.Static) is { GetMethod: not null } dateTimeStaticProperty
+                            && IsSupportedType(dateTimeStaticProperty.PropertyType))
+                        {
+                            _il.Emit(OpCodes.Call, dateTimeStaticProperty.GetMethod);
+                            type = dateTimeStaticProperty.PropertyType;
+                            return true;
+                        }
+                        // Static readonly fields (UnixEpoch, MinValue, MaxValue) load with ldsfld.
+                        if (typeof(DateTime).GetField(Text(idx), BindingFlags.Public | BindingFlags.Static) is { } dateTimeStaticField
+                            && IsSupportedType(dateTimeStaticField.FieldType))
+                        {
+                            _il.Emit(OpCodes.Ldsfld, dateTimeStaticField);
+                            type = dateTimeStaticField.FieldType;
+                            return true;
+                        }
+                    }
                     // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
                     // local/param/sibling) and the member is one of its constants -> load the underlying int. The
                     // reported type is the same finalized enum Type used for params/returns and collection elements.
@@ -8494,6 +8513,17 @@ internal sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Ldloca, timeSpanTemp);
                         _il.Emit(OpCodes.Call, typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds))!.GetGetMethod()!);
                         type = typeof(double);
+                        return true;
+                    }
+                    if (structReceiverType == typeof(DateTime)
+                        && typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance) is { GetMethod: not null } dateTimeProperty
+                        && IsSupportedType(dateTimeProperty.PropertyType))
+                    {
+                        var dateTimeTemp = _il.DeclareLocal(typeof(DateTime));
+                        _il.Emit(OpCodes.Stloc, dateTimeTemp);
+                        _il.Emit(OpCodes.Ldloca, dateTimeTemp);
+                        _il.Emit(OpCodes.Call, dateTimeProperty.GetMethod);
+                        type = dateTimeProperty.PropertyType;
                         return true;
                     }
                     if (structReceiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind))
