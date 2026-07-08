@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
 import System
+import System.IO
 
 public class WatchOptionSummary {
     ProjectOption: string?
@@ -182,6 +183,18 @@ public class WatchCommandKernels {
         }
 
         return new WatchPositiveIntOption(false, false, 0)
+    }
+
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
+    public static func GetParsedOptionalIntValue(parsed: WatchPositiveIntOption): int? {
+        if parsed.HasValue {
+            return parsed.Value
+        }
+
+        return null
     }
 
     public static func GetTargetCommandName(targetKind: int): string {

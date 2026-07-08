@@ -25,8 +25,7 @@ public static class WatchCommand
         var watchedCommand = WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind);
 
         var forwardedArgs = WatchCommandKernels.GetForwardedArgs(args);
-        var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
-        projectRoot = Path.GetFullPath(projectRoot);
+        var projectRoot = WatchCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectRoot))
             return Error(WatchCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
@@ -142,7 +141,7 @@ public static class WatchCommand
             defaultValue.HasValue,
             defaultValue.GetValueOrDefault());
         if (parsed.IsValid)
-            return parsed.HasValue ? parsed.Value : null;
+            return WatchCommandKernels.GetParsedOptionalIntValue(parsed);
 
         Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
