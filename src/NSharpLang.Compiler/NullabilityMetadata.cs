@@ -42,16 +42,15 @@ public static class NullabilityMetadata
 
     public static string FormatParameter(ParameterInfo parameter)
     {
-        var modifier = parameter.IsOut
-            ? "out "
-            : parameter.ParameterType.IsByRef
-                ? "ref "
-                : IsParamsParameter(parameter)
-                    ? "params "
-                    : string.Empty;
         var attributePrefix = FormatFlowAttributes(parameter.GetCustomAttributesData());
         var type = FormatTypeInfo(ConvertParameter(parameter));
-        return $"{attributePrefix}{modifier}{type} {parameter.Name}";
+        return NullabilityMetadataCore.FormatParameter(
+            parameter.IsOut,
+            parameter.ParameterType.IsByRef,
+            IsParamsParameter(parameter),
+            attributePrefix,
+            type,
+            parameter.Name);
     }
 
     public static string FormatReturnType(MethodInfo method)

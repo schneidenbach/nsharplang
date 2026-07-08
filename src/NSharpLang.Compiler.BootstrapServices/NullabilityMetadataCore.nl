@@ -77,6 +77,25 @@ class NullabilityMetadataCore {
         return NullabilityTypeDisplay.StripMetadata(typeInfo)
     }
 
+    static func FormatParameter(
+        isOut: bool,
+        isByRef: bool,
+        isParams: bool,
+        attributePrefix: string,
+        typeName: string,
+        parameterName: string?): string {
+        modifier := ""
+        if isOut {
+            modifier = "out "
+        } else if isByRef {
+            modifier = "ref "
+        } else if isParams {
+            modifier = "params "
+        }
+
+        return attributePrefix + modifier + typeName + " " + (parameterName ?? "")
+    }
+
     static func EnsureNullable(typeInfo: TypeInfo): TypeInfo {
         nullable := typeInfo as NullableTypeInfo
         if nullable != null {
