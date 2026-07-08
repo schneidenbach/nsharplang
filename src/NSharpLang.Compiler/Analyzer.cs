@@ -19025,6 +19025,43 @@ public class Analyzer : IDisposable
         return false;
     }
 
+    // The function half of project auto-discovery: exported (PascalCase) top-level functions
+    // are visible project-wide within visible namespaces without a file import, mirroring
+    // TryResolveVisibleProjectType. Non-exported top-level functions stay file-private, so
+    // they intentionally fall through to the undefined/inaccessible diagnostics.
+    private bool TryResolveVisibleProjectFunction(string name, out TypeInfo type, out SymbolDeclaration declaration)
+    {
+        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        {
+            foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
+            {
+                var unit = GetProjectCompilationUnit(filePath, sourceText);
+                if (unit == null)
+                    continue;
+
+                if (!string.Equals(GetUnitNamespace(unit), visibleNamespace, StringComparison.Ordinal))
+                    continue;
+
+                foreach (var topLevelDeclaration in unit.Declarations)
+                {
+                    if (topLevelDeclaration is not FunctionDeclaration func || !string.Equals(func.Name, name, StringComparison.Ordinal))
+                        continue;
+
+                    if (!DeclarationFacts.IsExportedDeclaration(func, name))
+                        continue;
+
+                    type = CreateFunctionTypeInfo(func);
+                    declaration = CreateTopLevelTypeSymbolDeclaration(name, filePath, sourceText, func);
+                    return true;
+                }
+            }
+        }
+
+        type = BuiltInTypes.Unknown;
+        declaration = null!;
+        return false;
+    }
+
     private bool TryReportInaccessibleVisibleProjectDeclaration(
         string name,
         int line,
@@ -19630,6 +19667,13 @@ public class Analyzer : IDisposable
             type = projectType;
             _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
             _semanticModel.RecordType(name, projectType);
+            return true;
+        }
+
+        if (TryResolveVisibleProjectFunction(name, out var projectFunctionType, out var projectFunctionDeclaration))
+        {
+            type = projectFunctionType;
+            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectFunctionDeclaration);
             return true;
         }
 
