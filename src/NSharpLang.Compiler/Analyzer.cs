@@ -16830,8 +16830,17 @@ public class Analyzer : IDisposable
             if (qualifiedCaseName != null)
             {
                 var parts = qualifiedCaseName.Split('.');
-                if (parts.Length == 2
-                    && LookupType(parts[0]) is UnionTypeInfo unionBaseType)
+                // The union may live in another file/namespace with no import — project
+                // auto-discovery resolves it exactly like a bare type reference would.
+                var unionBaseLookup = parts.Length == 2 ? LookupType(parts[0]) as UnionTypeInfo : null;
+                if (unionBaseLookup == null
+                    && parts.Length == 2
+                    && TryResolveVisibleProjectType(parts[0], newExpr.Line, newExpr.Column, out var projectUnionCandidate, out _)
+                    && projectUnionCandidate is UnionTypeInfo projectUnionType)
+                {
+                    unionBaseLookup = projectUnionType;
+                }
+                if (parts.Length == 2 && unionBaseLookup is UnionTypeInfo unionBaseType)
                 {
                     if (TryGetUnionCaseForPattern(unionBaseType, qualifiedCaseName, out _))
                     {
@@ -20733,8 +20742,11 @@ public class Analyzer : IDisposable
         // Generic type parameters — conservative, don't warn
         if (resolvedSource is GenericTypeInfo || resolvedTarget is GenericTypeInfo) return true;
 
-        // Same type — trivially possible
+        // Same type — trivially possible. TypeInfo instances are not interned, so built-in
+        // (simple) types must also compare structurally: `int n` on an int scrutinee matches.
         if (resolvedSource == resolvedTarget) return true;
+        if (resolvedSource is SimpleTypeInfo simplePatternSource && resolvedTarget is SimpleTypeInfo simplePatternTarget
+            && simplePatternSource.Equals(simplePatternTarget)) return true;
 
         // Either is interface — always possible at runtime (boxing, duck typing)
         if (resolvedSource is InterfaceTypeInfo || resolvedTarget is InterfaceTypeInfo) return true;
@@ -21092,9 +21104,15 @@ public class Analyzer : IDisposable
         var resolvedRight = ResolveTypeAlias(right);
         return (resolvedLeft, resolvedRight) switch
         {
+            // Declaration instances are not interned (project auto-discovery re-parses sibling
+            // files), so the same enum resolved through two paths must still compare equal:
+            // fall back to the declaration-site fingerprint (name + position).
             (EnumTypeInfo l, EnumTypeInfo r) => l.Declaration.Type == EnumType.Int
                 && r.Declaration.Type == EnumType.Int
-                && ReferenceEquals(l.Declaration, r.Declaration),
+                && (ReferenceEquals(l.Declaration, r.Declaration)
+                    || (string.Equals(l.Declaration.Name, r.Declaration.Name, StringComparison.Ordinal)
+                        && l.Declaration.Line == r.Declaration.Line
+                        && l.Declaration.Column == r.Declaration.Column)),
             (ReflectionTypeInfo l, ReflectionTypeInfo r) => l.Type.IsEnum
                 && r.Type.IsEnum
                 && l.Type == r.Type,
