@@ -306,6 +306,10 @@ public class BuildCommandKernels {
             + "  Total:      " + totalElapsed
     }
 
+    public static func ShouldApplyDebugDefine(configuration: string): bool {
+        return !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase)
+    }
+
     public static func ApplyEffectiveDefines(config: ProjectConfig, debug: bool, cliDefines: IReadOnlyList<string>?) {
         if debug && !ContainsDefine(config.Defines, "DEBUG") {
             config.Defines.Add("DEBUG")

@@ -81,17 +81,18 @@ partial class Program
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+            var configuration = release ? "Release" : "Debug";
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
-                : Path.Combine(sourceDir, "bin", release ? "Release" : "Debug", config.TargetFramework);
+                : CompilationReferenceResolverKernels.GetStableOutputDirectory(sourceDir, configuration, config.TargetFramework);
 
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
                 config,
                 new ReferenceResolutionOptions
                 {
-                    Configuration = release ? "Release" : "Debug",
+                    Configuration = configuration,
                     BuildProjectReferences = false
                 });
             var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
@@ -205,7 +206,7 @@ partial class Program
         bool aotMode = false)
     {
         projectRoot = Path.GetFullPath(projectRoot);
-        BuildCommandKernels.ApplyEffectiveDefines(config, debug: !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase), cliDefines: null);
+        BuildCommandKernels.ApplyEffectiveDefines(config, debug: BuildCommandKernels.ShouldApplyDebugDefine(configuration), cliDefines: null);
         var resolvedOutputDir = outputDir != null
             ? Path.GetFullPath(outputDir)
             : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
@@ -333,12 +334,12 @@ partial class Program
         Directory.CreateDirectory(outputDir);
 
         compiler.AotMode = aotMode;
-        var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
+        var outputPath = CompilationReferenceResolverKernels.GetProjectOutputAssemblyPath(outputDir, assemblyName);
         var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
         perfFacts = BuildCommandKernels.ToPerfReportFacts(compiler.SystemsReport);
         EmitCompilationDiagnostics(result);
 
-        if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
+        if (CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(result.Success, result.OutputAssemblyPath))
         {
             return null;
         }
