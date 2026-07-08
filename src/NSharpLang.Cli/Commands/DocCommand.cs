@@ -121,7 +121,7 @@ internal static class ProjectDocGenerator
             var symbol = orderedSymbols[i];
             var slug = slugs[i];
             var relativePath = DocCommandKernels.GetSymbolRelativePath(slug);
-            var absolutePath = DocCommandKernels.GetSymbolAbsolutePath(outputDir, relativePath, Path.DirectorySeparatorChar.ToString());
+            var absolutePath = DocCommandKernels.GetSymbolAbsolutePath(outputDir, relativePath);
             File.WriteAllText(absolutePath, DocCommandKernels.RenderSymbolPage(symbol, projectRoot));
             pages.Add(new DocPage(symbol.Name, DocCommandKernels.GetPageKindText(symbol.Kind), relativePath));
         }

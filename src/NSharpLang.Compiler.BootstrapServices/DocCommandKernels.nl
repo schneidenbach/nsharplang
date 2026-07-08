@@ -105,8 +105,8 @@ public class DocCommandKernels {
         return NormalizePath(Path.Combine("symbols", slug + ".html"))
     }
 
-    public static func GetSymbolAbsolutePath(outputDir: string, relativePath: string, directorySeparator: string): string {
-        return Path.Combine(outputDir, relativePath.Replace("/", directorySeparator))
+    public static func GetSymbolAbsolutePath(outputDir: string, relativePath: string): string {
+        return Path.Combine(outputDir, relativePath)
     }
 
     public static func GetIndexPath(outputDir: string): string {
