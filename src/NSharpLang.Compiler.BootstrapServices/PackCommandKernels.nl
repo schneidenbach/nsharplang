@@ -138,6 +138,14 @@ public class PackCommandKernels {
         return 2
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
+    public static func GetProjectYmlPath(projectRoot: string): string {
+        return Path.Combine(projectRoot, "project.yml")
+    }
+
     public static func GetEffectiveVersionSource(versionOverride: string?, projectVersion: string?): int {
         if versionOverride != null {
             if (versionOverride ?? "").Trim().Length == 0 {

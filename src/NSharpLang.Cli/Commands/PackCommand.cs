@@ -22,7 +22,7 @@ public static class PackCommand
             return 0;
         }
 
-        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+        var projectRoot = PackCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory());
         var outputDir = options.OutputDir;
         var versionOverride = options.VersionOverride;
         var configuration = options.Configuration;
@@ -30,7 +30,7 @@ public static class PackCommand
         var outputMode = PackCommandKernels.GetOutputMode(options.JsonOutput);
 
         // Locate project.yml
-        var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+        var projectYmlPath = PackCommandKernels.GetProjectYmlPath(projectRoot);
         if (!File.Exists(projectYmlPath))
         {
             if (outputMode == 1)
@@ -66,7 +66,7 @@ public static class PackCommand
 
         try
         {
-            var projectName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
+            var projectName = CompilationReferenceResolverKernels.GetProjectAssemblyName(projectRoot, config.Name);
             var effectiveVersion = PackCommandKernels.GetEffectiveVersion(versionOverride, config.Version);
             if (effectiveVersion == null)
             {
