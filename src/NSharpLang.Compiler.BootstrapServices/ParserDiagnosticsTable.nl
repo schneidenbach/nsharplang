@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 public class ParserDiagnosticMessageKind {
     public static func ReservedKeywordAsName(): int { return 1 }
+    public static func ExpectedMemberNameAfterDot(): int { return 2 }
 }
 
 public class ParserDiagnosticContextKind {

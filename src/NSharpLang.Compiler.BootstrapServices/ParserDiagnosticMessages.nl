@@ -33,6 +33,30 @@ public class ParserDiagnosticMessages {
                     "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.",
                     ReservedKeywordHint(keyword, table.ContextKinds[index]),
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedMemberNameAfterDot() {
+                operatorText := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                operatorDescription := "dot (.)"
+                if operatorText != "." {
+                    operatorDescription = "null-conditional member access (" + operatorText + ")"
+                }
+
+                suggestions := new List<string>()
+                suggestions.Add("Check if you forgot to finish this line")
+                suggestions.Add("Common members: Length, Count, ToString(), GetHashCode()")
+                suggestions.Add("If this is end of statement, remove the trailing '" + operatorText + "'")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected member name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "I see a " + operatorDescription + " operator but no member name after it.",
+                    "After " + operatorDescription + ", I need to see a property or method name.",
+                    suggestions))
             }
 
             index = index + 1

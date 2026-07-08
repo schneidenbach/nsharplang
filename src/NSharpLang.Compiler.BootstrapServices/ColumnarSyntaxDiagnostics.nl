@@ -14,8 +14,65 @@ public class ColumnarSyntaxDiagnostics {
         table := new ParserDiagnosticTable(source.Length + 1)
         lexer := new Lexer(source, fileName)
         tokens := lexer.Tokenize()
+        CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectExpectedMemberNameDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.Dot || token.Type == TokenType.QuestionDot {
+                next := NextSignificantToken(tokens, index)
+                if next == null || (next.Type != TokenType.Identifier && !Lexer.IsReservedKeyword(next.Type)) {
+                    receiver := PreviousSignificantToken(tokens, index)
+                    line := token.Line
+                    column := token.Column
+                    length := token.Value.Length
+                    receiverStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, token.Line, token.Column)
+
+                    if receiver != null {
+                        line = receiver.Line
+                        column = receiver.Column
+                        length = receiver.Value.Length
+                        receiverStart = OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, receiver.Line, receiver.Column)
+                    }
+
+                    dotStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, token.Line, token.Column)
+                    currentStart := -1
+                    currentLength := 0
+                    if next != null {
+                        currentStart = OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, next.Line, next.Column)
+                        currentLength = next.Value.Length
+                    }
+
+                    ParserDiagnosticTableOps.Report(
+                        table,
+                        sourceFile.FileId,
+                        (int)ErrorCode.ExpectedToken,
+                        receiverStart,
+                        length,
+                        line,
+                        column,
+                        ParserDiagnosticMessageKind.ExpectedMemberNameAfterDot(),
+                        ParserDiagnosticContextKind.DotMember(),
+                        dotStart,
+                        token.Value.Length,
+                        currentStart,
+                        currentLength)
+                }
+            }
+
+            index = index + 1
+        }
     }
 
     static func CollectReservedKeywordNameDiagnostics(
