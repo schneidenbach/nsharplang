@@ -8,6 +8,7 @@ public class ColumnarEnumInput {
     memberValuesValue: int[]
     isStringBackedValue: bool
     memberStringValuesValue: string[]
+    SourceFileId: int
 
     Name: string => nameValue
     MemberNames: string[] => memberNamesValue
@@ -20,12 +21,14 @@ public class ColumnarEnumInput {
         memberNames: string[],
         memberValues: int[],
         isStringBacked: bool = false,
-        memberStringValues: string[]? = null) {
+        memberStringValues: string[]? = null,
+        sourceFileId: int = 0) {
         nameValue = name
         memberNamesValue = memberNames
         memberValuesValue = memberValues
         isStringBackedValue = isStringBacked
         memberStringValuesValue = memberStringValues ?? new string[](0)
+        SourceFileId = sourceFileId
     }
 }
 
@@ -36,6 +39,7 @@ public class ColumnarUnionInput {
     caseFieldTypeCanonicalsValue: string[][]
     typeParamNamesValue: string[]
     isValueStructValue: bool
+    SourceFileId: int
 
     Name: string => nameValue
     CaseNames: string[] => caseNamesValue
@@ -50,13 +54,15 @@ public class ColumnarUnionInput {
         caseFieldNames: string[][],
         caseFieldTypeCanonicals: string[][],
         typeParamNames: string[]? = null,
-        isValueStruct: bool = false) {
+        isValueStruct: bool = false,
+        sourceFileId: int = 0) {
         nameValue = name
         caseNamesValue = caseNames
         caseFieldNamesValue = caseFieldNames
         caseFieldTypeCanonicalsValue = caseFieldTypeCanonicals
         typeParamNamesValue = typeParamNames ?? new string[](0)
         isValueStructValue = isValueStruct
+        SourceFileId = sourceFileId
     }
 }
 
@@ -78,6 +84,7 @@ public class ColumnarFunctionInput {
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     ModifierFlags: int
+    SourceFileId: int
     public LocalFunctions: List<ColumnarLocalFunctionInput>?
 
     constructor(
@@ -97,11 +104,13 @@ public class ColumnarFunctionInput {
         paramDefaultKinds: int[]? = null,
         paramDefaultTexts: string[]? = null,
         isAsync: bool = false,
-        modifierFlags: int = 0) {
+        modifierFlags: int = 0,
+        sourceFileId: int = 0) {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
         ModifierFlags = modifierFlags
+        SourceFileId = sourceFileId
         ParamNames = paramNames
         ParamCanonicals = paramCanonicals
         ParamModifierKinds = paramModifierKinds ?? new int[](0)
@@ -144,6 +153,7 @@ public class ColumnarConstructorInput {
     ParamDefaultKinds: int[]
     ParamDefaultTexts: string[]
     IsSynthesizedInitializer: bool
+    SourceFileId: int
 
     constructor(
         body: ColumnarFunctionInput,
@@ -152,7 +162,8 @@ public class ColumnarConstructorInput {
         chainArgTexts: string[],
         paramDefaultKinds: int[]? = null,
         paramDefaultTexts: string[]? = null,
-        isSynthesizedInitializer: bool = false) {
+        isSynthesizedInitializer: bool = false,
+        sourceFileId: int = 0) {
         Body = body
         ChainInitKind = chainInitKind
         ChainArgKinds = chainArgKinds
@@ -160,6 +171,7 @@ public class ColumnarConstructorInput {
         ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
         ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
         IsSynthesizedInitializer = isSynthesizedInitializer
+        SourceFileId = sourceFileId
     }
 }
 
@@ -169,18 +181,21 @@ public class ColumnarPropertyInput {
     TypeCanonical: string
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
+    SourceFileId: int
 
     constructor(
         name: string,
         typeCanonical: string,
         getter: ColumnarFunctionInput,
         setter: ColumnarFunctionInput?,
-        isStatic: bool = false) {
+        isStatic: bool = false,
+        sourceFileId: int = 0) {
         IsStatic = isStatic
         Name = name
         TypeCanonical = typeCanonical
         Getter = getter
         Setter = setter
+        SourceFileId = sourceFileId
     }
 }
 
@@ -199,6 +214,7 @@ public class ColumnarStructInput {
     FieldInitTexts: string[]
     IsRecord: bool
     TypeParamNames: string[]
+    SourceFileId: int
 
     constructor(
         name: string,
@@ -214,7 +230,8 @@ public class ColumnarStructInput {
         fieldInitTexts: string[]? = null,
         isRecord: bool = false,
         typeParamNames: string[]? = null,
-        fieldReadonlyFlags: bool[]? = null) {
+        fieldReadonlyFlags: bool[]? = null,
+        sourceFileId: int = 0) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -237,6 +254,7 @@ public class ColumnarStructInput {
         FieldInitTexts = fieldInitTexts ?? new string[](fieldNames.Length)
         IsRecord = isRecord
         TypeParamNames = typeParamNames ?? new string[](0)
+        SourceFileId = sourceFileId
     }
 }
 
@@ -248,6 +266,7 @@ public class ColumnarInterfaceInput {
     MethodParamNames: string[][]
     MethodParamCanonicals: string[][]
     MethodBodies: ColumnarFunctionInput?[]
+    SourceFileId: int
 
     constructor(
         name: string,
@@ -256,7 +275,8 @@ public class ColumnarInterfaceInput {
         methodReturnCanonicals: string[],
         methodParamNames: string[][],
         methodParamCanonicals: string[][],
-        methodBodies: ColumnarFunctionInput?[]? = null) {
+        methodBodies: ColumnarFunctionInput?[]? = null,
+        sourceFileId: int = 0) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         MethodNames = methodNames
@@ -264,11 +284,13 @@ public class ColumnarInterfaceInput {
         MethodParamNames = methodParamNames
         MethodParamCanonicals = methodParamCanonicals
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+        SourceFileId = sourceFileId
     }
 }
 
 public class ColumnarProgramInput {
     Source: string
+    Sources: ColumnarSourceFile[]
     Functions: IReadOnlyList<ColumnarFunctionInput>
     Enums: IReadOnlyList<ColumnarEnumInput>
     Structs: IReadOnlyList<ColumnarStructInput>
@@ -281,12 +303,30 @@ public class ColumnarProgramInput {
         enums: IReadOnlyList<ColumnarEnumInput>,
         structs: IReadOnlyList<ColumnarStructInput>,
         unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>) {
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
+        sourceFiles: ColumnarSourceFile[]? = null) {
         Source = source
+        Sources = sourceFiles ?? BuildSingleSourceFiles(source)
         Functions = functions
         Enums = enums
         Structs = structs
         Unions = unions
         Interfaces = interfaces
+    }
+
+    public func GetSourceForFileId(fileId: int): string {
+        if fileId >= 0 && fileId < Sources.Length {
+            return Sources[fileId].Source
+        }
+
+        return Source
+    }
+
+    static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {
+        sources := new string[](1)
+        fileNames := new string[](1)
+        sources[0] = source
+        fileNames[0] = ""
+        return ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames)
     }
 }
