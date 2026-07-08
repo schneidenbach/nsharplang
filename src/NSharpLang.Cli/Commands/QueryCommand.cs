@@ -104,19 +104,13 @@ public static class QueryCommand
 
         var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var fileFilter = summary.File ?? options.File;
-        var normalizedFilter = fileFilter?.Replace('\\', '/');
 
         var units = new List<(string File, CompilationUnit Unit)>();
         foreach (var pair in snapshot.CompilationUnits.OrderBy(static kvp => kvp.Key, StringComparer.Ordinal))
         {
-            if (normalizedFilter != null)
+            if (fileFilter != null)
             {
-                var normalizedPath = pair.Key.Replace('\\', '/');
-                var matches =
-                    string.Equals(normalizedPath, normalizedFilter, StringComparison.OrdinalIgnoreCase) ||
-                    normalizedPath.EndsWith("/" + normalizedFilter, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(Path.GetFileName(normalizedPath), Path.GetFileName(normalizedFilter), StringComparison.OrdinalIgnoreCase);
-                if (!matches) continue;
+                if (!QueryCommandDogfoodKernels.MatchesCompilationUnitFile(pair.Key, fileFilter)) continue;
             }
 
             units.Add((pair.Key, pair.Value));

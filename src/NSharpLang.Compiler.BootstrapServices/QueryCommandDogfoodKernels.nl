@@ -202,6 +202,14 @@ public class QueryCommandDogfoodKernels {
             || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase)
     }
 
+    public static func MatchesCompilationUnitFile(candidate: string, query: string): bool {
+        normalizedCandidate := NormalizePath(candidate)
+        normalizedQuery := NormalizePath(query)
+        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Path.GetFileName(normalizedCandidate), Path.GetFileName(normalizedQuery), StringComparison.OrdinalIgnoreCase)
+    }
+
     public static func GetRelativePath(basePath: string, filePath: string): string {
         return Path.GetRelativePath(basePath, filePath)
     }
