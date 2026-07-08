@@ -923,7 +923,7 @@ public static class QueryCommand
 
         try
         {
-            var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+            var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(QueryCommandDogfoodKernels.GetDefaultProjectName(projectDir));
             // `nlc query` is a read-only/LLM-first inspection path: it must never spawn `dotnet build`
             // for project references (multi-second stalls + the build-pipe deadlock) (H4). Resolve
             // package/already-resolved references only; cross-project resolution requires `nlc build`.
@@ -953,7 +953,7 @@ public static class QueryCommand
             throw new DirectoryNotFoundException(QueryCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir));
         }
 
-        var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+        var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(QueryCommandDogfoodKernels.GetDefaultProjectName(projectDir));
         // Read-only query path: never spawn `dotnet build` for project references (H4).
         CompilationReferenceResolver.AddResolvedDllReferences(
             projectDir,
@@ -1044,7 +1044,7 @@ public static class QueryCommand
     private static string FormatQueryDescription(CliCommandSpec command)
     {
         var aliases = CommandRegistry.QueryCommands
-            .Where(candidate => string.Equals(candidate.AliasOf, command.Name, StringComparison.Ordinal))
+            .Where(candidate => QueryCommandDogfoodKernels.IsAliasOf(candidate.AliasOf, command.Name))
             .Select(candidate => candidate.Name)
             .ToArray();
 

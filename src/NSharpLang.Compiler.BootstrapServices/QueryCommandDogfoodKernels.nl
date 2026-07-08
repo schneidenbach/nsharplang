@@ -218,12 +218,21 @@ public class QueryCommandDogfoodKernels {
         return Path.GetFullPath(projectDir ?? currentDirectory)
     }
 
+    public static func GetDefaultProjectName(projectDir: string): string {
+        projectName := Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectDir)))
+        return projectName ?? "Project"
+    }
+
     public static func ResolveProjectFilePath(projectRoot: string, filePath: string): string {
         if Path.IsPathRooted(filePath) {
             return filePath
         }
 
         return Path.Combine(projectRoot, filePath)
+    }
+
+    public static func IsAliasOf(candidateAliasOf: string?, commandName: string): bool {
+        return string.Equals(candidateAliasOf, commandName, StringComparison.Ordinal)
     }
 
     public static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
