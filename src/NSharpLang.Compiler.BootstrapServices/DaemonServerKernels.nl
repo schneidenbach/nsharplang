@@ -1,5 +1,8 @@
 namespace NSharpLang.Cli.Daemon
 
+import System
+import NSharpLang.Cli.Commands
+
 public class DaemonServerKernels {
     public static func ParsePosition(position: string, out line: int, out column: int): bool {
         line = 0
@@ -132,6 +135,14 @@ public class DaemonServerKernels {
         return DaemonServerMessageKernels.GetFileChangedMessage(fileName)
     }
 
+    public static func ShouldInvalidateForChangedPath(path: string): bool {
+        if ContainsPathSegmentIgnoreCase(path, ".nlc") {
+            return false
+        }
+
+        return WatchCommandKernels.ShouldTriggerForChangedPath(path)
+    }
+
     public static func GetShutdownCompleteMessage(): string {
         return DaemonServerMessageKernels.GetShutdownCompleteMessage()
     }
@@ -161,6 +172,36 @@ public class DaemonServerKernels {
         }
 
         return whole.ToString() + "." + fraction.ToString() + suffix
+    }
+
+    static func ContainsPathSegmentIgnoreCase(path: string, segment: string): bool {
+        start := 0
+        index := 0
+        while index <= path.Length {
+            if index == path.Length || path[index] == '/' || path[index] == '\\' {
+                if PathSegmentEqualsIgnoreCase(path, start, index, segment) {
+                    return true
+                }
+
+                start = index + 1
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func PathSegmentEqualsIgnoreCase(text: string, start: int, end: int, value: string): bool {
+        if start < 0 || end < start || end > text.Length {
+            return false
+        }
+
+        if end - start != value.Length {
+            return false
+        }
+
+        return String.Compare(text, start, value, 0, value.Length, StringComparison.OrdinalIgnoreCase) == 0
     }
 
     static func TryParseIntSegment(text: string, start: int, end: int, out result: int): bool {

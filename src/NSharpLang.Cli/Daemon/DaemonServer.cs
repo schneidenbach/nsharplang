@@ -553,18 +553,9 @@ public class DaemonServer
 
     private void OnFileChanged(object? sender, FileSystemEventArgs e)
     {
-        // Skip .nlc directory changes
-        if (e.FullPath.Contains($"{Path.DirectorySeparatorChar}.nlc{Path.DirectorySeparatorChar}")) return;
+        if (!DaemonServerKernels.ShouldInvalidateForChangedPath(e.FullPath)) return;
 
         var fileName = Path.GetFileName(e.FullPath);
-        var extension = Path.GetExtension(e.FullPath);
-
-        // Only invalidate on relevant files: .nl sources, project.yml, .editorconfig
-        if (!extension.Equals(".nl", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
-            return;
-
         Console.Error.WriteLine(DaemonServerKernels.GetFileChangedMessage(fileName));
         _cacheInvalid = true;
     }
