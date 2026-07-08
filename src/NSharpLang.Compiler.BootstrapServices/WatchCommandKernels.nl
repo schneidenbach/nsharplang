@@ -59,6 +59,18 @@ public class WatchCommandKernels {
         return new WatchTargetSummary(targetKind)
     }
 
+    public static func GetUnsupportedTargetName(args: string[]): string {
+        if args.Length == 0 {
+            return ""
+        }
+
+        return args[0].ToLowerInvariant()
+    }
+
+    public static func ShouldStopAfterRun(runCount: int, hasMaxRuns: bool, maxRuns: int): bool {
+        return hasMaxRuns && runCount >= maxRuns
+    }
+
     public static func GetOptionSummary(args: string[]): WatchOptionSummary {
         projectOption: string? = null
         debounceMsOption: string? = null

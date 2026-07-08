@@ -18,7 +18,7 @@ public static class WatchCommand
         }
 
         var targetSummary = WatchCommandKernels.GetTargetSummary(args);
-        var targetNameForError = args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
+        var targetNameForError = WatchCommandKernels.GetUnsupportedTargetName(args);
         if (targetSummary.TargetKind == 0)
             return Error(WatchCommandKernels.GetUnsupportedTargetMessage(targetNameForError));
 
@@ -47,7 +47,7 @@ public static class WatchCommand
         var lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
         var runCount = 1;
 
-        if (maxRuns.HasValue && runCount >= maxRuns.Value)
+        if (WatchCommandKernels.ShouldStopAfterRun(runCount, maxRuns.HasValue, maxRuns.GetValueOrDefault()))
             return lastExitCode;
 
         using var watcher = new FileSystemWatcher(projectRoot)
@@ -109,7 +109,7 @@ public static class WatchCommand
                 lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
                 runCount++;
 
-                if (maxRuns.HasValue && runCount >= maxRuns.Value)
+                if (WatchCommandKernels.ShouldStopAfterRun(runCount, maxRuns.HasValue, maxRuns.GetValueOrDefault()))
                     return lastExitCode;
             }
 
