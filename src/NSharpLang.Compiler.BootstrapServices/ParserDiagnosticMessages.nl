@@ -1,0 +1,88 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System.Collections.Generic
+import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
+
+public class ParserDiagnosticMessages {
+    public static func Materialize(table: ParserDiagnosticTable, sourceFiles: ColumnarSourceFile[]): List<CompilerError> {
+        diagnostics := new List<CompilerError>()
+        index := 0
+        while index < table.Count {
+            sourceFile := ResolveSourceFile(sourceFiles, table.SourceFileIds[index])
+            source := sourceFile.Source
+            line := table.Lines[index]
+            column := table.Columns[index]
+            length := table.Lengths[index]
+            snippet := CodeIntelligenceTextUtilities.GetSourceLine(source, line)
+
+            if table.MessageKinds[index] == ParserDiagnosticMessageKind.ReservedKeywordAsName() {
+                keyword := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Rename it to '" + keyword + "Value' or '_" + keyword + "'")
+                suggestions.Add("Pick any name that isn't a reserved N# keyword")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ReservedKeywordAsName,
+                    ReservedKeywordContextMessage(table.ContextKinds[index]) + ". Got the reserved keyword '" + keyword + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.",
+                    ReservedKeywordHint(keyword, table.ContextKinds[index]),
+                    suggestions))
+            }
+
+            index = index + 1
+        }
+
+        return diagnostics
+    }
+
+    static func ResolveSourceFile(sourceFiles: ColumnarSourceFile[], sourceFileId: int): ColumnarSourceFile {
+        if sourceFileId >= 0 && sourceFileId < sourceFiles.Length {
+            return sourceFiles[sourceFileId]
+        }
+
+        return sourceFiles[0]
+    }
+
+    static func ReservedKeywordContextMessage(contextKind: int): string {
+        if contextKind == ParserDiagnosticContextKind.DotMember() {
+            return "Expected member name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.Parameter() {
+            return "Expected parameter name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.Field() {
+            return "Expected field name"
+        }
+
+        return "Expected identifier"
+    }
+
+    static func ReservedKeywordHint(keyword: string, contextKind: int): string {
+        if contextKind == ParserDiagnosticContextKind.DotMember() {
+            return "After a member access, the name must not be a reserved keyword. To reach a  member literally named '" + keyword + "', access it through a differently-named alias."
+        }
+
+        return "Choose a name that isn't a reserved keyword (for example '" + keyword + "Value' or '_" + keyword + "')."
+    }
+
+    static func SliceSource(source: string, start: int, length: int): string {
+        if start < 0 || length <= 0 || start >= source.Length {
+            return ""
+        }
+
+        safeLength := length
+        if start + safeLength > source.Length {
+            safeLength = source.Length - start
+        }
+
+        return source.Substring(start, safeLength)
+    }
+}
