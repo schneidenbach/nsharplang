@@ -33,6 +33,18 @@ public class BatchQueryExecutionResult {
     }
 }
 
+public class BatchQueryExecutionSummary {
+    Ok: bool
+    SuccessCount: int
+    FailureCount: int
+
+    constructor(ok: bool, successCount: int, failureCount: int) {
+        Ok = ok
+        SuccessCount = successCount
+        FailureCount = failureCount
+    }
+}
+
 public class BatchQueryKernels {
     public static func NormalizeCommand(command: string?): string {
         if command == null {
@@ -161,6 +173,17 @@ public class BatchQueryKernels {
         }
 
         return successCount
+    }
+
+    public static func SummarizeExecutionResults(okWords: ulong[], itemCount: int): BatchQueryExecutionSummary {
+        successCount := CountResultSuccesses(okWords, itemCount)
+        failureCount := itemCount - successCount
+
+        if failureCount < 0 || failureCount > itemCount {
+            throw new InvalidOperationException("N# batch execution-summary kernel rejected the results.")
+        }
+
+        return new BatchQueryExecutionSummary(failureCount == 0, successCount, failureCount)
     }
 
     public static func GetRequestsFileNotFoundMessage(path: string): string {

@@ -128,15 +128,14 @@ internal static class BatchQueryRunner
             items.Add(new BatchQueryOutputItem(i, request.Id, NormalizeForOutput(request), ok, response));
         }
 
-        var successCount = BatchQueryKernels.CountResultSuccesses(okWords, items.Count);
-        var failureCount = items.Count - successCount;
+        var summary = BatchQueryKernels.SummarizeExecutionResults(okWords, items.Count);
 
         return new BatchQueryExecutionResult(
-            BatchQueryOutputKernels.BuildExecutionResultJson(projectRoot, items, successCount, failureCount),
-            failureCount == 0,
+            BatchQueryOutputKernels.BuildExecutionResultJson(projectRoot, items, summary.SuccessCount, summary.FailureCount),
+            summary.Ok,
             items.Count,
-            successCount,
-            failureCount);
+            summary.SuccessCount,
+            summary.FailureCount);
     }
 
     private static string ExecuteSingle(
