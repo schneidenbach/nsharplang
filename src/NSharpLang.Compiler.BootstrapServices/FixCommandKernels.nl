@@ -40,6 +40,28 @@ public class FixAppliedFileGrouping {
 }
 
 public class FixCommandKernels {
+    public static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
+        if !string.IsNullOrWhiteSpace(projectOption ?? "") {
+            return Path.GetFullPath(projectOption)
+        }
+
+        return Path.GetFullPath(positionalProject ?? currentDirectory)
+    }
+
+    public static func ResolveFilePath(projectDirectory: string, filePath: string): string {
+        if Path.IsPathRooted(filePath) {
+            return Path.GetFullPath(filePath)
+        }
+
+        return Path.GetFullPath(Path.Combine(projectDirectory, filePath))
+    }
+
+    public static func GetAtomicTempPath(path: string, currentDirectory: string, uniqueName: string): string {
+        directory := Path.GetDirectoryName(path) ?? currentDirectory
+        fileName := Path.GetFileName(path) ?? ""
+        return Path.Combine(directory, "." + fileName + "." + uniqueName + ".tmp")
+    }
+
     public static func ToFixEntry(relativeFile: string, fix: CodeAction): FixEntry {
         return new FixEntry(NormalizePath(relativeFile), fix.DiagnosticCode, fix.Title, fix.Edits, GetFixSafetyJsonName(fix.Safety))
     }

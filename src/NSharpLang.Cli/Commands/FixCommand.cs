@@ -33,9 +33,10 @@ public static class FixCommand
         var useText = FixCommandArgumentKernels.GetEffectiveOutputMode(arguments.UseText) == 2;
         var includeReviewNeeded = arguments.IncludeReviewNeeded;
         var fileArg = arguments.FileOption;
-        var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)
-            ? Path.GetFullPath(arguments.ProjectOption)
-            : Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
+        var projectDir = FixCommandKernels.GetProjectDirectory(
+            arguments.ProjectOption,
+            arguments.PositionalProject,
+            Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectDir))
         {
@@ -48,7 +49,7 @@ public static class FixCommand
             List<string> files;
             if (fileArg != null)
             {
-                var fullPath = Path.GetFullPath(Path.IsPathRooted(fileArg) ? fileArg : Path.Combine(projectDir, fileArg));
+                var fullPath = FixCommandKernels.ResolveFilePath(projectDir, fileArg);
                 if (!File.Exists(fullPath))
                 {
                     return EmitError(useText, FixCommandKernels.GetFileNotFoundMessage(fullPath), projectDir);
@@ -169,8 +170,7 @@ public static class FixCommand
 
     private static void WriteAllTextAtomic(string path, string contents)
     {
-        var directory = Path.GetDirectoryName(path) ?? Directory.GetCurrentDirectory();
-        var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        var tempPath = FixCommandKernels.GetAtomicTempPath(path, Directory.GetCurrentDirectory(), Guid.NewGuid().ToString("N"));
 
         try
         {
