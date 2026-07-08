@@ -24,6 +24,18 @@ public class WatchTargetSummary {
     }
 }
 
+public class WatchPositiveIntOption {
+    IsValid: bool
+    HasValue: bool
+    Value: int
+
+    constructor(isValid: bool, hasValue: bool, value: int) {
+        IsValid = isValid
+        HasValue = hasValue
+        Value = value
+    }
+}
+
 public class WatchCommandKernels {
     public static func GetTargetSummary(args: string[]): WatchTargetSummary {
         targetKind := 0
@@ -141,6 +153,23 @@ public class WatchCommandKernels {
         }
 
         return parsed
+    }
+
+    public static func ParsePositiveIntOption(value: string?, hasDefault: bool, defaultValue: int): WatchPositiveIntOption {
+        if value == null || (value ?? "").Trim().Length == 0 {
+            if hasDefault {
+                return new WatchPositiveIntOption(true, true, defaultValue)
+            }
+
+            return new WatchPositiveIntOption(true, false, 0)
+        }
+
+        parsed := ParsePositiveInt(value ?? "")
+        if parsed > 0 {
+            return new WatchPositiveIntOption(true, true, parsed)
+        }
+
+        return new WatchPositiveIntOption(false, false, 0)
     }
 
     public static func GetTargetCommandName(targetKind: int): string {

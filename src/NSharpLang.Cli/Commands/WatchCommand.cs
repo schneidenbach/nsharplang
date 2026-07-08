@@ -137,12 +137,12 @@ public static class WatchCommand
 
     private static int? ParsePositiveInt(string? value, int? defaultValue, string flag)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return defaultValue;
-
-        var parsedFromKernel = WatchCommandKernels.ParsePositiveInt(value);
-        if (parsedFromKernel > 0)
-            return parsedFromKernel;
+        var parsed = WatchCommandKernels.ParsePositiveIntOption(
+            value,
+            defaultValue.HasValue,
+            defaultValue.GetValueOrDefault());
+        if (parsed.IsValid)
+            return parsed.HasValue ? parsed.Value : null;
 
         Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
