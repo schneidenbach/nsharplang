@@ -353,6 +353,14 @@ public class ColumnarProgramInput {
         return CreateFromSourceFiles(sourceFiles, functions, enums, structs, unions, interfaces)
     }
 
+    public static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
+        AssignFunctionListSourceFileId(program.Functions, sourceFileId)
+        AssignEnumListSourceFileId(program.Enums, sourceFileId)
+        AssignStructListSourceFileId(program.Structs, sourceFileId)
+        AssignUnionListSourceFileId(program.Unions, sourceFileId)
+        AssignInterfaceListSourceFileId(program.Interfaces, sourceFileId)
+    }
+
     constructor(
         source: string,
         functions: IReadOnlyList<ColumnarFunctionInput>,
@@ -384,6 +392,107 @@ public class ColumnarProgramInput {
         sources[0] = source
         fileNames[0] = ""
         return ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames)
+    }
+
+    static func AssignFunctionSourceFileId(function: ColumnarFunctionInput, sourceFileId: int) {
+        function.SourceFileId = sourceFileId
+        localFunctions := function.LocalFunctions
+        if localFunctions != null {
+            index := 0
+            while index < localFunctions.Count {
+                AssignFunctionSourceFileId(localFunctions[index].Function, sourceFileId)
+                index = index + 1
+            }
+        }
+    }
+
+    static func AssignFunctionListSourceFileId(functions: IReadOnlyList<ColumnarFunctionInput>, sourceFileId: int) {
+        index := 0
+        while index < functions.Count {
+            AssignFunctionSourceFileId(functions[index], sourceFileId)
+            index = index + 1
+        }
+    }
+
+    static func AssignEnumListSourceFileId(enums: IReadOnlyList<ColumnarEnumInput>, sourceFileId: int) {
+        index := 0
+        while index < enums.Count {
+            enumInput := enums[index]
+            enumInput.SourceFileId = sourceFileId
+            index = index + 1
+        }
+    }
+
+    static func AssignStructListSourceFileId(structs: IReadOnlyList<ColumnarStructInput>, sourceFileId: int) {
+        index := 0
+        while index < structs.Count {
+            AssignStructSourceFileId(structs[index], sourceFileId)
+            index = index + 1
+        }
+    }
+
+    static func AssignUnionListSourceFileId(unions: IReadOnlyList<ColumnarUnionInput>, sourceFileId: int) {
+        index := 0
+        while index < unions.Count {
+            unionInput := unions[index]
+            unionInput.SourceFileId = sourceFileId
+            index = index + 1
+        }
+    }
+
+    static func AssignInterfaceListSourceFileId(interfaces: IReadOnlyList<ColumnarInterfaceInput>, sourceFileId: int) {
+        index := 0
+        while index < interfaces.Count {
+            AssignInterfaceSourceFileId(interfaces[index], sourceFileId)
+            index = index + 1
+        }
+    }
+
+    static func AssignStructSourceFileId(structInput: ColumnarStructInput, sourceFileId: int) {
+        structInput.SourceFileId = sourceFileId
+
+        methodIndex := 0
+        while methodIndex < structInput.Methods.Count {
+            AssignFunctionSourceFileId(structInput.Methods[methodIndex], sourceFileId)
+            methodIndex = methodIndex + 1
+        }
+
+        constructorIndex := 0
+        while constructorIndex < structInput.Constructors.Count {
+            constructorInput := structInput.Constructors[constructorIndex]
+            constructorInput.SourceFileId = sourceFileId
+            AssignFunctionSourceFileId(constructorInput.Body, sourceFileId)
+            constructorIndex = constructorIndex + 1
+        }
+
+        propertyIndex := 0
+        while propertyIndex < structInput.Properties.Count {
+            AssignPropertySourceFileId(structInput.Properties[propertyIndex], sourceFileId)
+            propertyIndex = propertyIndex + 1
+        }
+    }
+
+    static func AssignPropertySourceFileId(propertyInput: ColumnarPropertyInput, sourceFileId: int) {
+        propertyInput.SourceFileId = sourceFileId
+        AssignFunctionSourceFileId(propertyInput.Getter, sourceFileId)
+
+        setter := propertyInput.Setter
+        if setter != null {
+            AssignFunctionSourceFileId(setter, sourceFileId)
+        }
+    }
+
+    static func AssignInterfaceSourceFileId(interfaceInput: ColumnarInterfaceInput, sourceFileId: int) {
+        interfaceInput.SourceFileId = sourceFileId
+
+        methodIndex := 0
+        while methodIndex < interfaceInput.MethodBodies.Length {
+            methodBody := interfaceInput.MethodBodies[methodIndex]
+            if methodBody != null {
+                AssignFunctionSourceFileId(methodBody, sourceFileId)
+            }
+            methodIndex = methodIndex + 1
+        }
     }
 
     static func GetFirstSource(sourceFiles: ColumnarSourceFile[]): string {
