@@ -86,6 +86,31 @@ class NullabilityMetadataCore {
         return name
     }
 
+    static func ApplyReadState(
+        typeInfo: TypeInfo,
+        isNullableValueType: bool,
+        canCarryReferenceNullability: bool,
+        isNullableReadState: bool,
+        isUnknownReadState: bool): TypeInfo {
+        if isNullableValueType {
+            return typeInfo
+        }
+
+        if !canCarryReferenceNullability {
+            return typeInfo
+        }
+
+        if isNullableReadState {
+            return EnsureNullable(typeInfo)
+        }
+
+        if isUnknownReadState {
+            return EnsureOblivious(typeInfo)
+        }
+
+        return typeInfo
+    }
+
     static func FormatParameter(
         isOut: bool,
         isByRef: bool,

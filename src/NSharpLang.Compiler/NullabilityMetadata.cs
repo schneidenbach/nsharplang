@@ -77,19 +77,13 @@ public static class NullabilityMetadata
             return overriddenGenericType;
 
         var converted = ConvertTypeCore(effectiveType, nullabilityInfo, typeOverride);
-
-        if (IsNullableValueType(effectiveType))
-            return converted;
-
-        if (!CanCarryReferenceNullability(effectiveType, converted))
-            return converted;
-
-        return GetReadState(nullabilityInfo) switch
-        {
-            NullabilityState.Nullable => NullabilityMetadataCore.EnsureNullable(converted),
-            NullabilityState.Unknown => NullabilityMetadataCore.EnsureOblivious(converted),
-            _ => converted
-        };
+        var readState = GetReadState(nullabilityInfo);
+        return NullabilityMetadataCore.ApplyReadState(
+            converted,
+            IsNullableValueType(effectiveType),
+            CanCarryReferenceNullability(effectiveType, converted),
+            readState == NullabilityState.Nullable,
+            readState == NullabilityState.Unknown);
     }
 
     private static TypeInfo ConvertTypeCore(
