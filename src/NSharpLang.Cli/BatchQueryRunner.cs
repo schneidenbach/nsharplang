@@ -27,21 +27,8 @@ internal sealed record BatchQueryRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     bool Clusters = false);
 
-internal sealed record BatchQueryItemResult(
-    int Index,
-    BatchQueryRequest Request,
-    bool Ok,
-    JsonElement Response);
-
 internal static class BatchQueryRunner
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
     private static readonly JsonSerializerOptions RequestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -124,7 +111,7 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
-        var items = new List<BatchQueryItemResult>(requests.Count);
+        var items = new List<BatchQueryOutputItem>(requests.Count);
         var okWords = new ulong[(requests.Count + 63) >> 6];
 
         for (int i = 0; i < requests.Count; i++)
@@ -138,32 +125,14 @@ internal static class BatchQueryRunner
             if (ok)
                 okWords[i >> 6] |= 1UL << (i & 63);
 
-            items.Add(new BatchQueryItemResult(i, request, ok, response));
+            items.Add(new BatchQueryOutputItem(i, request.Id, NormalizeForOutput(request), ok, response));
         }
 
         var successCount = BatchQueryKernels.CountResultSuccesses(okWords, items.Count);
         var failureCount = items.Count - successCount;
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "batch",
-            ok = failureCount == 0,
-            projectRoot = NormalizePath(projectRoot),
-            requestCount = items.Count,
-            successCount,
-            failureCount,
-            results = items.Select(item => new
-            {
-                index = item.Index,
-                id = item.Request.Id,
-                request = NormalizeForOutput(item.Request),
-                ok = item.Ok,
-                response = item.Response
-            }).ToArray()
-        };
 
         return new BatchQueryExecutionResult(
-            JsonSerializer.Serialize(envelope, JsonOptions),
+            BatchQueryOutputKernels.BuildExecutionResultJson(projectRoot, items, successCount, failureCount),
             failureCount == 0,
             items.Count,
             successCount,
@@ -521,7 +490,7 @@ internal static class BatchQueryRunner
             request.Compact,
             request.Clusters);
 
-    private static object NormalizeForOutput(BatchQueryRequest request)
+    private static BatchQueryOutputRequest NormalizeForOutput(BatchQueryRequest request)
         => BatchQueryOutputKernels.NormalizeForOutput(
             request.Command,
             request.File,
@@ -534,7 +503,4 @@ internal static class BatchQueryRunner
             request.Summary,
             request.Compact,
             request.Clusters);
-
-    private static string? NormalizePath(string? path)
-        => OutputFormatterNormalizationKernels.NormalizePath(path);
 }
