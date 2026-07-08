@@ -44,7 +44,7 @@ partial class Program
         bool coverageReport,
         Stopwatch stopwatch)
     {
-        var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+        var projectYmlPath = TestCommandKernels.GetProjectYmlPath(projectRoot);
         if (!File.Exists(projectYmlPath))
         {
             var message = TestCommandKernels.GetMissingProjectFileMessage();
@@ -70,7 +70,7 @@ partial class Program
         }
 
         projectConfig ??= ProjectFileParser.Parse(projectYmlPath);
-        var testOutputDir = Path.Combine(projectRoot, "bin", "Debug", projectConfig.TargetFramework, "tests");
+        var testOutputDir = TestCommandKernels.GetTestOutputDirectory(projectRoot, projectConfig.TargetFramework);
         if (noCache && Directory.Exists(testOutputDir))
         {
             Directory.Delete(testOutputDir, recursive: true);
@@ -98,11 +98,11 @@ partial class Program
                 return Error(message);
             }
 
-            var testRun = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
+            var testRun = TestCommandKernels.ShouldRunNUnit(projectConfig.TestFramework)
                 ? RunReflectionTests(outputPath, filter, verbose, timeoutMs)
                 : RunXunitTests(outputPath, filter, verbose, timeoutMs);
             var testResults = testRun.Results;
-            var summary = SummarizeNativeTestRun(testRun);
+            var summary = TestCommandKernels.SummarizeNativeTestRun(testRun);
 
             if (outputMode == 1)
             {
@@ -118,7 +118,7 @@ partial class Program
                 Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
-            return summary.Ok ? 0 : 1;
+            return TestCommandKernels.GetExitCode(summary.Ok);
         }
         catch (Exception ex)
         {
@@ -643,20 +643,6 @@ partial class Program
         }
 
         return ex;
-    }
-
-    private static NativeTestSummary SummarizeNativeTestRun(NativeTestRun testRun)
-    {
-        var dogfoodSummary = TestCommandKernels.SummarizeOutcomeRanks(
-            testRun.OutcomeRanks,
-            testRun.OutcomeCount);
-
-        return new NativeTestSummary(
-            dogfoodSummary.Ok,
-            testRun.OutcomeCount,
-            dogfoodSummary.Passed,
-            dogfoodSummary.Failed,
-            dogfoodSummary.Skipped);
     }
 
     private static void OutputNativeTestJson(

@@ -2,6 +2,7 @@ namespace NSharpLang.Cli
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import System.Text
 import System.Text.Json
@@ -155,6 +156,26 @@ public class TestOptionSummary {
 }
 
 public class TestCommandKernels {
+    public static func GetProjectYmlPath(projectRoot: string): string {
+        return Path.Combine(projectRoot, "project.yml")
+    }
+
+    public static func GetTestOutputDirectory(projectRoot: string, targetFramework: string): string {
+        return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), "Debug"), targetFramework), "tests")
+    }
+
+    public static func ShouldRunNUnit(testFramework: string?): bool {
+        return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
+    }
+
+    public static func GetExitCode(ok: bool): int {
+        if ok {
+            return 0
+        }
+
+        return 1
+    }
+
     public static func GetNativeTestOutcomeRank(outcome: string): int {
         if outcome == "passed" {
             return 1
@@ -198,6 +219,16 @@ public class TestCommandKernels {
         }
 
         return new TestOutcomeSummary(nonOk == 0, passed, failed, skipped)
+    }
+
+    public static func SummarizeNativeTestRun(testRun: NativeTestRun): NativeTestSummary {
+        outcomeSummary := SummarizeOutcomeRanks(testRun.OutcomeRanks, testRun.OutcomeCount)
+        return new NativeTestSummary(
+            outcomeSummary.Ok,
+            testRun.OutcomeCount,
+            outcomeSummary.Passed,
+            outcomeSummary.Failed,
+            outcomeSummary.Skipped)
     }
 
     public static func NativeTestJson(
