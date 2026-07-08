@@ -77,7 +77,7 @@ public static class PackCommand
                 return 1;
             }
 
-            var buildOutputDir = Path.Combine(projectRoot, "bin", configuration, config.TargetFramework);
+            var buildOutputDir = PackCommandKernels.GetBuildOutputDirectory(projectRoot, configuration, config.TargetFramework);
             var assemblyPath = Program.BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 config,
@@ -93,17 +93,15 @@ public static class PackCommand
                 return 1;
             }
 
-            var packageOutputDir = string.IsNullOrEmpty(outputDir)
-                ? Path.Combine(projectRoot, "bin", configuration)
-                : Path.GetFullPath(outputDir);
+            var packageOutputDir = PackCommandKernels.GetPackageOutputDirectory(projectRoot, configuration, outputDir);
             Directory.CreateDirectory(packageOutputDir);
 
-            var packagePath = Path.Combine(packageOutputDir, $"{projectName}.{effectiveVersion}.nupkg");
+            var packagePath = PackCommandKernels.GetPackagePath(packageOutputDir, projectName, effectiveVersion);
             CreateNuGetPackage(projectRoot, config, projectName, effectiveVersion, assemblyPath, packagePath);
 
             if (includeSymbols)
             {
-                var symbolsPath = Path.Combine(packageOutputDir, $"{projectName}.{effectiveVersion}.snupkg");
+                var symbolsPath = PackCommandKernels.GetSymbolsPackagePath(packageOutputDir, projectName, effectiveVersion);
                 CreateSymbolsPackage(projectName, effectiveVersion, assemblyPath, symbolsPath);
             }
 
@@ -149,32 +147,32 @@ public static class PackCommand
 
         using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
         var pkg = config.Package;
-        var packageTags = pkg?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
+        var packageTags = PackCommandKernels.GetPackageTags(pkg?.Tags);
         var nuspecText = PackCommandKernels.GetNuspecText(
             projectName,
             version,
             pkg?.Author ?? string.Empty,
             pkg?.Description ?? string.Empty,
-            packageTags,
-            pkg?.Tags?.Count ?? 0,
+            packageTags.Text,
+            packageTags.Count,
             pkg?.License ?? string.Empty,
             pkg?.Repository ?? string.Empty,
             pkg?.Icon ?? string.Empty);
-        AddTextEntry(archive, $"{projectName}.nuspec", nuspecText);
-        archive.CreateEntryFromFile(assemblyPath, $"lib/{config.TargetFramework}/{Path.GetFileName(assemblyPath)}");
+        AddTextEntry(archive, PackCommandKernels.GetNuspecEntryName(projectName), nuspecText);
+        archive.CreateEntryFromFile(assemblyPath, PackCommandKernels.GetPackageAssemblyEntryPath(config.TargetFramework, assemblyPath));
 
-        var runtimeConfigPath = Path.ChangeExtension(assemblyPath, ".runtimeconfig.json");
+        var runtimeConfigPath = PackCommandKernels.GetRuntimeConfigPath(assemblyPath);
         if (File.Exists(runtimeConfigPath))
         {
-            archive.CreateEntryFromFile(runtimeConfigPath, $"lib/{config.TargetFramework}/{Path.GetFileName(runtimeConfigPath)}");
+            archive.CreateEntryFromFile(runtimeConfigPath!, PackCommandKernels.GetRuntimeConfigEntryPath(config.TargetFramework, runtimeConfigPath!));
         }
 
         if (!string.IsNullOrWhiteSpace(config.Package?.Icon))
         {
-            var iconPath = Path.GetFullPath(Path.Combine(projectRoot, config.Package.Icon));
+            var iconPath = PackCommandKernels.GetIconSourcePath(projectRoot, config.Package.Icon);
             if (File.Exists(iconPath))
             {
-                archive.CreateEntryFromFile(iconPath, config.Package.Icon.Replace('\\', '/'));
+                archive.CreateEntryFromFile(iconPath, PackCommandKernels.GetIconPackageEntryName(config.Package.Icon));
             }
         }
     }
@@ -187,12 +185,12 @@ public static class PackCommand
         }
 
         using var archive = ZipFile.Open(symbolsPath, ZipArchiveMode.Create);
-        AddTextEntry(archive, $"{projectName}.nuspec", PackCommandKernels.GetSymbolsNuspecText(projectName, version));
+        AddTextEntry(archive, PackCommandKernels.GetNuspecEntryName(projectName), PackCommandKernels.GetSymbolsNuspecText(projectName, version));
 
-        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        var pdbPath = PackCommandKernels.GetSymbolsPdbPath(assemblyPath);
         if (File.Exists(pdbPath))
         {
-            archive.CreateEntryFromFile(pdbPath, $"lib/{Path.GetFileName(pdbPath)}");
+            archive.CreateEntryFromFile(pdbPath!, PackCommandKernels.GetSymbolsPdbEntryPath(pdbPath!));
         }
     }
 

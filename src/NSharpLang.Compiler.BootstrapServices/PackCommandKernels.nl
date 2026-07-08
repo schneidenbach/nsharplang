@@ -2,6 +2,7 @@ namespace NSharpLang.Cli.Commands
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Text
 import System.Text.Json
 
@@ -37,6 +38,16 @@ public class PackOptionSummary {
         includeSymbolsValue = includeSymbols
         jsonOutputValue = jsonOutput
         showHelpValue = showHelp
+    }
+}
+
+public class PackTagsSummary {
+    Text: string
+    Count: int
+
+    constructor(text: string, count: int) {
+        Text = text
+        Count = count
     }
 }
 
@@ -154,6 +165,77 @@ public class PackCommandKernels {
         }
 
         return null
+    }
+
+    public static func GetBuildOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
+        return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
+    }
+
+    public static func GetPackageOutputDirectory(projectRoot: string, configuration: string, outputDir: string?): string {
+        if string.IsNullOrEmpty(outputDir ?? "") {
+            return Path.Combine(Path.Combine(projectRoot, "bin"), configuration)
+        }
+
+        return Path.GetFullPath(outputDir)
+    }
+
+    public static func GetPackagePath(packageOutputDir: string, projectName: string, version: string): string {
+        return Path.Combine(packageOutputDir, projectName + "." + version + ".nupkg")
+    }
+
+    public static func GetSymbolsPackagePath(packageOutputDir: string, projectName: string, version: string): string {
+        return Path.Combine(packageOutputDir, projectName + "." + version + ".snupkg")
+    }
+
+    public static func GetNuspecEntryName(projectName: string): string {
+        return projectName + ".nuspec"
+    }
+
+    public static func GetPackageAssemblyEntryPath(targetFramework: string, assemblyPath: string): string {
+        return "lib/" + targetFramework + "/" + (Path.GetFileName(assemblyPath) ?? "")
+    }
+
+    public static func GetRuntimeConfigPath(assemblyPath: string): string? {
+        return Path.ChangeExtension(assemblyPath, ".runtimeconfig.json")
+    }
+
+    public static func GetRuntimeConfigEntryPath(targetFramework: string, runtimeConfigPath: string): string {
+        return "lib/" + targetFramework + "/" + (Path.GetFileName(runtimeConfigPath) ?? "")
+    }
+
+    public static func GetIconSourcePath(projectRoot: string, iconPath: string): string {
+        return Path.GetFullPath(Path.Combine(projectRoot, iconPath))
+    }
+
+    public static func GetIconPackageEntryName(iconPath: string): string {
+        return iconPath.Replace('\\', '/')
+    }
+
+    public static func GetSymbolsPdbPath(assemblyPath: string): string? {
+        return Path.ChangeExtension(assemblyPath, ".pdb")
+    }
+
+    public static func GetSymbolsPdbEntryPath(pdbPath: string): string {
+        return "lib/" + (Path.GetFileName(pdbPath) ?? "")
+    }
+
+    public static func GetPackageTags(tags: IReadOnlyList<string>?): PackTagsSummary {
+        if tags == null || tags.Count == 0 {
+            return new PackTagsSummary("", 0)
+        }
+
+        builder := new StringBuilder()
+        index := 0
+        while index < tags.Count {
+            if index > 0 {
+                builder.Append(" ")
+            }
+
+            builder.Append(tags[index])
+            index = index + 1
+        }
+
+        return new PackTagsSummary(builder.ToString(), tags.Count)
     }
 
     public static func GetHelpText(): string {
