@@ -599,7 +599,7 @@ partial class Program
             else
             {
                 files = positionalFiles
-                    .Select(file => Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(projectRoot, file)))
+                    .Select(file => FormatCommandKernels.ResolveFilePath(projectRoot, file))
                     .ToArray();
             }
 
@@ -628,7 +628,7 @@ partial class Program
                     var formatted = FormatSource(source, file, projectRoot);
                     var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
 
-                    if (!string.Equals(source, formatted, StringComparison.Ordinal))
+                    if (FormatCommandKernels.ShouldEmitFormattedFile(source, formatted))
                     {
                         filesNeedingFormatting.Add(relativePath);
 

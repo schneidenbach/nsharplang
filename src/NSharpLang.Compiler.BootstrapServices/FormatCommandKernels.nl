@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System
+import System.IO
 import System.Text
 
 public class FormatOptionSummary {
@@ -190,6 +191,18 @@ public class FormatCommandKernels {
         }
 
         return 6
+    }
+
+    public static func ResolveFilePath(projectRoot: string, filePath: string): string {
+        if Path.IsPathRooted(filePath) {
+            return Path.GetFullPath(filePath)
+        }
+
+        return Path.GetFullPath(Path.Combine(projectRoot, filePath))
+    }
+
+    public static func ShouldEmitFormattedFile(source: string, formatted: string): bool {
+        return !string.Equals(source, formatted, StringComparison.Ordinal)
     }
 
     public static func ShouldFormatDiscoveredPath(relativePath: string): bool {
