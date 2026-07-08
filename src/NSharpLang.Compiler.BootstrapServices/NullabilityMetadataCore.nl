@@ -86,6 +86,14 @@ class NullabilityMetadataCore {
         return name
     }
 
+    static func FormatArrayClrTypeName(elementTypeName: string): string {
+        return elementTypeName + "[]"
+    }
+
+    static func FormatGenericClrTypeName(name: string, formattedArguments: string[]): string {
+        return name + "<" + string.Join(", ", formattedArguments) + ">"
+    }
+
     static func ApplyReadState(
         typeInfo: TypeInfo,
         isNullableValueType: bool,

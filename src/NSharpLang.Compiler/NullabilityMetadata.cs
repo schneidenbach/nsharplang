@@ -234,13 +234,14 @@ public static class NullabilityMetadata
             return FormatClrTypeName(type.GetElementType()!);
 
         if (type.IsArray)
-            return $"{FormatClrTypeName(type.GetElementType()!)}[]";
+            return NullabilityMetadataCore.FormatArrayClrTypeName(FormatClrTypeName(type.GetElementType()!));
 
         if (type.IsGenericType)
         {
             var name = NullabilityMetadataCore.StripClrGenericArity(type.Name);
-
-            return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatClrTypeName))}>";
+            return NullabilityMetadataCore.FormatGenericClrTypeName(
+                name,
+                type.GetGenericArguments().Select(FormatClrTypeName).ToArray());
         }
 
         return NullabilityMetadataCore.FormatSimpleClrTypeName(type.Name);
