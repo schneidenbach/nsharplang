@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli
 
+import System.IO
 import System.Text
 
 public class PublishArgumentSummary {
@@ -289,6 +290,49 @@ public class PublishCommandKernels {
 
     public static func GetSuccessMessage(): string {
         return "Publish successful!"
+    }
+
+    public static func RuntimeMatchesRequestedRuntime(requestedRuntime: string?, currentRuntime: string): bool {
+        if string.IsNullOrWhiteSpace(requestedRuntime ?? "") {
+            return true
+        }
+
+        return string.Equals(requestedRuntime ?? "", currentRuntime, StringComparison.OrdinalIgnoreCase)
+    }
+
+    public static func ShouldWriteRuntimeLauncher(requestedRuntime: string?): bool {
+        return !string.IsNullOrWhiteSpace(requestedRuntime ?? "")
+    }
+
+    public static func GetPublishDirectory(
+        projectRoot: string,
+        configuration: string,
+        targetFramework: string,
+        output: string?): string {
+        if output != null {
+            return Path.GetFullPath(output)
+        }
+
+        return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework), "publish")
+    }
+
+    public static func GetWindowsLauncherPath(outputDirectory: string, assemblyName: string): string {
+        return Path.Combine(outputDirectory, assemblyName + ".cmd")
+    }
+
+    public static func GetUnixLauncherPath(outputDirectory: string, assemblyName: string): string {
+        return Path.Combine(outputDirectory, assemblyName)
+    }
+
+    public static func GetWindowsLauncherText(assemblyName: string): string {
+        return "@echo off\r\ndotnet \"%~dp0" + assemblyName + ".dll\" %*\r\n"
+    }
+
+    public static func GetUnixLauncherText(assemblyName: string): string {
+        return "#!/usr/bin/env sh\n"
+            + "set -eu\n"
+            + "DIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
+            + "exec dotnet \"$DIR/" + assemblyName + ".dll\" \"$@\"\n"
     }
 
     static func HasHelp(args: string[]): bool {

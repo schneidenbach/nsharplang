@@ -271,7 +271,7 @@ partial class Program
         {
             Console.WriteLine(PublishCommandKernels.GetStartMessage(projectRoot));
 
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
                 return Error(PublishCommandKernels.GetMissingProjectFileMessage());
@@ -293,18 +293,16 @@ partial class Program
                 Console.WriteLine(PublishCommandKernels.GetAotAnalysisOnlyNotice());
             }
 
-            if (!string.IsNullOrWhiteSpace(runtime))
+            if (PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime))
             {
                 var currentRuntime = RuntimeInformation.RuntimeIdentifier;
-                if (!string.Equals(runtime, currentRuntime, StringComparison.OrdinalIgnoreCase))
+                if (!PublishCommandKernels.RuntimeMatchesRequestedRuntime(runtime, currentRuntime))
                 {
                     return Error(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime));
                 }
             }
 
-            var publishDir = output != null
-                ? Path.GetFullPath(output)
-                : Path.Combine(projectRoot, "bin", configuration, config.TargetFramework, "publish");
+            var publishDir = PublishCommandKernels.GetPublishDirectory(projectRoot, configuration, config.TargetFramework, output);
 
             var outputPath = BuildProjectWithIlBackendForCommand(
                 projectRoot,
@@ -318,7 +316,7 @@ partial class Program
                 return Error(PublishCommandKernels.GetBuildFailureMessage(publishArguments.Aot));
             }
 
-            if (!string.IsNullOrWhiteSpace(runtime))
+            if (PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime))
             {
                 WriteDotnetLauncher(publishDir, CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config));
             }
@@ -338,18 +336,13 @@ partial class Program
         if (OperatingSystem.IsWindows())
         {
             File.WriteAllText(
-                Path.Combine(outputDirectory, $"{assemblyName}.cmd"),
-                $"@echo off\r\ndotnet \"%~dp0{assemblyName}.dll\" %*\r\n");
+                PublishCommandKernels.GetWindowsLauncherPath(outputDirectory, assemblyName),
+                PublishCommandKernels.GetWindowsLauncherText(assemblyName));
             return;
         }
 
-        var launcherPath = Path.Combine(outputDirectory, assemblyName);
-        File.WriteAllText(launcherPath, $"""
-#!/usr/bin/env sh
-set -eu
-DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec dotnet "$DIR/{assemblyName}.dll" "$@"
-""");
+        var launcherPath = PublishCommandKernels.GetUnixLauncherPath(outputDirectory, assemblyName);
+        File.WriteAllText(launcherPath, PublishCommandKernels.GetUnixLauncherText(assemblyName));
         try
         {
             File.SetUnixFileMode(
