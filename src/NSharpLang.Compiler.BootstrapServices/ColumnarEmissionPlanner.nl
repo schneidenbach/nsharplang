@@ -41,6 +41,11 @@ public class ColumnarEmissionPlanner {
         return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
     }
 
+    public static func IsEnabledEnvironmentFlag(value: string?): bool {
+        return string.Equals(value ?? "", "1", StringComparison.Ordinal)
+            || string.Equals(value ?? "", "true", StringComparison.OrdinalIgnoreCase)
+    }
+
     static func BuildLineStarts(source: string): int[] {
         starts := new List<int>()
         starts.Add(0)

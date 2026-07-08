@@ -2,11 +2,28 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections
+import System.Collections.Generic
 
 public class CompilationUnitFacts {
     public static func ContainsSoaRecordDeclaration(compilationUnit: object): bool {
         declarations := GetRequiredListProperty(compilationUnit, "Declarations")
         return ContainsSoaRecordDeclarationInList(declarations)
+    }
+
+    public static func RequiresColumnarSoaEmission(
+        soaFeatureEnabled: bool,
+        compilationUnits: IEnumerable<object>): bool {
+        if !soaFeatureEnabled {
+            return false
+        }
+
+        foreach compilationUnit in compilationUnits {
+            if compilationUnit != null && ContainsSoaRecordDeclaration(compilationUnit) {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func ContainsSoaRecordDeclarationInList(declarations: IList): bool {

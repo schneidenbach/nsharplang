@@ -515,7 +515,7 @@ public class MultiFileCompiler
     }
 
     private bool RequiresColumnarSoaEmission()
-        => SoaFeature.IsEnabled && _compilationUnits.Values.Any(CompilationUnitFacts.ContainsSoaRecordDeclaration);
+        => CompilationUnitFacts.RequiresColumnarSoaEmission(SoaFeature.IsEnabled, _compilationUnits.Values);
 
     private ColumnarDeclineDiagnostic BuildColumnarDeclineDiagnostic()
     {
@@ -630,23 +630,10 @@ public class MultiFileCompiler
     }
 
     private static bool IsDebugLoggingEnabled()
-    {
-        var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
-        return string.Equals(value, "1", StringComparison.Ordinal) ||
-            string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-    }
+        => ColumnarEmissionPlanner.IsEnabledEnvironmentFlag(Environment.GetEnvironmentVariable(DebugLogEnvVar));
 
     private static bool IsColumnarDeclineLoggingEnabled()
-    {
-        var value = Environment.GetEnvironmentVariable(ColumnarDeclineLogEnvVar);
-        return string.Equals(value, "1", StringComparison.Ordinal) ||
-            string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string GetProjectAssemblyName()
-        => !string.IsNullOrWhiteSpace(_config?.Name)
-            ? _config!.Name!
-            : Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_projectRoot))) ?? "Project";
+        => ColumnarEmissionPlanner.IsEnabledEnvironmentFlag(Environment.GetEnvironmentVariable(ColumnarDeclineLogEnvVar));
 
     private void AppendDebugLog(string message)
     {
