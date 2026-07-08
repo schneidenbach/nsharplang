@@ -596,7 +596,7 @@ partial class Program
                 else
                     Console.Write(formatted);
 
-                return verifyOnly && source != formatted ? 1 : 0;
+                return FormatCommandKernels.GetStdinExitCode(verifyOnly, source, formatted);
             }
 
             string[] files;
@@ -657,10 +657,12 @@ partial class Program
                 }
             }
 
-            if (failed)
+            var completionKind = FormatCommandKernels.GetCompletionKind(failed, verifyOnly, diffOnly, filesNeedingFormatting.Count);
+
+            if (completionKind == 1)
                 return 1;
 
-            if (verifyOnly && filesNeedingFormatting.Count > 0)
+            if (completionKind == 2)
             {
                 Console.Error.WriteLine(FormatCommandKernels.GetCheckFailedHeader(filesNeedingFormatting.Count));
                 foreach (var file in filesNeedingFormatting)
@@ -668,14 +670,14 @@ partial class Program
                 return 1;
             }
 
-            if (diffOnly)
+            if (completionKind == 3 || completionKind == 4)
             {
-                if (filesNeedingFormatting.Count == 0)
+                if (completionKind == 3)
                     Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;
             }
 
-            if (verifyOnly)
+            if (completionKind == 5)
             {
                 Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;

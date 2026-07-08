@@ -156,6 +156,42 @@ public class FormatCommandKernels {
         return "Parse errors in " + relativePath + ": " + messages
     }
 
+    public static func GetStdinExitCode(verifyOnly: bool, source: string, formatted: string): int {
+        if verifyOnly && !string.Equals(source, formatted, StringComparison.Ordinal) {
+            return 1
+        }
+
+        return 0
+    }
+
+    public static func GetCompletionKind(
+        failed: bool,
+        verifyOnly: bool,
+        diffOnly: bool,
+        filesNeedingFormatting: int): int {
+        if failed {
+            return 1
+        }
+
+        if verifyOnly && filesNeedingFormatting > 0 {
+            return 2
+        }
+
+        if diffOnly {
+            if filesNeedingFormatting == 0 {
+                return 3
+            }
+
+            return 4
+        }
+
+        if verifyOnly {
+            return 5
+        }
+
+        return 6
+    }
+
     public static func ShouldFormatDiscoveredPath(relativePath: string): bool {
         if PathEndsWithTestsNl(relativePath) {
             return false
