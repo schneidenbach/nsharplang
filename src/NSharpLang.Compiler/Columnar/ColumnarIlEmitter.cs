@@ -7977,7 +7977,7 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (TryEmitMixedFloatingBinary(idx, op, out type))
+                if (TryEmitMixedNumericBinary(idx, op, out type))
                     return true;
 
                 if (!EmitExpression(Child(idx, 0), out var leftType))
@@ -11632,7 +11632,7 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private bool TryEmitMixedFloatingBinary(int idx, string op, out Type type)
+    private bool TryEmitMixedNumericBinary(int idx, string op, out Type type)
     {
         type = null!;
         if (op is not ("+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">=" or "==" or "!="))
@@ -11643,7 +11643,7 @@ internal sealed class ColumnarIlEmitter
         if (!TryGetPreflightExpressionType(leftNode, out var leftType)
             || !TryGetPreflightExpressionType(rightNode, out var rightType)
             || TypesEquivalent(leftType, rightType)
-            || !TrySelectFloatingCommonType(leftType, rightType, out var opType))
+            || !TrySelectMixedNumericCommonType(leftType, rightType, out var opType))
             return false;
 
         if (!EmitExpression(leftNode, out var emittedLeft)
@@ -11679,7 +11679,7 @@ internal sealed class ColumnarIlEmitter
             case ">":
             case "<=":
             case ">=":
-                EmitComparison(op, isFloat: true);
+                EmitComparison(op, isFloat: opType == typeof(double) || opType == typeof(float));
                 type = typeof(bool);
                 return true;
             case "==":
@@ -11692,13 +11692,15 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    private static bool TrySelectFloatingCommonType(Type left, Type right, out Type common)
+    private static bool TrySelectMixedNumericCommonType(Type left, Type right, out Type common)
     {
         common = null!;
         if (left == typeof(double) || right == typeof(double))
             common = typeof(double);
         else if (left == typeof(float) || right == typeof(float))
             common = typeof(float);
+        else if (left == typeof(long) || right == typeof(long))
+            common = typeof(long);
         else
             return false;
 
@@ -12550,6 +12552,40 @@ internal sealed class ColumnarIlEmitter
                 return (TryResolveBuiltin(castTargetName, out type)
                         || TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out type))
                        && IsSupportedType(type);
+            }
+            case 9:
+            {
+                // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
+                // local function -> sibling top-level -> instance chain -> static chain. Shadowed
+                // names and member-access callees stay un-preflighted.
+                var callee = Child(node, 0);
+                if (_nodes.Kind(callee) != 6)
+                    return false;
+                var calleeName = Text(callee);
+                if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName)
+                    || _liftedLocals.ContainsKey(calleeName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(calleeName)))
+                    return false;
+                if (_localFuncs != null && _visibleLocalFuncs.Contains(calleeName) && _localFuncs.TryGetValue(calleeName, out var localFn))
+                {
+                    type = localFn.ReturnType;
+                    return true;
+                }
+                if (_siblings.TryGetValue(calleeName, out var sibling) && sibling.TypeParams.Length == 0)
+                {
+                    type = sibling.ReturnType;
+                    return true;
+                }
+                if (_currentStruct != null && TryFindMethodOnChain(_currentStruct, calleeName, out var ownMethod))
+                {
+                    type = ownMethod.ReturnType;
+                    return true;
+                }
+                if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out var ownStatic))
+                {
+                    type = ownStatic.ReturnType;
+                    return true;
+                }
+                return false;
             }
             case 57:
                 return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
