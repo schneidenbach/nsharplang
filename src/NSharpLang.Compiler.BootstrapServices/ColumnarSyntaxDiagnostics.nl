@@ -17,8 +17,10 @@ public class ColumnarSyntaxDiagnostics {
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
         CollectGenericListDiagnostics(sourceFiles[0], tokens, table)
         CollectFunctionReturnTypeDiagnostics(sourceFiles[0], tokens, table)
+        CollectObjectConstructionDiagnostics(sourceFiles[0], tokens, table)
         CollectParameterListDiagnostics(sourceFiles[0], tokens, table)
         CollectFieldDeclarationDiagnostics(sourceFiles[0], tokens, table)
+        CollectLeadingMemberAccessDiagnostics(sourceFiles[0], tokens, table)
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
@@ -104,6 +106,251 @@ public class ColumnarSyntaxDiagnostics {
             nameToken.Value.Length,
             returnTypeStart,
             returnType.Value.Length)
+    }
+
+    static func CollectObjectConstructionDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.New {
+                AnalyzeNewExpressionDiagnostics(sourceFile, tokens, table, index)
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func AnalyzeNewExpressionDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        newIndex: int) {
+        nextIndex := NextSignificantTokenIndex(tokens, newIndex)
+        if nextIndex < 0 {
+            return
+        }
+
+        next := tokens[nextIndex]
+        if next.Type == TokenType.LeftBrace {
+            CollectObjectInitializerMemberDiagnostics(sourceFile, tokens, table, nextIndex)
+            return
+        }
+
+        if next.Type == TokenType.LeftParen {
+            closeParenIndex := FindMatchingRightParen(tokens, nextIndex)
+            if closeParenIndex >= 0 {
+                afterArgsIndex := NextSignificantTokenIndex(tokens, closeParenIndex)
+                if afterArgsIndex >= 0 && tokens[afterArgsIndex].Type == TokenType.LeftBrace {
+                    CollectObjectInitializerMemberDiagnostics(sourceFile, tokens, table, afterArgsIndex)
+                }
+            }
+
+            return
+        }
+
+        if IsTypeTerminatorForDiagnostics(next.Type) {
+            ReportExpectedNewTypeName(sourceFile, tokens, table, newIndex, nextIndex)
+            return
+        }
+
+        initializerOpenIndex := FindNewInitializerOpen(tokens, nextIndex)
+        if initializerOpenIndex >= 0 && !IsArrayConstructionBeforeInitializer(tokens, nextIndex, initializerOpenIndex) {
+            CollectObjectInitializerMemberDiagnostics(sourceFile, tokens, table, initializerOpenIndex)
+        }
+    }
+
+    static func ReportExpectedNewTypeName(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        newIndex: int,
+        currentIndex: int) {
+        newToken := tokens[newIndex]
+        current := tokens[currentIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, newToken.Line, newToken.Column)
+        currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, current.Line, current.Column)
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            newToken.Value.Length,
+            newToken.Line,
+            newToken.Column,
+            ParserDiagnosticMessageKind.ExpectedNewTypeName(),
+            ParserDiagnosticContextKind.NewExpression(),
+            start,
+            newToken.Value.Length,
+            currentStart,
+            current.Value.Length)
+    }
+
+    static func CollectObjectInitializerMemberDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        openIndex: int) {
+        closeIndex := FindMatchingRightBrace(tokens, openIndex)
+        if closeIndex < 0 {
+            return
+        }
+
+        segmentStart := openIndex + 1
+        parenDepth := 0
+        bracketDepth := 0
+        braceDepth := 0
+        genericDepth := 0
+        index := openIndex + 1
+        while index <= closeIndex {
+            token := tokens[index]
+            atSegmentEnd := index == closeIndex
+                || (token.Type == TokenType.Comma
+                    && parenDepth == 0
+                    && bracketDepth == 0
+                    && braceDepth == 0
+                    && genericDepth == 0)
+
+            if atSegmentEnd {
+                firstIndex := FirstSignificantTokenIndexInRange(tokens, segmentStart, index)
+                if firstIndex >= 0 {
+                    AnalyzeObjectInitializerSegment(sourceFile, tokens, table, firstIndex, index)
+                }
+
+                segmentStart = index + 1
+            } else {
+                if token.Type == TokenType.LeftParen {
+                    parenDepth = parenDepth + 1
+                } else if token.Type == TokenType.RightParen {
+                    if parenDepth > 0 {
+                        parenDepth = parenDepth - 1
+                    }
+                } else if token.Type == TokenType.LeftBracket {
+                    bracketDepth = bracketDepth + 1
+                } else if token.Type == TokenType.RightBracket {
+                    if bracketDepth > 0 {
+                        bracketDepth = bracketDepth - 1
+                    }
+                } else if token.Type == TokenType.LeftBrace {
+                    braceDepth = braceDepth + 1
+                } else if token.Type == TokenType.RightBrace {
+                    if braceDepth > 0 {
+                        braceDepth = braceDepth - 1
+                    }
+                } else if token.Type == TokenType.Less {
+                    genericDepth = genericDepth + 1
+                } else if token.Type == TokenType.Greater {
+                    if genericDepth > 0 {
+                        genericDepth = genericDepth - 1
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func AnalyzeObjectInitializerSegment(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        firstIndex: int,
+        endIndex: int) {
+        first := tokens[firstIndex]
+        if first.Type != TokenType.Identifier {
+            return
+        }
+
+        nextIndex := NextSignificantTokenIndexBefore(tokens, firstIndex, endIndex)
+        if nextIndex >= 0 && tokens[nextIndex].Type == TokenType.Colon {
+            return
+        }
+
+        ReportMissingObjectInitializerColon(sourceFile, tokens, table, firstIndex)
+    }
+
+    static func ReportMissingObjectInitializerColon(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        propertyIndex: int) {
+        propertyToken := tokens[propertyIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, propertyToken.Line, propertyToken.Column)
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            propertyToken.Value.Length,
+            propertyToken.Line,
+            propertyToken.Column,
+            ParserDiagnosticMessageKind.ExpectedObjectInitializerColon(),
+            ParserDiagnosticContextKind.ObjectInitializer(),
+            start,
+            propertyToken.Value.Length,
+            -1,
+            0)
+    }
+
+    static func CollectLeadingMemberAccessDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if (token.Type == TokenType.Dot || token.Type == TokenType.QuestionDot) && IsLeadingMemberAccess(tokens, index) {
+                ReportLeadingMemberAccess(sourceFile, tokens, table, index)
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func ReportLeadingMemberAccess(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        operatorIndex: int) {
+        operatorToken := tokens[operatorIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, operatorToken.Line, operatorToken.Column)
+        length := operatorToken.Value.Length
+        nextIndex := NextSignificantTokenIndex(tokens, operatorIndex)
+        if nextIndex >= 0 {
+            next := tokens[nextIndex]
+            if next.Type == TokenType.Identifier && next.Line == operatorToken.Line {
+                nextStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, next.Line, next.Column)
+                length = nextStart + next.Value.Length - start
+                if length < operatorToken.Value.Length {
+                    length = operatorToken.Value.Length
+                }
+            }
+        }
+
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            length,
+            operatorToken.Line,
+            operatorToken.Column,
+            ParserDiagnosticMessageKind.ExpectedExpressionBeforeMemberAccess(),
+            ParserDiagnosticContextKind.LeadingMemberAccess(),
+            start,
+            operatorToken.Value.Length,
+            -1,
+            0)
     }
 
     static func CollectGenericListDiagnostics(
@@ -564,7 +811,7 @@ public class ColumnarSyntaxDiagnostics {
                 ParserDiagnosticTableOps.ResetPanicMode(table)
             }
 
-            if token.Type == TokenType.Dot || token.Type == TokenType.QuestionDot {
+            if (token.Type == TokenType.Dot || token.Type == TokenType.QuestionDot) && !IsLeadingMemberAccess(tokens, index) {
                 next := NextSignificantToken(tokens, index)
                 if next == null || (next.Type != TokenType.Identifier && !Lexer.IsReservedKeyword(next.Type)) {
                     receiver := PreviousSignificantToken(tokens, index)
@@ -818,6 +1065,71 @@ public class ColumnarSyntaxDiagnostics {
             || owner.Type == TokenType.Arrow
     }
 
+    static func FindNewInitializerOpen(tokens: List<Token>, startIndex: int): int {
+        parenDepth := 0
+        bracketDepth := 0
+        genericDepth := 0
+        index := startIndex
+        while index < tokens.Count {
+            token := tokens[index]
+            if parenDepth == 0 && bracketDepth == 0 && genericDepth == 0 {
+                if token.Type == TokenType.LeftBrace {
+                    return index
+                }
+
+                if token.Type == TokenType.Comma
+                    || token.Type == TokenType.RightParen
+                    || token.Type == TokenType.RightBracket
+                    || token.Type == TokenType.Semicolon
+                    || token.Type == TokenType.Newline
+                    || token.Type == TokenType.Eof {
+                    return -1
+                }
+            }
+
+            if token.Type == TokenType.LeftParen {
+                parenDepth = parenDepth + 1
+            } else if token.Type == TokenType.RightParen {
+                if parenDepth > 0 {
+                    parenDepth = parenDepth - 1
+                }
+            } else if token.Type == TokenType.LeftBracket {
+                bracketDepth = bracketDepth + 1
+            } else if token.Type == TokenType.RightBracket {
+                if bracketDepth > 0 {
+                    bracketDepth = bracketDepth - 1
+                }
+            } else if token.Type == TokenType.Less {
+                genericDepth = genericDepth + 1
+            } else if token.Type == TokenType.Greater {
+                if genericDepth > 0 {
+                    genericDepth = genericDepth - 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    static func IsArrayConstructionBeforeInitializer(tokens: List<Token>, typeStartIndex: int, initializerOpenIndex: int): bool {
+        index := typeStartIndex
+        while index < initializerOpenIndex {
+            token := tokens[index]
+            if token.Type == TokenType.LeftBracket {
+                nextIndex := NextSignificantTokenIndexBefore(tokens, index, initializerOpenIndex)
+                if nextIndex >= 0 && tokens[nextIndex].Type == TokenType.RightBracket {
+                    return true
+                }
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     static func HasMissingGenericListElement(tokens: List<Token>, lessIndex: int, greaterIndex: int): bool {
         firstIndex := NextSignificantTokenIndexBefore(tokens, lessIndex, greaterIndex + 1)
         if firstIndex == greaterIndex {
@@ -980,6 +1292,26 @@ public class ColumnarSyntaxDiagnostics {
         return -1
     }
 
+    static func FindMatchingRightBrace(tokens: List<Token>, openIndex: int): int {
+        depth := 0
+        index := openIndex
+        while index < tokens.Count {
+            token := tokens[index]
+            if token.Type == TokenType.LeftBrace {
+                depth = depth + 1
+            } else if token.Type == TokenType.RightBrace {
+                depth = depth - 1
+                if depth == 0 {
+                    return index
+                }
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
     static func FindMatchingGreater(tokens: List<Token>, lessIndex: int): int {
         depth := 0
         index := lessIndex
@@ -1048,6 +1380,37 @@ public class ColumnarSyntaxDiagnostics {
             || tokenType == TokenType.Semicolon
             || tokenType == TokenType.Arrow
             || tokenType == TokenType.Colon
+    }
+
+    static func IsLeadingMemberAccess(tokens: List<Token>, tokenIndex: int): bool {
+        previous := PreviousSignificantToken(tokens, tokenIndex)
+        if previous == null {
+            return true
+        }
+
+        if HasLineBreakBefore(tokens, tokenIndex) {
+            return true
+        }
+
+        return !CanEndExpressionBeforeMemberAccess(previous.Type)
+    }
+
+    static func CanEndExpressionBeforeMemberAccess(tokenType: TokenType): bool {
+        return tokenType == TokenType.Identifier
+            || tokenType == TokenType.IntLiteral
+            || tokenType == TokenType.FloatLiteral
+            || tokenType == TokenType.CharLiteral
+            || tokenType == TokenType.StringLiteral
+            || tokenType == TokenType.TripleQuoteStringLiteral
+            || tokenType == TokenType.InterpolatedRawStringLiteral
+            || tokenType == TokenType.This
+            || tokenType == TokenType.Base
+            || tokenType == TokenType.True
+            || tokenType == TokenType.False
+            || tokenType == TokenType.Null
+            || tokenType == TokenType.RightParen
+            || tokenType == TokenType.RightBracket
+            || tokenType == TokenType.RightBrace
     }
 
     static func PreviousSignificantToken(tokens: List<Token>, tokenIndex: int): Token? {

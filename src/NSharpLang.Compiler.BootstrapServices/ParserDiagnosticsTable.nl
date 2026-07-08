@@ -12,6 +12,9 @@ public class ParserDiagnosticMessageKind {
     public static func ExpectedTypeParameterName(): int { return 9 }
     public static func ExpectedGenericTypeArgument(): int { return 10 }
     public static func ExpectedReturnTypeColon(): int { return 11 }
+    public static func ExpectedNewTypeName(): int { return 12 }
+    public static func ExpectedObjectInitializerColon(): int { return 13 }
+    public static func ExpectedExpressionBeforeMemberAccess(): int { return 14 }
 }
 
 public class ParserDiagnosticContextKind {
@@ -28,6 +31,9 @@ public class ParserDiagnosticContextKind {
     public static func EnumDeclaration(): int { return 10 }
     public static func TypeAliasDeclaration(): int { return 11 }
     public static func TrailingParameterComma(): int { return 12 }
+    public static func NewExpression(): int { return 13 }
+    public static func ObjectInitializer(): int { return 14 }
+    public static func LeadingMemberAccess(): int { return 15 }
 }
 
 public class ParserDiagnosticTable {

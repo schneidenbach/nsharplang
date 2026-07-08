@@ -225,6 +225,61 @@ public class ParserDiagnosticMessages {
                     "Function '" + functionName + "' needs a ':' before its return type.",
                     "Write the return type as `func name(...): Type { ... }`.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedNewTypeName() {
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add a type name after `new`")
+                suggestions.Add("Use `new()` for target-typed construction")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected type name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "The `new` expression needs a type name, `()`, or an initializer after it.",
+                    "Write `new TypeName(...)`, `new()`, or `new { Name: value }`.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedObjectInitializerColon() {
+                propertyName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add ':' after '" + propertyName + "'")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected ':' after object initializer member '" + propertyName + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Object initializer member '" + propertyName + "' needs ':' before its value.",
+                    "Write '" + propertyName + ": value'.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedExpressionBeforeMemberAccess() {
+                operatorText := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                operatorDescription := "dot (.)"
+                if operatorText != "." {
+                    operatorDescription = "null-conditional member access (" + operatorText + ")"
+                }
+
+                suggestions := new List<string>()
+                suggestions.Add("Add a receiver before '" + operatorText + "'")
+                suggestions.Add("Remove the member access until the receiver is known")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected expression before '" + operatorText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "I see a " + operatorDescription + " operator, but there is no receiver expression before it.",
+                    "Put an expression before '" + operatorText + "', or remove the member access.",
+                    suggestions))
             }
 
             index = index + 1
