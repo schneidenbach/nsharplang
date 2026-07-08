@@ -8393,6 +8393,15 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(TextWriter);
                         return true;
                     }
+                    if (receiverIdent == "Task"
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == nameof(System.Threading.Tasks.Task.CompletedTask))
+                    {
+                        _il.Emit(OpCodes.Call,
+                            typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask))!.GetGetMethod()!);
+                        type = typeof(System.Threading.Tasks.Task);
+                        return true;
+                    }
                     if (receiverIdent == "DateTime"
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
