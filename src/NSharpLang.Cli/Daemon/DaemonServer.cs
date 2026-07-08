@@ -234,15 +234,14 @@ public class DaemonServer
 
                 case DaemonMethodKind.Status:
                     var uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
-                    var status = new DaemonStatus
-                    {
-                        Pid = Environment.ProcessId,
-                        Uptime = DaemonProtocolKernels.FormatUptime(uptime.Hours, uptime.Minutes, uptime.Seconds),
-                        ProjectRoot = _projectRoot,
-                        CachedFiles = _snapshot?.CompilationUnits.Count ?? 0,
-                        IdleTimeout = DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes)
-                    };
-                    return Ok(request.Id, JsonSerializer.Serialize(status));
+                    return Ok(
+                        request.Id,
+                        DaemonProtocolKernels.StatusResultJson(
+                            Environment.ProcessId,
+                            DaemonProtocolKernels.FormatUptime(uptime.Hours, uptime.Minutes, uptime.Seconds),
+                            _projectRoot,
+                            _snapshot?.CompilationUnits.Count ?? 0,
+                            DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes)));
             }
 
             if (!DaemonProtocolKernels.IsQueryMethod(methodKind))

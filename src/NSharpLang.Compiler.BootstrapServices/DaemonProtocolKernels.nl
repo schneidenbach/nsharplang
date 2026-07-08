@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli.Daemon
 
+import System.Collections.Generic
 import System.IO
+import System.Text.Json
 
 public enum DaemonMethodKind {
     Unknown = 0,
@@ -149,6 +151,25 @@ public class DaemonProtocolKernels {
 
     public static func FormatIdleTimeoutMinutes(minutes: int): string {
         return minutes.ToString() + "m"
+    }
+
+    static func CreateCompactJsonOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions()
+    }
+
+    public static func StatusResultJson(
+        pid: int,
+        uptime: string,
+        projectRoot: string,
+        cachedFiles: int,
+        idleTimeout: string): string {
+        payload := new Dictionary<string, object>()
+        payload["pid"] = pid
+        payload["uptime"] = uptime
+        payload["projectRoot"] = projectRoot
+        payload["cachedFiles"] = cachedFiles
+        payload["idleTimeout"] = idleTimeout
+        return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
     }
 
     public static func GetBatchDispatchAfterPrecheckMessage(): string {
