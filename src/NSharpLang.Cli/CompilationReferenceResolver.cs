@@ -150,7 +150,7 @@ internal static class CompilationReferenceResolver
             Directory.CreateDirectory(outputDirectory);
 
             var assemblyName = GetProjectAssemblyName(projectRoot, config);
-            var outputPath = Path.Combine(outputDirectory, $"{assemblyName}.dll");
+            var outputPath = CompilationReferenceResolverKernels.GetProjectOutputAssemblyPath(outputDirectory, assemblyName);
             var compiler = new MultiFileCompiler(projectRoot, config);
             compiler.AotMode = options.AotMode;
             var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
@@ -333,8 +333,8 @@ internal static class CompilationReferenceResolver
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
     {
         var url = CompilationReferenceResolverKernels.GetNuGetPackageDownloadUrl(packageName, version);
-        var tempDirectory = Path.Combine(Path.GetTempPath(), $"nlc-nuget-{Guid.NewGuid():N}");
-        var packagePath = Path.Combine(tempDirectory, CompilationReferenceResolverKernels.GetNuGetPackageFileName(packageName, version));
+        var tempDirectory = CompilationReferenceResolverKernels.GetNuGetTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var packagePath = CompilationReferenceResolverKernels.GetNuGetPackagePath(tempDirectory, packageName, version);
 
         try
         {
@@ -343,7 +343,7 @@ internal static class CompilationReferenceResolver
             File.WriteAllBytes(packagePath, bytes);
 
             Directory.CreateDirectory(Path.GetDirectoryName(versionDirectory)!);
-            var extractDirectory = versionDirectory + $".{Guid.NewGuid():N}.tmp";
+            var extractDirectory = CompilationReferenceResolverKernels.GetNuGetExtractDirectory(versionDirectory, Guid.NewGuid().ToString("N"));
             ZipFile.ExtractToDirectory(packagePath, extractDirectory);
 
             if (Directory.Exists(versionDirectory))
@@ -432,7 +432,7 @@ internal static class CompilationReferenceResolver
         string assetKind,
         string targetFramework)
     {
-        var assetRoot = Path.Combine(versionDirectory, assetKind);
+        var assetRoot = CompilationReferenceResolverKernels.GetNuGetAssetRoot(versionDirectory, assetKind);
         if (!Directory.Exists(assetRoot))
         {
             return Array.Empty<string>();
@@ -472,7 +472,7 @@ internal static class CompilationReferenceResolver
     {
         foreach (var sharedRoot in EnumerateDotnetSharedRoots())
         {
-            var frameworkRoot = Path.Combine(sharedRoot, frameworkName);
+            var frameworkRoot = CompilationReferenceResolverKernels.GetSharedFrameworkRoot(sharedRoot, frameworkName);
             if (!Directory.Exists(frameworkRoot))
             {
                 continue;

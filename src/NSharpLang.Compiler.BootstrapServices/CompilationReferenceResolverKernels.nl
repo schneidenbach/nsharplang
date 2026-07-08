@@ -82,6 +82,22 @@ public class CompilationReferenceResolverKernels {
             + ".nupkg"
     }
 
+    public static func GetNuGetPackagePath(tempDirectory: string, packageName: string, version: string): string {
+        return Path.Combine(tempDirectory, GetNuGetPackageFileName(packageName, version))
+    }
+
+    public static func GetNuGetTempDirectory(tempRoot: string, uniqueName: string): string {
+        return Path.Combine(tempRoot, "nlc-nuget-" + uniqueName)
+    }
+
+    public static func GetNuGetExtractDirectory(versionDirectory: string, uniqueName: string): string {
+        return versionDirectory + "." + uniqueName + ".tmp"
+    }
+
+    public static func GetNuGetAssetRoot(versionDirectory: string, assetKind: string): string {
+        return Path.Combine(versionDirectory, assetKind)
+    }
+
     public static func GetFallbackNuGetPackageIdentity(versionDirectory: string): PackageIdentity {
         packageId := Path.GetFileName(Path.GetDirectoryName(versionDirectory)) ?? ""
         packageVersion := Path.GetFileName(versionDirectory) ?? ""
@@ -164,6 +180,10 @@ public class CompilationReferenceResolverKernels {
         return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
     }
 
+    public static func GetProjectOutputAssemblyPath(outputDirectory: string, assemblyName: string): string {
+        return Path.Combine(outputDirectory, assemblyName + ".dll")
+    }
+
     public static func ResolveProjectReferencePath(projectRoot: string, projectReference: string): string {
         if Path.IsPathRooted(projectReference) {
             return projectReference
@@ -187,6 +207,10 @@ public class CompilationReferenceResolverKernels {
         }
 
         return names.ToArray()
+    }
+
+    public static func GetSharedFrameworkRoot(sharedRoot: string, frameworkName: string): string {
+        return Path.Combine(sharedRoot, frameworkName)
     }
 
     public static func ShouldAddDllReference(references: IEnumerable<Reference>, fullPath: string): bool {
