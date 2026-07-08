@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Performance
@@ -308,6 +309,14 @@ public class BuildCommandKernels {
 
     public static func ShouldApplyDebugDefine(configuration: string): bool {
         return !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase)
+    }
+
+    public static func GetOutputDirectory(projectRoot: string, configuration: string, targetFramework: string, outputDir: string?): string {
+        if outputDir != null {
+            return Path.GetFullPath(outputDir)
+        }
+
+        return CompilationReferenceResolverKernels.GetStableOutputDirectory(projectRoot, configuration, targetFramework)
     }
 
     public static func ApplyEffectiveDefines(config: ProjectConfig, debug: bool, cliDefines: IReadOnlyList<string>?) {

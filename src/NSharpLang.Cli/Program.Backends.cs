@@ -19,7 +19,7 @@ partial class Program
         {
             Console.WriteLine(BuildCommandKernels.GetProjectStartMessage(projectRoot));
 
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
                 return BuildCommandResult.Failure(
@@ -29,9 +29,7 @@ partial class Program
             var config = ProjectFileParser.Parse(projectYmlPath);
             var configuration = release ? "Release" : "Debug";
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
-            var resolvedOutputDir = outputDir != null
-                ? Path.GetFullPath(outputDir)
-                : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+            var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
 
             resolveSw.Start();
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
@@ -83,9 +81,7 @@ partial class Program
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
             var configuration = release ? "Release" : "Debug";
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
-            var resolvedOutputDir = outputDir != null
-                ? Path.GetFullPath(outputDir)
-                : CompilationReferenceResolverKernels.GetStableOutputDirectory(sourceDir, configuration, config.TargetFramework);
+            var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(sourceDir, configuration, config.TargetFramework, outputDir);
 
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
@@ -116,7 +112,7 @@ partial class Program
         try
         {
             projectRoot = Path.GetFullPath(projectRoot);
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
                 return Error(RunCommandKernels.GetMissingProjectFileMessage());
@@ -130,7 +126,7 @@ partial class Program
 
             var configuration = "Debug";
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
-            var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+            var outputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir: null);
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
@@ -207,9 +203,7 @@ partial class Program
     {
         projectRoot = Path.GetFullPath(projectRoot);
         BuildCommandKernels.ApplyEffectiveDefines(config, debug: BuildCommandKernels.ShouldApplyDebugDefine(configuration), cliDefines: null);
-        var resolvedOutputDir = outputDir != null
-            ? Path.GetFullPath(outputDir)
-            : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+        var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
             projectRoot,
             config,
