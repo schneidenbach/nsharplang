@@ -172,6 +172,41 @@ public class ParserDiagnosticMessages {
                     "Field '" + fieldName + "' needs a ':' before its type, or ':=' before an inferred initializer.",
                     "Write this field as `" + fieldName + ": Type` or `" + fieldName + " := value`.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedTypeParameterName() {
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add a type parameter name")
+                suggestions.Add("Remove the trailing comma if the list is complete")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected type parameter name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Generic parameter lists need a type parameter name after each comma.",
+                    "Write generic parameters as `<T>` or `<T, U>`.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedGenericTypeArgument() {
+                typeName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add a type argument")
+                suggestions.Add("Remove the empty generic argument list")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected type name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Generic type '" + typeName + "' needs a type argument between '<' and '>'.",
+                    "Write this type as `" + typeName + "<T>` or remove the generic argument list.",
+                    suggestions))
             }
 
             index = index + 1

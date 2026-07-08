@@ -15,11 +15,105 @@ public class ColumnarSyntaxDiagnostics {
         lexer := new Lexer(source, fileName)
         tokens := lexer.Tokenize()
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
+        CollectGenericListDiagnostics(sourceFiles[0], tokens, table)
         CollectParameterListDiagnostics(sourceFiles[0], tokens, table)
         CollectFieldDeclarationDiagnostics(sourceFiles[0], tokens, table)
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectGenericListDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.Less {
+                greaterIndex := FindMatchingGreater(tokens, index)
+                if greaterIndex > index && HasMissingGenericListElement(tokens, index, greaterIndex) {
+                    if IsTypeParameterListOpen(tokens, index) {
+                        ReportMissingTypeParameterName(sourceFile, tokens, table, index, greaterIndex)
+                    } else if IsGenericTypeArgumentListOpen(tokens, index) {
+                        ReportMissingGenericTypeArgument(sourceFile, tokens, table, index, greaterIndex)
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func ReportMissingTypeParameterName(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        lessIndex: int,
+        greaterIndex: int) {
+        lessToken := tokens[lessIndex]
+        greaterToken := tokens[greaterIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, lessToken.Line, lessToken.Column)
+        greaterStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, greaterToken.Line, greaterToken.Column)
+        length := greaterStart + greaterToken.Value.Length - start
+        if length < 1 {
+            length = lessToken.Value.Length
+        }
+
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            length,
+            lessToken.Line,
+            lessToken.Column,
+            ParserDiagnosticMessageKind.ExpectedTypeParameterName(),
+            ParserDiagnosticContextKind.Unknown(),
+            start,
+            lessToken.Value.Length,
+            greaterStart,
+            greaterToken.Value.Length)
+    }
+
+    static func ReportMissingGenericTypeArgument(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        lessIndex: int,
+        greaterIndex: int) {
+        typeNameIndex := FindGenericTypeNameStart(tokens, lessIndex)
+        if typeNameIndex < 0 {
+            return
+        }
+
+        typeNameToken := tokens[typeNameIndex]
+        greaterToken := tokens[greaterIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, typeNameToken.Line, typeNameToken.Column)
+        greaterStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, greaterToken.Line, greaterToken.Column)
+        length := greaterStart + greaterToken.Value.Length - start
+        if length < 1 {
+            length = typeNameToken.Value.Length
+        }
+
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            length,
+            typeNameToken.Line,
+            typeNameToken.Column,
+            ParserDiagnosticMessageKind.ExpectedGenericTypeArgument(),
+            ParserDiagnosticContextKind.Unknown(),
+            start,
+            typeNameToken.Value.Length,
+            greaterStart,
+            greaterToken.Value.Length)
     }
 
     static func CollectFieldDeclarationDiagnostics(
@@ -603,6 +697,78 @@ public class ColumnarSyntaxDiagnostics {
         return true
     }
 
+    static func IsTypeParameterListOpen(tokens: List<Token>, lessIndex: int): bool {
+        previousIndex := PreviousSignificantTokenIndex(tokens, lessIndex)
+        if previousIndex < 0 || tokens[previousIndex].Type != TokenType.Identifier {
+            return false
+        }
+
+        ownerIndex := PreviousSignificantTokenIndex(tokens, previousIndex)
+        return IsDeclarationNameOwner(tokens, ownerIndex)
+    }
+
+    static func IsGenericTypeArgumentListOpen(tokens: List<Token>, lessIndex: int): bool {
+        previousIndex := PreviousSignificantTokenIndex(tokens, lessIndex)
+        if previousIndex < 0 || tokens[previousIndex].Type != TokenType.Identifier {
+            return false
+        }
+
+        typeNameIndex := FindGenericTypeNameStart(tokens, lessIndex)
+        if typeNameIndex < 0 {
+            return false
+        }
+
+        ownerIndex := PreviousSignificantTokenIndex(tokens, typeNameIndex)
+        if ownerIndex < 0 {
+            return true
+        }
+
+        owner := tokens[ownerIndex]
+        return owner.Type == TokenType.Colon
+            || owner.Type == TokenType.Comma
+            || owner.Type == TokenType.Less
+            || owner.Type == TokenType.Assign
+            || owner.Type == TokenType.New
+            || owner.Type == TokenType.BitwiseAnd
+            || owner.Type == TokenType.BitwiseOr
+            || owner.Type == TokenType.LeftParen
+            || owner.Type == TokenType.Arrow
+    }
+
+    static func HasMissingGenericListElement(tokens: List<Token>, lessIndex: int, greaterIndex: int): bool {
+        firstIndex := NextSignificantTokenIndexBefore(tokens, lessIndex, greaterIndex + 1)
+        if firstIndex == greaterIndex {
+            return true
+        }
+
+        previousIndex := PreviousSignificantTokenIndex(tokens, greaterIndex)
+        return previousIndex > lessIndex && tokens[previousIndex].Type == TokenType.Comma
+    }
+
+    static func FindGenericTypeNameStart(tokens: List<Token>, lessIndex: int): int {
+        index := PreviousSignificantTokenIndex(tokens, lessIndex)
+        if index < 0 || tokens[index].Type != TokenType.Identifier {
+            return -1
+        }
+
+        startIndex := index
+        while true {
+            dotIndex := PreviousSignificantTokenIndex(tokens, startIndex)
+            if dotIndex < 0 || tokens[dotIndex].Type != TokenType.Dot {
+                return startIndex
+            }
+
+            beforeDotIndex := PreviousSignificantTokenIndex(tokens, dotIndex)
+            if beforeDotIndex < 0 || tokens[beforeDotIndex].Type != TokenType.Identifier {
+                return startIndex
+            }
+
+            startIndex = beforeDotIndex
+        }
+
+        return startIndex
+    }
+
     static func IsTypeBodyDeclarationKeyword(tokenType: TokenType): bool {
         return tokenType == TokenType.Class
             || tokenType == TokenType.Struct
@@ -719,6 +885,26 @@ public class ColumnarSyntaxDiagnostics {
             if token.Type == TokenType.LeftParen {
                 depth = depth + 1
             } else if token.Type == TokenType.RightParen {
+                depth = depth - 1
+                if depth == 0 {
+                    return index
+                }
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    static func FindMatchingGreater(tokens: List<Token>, lessIndex: int): int {
+        depth := 0
+        index := lessIndex
+        while index < tokens.Count {
+            token := tokens[index]
+            if token.Type == TokenType.Less {
+                depth = depth + 1
+            } else if token.Type == TokenType.Greater {
                 depth = depth - 1
                 if depth == 0 {
                     return index
@@ -887,6 +1073,7 @@ public class ColumnarSyntaxDiagnostics {
         return tokenType == TokenType.Newline
             || tokenType == TokenType.Semicolon
             || tokenType == TokenType.Comma
+            || tokenType == TokenType.LeftBrace
             || tokenType == TokenType.RightBrace
     }
 
