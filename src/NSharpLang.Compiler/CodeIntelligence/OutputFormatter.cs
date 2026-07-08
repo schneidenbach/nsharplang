@@ -232,17 +232,12 @@ public static class OutputFormatter
     public static string PerfToJson(string file, int line, int col, string? projectRoot,
         IReadOnlyList<object>? facts = null)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
-            command = "perf",
-            ok = true,
-            projectRoot = NormalizePath(projectRoot),
-            file = NormalizePath(file),
-            position = new { line, column = col },
-            facts = facts ?? Array.Empty<object>()
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+        return OutputFormatterJsonKernels.PerfToJson(
+            file,
+            line,
+            col,
+            projectRoot,
+            facts ?? Array.Empty<object>());
     }
 
     public static string DefinitionToJson(DefinitionResult result)
@@ -327,20 +322,12 @@ public static class OutputFormatter
     public static string ErrorToJson(string command, string error, string? projectRoot = null,
         string? errorCode = null, object? details = null)
     {
-        var envelope = new
-        {
-            schemaVersion = SchemaVersion,
+        return OutputFormatterJsonKernels.ErrorToJson(
             command,
-            ok = false,
-            projectRoot = NormalizePath(projectRoot),
-            error = new
-            {
-                code = errorCode,
-                message = error,
-                details
-            }
-        };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+            error,
+            projectRoot,
+            errorCode,
+            details);
     }
 
     // ── Elm-Style Text Output ──────────────────────────────────────────

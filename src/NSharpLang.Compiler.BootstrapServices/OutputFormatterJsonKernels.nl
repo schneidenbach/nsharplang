@@ -97,6 +97,36 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func ErrorToJson(
+        command: string,
+        message: string,
+        projectRoot: string?,
+        errorCode: string?,
+        details: object?): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = command
+        envelope["ok"] = false
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        errorPayload := new Dictionary<string, object>()
+        if errorCode != null {
+            errorPayload["code"] = errorCode ?? ""
+        }
+
+        errorPayload["message"] = message
+        if details != null {
+            errorPayload["details"] = details
+        }
+
+        envelope["error"] = errorPayload
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
     static func BuildImplementorResults(results: List<ImplementorResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
         foreach result in results {
@@ -172,6 +202,32 @@ public class OutputFormatterJsonKernels {
 
         envelope["position"] = BuildPosition(line, col)
         envelope["result"] = BuildTypeResult(result)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    public static func PerfToJson(
+        fileName: string,
+        line: int,
+        col: int,
+        projectRoot: string?,
+        facts: IReadOnlyList<object>): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "perf"
+        envelope["ok"] = true
+
+        normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
+        if normalizedProjectRoot != null {
+            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+        }
+
+        normalizedFile := OutputFormatterNormalizationKernels.NormalizePath(fileName)
+        if normalizedFile != null {
+            envelope["file"] = normalizedFile ?? ""
+        }
+
+        envelope["position"] = BuildPosition(line, col)
+        envelope["facts"] = facts
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
