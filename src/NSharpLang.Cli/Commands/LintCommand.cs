@@ -43,7 +43,7 @@ public static class LintCommand
             else
             {
                 files = positionalFiles
-                    .Select(f => Path.GetFullPath(Path.IsPathRooted(f) ? f : Path.Combine(projectRoot, f)))
+                    .Select(f => LintCommandKernels.ResolveFilePath(projectRoot, f))
                     .ToArray();
             }
 
@@ -178,7 +178,7 @@ public static class LintCommand
                 }
             }
 
-            return (hadErrors || summary.Errors > 0) ? 1 : 0;
+            return LintCommandKernels.GetExitCode(hadErrors, summary.Errors);
         }
         catch (Exception ex)
         {

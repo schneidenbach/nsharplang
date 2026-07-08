@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System.IO
 import NSharpLang.Compiler
 
 public class LintOptionSummary {
@@ -93,6 +94,22 @@ public class LintCommandKernels {
         }
 
         return 1
+    }
+
+    public static func ResolveFilePath(projectRoot: string, filePath: string): string {
+        if Path.IsPathRooted(filePath) {
+            return Path.GetFullPath(filePath)
+        }
+
+        return Path.GetFullPath(Path.Combine(projectRoot, filePath))
+    }
+
+    public static func GetExitCode(hadErrors: bool, diagnosticErrorCount: int): int {
+        if hadErrors || diagnosticErrorCount > 0 {
+            return 1
+        }
+
+        return 0
     }
 
     public static func GetHelpText(): string {
