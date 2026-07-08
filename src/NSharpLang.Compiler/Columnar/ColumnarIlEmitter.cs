@@ -6055,12 +6055,93 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 61: // AssertStatement [condition, message?] — the legacy emitter's EmitAssert: brtrue past
+            {        // a `throw new InvalidOperationException(<message text or "Assertion failed">)`.
+                if (_nodes.ChildCount(idx) is not (1 or 2))
+                    return false;
+                if (!EmitExpression(Child(idx, 0), out var assertCondType) || assertCondType != typeof(bool))
+                    return false;
+                var assertOk = _il.DefineLabel();
+                _il.Emit(OpCodes.Brtrue, assertOk);
+                if (_nodes.ChildCount(idx) == 2)
+                {
+                    if (!EmitExpression(Child(idx, 1), out var assertMessageType))
+                        return false;
+                    if (assertMessageType != typeof(string))
+                    {
+                        if (assertMessageType.IsValueType)
+                            _il.Emit(OpCodes.Box, assertMessageType);
+                        _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(ToString), Type.EmptyTypes)!);
+                    }
+                }
+                else
+                {
+                    _il.Emit(OpCodes.Ldstr, "Assertion failed");
+                }
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+                _il.Emit(OpCodes.Throw);
+                _il.MarkLabel(assertOk);
+                return true;
+            }
+
+            case 62: // AssertThrowsStatement [body] — legacy EmitAssertThrows: run the body in a try; a
+            {        // fall-through throws "Expected exception ... was not thrown"; catching the expected
+                     // type pops it. Control transfers out of the body (return/break/continue) and nesting
+                     // inside another protected region decline (the try arm's conservative discipline).
+                if (_nodes.ChildCount(idx) != 1 || _inProtectedRegion || _inFinallyRegion)
+                    return false;
+                if (!TryResolveBclExceptionType(Text(idx), out var expectedExceptionType))
+                    return false;
+                var assertThrowsBody = Child(idx, 0);
+                if (ContainsReturnStatement(assertThrowsBody) || ContainsControlTransfer(assertThrowsBody))
+                    return false;
+                // A missed-flag local set after the body keeps the failure throw OUTSIDE the
+                // protected region (the legacy emitter threw inside the try, so an expected type of
+                // InvalidOperationException swallowed its own failure signal — a false pass).
+                var assertThrowsMissed = _il.DeclareLocal(typeof(bool));
+                _il.Emit(OpCodes.Ldc_I4_0);
+                _il.Emit(OpCodes.Stloc, assertThrowsMissed);
+                _il.BeginExceptionBlock();
+                _inProtectedRegion = true;
+                var assertThrowsBodyOk = EmitStatement(assertThrowsBody);
+                _inProtectedRegion = false;
+                if (!assertThrowsBodyOk)
+                    return false;
+                _il.Emit(OpCodes.Ldc_I4_1);
+                _il.Emit(OpCodes.Stloc, assertThrowsMissed);
+                _il.BeginCatchBlock(expectedExceptionType);
+                _il.Emit(OpCodes.Pop);
+                _il.EndExceptionBlock();
+                var assertThrowsOk = _il.DefineLabel();
+                _il.Emit(OpCodes.Ldloc, assertThrowsMissed);
+                _il.Emit(OpCodes.Brfalse, assertThrowsOk);
+                _il.Emit(OpCodes.Ldstr, "Expected exception of type " + expectedExceptionType.Name + " was not thrown");
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+                _il.Emit(OpCodes.Throw);
+                _il.MarkLabel(assertThrowsOk);
+                return true;
+            }
+
             default:
                 return Decline(
                     "emit.statement.unhandled-kind",
                     "unsupported statement (node kind " + _nodes.Kind(idx).ToString() + ")",
                     idx);
         }
+    }
+
+    // Whether the subtree rooted at `idx` contains a direct break/continue (kinds 21/22) anywhere —
+    // used by regions that cannot route transfers across their boundary (assert throws).
+    private bool ContainsControlTransfer(int idx)
+    {
+        if (_nodes.Kind(idx) is 21 or 22)
+            return true;
+        for (var c = 0; c < _nodes.ChildCount(idx); c++)
+        {
+            if (ContainsControlTransfer(Child(idx, c)))
+                return true;
+        }
+        return false;
     }
 
     // Phase P-1 (columnar): canonical counted integer reduction lowering for

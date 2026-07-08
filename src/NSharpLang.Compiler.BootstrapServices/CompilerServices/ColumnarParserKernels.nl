@@ -180,13 +180,18 @@ class ParserState {
     ArgStackTop: int
     SplitGreaterDepth: int
     OwedGreaterByteEnd: int
-    constructor(pos: int, nodeCursor: int, childCursor: int, argStackTop: int, splitGreaterDepth: int, owedGreaterByteEnd: int) {
+    // Source text for CONTEXTUAL keyword checks (e.g. `assert throws`). Optional: entries that
+    // never need token text may leave it empty, in which case contextual forms simply do not
+    // match (safe under-accept -> decline).
+    Source: string
+    constructor(pos: int, nodeCursor: int, childCursor: int, argStackTop: int, splitGreaterDepth: int, owedGreaterByteEnd: int, sourceText: string = "") {
         Pos = pos
         NodeCursor = nodeCursor
         ChildCursor = childCursor
         ArgStackTop = argStackTop
         SplitGreaterDepth = splitGreaterDepth
         OwedGreaterByteEnd = owedGreaterByteEnd
+        Source = sourceText
     }
 }
 
@@ -572,6 +577,12 @@ class ParserExpressionNodeTable {
 //                                             balanced argument list and block; lowering is a later backend
 //                                             slice, so today's emitter declines this node explicitly. Kind 59
 //                                             belongs to AnonymousObjectInitializer. )
+//   AssertStatement              -> kind 61  ( assert <cond> [, <msg>]; children [condition, message?].
+//                                             Lowered per the legacy emitter: brtrue past a
+//                                             `throw new InvalidOperationException(<msg or "Assertion failed">)`. )
+//   AssertThrowsStatement        -> kind 62  ( assert throws <TypeName> { body }; the exception TYPE name
+//                                             token in the value span, ONE child [body block]. 63 is the
+//                                             next free kind. )
 //   Systems policy wrappers (`allow(...) {}`, `alloc {}`, `unsafe {}`) parse as transparent kind-25 blocks;
 //                                             systems analysis owns policy semantics before emission.
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
@@ -579,7 +590,7 @@ class ParserExpressionNodeTable {
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield/assert,
+// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield,
 // and statements whose expression parts use a not-yet-supported form. Block statement-list gathers child
 // node ids on the LIFO `argStack` (recursion is LIFO) and appends the contiguous child run after `}`,
 // exactly as calls/generics do.
@@ -5520,6 +5531,65 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 56, -1, 0, printChildRun, 1, printStart, printEnd - printStart)
     }
 
+    // `assert <cond> [, <msg>]` (Assert 74) -- AssertStatement kind 61, children [condition, message?].
+    // `assert throws <TypeName> { body }` -- AssertThrowsStatement kind 62, the exception TYPE name
+    // token in the value span, ONE child [body block]. `throws` is a CONTEXTUAL identifier compared
+    // via st.Source (Parser.cs ParseAssertStatement checks the identifier text the same way); an
+    // entry with no source text cannot match, so the throws form declines there (under-accept).
+    if kind == 74 {
+        assertStart := tokens.Starts[start]
+        st.Pos = start + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
+            return -1
+        }
+        if tokens.Kinds[st.Pos] == 0 && st.Source.Length > 0
+            && ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], "throws") {
+            st.Pos = st.Pos + 1
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
+                return -1
+            }
+            throwsTypeStart := tokens.Starts[st.Pos]
+            throwsTypeLength := tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            while st.Pos < count && tokens.Kinds[st.Pos] == 136 {
+                st.Pos = st.Pos + 1
+            }
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
+                return -1
+            }
+            throwsBody := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, 1)
+            if throwsBody < 0 {
+                return -1
+            }
+            throwsEnd := nodes.SpanStarts[throwsBody] + nodes.SpanLengths[throwsBody]
+            throwsChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, throwsBody)
+            return EmitExpressionNode(st, nodes, 62, throwsTypeStart, throwsTypeLength, throwsChildRun, 1, assertStart, throwsEnd - assertStart)
+        }
+        assertCondition := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if assertCondition < 0 {
+            return -1
+        }
+        assertEnd := nodes.SpanStarts[assertCondition] + nodes.SpanLengths[assertCondition]
+        assertMessage := -1
+        if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+            st.Pos = st.Pos + 1
+            assertMessage = ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+            if assertMessage < 0 {
+                return -1
+            }
+            assertEnd = nodes.SpanStarts[assertMessage] + nodes.SpanLengths[assertMessage]
+        }
+        assertChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, assertCondition)
+        assertChildCount := 1
+        if assertMessage >= 0 {
+            AppendExpressionChild(st, children, assertMessage)
+            assertChildCount = 2
+        }
+        return EmitExpressionNode(st, nodes, 61, -1, 0, assertChildRun, assertChildCount, assertStart, assertEnd - assertStart)
+    }
+
     if kind == 35 {
         st.Pos = start + 1
         return EmitExpressionNode(st, nodes, 21, -1, 0, -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
@@ -5718,8 +5788,8 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     return EmitExpressionNode(st, nodes, 23, -1, 0, childRunStart, 1, exprStart, exprEnd - exprStart)
 }
 
-func ParseStatementNodesCore(tokens: ParserTokenTable, count: int, start: int, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, outResult: ParserResultTable): int {
-    st := new ParserState(start, 0, 0, 0, 0, 0)
+func ParseStatementNodesCore(source: string, tokens: ParserTokenTable, count: int, start: int, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, outResult: ParserResultTable): int {
+    st := new ParserState(start, 0, 0, 0, 0, 0, source)
 
     root := ParseStatementCoreNode(tokens, count, st, argStack, nodes, children, 0)
     if root < 0 {
@@ -9515,7 +9585,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     bodyResult := new ColumnarFunctionResultTable(new int[](2))
     bodyNodeCount := 0
     if tokens.Kinds[bodyBrace] == 129 {
-        bodyNodeCount = ParseColumnarFunctionBodyNodesCore(tokens, bodyBrace, body, bodyResult)
+        bodyNodeCount = ParseColumnarFunctionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     } else {
         bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(tokens, bodyBrace, body, bodyResult)
     }
@@ -9554,13 +9624,13 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     return paramCount
 }
 
-func ParseColumnarFunctionBodyNodesCore(tokens: ColumnarFunctionTokenTable, bodyBrace: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, bodyBrace: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)
-    return ParseStatementNodesCore(statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
+    return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
 func ParseColumnarFunctionExpressionBodyNodesCore(tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
@@ -9678,7 +9748,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     }
 
     bodyResult := new ColumnarConstructorResultTable(new int[](2))
-    bodyNodeCount := ParseColumnarConstructorBodyNodesCore(tokens, bodyBrace, body, bodyResult)
+    bodyNodeCount := ParseColumnarConstructorBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     if bodyNodeCount <= 0 {
         return -1
     }
@@ -10117,13 +10187,13 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     return paramCount
 }
 
-func ParseColumnarConstructorBodyNodesCore(tokens: ColumnarConstructorTokenTable, bodyBrace: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
+func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConstructorTokenTable, bodyBrace: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)
-    return ParseStatementNodesCore(statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
+    return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
 func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outResult: int[]): int {
@@ -11419,7 +11489,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
     getBodyResult := new ColumnarPropertyResultTable(new int[](2))
     getBodyNodeCount := 0
     if tokens.Kinds[getBodyBrace] == 129 {
-        getBodyNodeCount = ParseColumnarPropertyBodyNodesCore(tokens, getBodyBrace, getBody, getBodyResult)
+        getBodyNodeCount = ParseColumnarPropertyBodyNodesCore(source, tokens, getBodyBrace, getBody, getBodyResult)
     } else {
         getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(tokens, getBodyBrace, getBody, getBodyResult)
     }
@@ -11445,7 +11515,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
         }
 
         setBodyResult := new ColumnarPropertyResultTable(new int[](2))
-        setBodyNodeCount = ParseColumnarPropertyBodyNodesCore(tokens, setBodyBrace, setBody, setBodyResult)
+        setBodyNodeCount = ParseColumnarPropertyBodyNodesCore(source, tokens, setBodyBrace, setBody, setBodyResult)
         if setBodyNodeCount <= 0 {
             return -1
         }
@@ -11491,13 +11561,13 @@ func ColumnarPropertyDirectLocalFunctionStatus(tokens: ColumnarPropertyTokenTabl
     return 0
 }
 
-func ParseColumnarPropertyBodyNodesCore(tokens: ColumnarPropertyTokenTable, bodyBrace: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
+func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, bodyBrace: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)
-    return ParseStatementNodesCore(statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
+    return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
 func ParseColumnarPropertyExpressionBodyNodesCore(tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
