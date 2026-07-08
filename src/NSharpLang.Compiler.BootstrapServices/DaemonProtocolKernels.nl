@@ -179,6 +179,10 @@ public class DaemonProtocolKernels {
             + "}}"
     }
 
+    public static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {
+        return Utf8ByteCount(projectLocalPath) <= 100
+    }
+
     public static func GetBatchDispatchAfterPrecheckMessage(): string {
         return "Batch queries should be handled before single-request dispatch."
     }
@@ -292,5 +296,32 @@ public class DaemonProtocolKernels {
 
     static func InvalidParameters(queryCommand: string, message: string): DaemonParameterValidation {
         return new DaemonParameterValidation(false, queryCommand, message)
+    }
+
+    static func Utf8ByteCount(text: string): int {
+        count := 0
+        index := 0
+        while index < text.Length {
+            code := (int)text[index]
+            if code <= 127 {
+                count = count + 1
+            } else if code <= 2047 {
+                count = count + 2
+            } else if code >= 55296 && code <= 56319 && index + 1 < text.Length {
+                nextCode := (int)text[index + 1]
+                if nextCode >= 56320 && nextCode <= 57343 {
+                    count = count + 4
+                    index = index + 1
+                } else {
+                    count = count + 3
+                }
+            } else {
+                count = count + 3
+            }
+
+            index = index + 1
+        }
+
+        return count
     }
 }

@@ -98,7 +98,7 @@ public static class DaemonConstants
     {
         var canonicalRoot = Path.GetFullPath(projectRoot);
         var projectLocalPath = Path.Combine(Path.Combine(canonicalRoot, SocketDir), SocketName);
-        var useProjectLocalSocket = Encoding.UTF8.GetByteCount(projectLocalPath) <= 100;
+        var useProjectLocalSocket = DaemonProtocolKernels.ShouldUseProjectLocalSocket(projectLocalPath);
         var hashPrefix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRoot))).ToLowerInvariant()[..16];
         return DaemonProtocolKernels.GetSocketPath(
             canonicalRoot,
