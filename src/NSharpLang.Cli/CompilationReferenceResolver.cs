@@ -288,7 +288,7 @@ internal static class CompilationReferenceResolver
         var packagesRoot = GetGlobalPackagesFolder();
         var packageDirectory = CompilationReferenceResolverKernels.GetNuGetPackageDirectory(packagesRoot, packageName);
 
-        if (version == null && Directory.Exists(packageDirectory))
+        if (CompilationReferenceResolverKernels.ShouldProbeInstalledNuGetVersions(version, Directory.Exists(packageDirectory)))
         {
             var installedVersions = Directory.GetDirectories(packageDirectory)
                 .Select(Path.GetFileName)
@@ -296,10 +296,12 @@ internal static class CompilationReferenceResolver
                 .Cast<string>()
                 .ToArray();
 
-            var bestVersionIndex = CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex(installedVersions);
-            if (bestVersionIndex >= 0)
+            var bestInstalledVersionDirectory = CompilationReferenceResolverKernels.SelectBestInstalledNuGetVersionDirectory(
+                packageDirectory,
+                installedVersions);
+            if (bestInstalledVersionDirectory != null)
             {
-                return Path.Combine(packageDirectory, installedVersions[bestVersionIndex]);
+                return bestInstalledVersionDirectory;
             }
         }
 
@@ -325,11 +327,7 @@ internal static class CompilationReferenceResolver
             .Cast<string>()
             .ToArray();
 
-        var latestVersionIndex = CompilationReferenceResolverKernels.SelectLatestNuGetVersionIndex(versions);
-        if (latestVersionIndex >= 0)
-            return versions[latestVersionIndex];
-
-        throw new InvalidOperationException(CompilationReferenceResolverKernels.GetNuGetNoPublishedVersionsMessage(packageName));
+        return CompilationReferenceResolverKernels.GetLatestNuGetVersionOrThrow(packageName, versions);
     }
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)

@@ -102,6 +102,28 @@ public class CompilationReferenceResolverKernels {
         return (packageId ?? "") + "@" + (packageVersion ?? "")
     }
 
+    public static func ShouldProbeInstalledNuGetVersions(requestedVersion: string?, packageDirectoryExists: bool): bool {
+        return requestedVersion == null && packageDirectoryExists
+    }
+
+    public static func SelectBestInstalledNuGetVersionDirectory(packageDirectory: string, installedVersions: string[]): string? {
+        bestVersionIndex := SelectBestNuGetVersionIndex(installedVersions)
+        if bestVersionIndex >= 0 {
+            return Path.Combine(packageDirectory, installedVersions[bestVersionIndex])
+        }
+
+        return null
+    }
+
+    public static func GetLatestNuGetVersionOrThrow(packageName: string, versions: string[]): string {
+        latestVersionIndex := SelectLatestNuGetVersionIndex(versions)
+        if latestVersionIndex >= 0 {
+            return versions[latestVersionIndex]
+        }
+
+        throw new InvalidOperationException(GetNuGetNoPublishedVersionsMessage(packageName))
+    }
+
     public static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
         candidates := new List<string>()
         yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
