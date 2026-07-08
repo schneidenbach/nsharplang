@@ -82,6 +82,26 @@ public class CompilationReferenceResolverKernels {
             + ".nupkg"
     }
 
+    public static func GetFallbackNuGetPackageIdentity(versionDirectory: string): PackageIdentity {
+        packageId := Path.GetFileName(Path.GetDirectoryName(versionDirectory)) ?? ""
+        packageVersion := Path.GetFileName(versionDirectory) ?? ""
+        return new PackageIdentity(packageId, packageVersion)
+    }
+
+    public static func ResolveNuGetPackageIdentity(
+        versionDirectory: string,
+        requestedPackageName: string,
+        declaredId: string?,
+        declaredVersion: string?): PackageIdentity {
+        packageId := declaredId ?? requestedPackageName
+        packageVersion := declaredVersion ?? (Path.GetFileName(versionDirectory) ?? "")
+        return new PackageIdentity(packageId, packageVersion)
+    }
+
+    public static func GetNuGetPackageAssetsCacheKey(packageId: string?, packageVersion: string?): string {
+        return (packageId ?? "") + "@" + (packageVersion ?? "")
+    }
+
     public static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
         candidates := new List<string>()
         yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)

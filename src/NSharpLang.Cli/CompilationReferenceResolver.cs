@@ -230,9 +230,15 @@ internal static class CompilationReferenceResolver
         ResolutionContext context)
     {
         var versionDirectory = EnsurePackageAvailable(packageName, version);
-        var packageId = ReadPackageIdentity(versionDirectory).Id ?? packageName;
-        var packageVersion = ReadPackageIdentity(versionDirectory).Version ?? Path.GetFileName(versionDirectory);
-        var key = $"{packageId}@{packageVersion}";
+        var declaredIdentity = ReadPackageIdentity(versionDirectory);
+        var packageIdentity = CompilationReferenceResolverKernels.ResolveNuGetPackageIdentity(
+            versionDirectory,
+            packageName,
+            declaredIdentity.Id,
+            declaredIdentity.Version);
+        var key = CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey(
+            packageIdentity.Id,
+            packageIdentity.Version);
 
         if (context.PackageAssets.TryGetValue(key, out var cached))
         {
@@ -369,7 +375,7 @@ internal static class CompilationReferenceResolver
             .FirstOrDefault();
         if (nuspecPath == null)
         {
-            return new PackageIdentity(Path.GetFileName(Path.GetDirectoryName(versionDirectory)), Path.GetFileName(versionDirectory));
+            return CompilationReferenceResolverKernels.GetFallbackNuGetPackageIdentity(versionDirectory);
         }
 
         var document = XDocument.Load(nuspecPath);
