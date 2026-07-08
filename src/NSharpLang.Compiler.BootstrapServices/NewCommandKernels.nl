@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System
+import System.IO
 
 public class NewArgumentSummary {
     FirstPositional: string?
@@ -170,6 +171,60 @@ public class NewCommandKernels {
         }
 
         return templateKind
+    }
+
+    public static func GetEffectiveProjectName(firstPositional: string?, secondPositional: string?): string? {
+        if secondPositional != null && GetProjectTemplateName(NormalizeTemplateKind(firstPositional ?? "")) != null {
+            return secondPositional
+        }
+
+        return firstPositional
+    }
+
+    public static func GetEffectiveRequestedTemplate(
+        templateOption: string?,
+        firstPositional: string?,
+        secondPositional: string?): string? {
+        if secondPositional != null {
+            positionalTemplate := GetProjectTemplateName(NormalizeTemplateKind(firstPositional ?? ""))
+            if positionalTemplate != null {
+                return positionalTemplate
+            }
+        }
+
+        return templateOption
+    }
+
+    public static func GetProjectDirectory(currentDirectory: string, projectName: string): string {
+        return Path.Combine(currentDirectory, projectName)
+    }
+
+    public static func GetProjectYamlPath(projectDir: string): string {
+        return Path.Combine(projectDir, "project.yml")
+    }
+
+    public static func GetGlobalJsonPath(projectDir: string): string {
+        return Path.Combine(projectDir, "global.json")
+    }
+
+    public static func GetNuGetConfigPath(projectDir: string): string {
+        return Path.Combine(projectDir, "NuGet.config")
+    }
+
+    public static func GetTemplateSourceFilePath(projectDir: string, sourceFileKind: NewTemplateSourceFileKind): string {
+        return Path.Combine(projectDir, GetTemplateSourceFileName(sourceFileKind))
+    }
+
+    public static func ShouldShowSystemsCommands(template: string): bool {
+        return template == "systems-cli" || template == "systems-lib"
+    }
+
+    public static func ShouldShowTestCommand(template: string): bool {
+        return template == "test"
+    }
+
+    public static func ShouldShowRunCommand(template: string): bool {
+        return template != "library"
     }
 
     public static func GetTemplateSourceFileKinds(template: string): NewTemplateSourceFileKind[] {

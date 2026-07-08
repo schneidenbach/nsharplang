@@ -366,29 +366,28 @@ partial class Program
             return 0;
         }
 
-        var projectName = arguments.FirstPositional;
+        var projectName = NewCommandKernels.GetEffectiveProjectName(
+            arguments.FirstPositional,
+            arguments.SecondPositional);
         if (projectName == null)
         {
             return Error(NewCommandKernels.GetUsageMessage());
         }
 
-        var requestedTemplate = arguments.TemplateOption;
-        if (arguments.SecondPositional != null
-            && GetProjectTemplateName(NewCommandKernels.NormalizeTemplateKind(arguments.FirstPositional!)) is { } positionalTemplate)
-        {
-            requestedTemplate = positionalTemplate;
-            projectName = arguments.SecondPositional;
-        }
+        var requestedTemplate = NewCommandKernels.GetEffectiveRequestedTemplate(
+            arguments.TemplateOption,
+            arguments.FirstPositional,
+            arguments.SecondPositional);
 
         var systemsFlag = arguments.Systems;
-        var template = GetProjectTemplateName(
+        var template = NewCommandKernels.GetProjectTemplateName(
             NewCommandKernels.ResolveTemplateKind(requestedTemplate ?? "console", systemsFlag));
         if (template == null)
         {
             return Error(NewCommandKernels.GetInvalidTemplateMessage());
         }
 
-        var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
+        var projectDir = NewCommandKernels.GetProjectDirectory(Directory.GetCurrentDirectory(), projectName);
 
         if (Directory.Exists(projectDir))
         {
@@ -407,7 +406,7 @@ partial class Program
             Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "NuGet.config"));
             foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
             {
-                var file = GetTemplateSourceFileName(sourceFileKind);
+                var file = NewCommandKernels.GetTemplateSourceFileName(sourceFileKind);
                 Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, file));
             }
 
@@ -415,7 +414,7 @@ partial class Program
             Console.WriteLine(NewCommandKernels.GetProjectShapeMessage());
             Console.WriteLine(NewCommandKernels.GetNextStepsIntroMessage(template));
             Console.WriteLine(NewCommandKernels.GetCdCommandMessage(projectName));
-            if (template is "systems-cli" or "systems-lib")
+            if (NewCommandKernels.ShouldShowSystemsCommands(template))
             {
                 Console.WriteLine(NewCommandKernels.GetSystemsReportCommandMessage());
                 Console.WriteLine(NewCommandKernels.GetSystemsBuildCommandMessage());
@@ -423,9 +422,9 @@ partial class Program
             else
             {
                 Console.WriteLine(NewCommandKernels.GetBuildCommandMessage());
-                if (template == "test")
+                if (NewCommandKernels.ShouldShowTestCommand(template))
                     Console.WriteLine(NewCommandKernels.GetTestCommandMessage());
-                else if (template != "library")
+                else if (NewCommandKernels.ShouldShowRunCommand(template))
                     Console.WriteLine(NewCommandKernels.GetRunCommandMessage());
             }
             Console.WriteLine();
@@ -438,15 +437,9 @@ partial class Program
         }
     }
 
-    static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
-        => NewCommandKernels.GetTemplateSourceFileName(sourceFileKind);
-
-    static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
-        => NewCommandKernels.GetProjectTemplateName(templateKind);
-
     static void WriteCanonicalProject(string projectDir, string projectName, string template)
     {
-        File.WriteAllText(Path.Combine(projectDir, "project.yml"), NewCommandKernels.GetProjectYamlText(projectName, template));
+        File.WriteAllText(NewCommandKernels.GetProjectYamlPath(projectDir), NewCommandKernels.GetProjectYamlText(projectName, template));
         WriteSdkSupportFiles(projectDir);
 
         foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
@@ -458,8 +451,7 @@ partial class Program
         string template,
         NewTemplateSourceFileKind sourceFileKind)
     {
-        var fileName = GetTemplateSourceFileName(sourceFileKind);
-        var path = Path.Combine(projectDir, fileName);
+        var path = NewCommandKernels.GetTemplateSourceFilePath(projectDir, sourceFileKind);
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
@@ -469,9 +461,9 @@ partial class Program
 
     static void WriteSdkSupportFiles(string projectDir)
     {
-        File.WriteAllText(Path.Combine(projectDir, "global.json"), NewCommandKernels.GetGlobalJsonText());
+        File.WriteAllText(NewCommandKernels.GetGlobalJsonPath(projectDir), NewCommandKernels.GetGlobalJsonText());
         File.WriteAllText(
-            Path.Combine(projectDir, "NuGet.config"),
+            NewCommandKernels.GetNuGetConfigPath(projectDir),
             NewCommandKernels.GetNuGetConfigText(NSharpInstallRoot.ProjectFeedValue()));
     }
 
