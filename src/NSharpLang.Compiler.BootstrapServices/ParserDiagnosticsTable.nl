@@ -11,6 +11,7 @@ public class ParserDiagnosticMessageKind {
     public static func ExpectedFieldColon(): int { return 8 }
     public static func ExpectedTypeParameterName(): int { return 9 }
     public static func ExpectedGenericTypeArgument(): int { return 10 }
+    public static func ExpectedReturnTypeColon(): int { return 11 }
 }
 
 public class ParserDiagnosticContextKind {

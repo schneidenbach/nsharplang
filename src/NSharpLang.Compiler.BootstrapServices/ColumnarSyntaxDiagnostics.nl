@@ -16,11 +16,94 @@ public class ColumnarSyntaxDiagnostics {
         tokens := lexer.Tokenize()
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
         CollectGenericListDiagnostics(sourceFiles[0], tokens, table)
+        CollectFunctionReturnTypeDiagnostics(sourceFiles[0], tokens, table)
         CollectParameterListDiagnostics(sourceFiles[0], tokens, table)
         CollectFieldDeclarationDiagnostics(sourceFiles[0], tokens, table)
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectFunctionReturnTypeDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.Func {
+                AnalyzeFunctionReturnTypeMarker(sourceFile, tokens, table, index)
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func AnalyzeFunctionReturnTypeMarker(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        funcIndex: int) {
+        nameIndex := NextSignificantTokenIndex(tokens, funcIndex)
+        if nameIndex >= 0 && tokens[nameIndex].Type == TokenType.Star {
+            nameIndex = NextSignificantTokenIndex(tokens, nameIndex)
+        }
+
+        if nameIndex < 0 || tokens[nameIndex].Type != TokenType.Identifier {
+            return
+        }
+
+        afterNameIndex := NextSignificantTokenIndex(tokens, nameIndex)
+        if afterNameIndex >= 0 && tokens[afterNameIndex].Type == TokenType.Less {
+            greaterIndex := FindMatchingGreater(tokens, afterNameIndex)
+            if greaterIndex < 0 {
+                return
+            }
+
+            afterNameIndex = NextSignificantTokenIndex(tokens, greaterIndex)
+        }
+
+        if afterNameIndex < 0 || tokens[afterNameIndex].Type != TokenType.LeftParen {
+            return
+        }
+
+        closeParenIndex := FindMatchingRightParen(tokens, afterNameIndex)
+        if closeParenIndex < 0 {
+            return
+        }
+
+        returnTypeIndex := NextSignificantTokenIndex(tokens, closeParenIndex)
+        if returnTypeIndex < 0 {
+            return
+        }
+
+        closeParen := tokens[closeParenIndex]
+        returnType := tokens[returnTypeIndex]
+        if returnType.Line != closeParen.Line || !ParserTokenFacts.IsTypeReferenceStart(returnType.Type) {
+            return
+        }
+
+        nameToken := tokens[nameIndex]
+        nameStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, nameToken.Line, nameToken.Column)
+        returnTypeStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, returnType.Line, returnType.Column)
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            nameStart,
+            nameToken.Value.Length,
+            nameToken.Line,
+            nameToken.Column,
+            ParserDiagnosticMessageKind.ExpectedReturnTypeColon(),
+            ParserDiagnosticContextKind.FunctionDeclaration(),
+            nameStart,
+            nameToken.Value.Length,
+            returnTypeStart,
+            returnType.Value.Length)
     }
 
     static func CollectGenericListDiagnostics(

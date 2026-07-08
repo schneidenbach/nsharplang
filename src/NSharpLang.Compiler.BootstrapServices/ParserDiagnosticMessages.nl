@@ -207,6 +207,24 @@ public class ParserDiagnosticMessages {
                     "Generic type '" + typeName + "' needs a type argument between '<' and '>'.",
                     "Write this type as `" + typeName + "<T>` or remove the generic argument list.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedReturnTypeColon() {
+                functionName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add ':' before '" + currentText + "'")
+                suggestions.Add("Remove the return type if this function does not return a value")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected ':' before return type. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Function '" + functionName + "' needs a ':' before its return type.",
+                    "Write the return type as `func name(...): Type { ... }`.",
+                    suggestions))
             }
 
             index = index + 1
