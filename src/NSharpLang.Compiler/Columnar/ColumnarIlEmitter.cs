@@ -2932,7 +2932,8 @@ internal sealed class ColumnarIlEmitter
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
     internal static bool TryEmitColumnarAssembly(
-        string assemblyName, string typeName, ColumnarProgramInput program, bool isExecutable, out byte[] assembly)
+        string assemblyName, string typeName, ColumnarProgramInput program, bool isExecutable, out byte[] assembly,
+        Version? assemblyVersion = null)
     {
         assembly = Array.Empty<byte>();
         var funcs = program.Functions;
@@ -2943,7 +2944,10 @@ internal sealed class ColumnarIlEmitter
         if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0)
             return DeclineStatic("emit.program.empty", "columnar program has no modeled declarations");
 
-        var builder = new PersistedAssemblyBuilder(new AssemblyName(assemblyName), typeof(object).Assembly);
+        var assemblyIdentity = new AssemblyName(assemblyName);
+        if (assemblyVersion != null)
+            assemblyIdentity.Version = assemblyVersion;
+        var builder = new PersistedAssemblyBuilder(assemblyIdentity, typeof(object).Assembly);
         var module = builder.DefineDynamicModule(assemblyName);
 
         // PASS 0: define every user enum as a module-level i4-underlying enum type, BEFORE the Program type and the

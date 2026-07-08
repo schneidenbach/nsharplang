@@ -517,7 +517,10 @@ public class MultiFileCompiler
         ColumnarDeclineTrace.Reset();
         if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, out var program))
             return false;
-        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly))
+        // Stamp the numeric CLR version derived from the project's (possibly SemVer)
+        // version string, matching the AssemblyVersion the MSBuild SDK advertises.
+        var assemblyVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(_config?.Version);
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly, assemblyVersion))
             return false;
         File.WriteAllBytes(outputPath, assembly);
         return true;
