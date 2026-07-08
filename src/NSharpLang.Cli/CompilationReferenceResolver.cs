@@ -279,7 +279,7 @@ internal static class CompilationReferenceResolver
     private static string EnsurePackageAvailable(string packageName, string? version)
     {
         var packagesRoot = GetGlobalPackagesFolder();
-        var packageDirectory = Path.Combine(packagesRoot, packageName.ToLowerInvariant());
+        var packageDirectory = CompilationReferenceResolverKernels.GetNuGetPackageDirectory(packagesRoot, packageName);
 
         if (version == null && Directory.Exists(packageDirectory))
         {
@@ -297,7 +297,7 @@ internal static class CompilationReferenceResolver
         }
 
         var resolvedVersion = version ?? GetLatestPackageVersion(packageName);
-        var versionDirectory = Path.Combine(packageDirectory, resolvedVersion.ToLowerInvariant());
+        var versionDirectory = CompilationReferenceResolverKernels.GetNuGetPackageVersionDirectory(packageDirectory, resolvedVersion);
         if (Directory.Exists(versionDirectory))
         {
             return versionDirectory;
@@ -309,8 +309,7 @@ internal static class CompilationReferenceResolver
 
     private static string GetLatestPackageVersion(string packageName)
     {
-        var packageId = packageName.ToLowerInvariant();
-        var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json";
+        var indexUrl = CompilationReferenceResolverKernels.GetNuGetIndexUrl(packageName);
         using var document = JsonDocument.Parse(HttpClient.GetStringAsync(indexUrl).GetAwaiter().GetResult());
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -328,11 +327,9 @@ internal static class CompilationReferenceResolver
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
     {
-        var packageId = packageName.ToLowerInvariant();
-        var normalizedVersion = version.ToLowerInvariant();
-        var url = $"https://api.nuget.org/v3-flatcontainer/{packageId}/{normalizedVersion}/{packageId}.{normalizedVersion}.nupkg";
+        var url = CompilationReferenceResolverKernels.GetNuGetPackageDownloadUrl(packageName, version);
         var tempDirectory = Path.Combine(Path.GetTempPath(), $"nlc-nuget-{Guid.NewGuid():N}");
-        var packagePath = Path.Combine(tempDirectory, $"{packageId}.{normalizedVersion}.nupkg");
+        var packagePath = Path.Combine(tempDirectory, CompilationReferenceResolverKernels.GetNuGetPackageFileName(packageName, version));
 
         try
         {

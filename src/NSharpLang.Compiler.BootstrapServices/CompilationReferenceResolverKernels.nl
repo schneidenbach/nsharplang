@@ -40,6 +40,48 @@ public class CompilationReferenceResolverKernels {
         return Path.Combine(Path.Combine(userProfileFolder, ".nuget"), "packages")
     }
 
+    public static func NormalizeNuGetPackageId(packageName: string): string {
+        return packageName.ToLowerInvariant()
+    }
+
+    public static func NormalizeNuGetPackageVersion(version: string): string {
+        return version.ToLowerInvariant()
+    }
+
+    public static func GetNuGetPackageDirectory(packagesRoot: string, packageName: string): string {
+        return Path.Combine(packagesRoot, NormalizeNuGetPackageId(packageName))
+    }
+
+    public static func GetNuGetPackageVersionDirectory(packageDirectory: string, version: string): string {
+        return Path.Combine(packageDirectory, NormalizeNuGetPackageVersion(version))
+    }
+
+    public static func GetNuGetIndexUrl(packageName: string): string {
+        packageId := NormalizeNuGetPackageId(packageName)
+        return "https://api.nuget.org/v3-flatcontainer/" + packageId + "/index.json"
+    }
+
+    public static func GetNuGetPackageDownloadUrl(packageName: string, version: string): string {
+        packageId := NormalizeNuGetPackageId(packageName)
+        normalizedVersion := NormalizeNuGetPackageVersion(version)
+        return "https://api.nuget.org/v3-flatcontainer/"
+            + packageId
+            + "/"
+            + normalizedVersion
+            + "/"
+            + packageId
+            + "."
+            + normalizedVersion
+            + ".nupkg"
+    }
+
+    public static func GetNuGetPackageFileName(packageName: string, version: string): string {
+        return NormalizeNuGetPackageId(packageName)
+            + "."
+            + NormalizeNuGetPackageVersion(version)
+            + ".nupkg"
+    }
+
     public static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
         candidates := new List<string>()
         yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
