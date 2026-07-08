@@ -441,16 +441,9 @@ internal static class CompilationReferenceResolver
         }
 
         // MECHANICAL-GLUE: directory and file enumeration only; compatibility and ordering live in CompilationReferenceResolverKernels.nl.
-        var candidateDirectories = Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly);
-        var candidateFrameworks = candidateDirectories
-            .Select(directory => Path.GetFileName(directory) ?? string.Empty)
-            .ToArray();
-        var bestDirectoryIndex = CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(
-            candidateFrameworks,
+        var bestDirectory = CompilationReferenceResolverKernels.SelectBestAssetDirectory(
+            Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly),
             targetFramework);
-        var bestDirectory = bestDirectoryIndex >= 0
-            ? candidateDirectories[bestDirectoryIndex]
-            : null;
 
         return bestDirectory == null
             ? Array.Empty<string>()
@@ -479,7 +472,6 @@ internal static class CompilationReferenceResolver
 
     private static string? FindSharedFrameworkDirectory(string frameworkName, string targetFramework)
     {
-        var targetVersion = CompilationReferenceResolverKernels.ParseTargetFrameworkVersion(targetFramework);
         foreach (var sharedRoot in EnumerateDotnetSharedRoots())
         {
             var frameworkRoot = Path.Combine(sharedRoot, frameworkName);
@@ -489,16 +481,12 @@ internal static class CompilationReferenceResolver
             }
 
             // MECHANICAL-GLUE: directory enumeration only; version parsing and selection live in CompilationReferenceResolverKernels.nl.
-            var candidateDirectories = Directory.GetDirectories(frameworkRoot);
-            var candidateVersions = candidateDirectories
-                .Select(directory => Path.GetFileName(directory) ?? string.Empty)
-                .ToArray();
-            var selectedIndex = CompilationReferenceResolverKernels.SelectSharedFrameworkDirectoryIndex(
-                candidateVersions,
-                targetVersion);
-            if (selectedIndex >= 0)
+            var selectedDirectory = CompilationReferenceResolverKernels.SelectSharedFrameworkDirectory(
+                Directory.GetDirectories(frameworkRoot),
+                targetFramework);
+            if (selectedDirectory != null)
             {
-                return candidateDirectories[selectedIndex];
+                return selectedDirectory;
             }
         }
 

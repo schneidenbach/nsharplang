@@ -396,6 +396,22 @@ public class CompilationReferenceResolverKernels {
         return SelectBestScoreIndex(scores, scores.Length)
     }
 
+    public static func SelectBestAssetDirectory(candidateDirectories: string[], targetFramework: string): string? {
+        candidateFrameworks := new string[](candidateDirectories.Length)
+        index := 0
+        while index < candidateDirectories.Length {
+            candidateFrameworks[index] = Path.GetFileName(candidateDirectories[index]) ?? ""
+            index = index + 1
+        }
+
+        bestIndex := SelectBestAssetDirectoryIndex(candidateFrameworks, targetFramework)
+        if bestIndex >= 0 {
+            return candidateDirectories[bestIndex]
+        }
+
+        return null
+    }
+
     public static func SelectBestDependencyGroupIndex(groupTargetFrameworks: string?[], targetFramework: string): int {
         scores := new int[](groupTargetFrameworks.Length)
         index := 0
@@ -525,6 +541,23 @@ public class CompilationReferenceResolverKernels {
         }
 
         return bestOverallIndex
+    }
+
+    public static func SelectSharedFrameworkDirectory(candidateDirectories: string[], targetFramework: string): string? {
+        targetVersion := ParseTargetFrameworkVersion(targetFramework)
+        candidateVersions := new string[](candidateDirectories.Length)
+        index := 0
+        while index < candidateDirectories.Length {
+            candidateVersions[index] = Path.GetFileName(candidateDirectories[index]) ?? ""
+            index = index + 1
+        }
+
+        selectedIndex := SelectSharedFrameworkDirectoryIndex(candidateVersions, targetVersion)
+        if selectedIndex >= 0 {
+            return candidateDirectories[selectedIndex]
+        }
+
+        return null
     }
 
     public static func SelectLatestNuGetVersionIndex(versions: string[]): int {
