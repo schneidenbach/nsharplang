@@ -6,23 +6,52 @@ public class ColumnarDeclineReason {
     spanStartValue: int
     spanLengthValue: int
     memberNameValue: string
+    sourceFileIdValue: int
+    hasSourceFileIdValue: bool
 
     SiteId: string => siteIdValue
     Message: string => messageValue
     SpanStart: int => spanStartValue
     SpanLength: int => spanLengthValue
     MemberName: string => memberNameValue
+    SourceFileId: int => sourceFileIdValue
+    HasSourceFileId: bool => hasSourceFileIdValue
 
-    constructor(siteId: string, message: string, spanStart: int, spanLength: int, memberName: string) {
+    constructor(
+        siteId: string,
+        message: string,
+        spanStart: int,
+        spanLength: int,
+        memberName: string,
+        sourceFileId: int = 0,
+        hasSourceFileId: bool = false) {
         siteIdValue = siteId
         messageValue = message
         spanStartValue = spanStart
         spanLengthValue = spanLength
         memberNameValue = memberName
+        sourceFileIdValue = sourceFileId
+        hasSourceFileIdValue = hasSourceFileId
     }
 }
 
 public class ColumnarDeclineReasonFacts {
+    public static func ResolveFileIndex(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
+        if hasSourceFileId && sourceFileId >= 0 && sourceFileId < fileLengths.Length {
+            return sourceFileId
+        }
+
+        return MapMergedOffsetFileIndex(fileLengths, separatorLength, offset)
+    }
+
+    public static func ResolveLocalOffset(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
+        if hasSourceFileId && sourceFileId >= 0 && sourceFileId < fileLengths.Length {
+            return offset
+        }
+
+        return MapMergedOffsetLocalOffset(fileLengths, separatorLength, offset)
+    }
+
     public static func MapMergedOffsetFileIndex(fileLengths: int[], separatorLength: int, offset: int): int {
         if offset < 0 {
             return -1

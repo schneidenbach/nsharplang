@@ -541,7 +541,7 @@ public class MultiFileCompiler
         }
 
         var fileLengths = GetOrderedSourceLengths();
-        var fileIndex = ColumnarDeclineReasonFacts.MapMergedOffsetFileIndex(fileLengths, 2, primary.SpanStart);
+        var fileIndex = ColumnarDeclineReasonFacts.ResolveFileIndex(fileLengths, 2, primary.SpanStart, primary.SourceFileId, primary.HasSourceFileId);
         string? fileName = null;
         var line = 0;
         var column = 0;
@@ -549,7 +549,7 @@ public class MultiFileCompiler
         {
             var sourceFile = _sourceFiles[fileIndex];
             fileName = sourceFile;
-            var localOffset = ColumnarDeclineReasonFacts.MapMergedOffsetLocalOffset(fileLengths, 2, primary.SpanStart);
+            var localOffset = ColumnarDeclineReasonFacts.ResolveLocalOffset(fileLengths, 2, primary.SpanStart, primary.SourceFileId, primary.HasSourceFileId);
             if (localOffset >= 0 && _sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out var source))
             {
                 line = ColumnarDeclineReasonFacts.LineFromOffset(source, localOffset);
@@ -559,7 +559,7 @@ public class MultiFileCompiler
 
         var reason = string.IsNullOrEmpty(memberName)
             ? primary
-            : new ColumnarDeclineReason(primary.SiteId, primary.Message, primary.SpanStart, primary.SpanLength, memberName);
+            : new ColumnarDeclineReason(primary.SiteId, primary.Message, primary.SpanStart, primary.SpanLength, memberName, primary.SourceFileId, primary.HasSourceFileId);
         var detailFileName = fileName != null ? Path.GetFileName(fileName) : null;
         var detail = ColumnarDeclineReasonFacts.FormatDetail(reason, detailFileName, line, column);
         return new ColumnarDeclineDiagnostic(
@@ -603,11 +603,11 @@ public class MultiFileCompiler
             var fileName = (string?)null;
             var line = 0;
             var column = 0;
-            var fileIndex = ColumnarDeclineReasonFacts.MapMergedOffsetFileIndex(fileLengths, 2, record.SpanStart);
+            var fileIndex = ColumnarDeclineReasonFacts.ResolveFileIndex(fileLengths, 2, record.SpanStart, record.SourceFileId, record.HasSourceFileId);
             if (fileIndex >= 0 && fileIndex < _sourceFiles.Count)
             {
                 var sourceFile = _sourceFiles[fileIndex];
-                var localOffset = ColumnarDeclineReasonFacts.MapMergedOffsetLocalOffset(fileLengths, 2, record.SpanStart);
+                var localOffset = ColumnarDeclineReasonFacts.ResolveLocalOffset(fileLengths, 2, record.SpanStart, record.SourceFileId, record.HasSourceFileId);
                 if (localOffset >= 0 && _sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out var source))
                 {
                     fileName = Path.GetFileName(sourceFile);
