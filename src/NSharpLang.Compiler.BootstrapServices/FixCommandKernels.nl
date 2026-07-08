@@ -56,6 +56,14 @@ public class FixCommandKernels {
         return Path.GetFullPath(Path.Combine(projectDirectory, filePath))
     }
 
+    public static func GetSourceFilePath(sourceFile: string): string {
+        return Path.GetFullPath(sourceFile)
+    }
+
+    public static func GetRelativeFile(projectDirectory: string, filePath: string): string {
+        return Path.GetRelativePath(projectDirectory, filePath)
+    }
+
     public static func GetAtomicTempPath(path: string, currentDirectory: string, uniqueName: string): string {
         directory := Path.GetDirectoryName(path) ?? currentDirectory
         fileName := Path.GetFileName(path) ?? ""

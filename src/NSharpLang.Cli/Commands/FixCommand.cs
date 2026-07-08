@@ -60,7 +60,7 @@ public static class FixCommand
             {
                 var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
                 files = config.GetSourceFiles(projectDir, includeTests: false)
-                    .Select(f => Path.GetFullPath(f))
+                    .Select(f => FixCommandKernels.GetSourceFilePath(f))
                     .ToList();
             }
 
@@ -87,7 +87,7 @@ public static class FixCommand
 
                 if (fixes.Count == 0) continue;
 
-                var relativeFile = Path.GetRelativePath(projectDir, file);
+                var relativeFile = FixCommandKernels.GetRelativeFile(projectDir, file);
 
                 var safeActions = FixCommandKernels.FilterBySafety(fixes, includeReviewNeeded);
 
