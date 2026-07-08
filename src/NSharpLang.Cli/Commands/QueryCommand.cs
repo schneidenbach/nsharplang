@@ -333,7 +333,7 @@ public static class QueryCommand
                 Console.Write(OutputFormatter.ImplementorsToJson(result));
             }
 
-            return result.Results.Count > 0 ? 0 : 1;
+            return QueryCommandKernels.GetResultPresenceExitCode(result.Results.Count);
         }
 
         // Position-based: resolve the interface name at position, then find implementors
@@ -348,7 +348,7 @@ public static class QueryCommand
             if (snapshot == null) return 1;
 
             var definition = Service.FindDefinition(snapshot, file, line, col);
-            if (definition == null || !string.Equals(definition.Kind, "interface", StringComparison.OrdinalIgnoreCase))
+            if (definition == null || !QueryCommandKernels.IsInterfaceKind(definition.Kind))
             {
                 if (outputMode == 2)
                 {
@@ -377,7 +377,7 @@ public static class QueryCommand
                 Console.Write(OutputFormatter.ImplementorsToJson(result));
             }
 
-            return result.Results.Count > 0 ? 0 : 1;
+            return QueryCommandKernels.GetResultPresenceExitCode(result.Results.Count);
         }
 
         return QueryError(QueryCommandKernels.GetImplementorsUsageMessage());
@@ -443,7 +443,7 @@ public static class QueryCommand
             new CompletionEngine());
 
         Console.Write(execution.Json);
-        return execution.Ok ? 0 : 1;
+        return QueryCommandKernels.GetBooleanSuccessExitCode(execution.Ok);
     }
 
     private static int OutlineCommand(string[] args, QueryOptions options)
@@ -458,8 +458,8 @@ public static class QueryCommand
             return QueryError(QueryCommandKernels.GetOutlineUsageMessage());
         }
 
-        var projectRoot = options.ProjectDir ?? Directory.GetCurrentDirectory();
-        var filePath = Path.IsPathRooted(file) ? file : Path.Combine(projectRoot, file);
+        var projectRoot = QueryCommandDogfoodKernels.GetProjectRoot(options.ProjectDir, Directory.GetCurrentDirectory());
+        var filePath = QueryCommandDogfoodKernels.ResolveProjectFilePath(projectRoot, file);
 
         if (!File.Exists(filePath))
         {
@@ -519,7 +519,7 @@ public static class QueryCommand
             Console.Write(OutputFormatter.DiagnosticsToJson(results, snapshot.ProjectRoot));
         }
 
-        return summary.Errors > 0 ? 1 : 0;
+        return QueryCommandKernels.GetDiagnosticSummaryExitCode(summary.Errors);
     }
 
     private static int TypeCommand(string[] args, QueryOptions options)
@@ -970,7 +970,7 @@ public static class QueryCommand
         => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     private static string GetProjectRoot(QueryOptions options)
-        => Path.GetFullPath(options.ProjectDir ?? Directory.GetCurrentDirectory());
+        => QueryCommandDogfoodKernels.GetProjectRoot(options.ProjectDir, Directory.GetCurrentDirectory());
 
     private static Dictionary<string, object?> MaterializeDaemonParameters(string[] args, QueryOptions options)
     {

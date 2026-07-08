@@ -358,6 +358,34 @@ public class QueryCommandKernels {
         return 1
     }
 
+    public static func GetResultPresenceExitCode(resultCount: int): int {
+        if resultCount > 0 {
+            return 0
+        }
+
+        return 1
+    }
+
+    public static func GetBooleanSuccessExitCode(ok: bool): int {
+        if ok {
+            return 0
+        }
+
+        return 1
+    }
+
+    public static func GetDiagnosticSummaryExitCode(errorCount: int): int {
+        if errorCount > 0 {
+            return 1
+        }
+
+        return 0
+    }
+
+    public static func IsInterfaceKind(kind: string?): bool {
+        return String.Compare(kind ?? "", "interface", StringComparison.OrdinalIgnoreCase) == 0
+    }
+
     public static func ParseSymbolKind(valueText: string): QuerySymbolKindParseResult {
         kindValue := 0
         if !TryParseSymbolKind(valueText, out kindValue) {

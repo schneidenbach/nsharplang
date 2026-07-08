@@ -214,6 +214,18 @@ public class QueryCommandDogfoodKernels {
         return Path.GetRelativePath(basePath, filePath)
     }
 
+    public static func GetProjectRoot(projectDir: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectDir ?? currentDirectory)
+    }
+
+    public static func ResolveProjectFilePath(projectRoot: string, filePath: string): string {
+        if Path.IsPathRooted(filePath) {
+            return filePath
+        }
+
+        return Path.Combine(projectRoot, filePath)
+    }
+
     public static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
         return new OutlineResult(outputFile, result.Imports, result.Outline)
     }
