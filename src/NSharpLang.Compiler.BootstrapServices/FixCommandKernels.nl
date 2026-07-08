@@ -246,6 +246,14 @@ public class FixCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func GetExitCode(dryRun: bool, filesModified: int): int {
+        if dryRun && filesModified > 0 {
+            return 1
+        }
+
+        return 0
+    }
+
     static func BuildJsonEntries(entries: IReadOnlyList<FixEntry>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
         items := FixEntryList(entries)

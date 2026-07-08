@@ -145,7 +145,7 @@ public static class FixCommand
                 Console.Write(FixCommandKernels.ResultJson(projectDir, dryRun, includeReviewNeeded, allResults, allApplied, filesModified));
             }
 
-            return dryRun && filesModified > 0 ? 1 : 0;
+            return FixCommandKernels.GetExitCode(dryRun, filesModified);
         }
         catch (Exception ex)
         {
