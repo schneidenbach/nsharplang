@@ -1039,20 +1039,7 @@ public static class QueryCommand
     }
 
     private static int GetJsonExitCode(string json)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.TryGetProperty("ok", out var okElement))
-                return QueryCommandDogfoodKernels.GetDaemonJsonExitCode(true, okElement.ValueKind == JsonValueKind.True);
-        }
-        catch
-        {
-            // Fall back to success when daemon returned malformed/non-envelope JSON.
-        }
-
-        return QueryCommandDogfoodKernels.GetDaemonJsonExitCode(false, false);
-    }
+        => QueryCommandDogfoodKernels.GetDaemonJsonExitCodeFromJson(json);
 
     private static int QueryError(string message)
     {

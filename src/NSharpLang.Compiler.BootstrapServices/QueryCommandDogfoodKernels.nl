@@ -4,6 +4,7 @@ import NSharpLang.Cli.Daemon
 import NSharpLang.Compiler.CodeIntelligence
 import System
 import System.IO
+import System.Text.Json
 
 public enum QuerySubcommandKind {
     Unknown = 0,
@@ -72,6 +73,23 @@ public class QueryCommandDogfoodKernels {
         }
 
         return 1
+    }
+
+    public static func GetDaemonJsonExitCodeFromJson(json: string): int {
+        try {
+            document := JsonDocument.Parse(json)
+            okElement := new JsonElement()
+            if document.RootElement.TryGetProperty("ok", out okElement) {
+                ok := okElement.ValueKind == JsonValueKind.True
+                document.Dispose()
+                return GetDaemonJsonExitCode(true, ok)
+            }
+
+            document.Dispose()
+        } catch {
+        }
+
+        return GetDaemonJsonExitCode(false, false)
     }
 
     public static func GetDaemonParameterPlan(args: string[], options: QueryOptions): QueryDaemonParameterPlan {
