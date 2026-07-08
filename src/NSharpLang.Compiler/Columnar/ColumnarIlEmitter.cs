@@ -6063,10 +6063,59 @@ internal sealed class ColumnarIlEmitter
                 var nameCount = childCount - 1;
                 var valueNode = Child(idx, nameCount);
 
-                // The Go-style `name, err := ...` error path is not modelled by this backend yet;
-                // decline it so columnar emission never accepts an unsupported shape.
+                // The Go-style error capture `v, err := <call>` (names[1] == "err" — the legacy
+                // emitter's IsErrorTupleDeconstruction): v = default(T); err = null;
+                // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
+                // expression, so no control transfer can cross the protected region.
                 if (nameCount == 2 && Text(Child(idx, 1)) == "err")
-                    return false;
+                {
+                    if (_inProtectedRegion || _inFinallyRegion)
+                        return false;
+                    var errResultName = Text(Child(idx, 0));
+                    if (IsVisibleBindingName("err") || (errResultName != "_" && IsVisibleBindingName(errResultName)))
+                        return false;
+
+                    LocalBuilder? errResultLocal = null;
+                    Type? errResultType = null;
+                    if (errResultName != "_")
+                    {
+                        if (!TryGetPreflightExpressionType(valueNode, out errResultType) || errResultType == typeof(void))
+                            return false;
+                        errResultLocal = _il.DeclareLocal(errResultType);
+                        if (!TryEmitDefaultValue(errResultType))
+                            return false;
+                        _il.Emit(OpCodes.Stloc, errResultLocal);
+                    }
+
+                    var errLocal = _il.DeclareLocal(typeof(Exception));
+                    _il.Emit(OpCodes.Ldnull);
+                    _il.Emit(OpCodes.Stloc, errLocal);
+
+                    _il.BeginExceptionBlock();
+                    _inProtectedRegion = true;
+                    var errValueOk = EmitExpression(valueNode, out var errValueType);
+                    _inProtectedRegion = false;
+                    if (!errValueOk)
+                        return false;
+                    if (errResultLocal != null)
+                    {
+                        if (!TypesEquivalent(errValueType, errResultType!))
+                            return false;
+                        _il.Emit(OpCodes.Stloc, errResultLocal);
+                    }
+                    else if (errValueType != typeof(void))
+                    {
+                        _il.Emit(OpCodes.Pop);
+                    }
+                    _il.BeginCatchBlock(typeof(Exception));
+                    _il.Emit(OpCodes.Stloc, errLocal);
+                    _il.EndExceptionBlock();
+
+                    if (errResultLocal != null)
+                        _locals[errResultName] = errResultLocal;
+                    _locals["err"] = errLocal;
+                    return true;
+                }
 
                 if (!EmitExpression(valueNode, out var tupleType) || !IsSupportedValueTuple(tupleType))
                     return false;
@@ -6197,6 +6246,52 @@ internal sealed class ColumnarIlEmitter
                     "unsupported statement (node kind " + _nodes.Kind(idx).ToString() + ")",
                     idx);
         }
+    }
+
+    // default(T) on the stack: null for reference types, ldc zero for the primitive scalars,
+    // initobj through a temp for other value types.
+    private bool TryEmitDefaultValue(Type type)
+    {
+        if (!type.IsValueType)
+        {
+            _il.Emit(OpCodes.Ldnull);
+            return true;
+        }
+        if (type == typeof(int) || type == typeof(bool) || type == typeof(char)
+            || type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
+            || type == typeof(uint))
+        {
+            _il.Emit(OpCodes.Ldc_I4_0);
+            return true;
+        }
+        if (type == typeof(long) || type == typeof(ulong))
+        {
+            _il.Emit(OpCodes.Ldc_I8, 0L);
+            return true;
+        }
+        if (type == typeof(double))
+        {
+            _il.Emit(OpCodes.Ldc_R8, 0.0);
+            return true;
+        }
+        if (type == typeof(float))
+        {
+            _il.Emit(OpCodes.Ldc_R4, 0.0f);
+            return true;
+        }
+        if (type is TypeBuilder || ContainsBuilderBoundType(type))
+        {
+            var builderTemp = _il.DeclareLocal(type);
+            _il.Emit(OpCodes.Ldloca, builderTemp);
+            _il.Emit(OpCodes.Initobj, type);
+            _il.Emit(OpCodes.Ldloc, builderTemp);
+            return true;
+        }
+        var temp = _il.DeclareLocal(type);
+        _il.Emit(OpCodes.Ldloca, temp);
+        _il.Emit(OpCodes.Initobj, type);
+        _il.Emit(OpCodes.Ldloc, temp);
+        return true;
     }
 
     // Whether the subtree rooted at `idx` contains a direct break/continue (kinds 21/22) anywhere —
