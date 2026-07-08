@@ -119,10 +119,7 @@ public static class NullabilityMetadata
 
         if (type.IsGenericType)
         {
-            var name = type.Name;
-            var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
-            if (tickIndex >= 0)
-                name = name[..tickIndex];
+            var name = NullabilityMetadataCore.StripClrGenericArity(type.Name);
 
             var typeArguments = type.GetGenericArguments();
             var nullabilityArguments = nullabilityInfo?.GenericTypeArguments ?? Array.Empty<NullabilityInfo>();
@@ -247,10 +244,7 @@ public static class NullabilityMetadata
 
         if (type.IsGenericType)
         {
-            var name = type.Name;
-            var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
-            if (tickIndex >= 0)
-                name = name[..tickIndex];
+            var name = NullabilityMetadataCore.StripClrGenericArity(type.Name);
 
             return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatClrTypeName))}>";
         }

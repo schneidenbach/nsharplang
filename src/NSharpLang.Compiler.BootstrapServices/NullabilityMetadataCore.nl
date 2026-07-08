@@ -77,6 +77,15 @@ class NullabilityMetadataCore {
         return NullabilityTypeDisplay.StripMetadata(typeInfo)
     }
 
+    static func StripClrGenericArity(name: string): string {
+        tickIndex := name.IndexOf('`')
+        if tickIndex >= 0 {
+            return name.Substring(0, tickIndex)
+        }
+
+        return name
+    }
+
     static func FormatParameter(
         isOut: bool,
         isByRef: bool,
