@@ -28,6 +28,29 @@ internal static class ColumnarProgramInputBuilder
         return Decline(siteId, message, memberName: memberName);
     }
 
+    // Body node tables are parsed into worst-case scratch arrays sized by the file's token count,
+    // but the program retains them for the whole compile. Copy down to the actual node count
+    // (keeping the kernel's count+1 sentinel row) so retained memory tracks tree size, not file size.
+    private static ColumnarNodeTable BuildTrimmedNodeTable(
+        int[] kinds, int[] valueStarts, int[] valueLengths,
+        int[] childStarts, int[] childCounts, int[] childIndices,
+        int[] spanStarts, int[] spanLengths, int nodeCount)
+    {
+        var rowCount = Math.Min(nodeCount + 1, kinds.Length);
+        var childLimit = 0;
+        for (var i = 0; i < nodeCount; i++)
+        {
+            var childEnd = childStarts[i] + childCounts[i];
+            if (childEnd > childLimit)
+                childLimit = childEnd;
+        }
+        childLimit = Math.Clamp(childLimit, 0, childIndices.Length);
+        return new ColumnarNodeTable(
+            kinds[..rowCount], valueStarts[..rowCount], valueLengths[..rowCount],
+            childStarts[..rowCount], childCounts[..rowCount], childIndices[..childLimit],
+            spanStarts[..rowCount], spanLengths[..rowCount]);
+    }
+
     internal static bool TryBuild(string source, out ColumnarProgramInput program)
     {
         program = null!;
@@ -574,7 +597,7 @@ internal static class ColumnarProgramInputBuilder
             return DeclineAtToken("parse.function.body-nodes", "function body node table was invalid", cs, cv, funcIndex, functionName);
         }
 
-        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl);
+        var bodyNodes = BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
         input = new ColumnarFunctionInput(
             functionName, returnCanonical, paramNames, paramCanonicals,
             bodyNodes, rootBlock, isStatic, typeParamNames,
@@ -673,7 +696,7 @@ internal static class ColumnarProgramInputBuilder
             chainArgTexts[a] = chainArgText;
         }
 
-        var bodyNodes = new ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl);
+        var bodyNodes = BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
         var body = new ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
             bodyNodes, bodyRoot);
@@ -740,7 +763,7 @@ internal static class ColumnarProgramInputBuilder
         {
             return DeclineAtToken("parse.property.getter-nodes", "property getter node table was invalid", cs, cv, propIndex, propName);
         }
-        var getterNodes = new ColumnarNodeTable(gk, gvs, gvl, gcs, gcc, gci, gss, gsl);
+        var getterNodes = BuildTrimmedNodeTable(gk, gvs, gvl, gcs, gcc, gci, gss, gsl, getBodyNodeCount);
         var getter = new ColumnarFunctionInput(
             "get_" + propName, propType, Array.Empty<string>(), Array.Empty<string>(),
             getterNodes, getBodyRoot);
@@ -759,7 +782,7 @@ internal static class ColumnarProgramInputBuilder
             {
                 return DeclineAtToken("parse.property.setter-nodes", "property setter node table was invalid", cs, cv, propIndex, propName);
             }
-            var setterNodes = new ColumnarNodeTable(stk, stvs, stvl, stcs, stcc, stci, stss, stsl);
+            var setterNodes = BuildTrimmedNodeTable(stk, stvs, stvl, stcs, stcc, stci, stss, stsl, setBodyNodeCount);
             setter = new ColumnarFunctionInput(
                 "set_" + propName, "void", ["value"], [propType],
                 setterNodes, setBodyRoot);
