@@ -5990,7 +5990,7 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
                 flag := ModifierFlag(kind)
                 if flag != 0 {
                     pending = pending | flag
-                } else if IsTopLevelDeclarationKeyword(kind) {
+                } else if IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
                     decls.Kinds[outCount] = kind
                     decls.Modifiers[outCount] = pending
                     outCount = outCount + 1
@@ -6007,6 +6007,13 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
 
 func IsTopLevelDeclarationKeyword(kind: int): bool {
     return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
+}
+
+// `record struct` is ONE declaration: the Struct(9) token directly after a Record(13) token is
+// the record-struct TAIL, never its own declaration head. Every declaration walker must apply
+// this so counts, names, and modifiers stay aligned.
+func IsRecordStructTailToken(kinds: int[], index: int): bool {
+    return kinds[index] == 9 && index > 0 && kinds[index - 1] == 13
 }
 
 func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationNameTable): int {
@@ -6045,12 +6052,16 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
             if kind == 53 {
                 inWhereClause = true
-            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
+            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
                 decls.Kinds[outCount] = kind
                 decls.Indices[outCount] = i
-                if i + 1 < count && tokens.Kinds[i + 1] == 0 {
-                    decls.NameStarts[outCount] = tokens.Starts[i + 1]
-                    decls.NameLengths[outCount] = tokens.ValueLengths[i + 1]
+                nameIndex := i + 1
+                if kind == 13 && nameIndex < count && tokens.Kinds[nameIndex] == 9 {
+                    nameIndex = nameIndex + 1
+                }
+                if nameIndex < count && tokens.Kinds[nameIndex] == 0 {
+                    decls.NameStarts[outCount] = tokens.Starts[nameIndex]
+                    decls.NameLengths[outCount] = tokens.ValueLengths[nameIndex]
                 } else {
                     decls.NameStarts[outCount] = -1
                     decls.NameLengths[outCount] = 0
@@ -6102,7 +6113,7 @@ func TopLevelDeclarationKindsCore(tokens: ParserDeclarationKindStream, count: in
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
             if kind == 53 {
                 inWhereClause = true
-            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
+            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
                 decls.Kinds[outCount] = kind
                 outCount = outCount + 1
             }
@@ -6286,13 +6297,17 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: ParserDeclarationKindStr
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
             if kind == 53 {
                 inWhereClause = true
-            } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) {
+            } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) && !IsRecordStructTailToken(tokens.Kinds, i) {
                 if outCount >= output.Indices.Length || outCount >= output.ReferenceFlags.Length || outCount >= output.RecordFlags.Length {
                     return -1
                 }
 
+                declReferenceFlag := isReference
+                if kind == 13 && i + 1 < count && tokens.Kinds[i + 1] == 9 {
+                    declReferenceFlag = 0
+                }
                 output.Indices[outCount] = i
-                output.ReferenceFlags[outCount] = isReference
+                output.ReferenceFlags[outCount] = declReferenceFlag
                 output.RecordFlags[outCount] = isRecord
                 outCount = outCount + 1
             }
@@ -7775,6 +7790,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     pos := structIndex
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
         return -1
+    }
+    // `record struct Name` — the Struct token is the record-struct TAIL of the Record head.
+    if tokens.Kinds[pos] == 13 && pos + 1 < count && tokens.Kinds[pos + 1] == 9 {
+        pos = pos + 1
     }
     pos = pos + 1
 
@@ -10058,6 +10077,10 @@ func EmitColumnarPrimaryConstructorAssignmentRootNode(body: ColumnarConstructorB
 
 func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarConstructorTokenTable, ctorIndex: int, signatureOutputs: ColumnarConstructorSignatureOutputTable, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
     pos := ctorIndex + 1
+    // `record struct Name(...)` — skip the record-struct TAIL Struct token before the name.
+    if pos < tokens.Count && tokens.Kinds[ctorIndex] == 13 && tokens.Kinds[pos] == 9 {
+        pos = pos + 1
+    }
     if pos >= tokens.Count || tokens.Kinds[pos] != 0 {
         return -1
     }

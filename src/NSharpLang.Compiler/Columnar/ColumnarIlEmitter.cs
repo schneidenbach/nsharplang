@@ -7518,6 +7518,10 @@ internal sealed class ColumnarIlEmitter
             eil.Emit(OpCodes.Br, returnFalse);
             eil.MarkLabel(compareFields);
             var other = eil.DeclareLocal(tb);
+            // A boxed VALUE record must unbox before the typed store; a reference record stores the
+            // isinst result directly.
+            if (!def.IsReference)
+                eil.Emit(OpCodes.Unbox_Any, tb);
             eil.Emit(OpCodes.Stloc, other);
             foreach (var fieldName in def.FieldOrder)
             {
@@ -7571,9 +7575,18 @@ internal sealed class ColumnarIlEmitter
             "<Clone>$", MethodAttributes.Public | MethodAttributes.HideBySig,
             tb, Type.EmptyTypes);
         var cil = clone.GetILGenerator();
-        cil.Emit(OpCodes.Ldarg_0);
-        cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
-        cil.Emit(OpCodes.Castclass, tb);
+        if (def.IsReference)
+        {
+            cil.Emit(OpCodes.Ldarg_0);
+            cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
+            cil.Emit(OpCodes.Castclass, tb);
+        }
+        else
+        {
+            // A VALUE record clones by loading the value through the byref `this`.
+            cil.Emit(OpCodes.Ldarg_0);
+            cil.Emit(OpCodes.Ldobj, tb);
+        }
         cil.Emit(OpCodes.Ret);
         def.RecordClone = clone;
     }
@@ -8457,6 +8470,23 @@ internal sealed class ColumnarIlEmitter
                         if (opType is TypeBuilder eqOperandTb && FindDefByBuilder(eqOperandTb) is { IsReference: true })
                         {
                             EmitComparison(op);
+                            type = typeof(bool);
+                            return true;
+                        }
+                        // RECORD STRUCT structural equality: `==`/`!=` on a value record routes through its
+                        // synthesized Equals(object) (box the right operand; call on the left's address).
+                        if (opType is TypeBuilder recordStructTb
+                            && FindDefByBuilder(recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
+                        {
+                            var recordRightTemp = _il.DeclareLocal(recordStructTb);
+                            _il.Emit(OpCodes.Stloc, recordRightTemp);
+                            var recordLeftTemp = _il.DeclareLocal(recordStructTb);
+                            _il.Emit(OpCodes.Stloc, recordLeftTemp);
+                            _il.Emit(OpCodes.Ldloca, recordLeftTemp);
+                            _il.Emit(OpCodes.Ldloc, recordRightTemp);
+                            _il.Emit(OpCodes.Box, recordStructTb);
+                            _il.Emit(OpCodes.Call, recordStructDef.RecordEquals);
+                            if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); }
                             type = typeof(bool);
                             return true;
                         }
@@ -13633,17 +13663,31 @@ internal sealed class ColumnarIlEmitter
             {
                 if (member == "Equals" && argCount == 1 && recordDef.RecordEquals != null)
                 {
+                    // A VALUE record receiver needs its address (`call`); a reference record calls
+                    // through the object ref (`callvirt`). Value-typed args box into the object param.
+                    if (!recordDef.IsReference)
+                    {
+                        var equalsReceiverTemp = _il.DeclareLocal(receiverType);
+                        _il.Emit(OpCodes.Stloc, equalsReceiverTemp);
+                        _il.Emit(OpCodes.Ldloca, equalsReceiverTemp);
+                    }
                     if (!EmitExpression(Child(callIdx, 1), out var equalsArgType))
                         return false;
                     if (equalsArgType.IsValueType)
-                        return false; // the object param would need a box — unmodeled.
-                    _il.Emit(OpCodes.Callvirt, recordDef.RecordEquals);
+                        _il.Emit(OpCodes.Box, equalsArgType);
+                    _il.Emit(recordDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, recordDef.RecordEquals);
                     type = typeof(bool);
                     return true;
                 }
                 if (member == "GetHashCode" && argCount == 0 && recordDef.RecordGetHashCode != null)
                 {
-                    _il.Emit(OpCodes.Callvirt, recordDef.RecordGetHashCode);
+                    if (!recordDef.IsReference)
+                    {
+                        var hashReceiverTemp = _il.DeclareLocal(receiverType);
+                        _il.Emit(OpCodes.Stloc, hashReceiverTemp);
+                        _il.Emit(OpCodes.Ldloca, hashReceiverTemp);
+                    }
+                    _il.Emit(recordDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, recordDef.RecordGetHashCode);
                     type = typeof(int);
                     return true;
                 }
