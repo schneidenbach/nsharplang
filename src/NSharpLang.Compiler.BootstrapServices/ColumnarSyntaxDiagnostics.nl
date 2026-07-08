@@ -14,6 +14,7 @@ public class ColumnarSyntaxDiagnostics {
         table := new ParserDiagnosticTable(source.Length + 1)
         lexer := new Lexer(source, fileName)
         tokens := lexer.Tokenize()
+        CollectMalformedLiteralDiagnostics(sourceFiles[0], tokens, table)
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
         CollectGenericListDiagnostics(sourceFiles[0], tokens, table)
         CollectFunctionReturnTypeDiagnostics(sourceFiles[0], tokens, table)
@@ -24,6 +25,118 @@ public class ColumnarSyntaxDiagnostics {
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectMalformedLiteralDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.StringLiteral {
+                ReportMalformedStringLiteralIfNeeded(sourceFile, table, token)
+            } else if token.Type == TokenType.TripleQuoteStringLiteral {
+                if !token.IsTerminated {
+                    ReportMalformedLiteral(
+                        sourceFile,
+                        table,
+                        token,
+                        ParserDiagnosticMessageKind.UnterminatedTripleQuoteStringLiteral(),
+                        3)
+                }
+            } else if token.Type == TokenType.InterpolatedRawStringLiteral {
+                if !token.IsTerminated {
+                    ReportMalformedLiteral(
+                        sourceFile,
+                        table,
+                        token,
+                        ParserDiagnosticMessageKind.UnterminatedInterpolatedRawStringLiteral(),
+                        4)
+                }
+            } else if token.Type == TokenType.CharLiteral {
+                ReportMalformedCharLiteralIfNeeded(sourceFile, table, token)
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func ReportMalformedStringLiteralIfNeeded(
+        sourceFile: ColumnarSourceFile,
+        table: ParserDiagnosticTable,
+        token: Token) {
+        if token.IsTerminated && ParserLiteralFacts.IsCompleteStringLiteral(token.Value) {
+            return
+        }
+
+        messageKind := ParserDiagnosticMessageKind.UnterminatedStringLiteral()
+        if StartsWithInterpolatedStringMarker(token.Value) {
+            messageKind = ParserDiagnosticMessageKind.UnterminatedInterpolatedStringLiteral()
+        }
+
+        ReportMalformedLiteral(sourceFile, table, token, messageKind, LiteralTokenLength(token))
+    }
+
+    static func ReportMalformedCharLiteralIfNeeded(
+        sourceFile: ColumnarSourceFile,
+        table: ParserDiagnosticTable,
+        token: Token) {
+        if ParserLiteralFacts.IsCompleteCharLiteral(token.Value) {
+            return
+        }
+
+        messageKind := ParserDiagnosticMessageKind.UnterminatedCharacterLiteral()
+        if token.Value == "''" {
+            messageKind = ParserDiagnosticMessageKind.EmptyCharacterLiteral()
+        }
+
+        ReportMalformedLiteral(sourceFile, table, token, messageKind, LiteralTokenLength(token))
+    }
+
+    static func ReportMalformedLiteral(
+        sourceFile: ColumnarSourceFile,
+        table: ParserDiagnosticTable,
+        token: Token,
+        messageKind: int,
+        length: int) {
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, token.Line, token.Column)
+        safeLength := length
+        if safeLength < 1 {
+            safeLength = 1
+        }
+
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.InvalidLiteral,
+            start,
+            safeLength,
+            token.Line,
+            token.Column,
+            messageKind,
+            ParserDiagnosticContextKind.Unknown(),
+            start,
+            token.Value.Length,
+            -1,
+            0)
+    }
+
+    static func LiteralTokenLength(token: Token): int {
+        length := token.Value.Length
+        if length < 1 {
+            return 1
+        }
+
+        return length
+    }
+
+    static func StartsWithInterpolatedStringMarker(value: string): bool {
+        return value.Length >= 2 && value[0] == '$' && value[1] == '"'
     }
 
     static func CollectFunctionReturnTypeDiagnostics(

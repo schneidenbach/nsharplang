@@ -280,6 +280,102 @@ public class ParserDiagnosticMessages {
                     "I see a " + operatorDescription + " operator, but there is no receiver expression before it.",
                     "Put an expression before '" + operatorText + "', or remove the member access.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.UnterminatedStringLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add a closing quote")
+                suggestions.Add("Use triple quotes for multi-line strings")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Unterminated string literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "This string starts with a quote but reaches the end of the line before a closing quote.",
+                    "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.UnterminatedInterpolatedStringLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add a closing quote")
+                suggestions.Add("Use triple quotes for multi-line strings")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Unterminated interpolated string literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "This interpolated string starts with `$\"` but reaches the end of the line before a closing quote.",
+                    "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.UnterminatedTripleQuoteStringLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add the closing triple quote")
+                suggestions.Add("Check where the raw string should end")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Unterminated triple-quoted string literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.",
+                    "Add the closing triple quote `\"\"\"` before the end of the file.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.UnterminatedInterpolatedRawStringLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add the closing triple quote")
+                suggestions.Add("Check where the raw string should end")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Unterminated interpolated raw string literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.",
+                    "Add the closing triple quote `\"\"\"` before the end of the file.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.EmptyCharacterLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add the closing quote")
+                suggestions.Add("Use double quotes for a string")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Empty character literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "A character literal needs exactly one character between the quotes.",
+                    "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.UnterminatedCharacterLiteral() {
+                suggestions := new List<string>()
+                suggestions.Add("Add the closing quote")
+                suggestions.Add("Use double quotes for a string")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.InvalidLiteral,
+                    "Unterminated character literal",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "This character literal starts with a quote but does not have a closing quote.",
+                    "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
+                    suggestions))
             }
 
             index = index + 1

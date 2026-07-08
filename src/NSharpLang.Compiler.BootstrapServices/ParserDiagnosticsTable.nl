@@ -15,6 +15,12 @@ public class ParserDiagnosticMessageKind {
     public static func ExpectedNewTypeName(): int { return 12 }
     public static func ExpectedObjectInitializerColon(): int { return 13 }
     public static func ExpectedExpressionBeforeMemberAccess(): int { return 14 }
+    public static func UnterminatedStringLiteral(): int { return 15 }
+    public static func UnterminatedInterpolatedStringLiteral(): int { return 16 }
+    public static func UnterminatedTripleQuoteStringLiteral(): int { return 17 }
+    public static func UnterminatedInterpolatedRawStringLiteral(): int { return 18 }
+    public static func EmptyCharacterLiteral(): int { return 19 }
+    public static func UnterminatedCharacterLiteral(): int { return 20 }
 }
 
 public class ParserDiagnosticContextKind {
