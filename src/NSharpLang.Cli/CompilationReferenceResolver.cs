@@ -154,7 +154,7 @@ internal static class CompilationReferenceResolver
             var compiler = new MultiFileCompiler(projectRoot, config);
             compiler.AotMode = options.AotMode;
             var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
-            if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
+            if (CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(result.Success, result.OutputAssemblyPath))
             {
                 throw new InvalidOperationException(
                     CompilationReferenceResolverKernels.GetProjectReferenceBuildFailedMessage(
@@ -290,15 +290,8 @@ internal static class CompilationReferenceResolver
 
         if (CompilationReferenceResolverKernels.ShouldProbeInstalledNuGetVersions(version, Directory.Exists(packageDirectory)))
         {
-            var installedVersions = Directory.GetDirectories(packageDirectory)
-                .Select(Path.GetFileName)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Cast<string>()
-                .ToArray();
-
             var bestInstalledVersionDirectory = CompilationReferenceResolverKernels.SelectBestInstalledNuGetVersionDirectory(
-                packageDirectory,
-                installedVersions);
+                Directory.GetDirectories(packageDirectory));
             if (bestInstalledVersionDirectory != null)
             {
                 return bestInstalledVersionDirectory;
@@ -323,8 +316,6 @@ internal static class CompilationReferenceResolver
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
             .Select(element => element.GetString())
-            .Where(version => !string.IsNullOrWhiteSpace(version))
-            .Cast<string>()
             .ToArray();
 
         return CompilationReferenceResolverKernels.GetLatestNuGetVersionOrThrow(packageName, versions);

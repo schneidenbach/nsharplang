@@ -122,16 +122,41 @@ public class CompilationReferenceResolverKernels {
         return requestedVersion == null && packageDirectoryExists
     }
 
-    public static func SelectBestInstalledNuGetVersionDirectory(packageDirectory: string, installedVersions: string[]): string? {
-        bestVersionIndex := SelectBestNuGetVersionIndex(installedVersions)
+    public static func SelectBestInstalledNuGetVersionDirectory(installedVersionDirectories: string[]): string? {
+        installedVersions := new List<string>()
+        candidateDirectories := new List<string>()
+        index := 0
+        while index < installedVersionDirectories.Length {
+            version := Path.GetFileName(installedVersionDirectories[index]) ?? ""
+            if !string.IsNullOrWhiteSpace(version) {
+                installedVersions.Add(version)
+                candidateDirectories.Add(installedVersionDirectories[index])
+            }
+
+            index = index + 1
+        }
+
+        bestVersionIndex := SelectBestNuGetVersionIndex(installedVersions.ToArray())
         if bestVersionIndex >= 0 {
-            return Path.Combine(packageDirectory, installedVersions[bestVersionIndex])
+            return candidateDirectories[bestVersionIndex]
         }
 
         return null
     }
 
-    public static func GetLatestNuGetVersionOrThrow(packageName: string, versions: string[]): string {
+    public static func GetLatestNuGetVersionOrThrow(packageName: string, rawVersions: string?[]): string {
+        versionsList := new List<string>()
+        index := 0
+        while index < rawVersions.Length {
+            version := rawVersions[index] ?? ""
+            if !string.IsNullOrWhiteSpace(version) {
+                versionsList.Add(version)
+            }
+
+            index = index + 1
+        }
+
+        versions := versionsList.ToArray()
         latestVersionIndex := SelectLatestNuGetVersionIndex(versions)
         if latestVersionIndex >= 0 {
             return versions[latestVersionIndex]
@@ -182,6 +207,10 @@ public class CompilationReferenceResolverKernels {
 
     public static func GetProjectOutputAssemblyPath(outputDirectory: string, assemblyName: string): string {
         return Path.Combine(outputDirectory, assemblyName + ".dll")
+    }
+
+    public static func ShouldTreatProjectReferenceBuildAsFailed(success: bool, outputAssemblyPath: string?): bool {
+        return !success || string.IsNullOrWhiteSpace(outputAssemblyPath ?? "")
     }
 
     public static func ResolveProjectReferencePath(projectRoot: string, projectReference: string): string {
