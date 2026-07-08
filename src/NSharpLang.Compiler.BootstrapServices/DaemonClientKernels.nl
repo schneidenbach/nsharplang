@@ -1,5 +1,15 @@
 namespace NSharpLang.Cli.Daemon
 
+public class DaemonStartPlan {
+    FileName: string
+    Arguments: string
+
+    constructor(fileName: string, arguments: string) {
+        FileName = fileName
+        Arguments = arguments
+    }
+}
+
 public class DaemonClientKernels {
     public static func GetConnectionErrorMessage(messageText: string): string {
         return "[daemon] Connection error: " + messageText
@@ -21,11 +31,32 @@ public class DaemonClientKernels {
         return socketErrorCode != timedOutSocketErrorCode
     }
 
+    public static func ShouldProbeCliProject(executablePath: string): bool {
+        return executablePath.Contains("dotnet")
+    }
+
+    public static func GetStartPlan(executablePath: string, projectRoot: string, cliProjectDirectory: string?): DaemonStartPlan {
+        if ShouldProbeCliProject(executablePath) && cliProjectDirectory != null {
+            cliDir := cliProjectDirectory ?? ""
+            return new DaemonStartPlan(
+                "dotnet",
+                "run --project " + QuoteArgument(cliDir) + " -- daemon run --project " + QuoteArgument(projectRoot))
+        }
+
+        return new DaemonStartPlan(
+            executablePath,
+            "daemon run --project " + QuoteArgument(projectRoot))
+    }
+
     public static func GetStartWaitAttemptCount(): int {
         return 50
     }
 
     public static func GetStartWaitDelayMilliseconds(): int {
         return 100
+    }
+
+    static func QuoteArgument(value: string): string {
+        return "\"" + value + "\""
     }
 }

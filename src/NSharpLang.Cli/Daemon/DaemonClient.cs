@@ -154,29 +154,18 @@ public static class DaemonClient
             return false;
         }
 
-        // Use dotnet run for development, but the real binary path for installed tools
+        var cliDir = DaemonClientKernels.ShouldProbeCliProject(exePath) ? FindCliProject() : null;
+        var startPlan = DaemonClientKernels.GetStartPlan(exePath, projectRoot, cliDir);
         var startInfo = new ProcessStartInfo
         {
-            FileName = exePath,
-            Arguments = $"daemon run --project \"{projectRoot}\"",
+            FileName = startPlan.FileName,
+            Arguments = startPlan.Arguments,
             UseShellExecute = false,
             RedirectStandardOutput = false,
             RedirectStandardError = false,
             CreateNoWindow = true,
             WorkingDirectory = projectRoot
         };
-
-        // If running via `dotnet run`, we need a different approach
-        if (exePath.Contains("dotnet"))
-        {
-            // Find the CLI project
-            var cliDir = FindCliProject();
-            if (cliDir != null)
-            {
-                startInfo.FileName = "dotnet";
-                startInfo.Arguments = $"run --project \"{cliDir}\" -- daemon run --project \"{projectRoot}\"";
-            }
-        }
 
         try
         {
