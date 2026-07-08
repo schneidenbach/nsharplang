@@ -92,6 +92,33 @@ Verdict: keep `NSharpMetadataResolver` as bounded mechanical C# glue until the c
 supports overriding external abstract members. Its policy decisions should move to N# functions;
 the C# shell may only host the `Resolve` override and `MetadataLoadContext` integration boundary.
 
+### Reference Resolution Policy (assembly loading)
+
+A `MetadataLoadContext` holds at most one assembly per identity; loading the same identity from a
+second path throws. The analyzer therefore treats explicitly resolved reference paths as ground
+truth and dedupes everything else against them:
+
+- `LoadFromProjectConfig` loads Dll/project references (the restored paths MSBuild's
+  `EmitIlAssembly` and the CLI's `CompilationReferenceResolver` inject) **before** NuGet-name
+  references, and pins every package version recorded in `obj/project.assets.json` on the
+  resolver.
+- A version-less NuGet dependency binds the restored version from `project.assets.json`; only
+  when no restore output exists does it fall back to the highest cached version, ordered by
+  SemVer precedence (`NuGetVersionComparer`), never by ordinal string comparison (which ranks
+  `0.1.0-anything` above `0.1.0` and `0.9` above `0.10`).
+- `NSharpMetadataResolver.Resolve` first unifies on an already-loaded assembly with the same
+  simple name, so later binds can never pull a second copy of a different version out of the
+  NuGet cache; its cache scans honor the pinned restored versions.
+- `LoadReferencedAssembly` dedupes against `MetadataLoadContext.GetAssemblies()` (not just the
+  analyzer's own registry) and adopts an already-loaded identity instead of throwing.
+- `WellKnownTypes` resolves the `NSharpLang.Runtime` union/result types **lazily** so the
+  project's own restored runtime — loaded during project-config processing, after the
+  constructor runs — is the copy that wins, not whatever a NuGet-cache scan finds first.
+
+Do not resurrect eager cache scans: a dirty cache (multiple extracted versions of
+`nsharplang.runtime`) previously made every SDK build crash with "has already been loaded into
+this MetadataLoadContext" whenever the restored version was not the lexically greatest extraction.
+
 ### Method Overload Resolution
 For external methods with multiple overloads:
 - Create `ReflectionMethodGroupInfo` with all signatures

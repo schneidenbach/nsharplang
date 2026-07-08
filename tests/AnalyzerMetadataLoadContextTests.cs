@@ -39,6 +39,82 @@ public class AnalyzerMetadataLoadContextTests
         }
     }
 
+    [Fact]
+    public void LoadReferencedAssembly_AdoptsAlreadyLoadedIdentityInsteadOfThrowing()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // Two separate builds of the same assembly identity: same name and version but
+            // different MVIDs, which is exactly the shape a stale NuGet-cache extraction
+            // produces next to the restored copy.
+            var stalePath = BuildManagedLibrary(tempDir, "Stale", "DuplicateIdentity", "StaleMarker");
+            var restoredPath = BuildManagedLibrary(tempDir, "Restored", "DuplicateIdentity", "RestoredMarker");
+
+            using var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            // Load the stale copy the way the metadata resolver does — straight into the
+            // MetadataLoadContext, bypassing the analyzer's registry.
+            var mlc = GetMetadataLoadContext(analyzer);
+            mlc.LoadFromAssemblyPath(stalePath);
+
+            analyzer.LoadReferencedAssembly(restoredPath);
+
+            var loadedAssembly = GetLoadedMetadataAssemblies(analyzer)
+                .Single(assembly => string.Equals(assembly.GetName().Name, "DuplicateIdentity", StringComparison.Ordinal));
+
+            // The first-loaded copy wins; the second load dedupes instead of throwing and
+            // joins the analyzer's registry.
+            Assert.Equal(Path.GetFullPath(stalePath), Path.GetFullPath(loadedAssembly.Location));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("0.1.0", "0.1.0-runtimeffffffffffffffff")]
+    [InlineData("0.10.0", "0.9.0")]
+    [InlineData("1.0.0-beta.11", "1.0.0-beta.2")]
+    [InlineData("1.0.0-rc.1", "1.0.0-beta.11")]
+    [InlineData("1.0.0-alpha.1", "1.0.0-alpha")]
+    [InlineData("1.0.0", "1.0.0-zzz")]
+    [InlineData("0.0.1", "not-a-version")]
+    public void NuGetVersionComparer_OrdersBySemVerPrecedence(string higher, string lower)
+    {
+        Assert.True(Analyzer.NuGetVersionComparer.Instance.Compare(higher, lower) > 0);
+        Assert.True(Analyzer.NuGetVersionComparer.Instance.Compare(lower, higher) < 0);
+    }
+
+    [Fact]
+    public void NuGetVersionComparer_TreatsBuildMetadataAsEqual()
+    {
+        Assert.Equal(0, Analyzer.NuGetVersionComparer.Instance.Compare("1.2.0+build.5", "1.2.0"));
+    }
+
+    [Fact]
+    public void PickHighestVersionDirectory_PrefersReleaseOverLexicallyGreaterPrerelease()
+    {
+        var packageDir = CreateTempDir();
+        try
+        {
+            var release = Path.Combine(packageDir, "0.1.0");
+            var prerelease = Path.Combine(packageDir, "0.1.0-runtimeffffffffffffffff");
+            Directory.CreateDirectory(release);
+            Directory.CreateDirectory(prerelease);
+
+            var picked = Analyzer.NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
+
+            Assert.Equal(release, picked);
+        }
+        finally
+        {
+            Directory.Delete(packageDir, true);
+        }
+    }
+
     private static string BuildManagedLibrary(string tempDir, string subdirectory, string assemblyName, string typeName)
     {
         var projectDir = Path.Combine(tempDir, subdirectory);
@@ -75,6 +151,13 @@ public sealed class {{typeName}}
         var assemblyPath = Path.Combine(projectDir, "bin", "Debug", "net10.0", $"{assemblyName}.dll");
         Assert.True(File.Exists(assemblyPath));
         return assemblyPath;
+    }
+
+    private static System.Reflection.MetadataLoadContext GetMetadataLoadContext(Analyzer analyzer)
+    {
+        var field = typeof(Analyzer).GetField("_mlc", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsType<System.Reflection.MetadataLoadContext>(field!.GetValue(analyzer));
     }
 
     private static IReadOnlyList<Assembly> GetLoadedMetadataAssemblies(Analyzer analyzer)

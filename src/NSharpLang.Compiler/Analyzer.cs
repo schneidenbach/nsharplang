@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -184,6 +185,7 @@ public class Analyzer : IDisposable
     private readonly HashSet<(string Name, int Line, int Column)> _reportedUnresolvedTypeRefs = new();
     private readonly HashSet<(string Name, int Line, int Column)> _reportedSoaRowTypeRefs = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _restoredPackageVersionsByProject = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
     private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
@@ -22378,6 +22380,17 @@ public class Analyzer : IDisposable
                 return;
             }
 
+            // The metadata resolver can already have bound this identity from another path
+            // (e.g. a transitive reference resolved out of the NuGet cache). Loading the same
+            // identity from a second path would throw, so adopt the loaded copy instead.
+            var alreadyLoaded = _mlc.GetAssemblies().FirstOrDefault(loadedAssembly =>
+                AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName));
+            if (alreadyLoaded != null)
+            {
+                RegisterMetadataAssembly(alreadyLoaded);
+                return;
+            }
+
             var assembly = _mlc.LoadFromAssemblyPath(fullPath);
             RegisterMetadataAssembly(assembly);
         }
@@ -22464,8 +22477,10 @@ public class Analyzer : IDisposable
                 {
                     var fwPath = Path.Combine(searchDir, fwDir);
                     if (!Directory.Exists(fwPath)) continue;
-                    // Add all version directories so transitive deps can be resolved
-                    foreach (var versionDir in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
+                    // Add all version directories (newest first, so the resolver's
+                    // first-match directory search prefers it) for transitive deps
+                    foreach (var versionDir in Directory.GetDirectories(fwPath)
+                                 .OrderByDescending(Path.GetFileName, NuGetVersionComparer.Instance))
                         _metadataResolver.AddSearchDirectory(versionDir);
                 }
                 break;
@@ -22535,17 +22550,33 @@ public class Analyzer : IDisposable
     {
         projectDirectory ??= Environment.CurrentDirectory;
 
-        // Load dependencies
+        // Restore output (project.assets.json) records which version of each package the
+        // project actually resolved; pin those on the metadata resolver so NuGet-cache
+        // fallback scans bind the restored version instead of the newest extracted one.
+        foreach (var (packageName, packageVersion) in GetRestoredPackageVersions(projectDirectory))
+        {
+            _metadataResolver?.PinPackageVersion(packageName, packageVersion);
+        }
+
+        // Load dependencies. Dll and project references carry explicit, already-resolved
+        // paths (MSBuild and the CLI inject the restored NuGet assembly paths this way), so
+        // load them first: they are the ground truth a NuGet-cache lookup for the same
+        // assembly must dedupe against, never the other way around.
         if (config.Dependencies != null && config.Dependencies.Count > 0)
         {
-            foreach (var reference in config.Dependencies)
+            foreach (var reference in config.Dependencies.Where(r => r.Type != ReferenceType.NuGet))
+            {
+                LoadProjectReference(reference, projectDirectory, config.TargetFramework);
+            }
+
+            foreach (var reference in config.Dependencies.Where(r => r.Type == ReferenceType.NuGet))
             {
                 if (!string.IsNullOrWhiteSpace(reference.Nuget))
                 {
                     _referencedPackageNames.Add(reference.Nuget);
                 }
 
-                    LoadProjectReference(reference, projectDirectory, config.TargetFramework);
+                LoadProjectReference(reference, projectDirectory, config.TargetFramework);
             }
         }
 
@@ -22635,6 +22666,11 @@ public class Analyzer : IDisposable
             return;
         }
 
+        // A version-less dependency must bind the version the project restored — the cache
+        // can hold several extracted versions of the package, and the newest one is not
+        // necessarily the restored one.
+        version ??= TryGetRestoredPackageVersion(projectDirectory, packageName);
+
         // Try NuGet cache
         var nugetCache = Path.Combine(GetNuGetPackagesRoot(), packageName.ToLowerInvariant());
 
@@ -22642,7 +22678,7 @@ public class Analyzer : IDisposable
         {
             var versionDir = version != null
                 ? Path.Combine(nugetCache, version)
-                : Directory.GetDirectories(nugetCache).OrderByDescending(d => d).FirstOrDefault();
+                : NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(nugetCache));
 
             if (versionDir != null && Directory.Exists(versionDir))
             {
@@ -22668,6 +22704,55 @@ public class Analyzer : IDisposable
             }
         }
 
+    }
+
+    private string? TryGetRestoredPackageVersion(string projectDirectory, string packageName)
+        => GetRestoredPackageVersions(projectDirectory).TryGetValue(packageName, out var version)
+            ? version
+            : null;
+
+    /// <summary>
+    /// Reads the package versions the project restored from <c>obj/project.assets.json</c>,
+    /// keyed by package name. Returns an empty map when the project has no restore output.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> GetRestoredPackageVersions(string projectDirectory)
+    {
+        if (_restoredPackageVersionsByProject.TryGetValue(projectDirectory, out var cached))
+        {
+            return cached;
+        }
+
+        var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var assetsPath = Path.Combine(projectDirectory, "obj", "project.assets.json");
+        if (File.Exists(assetsPath))
+        {
+            try
+            {
+                using var assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
+                if (assets.RootElement.TryGetProperty("libraries", out var libraries) &&
+                    libraries.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var library in libraries.EnumerateObject())
+                    {
+                        // Library keys are "<PackageName>/<ResolvedVersion>".
+                        var separator = library.Name.IndexOf('/');
+                        if (separator > 0 && separator < library.Name.Length - 1)
+                        {
+                            versions[library.Name[..separator]] = library.Name[(separator + 1)..];
+                        }
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        _restoredPackageVersionsByProject[projectDirectory] = versions;
+        return versions;
     }
 
     /// <summary>
@@ -22800,6 +22885,7 @@ public class Analyzer : IDisposable
         private static readonly string[] Tfms = { "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
 
         private readonly List<string> _searchDirectories = new();
+        private readonly Dictionary<string, string> _pinnedPackageVersions = new(StringComparer.OrdinalIgnoreCase);
 
         // Candidate assembly files that existed on disk but failed to load, keyed by path →
         // first failure detail. Drained by Analyzer.ReportReferenceLoadFailures (NL923).
@@ -22817,10 +22903,29 @@ public class Analyzer : IDisposable
                 _searchDirectories.Add(directory);
         }
 
+        /// <summary>
+        /// Records the package version a project restored. NuGet-cache fallback scans bind
+        /// the pinned version instead of the highest extracted one.
+        /// </summary>
+        public void PinPackageVersion(string packageName, string version)
+        {
+            _pinnedPackageVersions[packageName] = version;
+        }
+
         public override Assembly? Resolve(MetadataLoadContext context, AssemblyName assemblyName)
         {
             var simpleName = assemblyName.Name;
             if (simpleName == null) return null;
+
+            // A MetadataLoadContext holds at most one assembly per identity, and loading the
+            // same identity from a second path throws. Unify every later bind for a simple
+            // name onto the copy that is already loaded (typically the project's own
+            // explicitly resolved reference).
+            foreach (var loadedAssembly in context.GetAssemblies())
+            {
+                if (string.Equals(loadedAssembly.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
+                    return loadedAssembly;
+            }
 
             // Search configured directories
             foreach (var dir in _searchDirectories)
@@ -22866,9 +22971,7 @@ public class Analyzer : IDisposable
         {
             if (!Directory.Exists(packageDir)) return null;
 
-            var versionDir = Directory.GetDirectories(packageDir)
-                .OrderByDescending(d => d)
-                .FirstOrDefault();
+            var versionDir = PickPackageVersionDirectory(packageDir);
             if (versionDir == null) return null;
 
             foreach (var tfm in Tfms)
@@ -22885,6 +22988,123 @@ public class Analyzer : IDisposable
                 }
             }
             return null;
+        }
+
+        private string? PickPackageVersionDirectory(string packageDir)
+        {
+            var packageName = Path.GetFileName(packageDir);
+            if (packageName != null &&
+                _pinnedPackageVersions.TryGetValue(packageName, out var pinnedVersion))
+            {
+                var pinnedDir = Path.Combine(packageDir, pinnedVersion);
+                if (Directory.Exists(pinnedDir))
+                    return pinnedDir;
+            }
+
+            return NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
+        }
+    }
+
+    /// <summary>
+    /// Orders NuGet package version folder names by SemVer precedence: numeric parts compare
+    /// numerically and a release outranks its prereleases — unlike ordinal string ordering,
+    /// which ranks "0.1.0-beta" above "0.1.0" and "0.10.0" below "0.9.0".
+    /// </summary>
+    internal static class NuGetVersionOrder
+    {
+        public static string? PickHighestVersionDirectory(string[] versionDirectories)
+            => versionDirectories
+                .OrderByDescending(Path.GetFileName, NuGetVersionComparer.Instance)
+                .FirstOrDefault();
+    }
+
+    internal sealed class NuGetVersionComparer : IComparer<string?>
+    {
+        public static readonly NuGetVersionComparer Instance = new();
+
+        public int Compare(string? x, string? y)
+        {
+            if (ReferenceEquals(x, y)) return 0;
+            if (x == null) return -1;
+            if (y == null) return 1;
+
+            var parsedX = TryParse(x, out var numbersX, out var prereleaseX);
+            var parsedY = TryParse(y, out var numbersY, out var prereleaseY);
+            if (!parsedX || !parsedY)
+            {
+                // Unparsable folder names sort below every real version, ordinally among themselves.
+                return parsedX == parsedY ? string.CompareOrdinal(x, y) : (parsedX ? 1 : -1);
+            }
+
+            for (var i = 0; i < numbersX.Length; i++)
+            {
+                var byNumber = numbersX[i].CompareTo(numbersY[i]);
+                if (byNumber != 0) return byNumber;
+            }
+
+            if (prereleaseX.Length == 0) return prereleaseY.Length == 0 ? 0 : 1;
+            if (prereleaseY.Length == 0) return -1;
+            return ComparePrereleaseIdentifiers(prereleaseX, prereleaseY);
+        }
+
+        private static bool TryParse(string version, out long[] numbers, out string prerelease)
+        {
+            numbers = new long[4];
+            prerelease = string.Empty;
+
+            var metadataStart = version.IndexOf('+');
+            if (metadataStart >= 0)
+                version = version[..metadataStart];
+
+            var prereleaseStart = version.IndexOf('-');
+            if (prereleaseStart >= 0)
+            {
+                prerelease = version[(prereleaseStart + 1)..];
+                version = version[..prereleaseStart];
+            }
+
+            var parts = version.Split('.');
+            if (parts.Length is < 1 or > 4) return false;
+
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!long.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static int ComparePrereleaseIdentifiers(string x, string y)
+        {
+            var identifiersX = x.Split('.');
+            var identifiersY = y.Split('.');
+            for (var i = 0; i < Math.Max(identifiersX.Length, identifiersY.Length); i++)
+            {
+                // A prerelease with more identifiers outranks one that is a prefix of it.
+                if (i >= identifiersX.Length) return -1;
+                if (i >= identifiersY.Length) return 1;
+
+                var numericX = long.TryParse(identifiersX[i], NumberStyles.None, CultureInfo.InvariantCulture, out var numberX);
+                var numericY = long.TryParse(identifiersY[i], NumberStyles.None, CultureInfo.InvariantCulture, out var numberY);
+                if (numericX && numericY)
+                {
+                    var byNumber = numberX.CompareTo(numberY);
+                    if (byNumber != 0) return byNumber;
+                }
+                else if (numericX != numericY)
+                {
+                    // Numeric identifiers always have lower precedence than alphanumeric ones.
+                    return numericX ? -1 : 1;
+                }
+                else
+                {
+                    var byText = string.CompareOrdinal(identifiersX[i], identifiersY[i]);
+                    if (byText != 0) return byText;
+                }
+            }
+
+            return 0;
         }
     }
 
@@ -22935,8 +23155,49 @@ public class Analyzer : IDisposable
         public readonly Type? ValueTaskOpen;
 
         // N# runtime
-        public readonly Type? RuntimeUnionOpen;
-        public readonly Type? RuntimeResultOpen;
+        // Resolved lazily on first use: the N# runtime must bind to the copy the project's
+        // own resolved references load (which happens after this constructor runs), not to
+        // whatever version an eager NuGet-cache scan would find first.
+        public Type? RuntimeUnionOpen
+        {
+            get
+            {
+                EnsureRuntimeTypes();
+                return _runtimeUnionOpen;
+            }
+        }
+
+        public Type? RuntimeResultOpen
+        {
+            get
+            {
+                EnsureRuntimeTypes();
+                return _runtimeResultOpen;
+            }
+        }
+
+        private readonly MetadataLoadContext _mlc;
+        private bool _runtimeTypesResolved;
+        private Type? _runtimeUnionOpen;
+        private Type? _runtimeResultOpen;
+
+        private void EnsureRuntimeTypes()
+        {
+            if (_runtimeTypesResolved) return;
+            _runtimeTypesResolved = true;
+
+            try
+            {
+                var runtime = _mlc.LoadFromAssemblyName("NSharpLang.Runtime");
+                _runtimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
+                _runtimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
+            }
+            catch (FileNotFoundException)
+            {
+                // No N# runtime is referenced or cached; union/result analysis reports its
+                // own diagnostics when these stay null.
+            }
+        }
 
         // System.Text.Json
         public readonly Type? JsonTypeInfoOpen;
@@ -22955,6 +23216,7 @@ public class Analyzer : IDisposable
 
         public WellKnownTypes(MetadataLoadContext mlc)
         {
+            _mlc = mlc;
             var core = mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded");
 
             // Some types may be defined in System.Private.CoreLib rather than System.Runtime
@@ -22996,12 +23258,6 @@ public class Analyzer : IDisposable
             Func3 = Resolve("System.Func`3");
             Func4 = Resolve("System.Func`4");
             Func5 = Resolve("System.Func`5");
-
-            {
-                var runtime = mlc.LoadFromAssemblyName("NSharpLang.Runtime");
-                RuntimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
-                RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
-            }
 
             {
                 var json = mlc.LoadFromAssemblyName("System.Text.Json");
