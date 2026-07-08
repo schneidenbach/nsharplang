@@ -114,6 +114,10 @@ public class CompilationReferenceResolverKernels {
         return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
     }
 
+    public static func GetProjectYmlPath(projectRoot: string): string {
+        return Path.Combine(projectRoot, "project.yml")
+    }
+
     public static func GetStableOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
         return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
     }
@@ -191,6 +195,56 @@ public class CompilationReferenceResolverKernels {
 
     public static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {
         return compileAssemblyCount == 0
+    }
+
+    public static func GetProjectReferenceCycleMessage(chainRoots: string[]): string {
+        return "Project reference cycle detected: "
+            + string.Join(" -> ", chainRoots)
+            + ". Break the cycle in project.yml dependencies."
+    }
+
+    public static func GetCompilerDiagnosticsText(formattedDiagnostics: string[]): string {
+        if formattedDiagnostics.Length == 0 {
+            return "No compiler diagnostics were produced."
+        }
+
+        return string.Join(Environment.NewLine, formattedDiagnostics)
+    }
+
+    public static func GetProjectReferenceBuildFailedMessage(projectYmlPath: string, diagnostics: string): string {
+        return "Project reference '"
+            + projectYmlPath
+            + "' failed to build:"
+            + Environment.NewLine
+            + diagnostics
+    }
+
+    public static func GetFrameworkReferenceNotResolvedMessage(
+        frameworkName: string,
+        projectRoot: string,
+        targetFramework: string): string {
+        return "Could not resolve framework reference '"
+            + frameworkName
+            + "' for project '"
+            + projectRoot
+            + "'. Install the "
+            + frameworkName
+            + " runtime for "
+            + targetFramework
+            + ", or remove the framework reference from project.yml."
+    }
+
+    public static func GetNuGetNoPublishedVersionsMessage(packageName: string): string {
+        return "Package '" + packageName + "' has no published versions on NuGet.org."
+    }
+
+    public static func GetNuGetRestoreFailedMessage(packageName: string, version: string, detail: string): string {
+        return "Could not restore NuGet package '"
+            + packageName
+            + "' version '"
+            + version
+            + "'. Check network access, NuGet.org availability, or pin a version already present in the local NuGet cache. Details: "
+            + detail
     }
 
     public static func GetImplicitTestDependencyPlan(

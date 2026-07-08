@@ -87,7 +87,7 @@ internal static class CompilationReferenceResolver
             var resolvedProjectReferencePath = CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, projectReference.Project!);
             var referencedProjectRoot = ProjectReferenceResolver.ResolveNSharpProjectRoot(
                 resolvedProjectReferencePath);
-            var referencedProjectYml = Path.Combine(referencedProjectRoot, "project.yml");
+            var referencedProjectYml = CompilationReferenceResolverKernels.GetProjectYmlPath(referencedProjectRoot);
             var referencedConfig = ProjectFileParser.Parse(referencedProjectYml);
 
             var referencedOutput = BuildProjectReference(
@@ -134,9 +134,8 @@ internal static class CompilationReferenceResolver
 
         if (context.ActiveProjectRoots.Contains(projectRoot))
         {
-            var chain = string.Join(" -> ", context.ActiveProjectRoots.Append(projectRoot));
             throw new InvalidOperationException(
-                $"Project reference cycle detected: {chain}. Break the cycle in project.yml dependencies.");
+                CompilationReferenceResolverKernels.GetProjectReferenceCycleMessage(context.ActiveProjectRoots.Append(projectRoot).ToArray()));
         }
 
         context.ActiveProjectRoots.Push(projectRoot);
@@ -157,11 +156,11 @@ internal static class CompilationReferenceResolver
             var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
             if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
             {
-                var diagnostics = !result.Errors.Any()
-                    ? "No compiler diagnostics were produced."
-                    : string.Join(Environment.NewLine, result.Errors.Select(error => error.Format()));
                 throw new InvalidOperationException(
-                    $"Project reference '{Path.Combine(projectRoot, "project.yml")}' failed to build:{Environment.NewLine}{diagnostics}");
+                    CompilationReferenceResolverKernels.GetProjectReferenceBuildFailedMessage(
+                        CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot),
+                        CompilationReferenceResolverKernels.GetCompilerDiagnosticsText(
+                            result.Errors.Select(error => error.Format()).ToArray())));
             }
 
             if (CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
@@ -212,8 +211,10 @@ internal static class CompilationReferenceResolver
             if (directory == null)
             {
                 throw new InvalidOperationException(
-                    $"Could not resolve framework reference '{frameworkName}' for project '{projectRoot}'. " +
-                    $"Install the {frameworkName} runtime for {config.TargetFramework}, or remove the framework reference from project.yml.");
+                    CompilationReferenceResolverKernels.GetFrameworkReferenceNotResolvedMessage(
+                        frameworkName,
+                        projectRoot,
+                        config.TargetFramework));
             }
 
             directories.Add(directory);
@@ -322,7 +323,7 @@ internal static class CompilationReferenceResolver
         if (latestVersionIndex >= 0)
             return versions[latestVersionIndex];
 
-        throw new InvalidOperationException($"Package '{packageName}' has no published versions on NuGet.org.");
+        throw new InvalidOperationException(CompilationReferenceResolverKernels.GetNuGetNoPublishedVersionsMessage(packageName));
     }
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
@@ -353,8 +354,7 @@ internal static class CompilationReferenceResolver
         catch (Exception ex)
         {
             throw new InvalidOperationException(
-                $"Could not restore NuGet package '{packageName}' version '{version}'. " +
-                $"Check network access, NuGet.org availability, or pin a version already present in the local NuGet cache. Details: {ex.Message}",
+                CompilationReferenceResolverKernels.GetNuGetRestoreFailedMessage(packageName, version, ex.Message),
                 ex);
         }
         finally
