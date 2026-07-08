@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -22,9 +21,10 @@ public static class CheckCommand
         var outputMode = CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
         var useText = outputMode is 2 or -1;
         var aot = arguments.Aot;
-        var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)
-            ? Path.GetFullPath(arguments.ProjectOption)
-            : Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
+        var projectDir = CheckCommandKernels.GetProjectDirectory(
+            arguments.ProjectOption,
+            arguments.PositionalProject,
+            Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectDir))
         {
@@ -120,7 +120,7 @@ public static class CheckCommand
     {
         var results = new List<DiagnosticResult>();
         config ??= ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-check-il-{Guid.NewGuid():N}");
+        var tempDir = CheckCommandKernels.GetVerificationTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
 
         try
         {

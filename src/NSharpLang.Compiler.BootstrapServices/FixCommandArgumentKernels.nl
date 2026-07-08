@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System
 import System.IO
 
 public class FixArgumentSummary {
@@ -247,6 +248,14 @@ public class CheckCommandKernels {
         return 1
     }
 
+    public static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
+        if !string.IsNullOrWhiteSpace(projectOption ?? "") {
+            return Path.GetFullPath(projectOption ?? "")
+        }
+
+        return Path.GetFullPath(positionalProject ?? currentDirectory)
+    }
+
     public static func GetProjectYmlPath(projectDir: string): string {
         return Path.Combine(projectDir, "project.yml")
     }
@@ -257,6 +266,10 @@ public class CheckCommandKernels {
 
     public static func GetVerificationOutputPath(tempDir: string, assemblyName: string): string {
         return Path.Combine(tempDir, assemblyName + ".dll")
+    }
+
+    public static func GetVerificationTempDirectory(tempRoot: string, uniqueName: string): string {
+        return Path.Combine(tempRoot, "nlc-check-il-" + uniqueName)
     }
 
     public static func GetExitCode(errorCount: int): int {
