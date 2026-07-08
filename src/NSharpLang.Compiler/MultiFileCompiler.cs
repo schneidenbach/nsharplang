@@ -391,7 +391,30 @@ public class MultiFileCompiler
     /// </summary>
     public void CompileForAnalysis()
     {
+        RunLegacyValidationPipeline(validateStrictLint: false, out _);
+    }
+
+    // ============================================================================
+    // LEGACY VALIDATION PIPELINE - C# Parser/Analyzer/Linter ownership.
+    // This is the ONLY entry point into the legacy front-end from the build path.
+    // Deleted by Track H (systems-language-closeout/track-h-tests-release.md) once
+    // the N# analyzer (Track D) owns diagnostics. Do not add callers. Do not expand.
+    // ============================================================================
+    private void RunLegacyValidationPipeline(bool validateStrictLint, out bool strictLintFailed)
+    {
+        strictLintFailed = false;
         ParseAllFiles();
+        var errorsBeforeLint = _allErrors.Count(error => error.Severity == ErrorSeverity.Error);
+        if (validateStrictLint)
+        {
+            AddStrictLintDiagnosticsFromParsedSources();
+            if (_allErrors.Skip(errorsBeforeLint).Any(error => error.Severity == ErrorSeverity.Error))
+            {
+                strictLintFailed = true;
+                return;
+            }
+        }
+
         DetectCircularFileImports();
         AnalyzeAllFiles();
     }
@@ -431,22 +454,14 @@ public class MultiFileCompiler
                 emitOnlySuccess ? outputPath : null);
         }
 
-        ParseAllFiles();
-        var errorsBeforeLint = _allErrors.Count(error => error.Severity == ErrorSeverity.Error);
-        if (validateStrictLint)
+        RunLegacyValidationPipeline(validateStrictLint, out var strictLintFailed);
+        if (strictLintFailed)
         {
-            AddStrictLintDiagnosticsFromParsedSources();
-            if (_allErrors.Skip(errorsBeforeLint).Any(error => error.Severity == ErrorSeverity.Error))
-            {
-                return new MultiFileCompilationResult(
-                    false,
-                    _allErrors,
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
                 null);
-            }
         }
-
-        DetectCircularFileImports();
-        AnalyzeAllFiles();
 
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
@@ -484,13 +499,8 @@ public class MultiFileCompiler
             success ? outputPath : null);
     }
 
-    // Try to emit the whole assembly via the standalone columnar backend. The assembly is
-    // `assemblyName` and the type is "Program". A SINGLE source routes through the single-file entry; MULTIPLE sources route through the
-    // multi-file merge, which unifies the files into one columnar program so cross-file public calls resolve
-    // exactly as analyzer declaration resolution works across files. Returns false when there are no files,
-    // a source text is unavailable, or the backend declines any function (a construct outside the systems
-    // subset it models). The program has already been parsed and analyzed by this point, so the columnar
-    // backend only does codegen on validated input.
+    // Try to emit the whole assembly via the standalone columnar backend. C# gathers source text and writes
+    // bytes; N# owns source-file rows, executable detection, input merge policy, and decline classification.
     private bool TryEmitWithColumnarBackend(string assemblyName, string outputPath)
     {
         if (_sourceFiles.Count == 0)
