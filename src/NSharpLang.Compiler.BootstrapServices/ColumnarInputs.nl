@@ -288,6 +288,21 @@ public class ColumnarInterfaceInput {
     }
 }
 
+// One PLAIN top-level test declaration (`test "<description>" { body }`). The body reuses the
+// function-input shape so node tables, source-file stamping, and body emission share machinery.
+public class ColumnarTestInput {
+    descriptionValue: string
+    bodyValue: ColumnarFunctionInput
+
+    Description: string => descriptionValue
+    Body: ColumnarFunctionInput => bodyValue
+
+    constructor(description: string, body: ColumnarFunctionInput) {
+        descriptionValue = description
+        bodyValue = body
+    }
+}
+
 public class ColumnarProgramInput {
     Source: string
     Sources: ColumnarSourceFile[]
@@ -296,6 +311,7 @@ public class ColumnarProgramInput {
     Structs: IReadOnlyList<ColumnarStructInput>
     Unions: IReadOnlyList<ColumnarUnionInput>
     Interfaces: IReadOnlyList<ColumnarInterfaceInput>
+    Tests: IReadOnlyList<ColumnarTestInput>?
 
     public static func CreateSingleSource(
         source: string,
@@ -303,7 +319,8 @@ public class ColumnarProgramInput {
         enums: IReadOnlyList<ColumnarEnumInput>,
         structs: IReadOnlyList<ColumnarStructInput>,
         unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>): ColumnarProgramInput {
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
+        tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(
             source,
             functions,
@@ -311,7 +328,8 @@ public class ColumnarProgramInput {
             structs,
             unions,
             interfaces,
-            BuildSingleSourceFiles(source))
+            BuildSingleSourceFiles(source),
+            tests)
     }
 
     public static func CreateFromSourceFiles(
@@ -320,7 +338,8 @@ public class ColumnarProgramInput {
         enums: IReadOnlyList<ColumnarEnumInput>,
         structs: IReadOnlyList<ColumnarStructInput>,
         unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>): ColumnarProgramInput {
+        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
+        tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(
             GetFirstSource(sourceFiles),
             functions,
@@ -328,7 +347,8 @@ public class ColumnarProgramInput {
             structs,
             unions,
             interfaces,
-            sourceFiles)
+            sourceFiles,
+            tests)
     }
 
     public static func MergeSourceFiles(
@@ -339,6 +359,7 @@ public class ColumnarProgramInput {
         structs := new List<ColumnarStructInput>()
         unions := new List<ColumnarUnionInput>()
         interfaces := new List<ColumnarInterfaceInput>()
+        tests := new List<ColumnarTestInput>()
 
         index := 0
         while index < programs.Length {
@@ -347,10 +368,14 @@ public class ColumnarProgramInput {
             AddStructs(structs, programs[index].Structs)
             AddUnions(unions, programs[index].Unions)
             AddInterfaces(interfaces, programs[index].Interfaces)
+            programTests := programs[index].Tests
+            if programTests != null {
+                AddTests(tests, programTests)
+            }
             index = index + 1
         }
 
-        return CreateFromSourceFiles(sourceFiles, functions, enums, structs, unions, interfaces)
+        return CreateFromSourceFiles(sourceFiles, functions, enums, structs, unions, interfaces, tests)
     }
 
     public static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
@@ -359,6 +384,14 @@ public class ColumnarProgramInput {
         AssignStructListSourceFileId(program.Structs, sourceFileId)
         AssignUnionListSourceFileId(program.Unions, sourceFileId)
         AssignInterfaceListSourceFileId(program.Interfaces, sourceFileId)
+        programTests := program.Tests
+        if programTests != null {
+            testIndex := 0
+            while testIndex < programTests.Count {
+                AssignFunctionSourceFileId(programTests[testIndex].Body, sourceFileId)
+                testIndex = testIndex + 1
+            }
+        }
     }
 
     constructor(
@@ -368,7 +401,8 @@ public class ColumnarProgramInput {
         structs: IReadOnlyList<ColumnarStructInput>,
         unions: IReadOnlyList<ColumnarUnionInput>,
         interfaces: IReadOnlyList<ColumnarInterfaceInput>,
-        sourceFiles: ColumnarSourceFile[]? = null) {
+        sourceFiles: ColumnarSourceFile[]? = null,
+        tests: IReadOnlyList<ColumnarTestInput>? = null) {
         Source = source
         Sources = sourceFiles ?? BuildSingleSourceFiles(source)
         Functions = functions
@@ -376,6 +410,7 @@ public class ColumnarProgramInput {
         Structs = structs
         Unions = unions
         Interfaces = interfaces
+        Tests = tests
     }
 
     public func GetSourceForFileId(fileId: int): string {
@@ -504,6 +539,14 @@ public class ColumnarProgramInput {
     }
 
     static func AddFunctions(target: List<ColumnarFunctionInput>, source: IReadOnlyList<ColumnarFunctionInput>) {
+        index := 0
+        while index < source.Count {
+            target.Add(source[index])
+            index = index + 1
+        }
+    }
+
+    static func AddTests(target: List<ColumnarTestInput>, source: IReadOnlyList<ColumnarTestInput>) {
         index := 0
         while index < source.Count {
             target.Add(source[index])

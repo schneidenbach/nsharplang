@@ -22634,8 +22634,20 @@ public class Analyzer : IDisposable
                     _referencedPackageNames.Add(dependency.Nuget);
                 }
 
+                // A test-dependency package id is not necessarily an assembly name — the implicit
+                // `xunit` dependency is a metapackage with no lib assembly at all. Resolution
+                // failures are fine here: N# test analysis uses no test-framework types, and the
+                // restore side supplies the real assemblies to compilations that need them.
                 if (dependency.Nuget != null)
-                    LoadReferencedAssemblyByName(dependency.Nuget);
+                {
+                    try
+                    {
+                        LoadReferencedAssemblyByName(dependency.Nuget);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                    }
+                }
             }
         }
 

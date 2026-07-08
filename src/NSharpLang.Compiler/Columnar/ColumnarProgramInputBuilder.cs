@@ -117,7 +117,12 @@ internal static class ColumnarProgramInputBuilder
             return Decline("parse.interface", "interface declaration materialization failed");
         }
 
-        program = ColumnarProgramInput.CreateSingleSource(source, inputs, enums, structs, unions, interfaceInputs);
+        if (!TryGetColumnarTestInputs(source, tokens, out var testInputs))
+        {
+            return Decline("parse.test", "test declaration materialization failed");
+        }
+
+        program = ColumnarProgramInput.CreateSingleSource(source, inputs, enums, structs, unions, interfaceInputs, testInputs);
         return true;
     }
 
@@ -147,6 +152,64 @@ internal static class ColumnarProgramInputBuilder
         }
 
         program = ColumnarProgramInput.MergeSourceFiles(sourceFiles, programs);
+        return true;
+    }
+
+    private static bool TryGetColumnarTestInputs(
+        string source, ColumnarTokenizedSource tokens, out List<ColumnarTestInput>? tests)
+    {
+        tests = null;
+        var ck = tokens.Kinds;
+        var cs = tokens.Starts;
+        var cv = tokens.ValueLengths;
+        var n = tokens.Count;
+
+        var testIndices = new int[n + 1];
+        var testScan = new int[1];
+        var testCount = global::Program.TopLevelColumnarTestDeclarationIndicesInto(
+            source, ck, cs, cv, n, testIndices, testScan);
+        if (testCount < 0)
+            return Decline("parse.test-scan", "test declaration scan failed");
+
+        for (var t = 0; t < testCount; t++)
+        {
+            if (!TryParseColumnarTestAt(ck, cs, cv, n, testIndices[t], source, out var testInput))
+                return DeclineAtToken("parse.test", "test declaration could not be parsed into columnar input", cs, cv, testIndices[t]);
+            (tests ??= []).Add(testInput);
+        }
+        return true;
+    }
+
+    private static bool TryParseColumnarTestAt(
+        int[] ck, int[] cs, int[] cv, int n, int testIndex, string source,
+        out ColumnarTestInput input)
+    {
+        input = null!;
+        var cap = n + 1;
+        var bk = new int[cap];
+        var bvs = new int[cap];
+        var bvl = new int[cap];
+        var bcs = new int[cap];
+        var bcc = new int[cap];
+        var bci = new int[cap];
+        var bss = new int[cap];
+        var bsl = new int[cap];
+        var result = new int[4];
+        var bodyNodeCount = global::Program.ParseColumnarTestInfoInto(
+            source, ck, cs, cv, n, testIndex, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, result);
+        if (bodyNodeCount <= 0)
+            return false;
+
+        var bodyRoot = result[2];
+        if (bodyRoot < 0 || bodyRoot >= bodyNodeCount || result[0] < 0 || result[1] <= 0 || result[0] + result[1] > source.Length)
+            return false;
+
+        var description = NSharpLang.Compiler.StringLiteralDecoder.Decode(source.Substring(result[0], result[1]));
+        var bodyNodes = BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
+        var body = new ColumnarFunctionInput(
+            "test " + description, "void", Array.Empty<string>(), Array.Empty<string>(),
+            bodyNodes, bodyRoot);
+        input = new ColumnarTestInput(description, body);
         return true;
     }
 

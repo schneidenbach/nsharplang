@@ -520,7 +520,16 @@ public class MultiFileCompiler
         // Stamp the numeric CLR version derived from the project's (possibly SemVer)
         // version string, matching the AssemblyVersion the MSBuild SDK advertises.
         var assemblyVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(_config?.Version);
-        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly, assemblyVersion))
+        var referenceAssemblyPaths = new List<string>();
+        if (_config?.Dependencies != null)
+        {
+            foreach (var dependency in _config.Dependencies)
+            {
+                if (dependency.Type == ReferenceType.Dll && !string.IsNullOrWhiteSpace(dependency.Dll))
+                    referenceAssemblyPaths.Add(dependency.Dll!);
+            }
+        }
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly, assemblyVersion, referenceAssemblyPaths))
             return false;
         File.WriteAllBytes(outputPath, assembly);
         return true;

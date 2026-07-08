@@ -81,12 +81,18 @@ func TypeName(value: string): string {
     [Fact]
     public void CompileToIlAssembly_TestDeclarationDeclineReportsDeclarationScanReason()
     {
+        // Plain `test "..." { }` declarations now compile through the columnar route; setup blocks
+        // remain unmodeled, so they still exercise the declaration-scan decline reporting contract.
         var tempDir = CreateTempDir();
         try
         {
             WriteProject(tempDir, "TestDeclDecline");
             var testPath = Path.Combine(tempDir, "Program.tests.nl");
             File.WriteAllText(testPath, """
+setup {
+    x := 1
+}
+
 test "x" {
     assert 1 == 1
 }

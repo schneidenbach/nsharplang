@@ -6309,15 +6309,29 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
         return -1
     }
 
-    if TopLevelContextualTestDeclarationExistsCore(source, rawTokens, rawCount) != 0 {
+    if TopLevelUnmodeledTestShapeExistsCore(source, rawTokens, rawCount) != 0 {
         return -1
     }
 
     decls := new TopLevelDeclarationKindTable(new int[](rawCount + 1))
     rawKindStream := new ParserDeclarationKindStream(rawTokens.Kinds)
     declCount := TopLevelDeclarationKindsCore(rawKindStream, rawCount, decls)
-    if declCount <= 0 {
+    if declCount < 0 {
         return -1
+    }
+
+    // A file whose only top-level declarations are PLAIN test declarations (a `.tests.nl` file)
+    // has zero declaration keywords; that is a valid empty function list, not a refusal.
+    if declCount == 0 {
+        testOnlyIndices := new int[](rawCount + 1)
+        testOnlyResult := new int[](1)
+        if TopLevelColumnarTestDeclarationIndicesInto(source, rawTokens.Kinds, rawTokens.Starts, rawTokens.ValueLengths, rawCount, testOnlyIndices, testOnlyResult) <= 0 {
+            return -1
+        }
+
+        result.Values[0] = 0
+        result.Values[1] = 0
+        return 0
     }
 
     i := 0
@@ -6689,7 +6703,12 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: ParserDeclarationToke
     return -1
 }
 
-func TopLevelContextualTestDeclarationExistsCore(source: string, tokens: ParserDeclarationTokenTable, count: int): int {
+// A top-level TEST-family shape the columnar route does NOT model yet: setup/teardown blocks, and
+// any `test` form that is not exactly `test "<description>" {` (with-tables, skip clauses, or a
+// malformed header). Well-formed plain tests are MODELED (scanned by
+// TopLevelColumnarTestDeclarationIndicesInto and parsed by ParseColumnarTestInfoInto), so they no
+// longer gate the declaration scan.
+func TopLevelUnmodeledTestShapeExistsCore(source: string, tokens: ParserDeclarationTokenTable, count: int): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -6698,21 +6717,24 @@ func TopLevelContextualTestDeclarationExistsCore(source: string, tokens: ParserD
     while i < count {
         kind := tokens.Kinds[i]
         if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
-            if kind == 73 {
-                return 1
+            isTestHead := kind == 73
+            if kind == 0 && ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "test") {
+                nextAfterTest := ParserDeclarationNextNonNewlineTokenKind(tokens, count, i + 1)
+                if nextAfterTest == 4 || nextAfterTest == 129 || ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens, i) {
+                    isTestHead = true
+                }
             }
 
-            if kind == 0 {
-                nextKind := ParserDeclarationNextNonNewlineTokenKind(tokens, count, i + 1)
-                atDeclarationBoundary := ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens, i)
-                if ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "test")
-                    && (nextKind == 4 || nextKind == 129 || atDeclarationBoundary) {
+            if isTestHead {
+                if TopLevelPlainTestHeaderEndsAt(tokens, count, i) < 0 {
                     return 1
                 }
-
-                if (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup")
-                        || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown"))
-                    && (nextKind == 129 || atDeclarationBoundary) {
+            } else if kind == 0
+                && (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup")
+                    || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown")) {
+                nextKind := ParserDeclarationNextNonNewlineTokenKind(tokens, count, i + 1)
+                atDeclarationBoundary := ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens, i)
+                if nextKind == 129 || atDeclarationBoundary {
                     return 1
                 }
             }
@@ -6745,6 +6767,128 @@ func TopLevelContextualTestDeclarationExistsCore(source: string, tokens: ParserD
     }
 
     return 0
+}
+
+// The PLAIN test header `test "<description>" {` starting at `testIndex`: returns the token index
+// of the opening brace, or -1 when the shape is anything else (with-table, skip, missing pieces).
+func TopLevelPlainTestHeaderEndsAt(tokens: ParserDeclarationTokenTable, count: int, testIndex: int): int {
+    i := testIndex + 1
+    while i < count && tokens.Kinds[i] == 136 {
+        i = i + 1
+    }
+    if i >= count || tokens.Kinds[i] != 4 {
+        return -1
+    }
+    i = i + 1
+    while i < count && tokens.Kinds[i] == 136 {
+        i = i + 1
+    }
+    if i >= count || tokens.Kinds[i] != 129 {
+        return -1
+    }
+    return i
+}
+
+// Records the keyword token index of every top-level PLAIN test declaration. Returns the count.
+// outResult[0] mirrors the count (the flat-int ABI convention).
+func TopLevelColumnarTestDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, outTestIndices: int[], outResult: int[]): int {
+    if rawCount < 0 || rawCount > rawTokenKinds.Length || outTestIndices.Length < rawCount + 1 || outResult.Length < 1 {
+        return -1
+    }
+
+    tokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    outCount := 0
+
+    i := 0
+    while i < rawCount {
+        kind := tokens.Kinds[i]
+        if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            isTestHead := kind == 73
+            if kind == 0 && ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "test") {
+                nextAfterTest := ParserDeclarationNextNonNewlineTokenKind(tokens, rawCount, i + 1)
+                if nextAfterTest == 4 {
+                    isTestHead = true
+                }
+            }
+
+            if isTestHead && TopLevelPlainTestHeaderEndsAt(tokens, rawCount, i) >= 0 {
+                outTestIndices[outCount] = i
+                outCount = outCount + 1
+            }
+        }
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        }
+
+        i = i + 1
+    }
+
+    outResult[0] = outCount
+    return outCount
+}
+
+// Parse one PLAIN test declaration at `testIndex`: `test "<description>" { body }`. The
+// description STRING token's span lands in outResult[0]/[1] (raw, quotes included — the host
+// decodes); the body block parses through the statement kernel into the caller-allocated node
+// tables. outResult[2] = body root node id, outResult[3] = token index past the body. Returns the
+// body node count, or -1.
+func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, testIndex: int, bodyKinds: int[], bodyValueStarts: int[], bodyValueLengths: int[], bodyChildStarts: int[], bodyChildCounts: int[], bodyChildIndices: int[], bodySpanStarts: int[], bodySpanLengths: int[], outResult: int[]): int {
+    if rawCount < 0 || testIndex < 0 || testIndex >= rawCount || outResult.Length < 4 {
+        return -1
+    }
+
+    declTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
+    bodyBrace := TopLevelPlainTestHeaderEndsAt(declTokens, rawCount, testIndex)
+    if bodyBrace < 0 {
+        return -1
+    }
+
+    descIndex := testIndex + 1
+    while descIndex < rawCount && rawTokenKinds[descIndex] == 136 {
+        descIndex = descIndex + 1
+    }
+    if descIndex >= rawCount || rawTokenKinds[descIndex] != 4 {
+        return -1
+    }
+
+    statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
+    argStack := new ParserArgumentStack(new int[](rawCount + 1))
+    nodes := new ParserExpressionNodeTable(bodyKinds, bodyValueStarts, bodyValueLengths, bodyChildStarts, bodyChildCounts, bodySpanStarts, bodySpanLengths)
+    children := new ParserChildIndexTable(bodyChildIndices)
+    statementResult := new ParserResultTable(new int[](2))
+    bodyNodeCount := ParseStatementNodesCore(source, statementTokens, rawCount, bodyBrace, argStack, nodes, children, statementResult)
+    if bodyNodeCount <= 0 {
+        return -1
+    }
+
+    outResult[0] = rawTokenStarts[descIndex]
+    outResult[1] = rawTokenValueLengths[descIndex]
+    outResult[2] = statementResult.Values[0]
+    outResult[3] = statementResult.Values[1]
+    return bodyNodeCount
 }
 
 func ParserDeclarationNextNonNewlineTokenKind(tokens: ParserDeclarationTokenTable, count: int, startIndex: int): int {

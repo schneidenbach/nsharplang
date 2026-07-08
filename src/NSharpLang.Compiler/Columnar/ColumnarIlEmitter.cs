@@ -2933,7 +2933,7 @@ internal sealed class ColumnarIlEmitter
     /// </summary>
     internal static bool TryEmitColumnarAssembly(
         string assemblyName, string typeName, ColumnarProgramInput program, bool isExecutable, out byte[] assembly,
-        Version? assemblyVersion = null)
+        Version? assemblyVersion = null, IReadOnlyList<string>? referenceAssemblyPaths = null)
     {
         assembly = Array.Empty<byte>();
         var funcs = program.Functions;
@@ -2941,7 +2941,8 @@ internal sealed class ColumnarIlEmitter
         var structs = program.Structs;
         var unions = program.Unions;
         var interfaces = program.Interfaces;
-        if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0)
+        if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0
+            && program.Tests is not { Count: > 0 })
             return DeclineStatic("emit.program.empty", "columnar program has no modeled declarations");
 
         var assemblyIdentity = new AssemblyName(assemblyName);
@@ -4337,6 +4338,74 @@ internal sealed class ColumnarIlEmitter
         // Task/Task<T>), so a sync __NSharpEntryPoint wrapper calls it and blocks on
         // GetAwaiter().GetResult() — the legacy EnsureRuntimeEntryPointWrapper verbatim. The wrapper is
         // declared BEFORE type.CreateType() so it bakes with the Program type.
+        // TEST DECLARATIONS — the legacy emitter's NSharpTests contract: one public module-level
+        // type holding every test as a public instance void method carrying
+        // Trait("NSharpDescription", <description>) + Fact, both resolved from the restored xunit
+        // at emit time (ResolveTestFrameworkType). Bodies emit through the standard body emitter
+        // with the sibling top-level functions in scope; `nlc test` (XunitFrontController or the
+        // attribute-free NSharpTests reflection fallback) and `dotnet test` both discover them.
+        if (program.Tests is { Count: > 0 } testInputs)
+        {
+            Type factAttributeType;
+            Type traitAttributeType;
+            try
+            {
+                factAttributeType = ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, "xunit.core", "xunit.v3.core");
+                traitAttributeType = ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, "xunit.core", "xunit.v3.core");
+            }
+            catch (InvalidOperationException)
+            {
+                return DeclineStatic("emit.tests.framework", "xunit attribute types were not resolvable in this emit host", "NSharpTests");
+            }
+
+            var traitCtor = traitAttributeType.GetConstructor(new[] { typeof(string), typeof(string) });
+            var factCtor = factAttributeType.GetConstructor(Type.EmptyTypes);
+            if (traitCtor == null || factCtor == null)
+                return DeclineStatic("emit.tests.framework", "xunit attribute constructors were not resolvable", "NSharpTests");
+
+            var testType = module.DefineType("NSharpTests", TypeAttributes.Public | TypeAttributes.Class);
+            var usedTestMethodNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var testInput in testInputs)
+            {
+                var methodName = TestDescriptionToMethodName(testInput.Description);
+                if (!usedTestMethodNames.Add(methodName))
+                {
+                    var suffix = 2;
+                    while (!usedTestMethodNames.Add(methodName + "_" + suffix))
+                        suffix++;
+                    methodName = methodName + "_" + suffix;
+                }
+
+                var testMethod = testType.DefineMethod(methodName, MethodAttributes.Public | MethodAttributes.HideBySig, typeof(void), Type.EmptyTypes);
+                testMethod.SetCustomAttribute(new CustomAttributeBuilder(traitCtor, new object[] { "NSharpDescription", testInput.Description }));
+                testMethod.SetCustomAttribute(new CustomAttributeBuilder(factCtor, Array.Empty<object>()));
+
+                var testBody = testInput.Body;
+                var testIl = testMethod.GetILGenerator();
+                var testSource = program.GetSourceForFileId(testBody.SourceFileId);
+                var testEmitter = new ColumnarIlEmitter(
+                    testBody.BodyNodes, testSource,
+                    new Dictionary<string, int>(StringComparer.Ordinal),
+                    new Dictionary<string, Type>(StringComparer.Ordinal),
+                    typeof(void), testIl, siblings,
+                    enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                    programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                    siblingReturnTupleNames: siblingReturnTupleNames);
+                ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId);
+                try
+                {
+                    if (!testEmitter.EmitBody(testBody.BodyRoot, true))
+                        return DeclineStatic("emit.tests.body", "test body emission declined", "test " + testInput.Description);
+                }
+                finally
+                {
+                    ColumnarDeclineTrace.ClearSourceFileId();
+                }
+            }
+
+            testType.CreateType();
+        }
+
         MethodBuilder? entryPointMethod = null;
         if (isExecutable)
         {
@@ -7420,6 +7489,88 @@ internal sealed class ColumnarIlEmitter
     // names to a catch-all (known defect #16) and accepts non-exception types as dead clauses (#17);
     // declining inherits neither wrongness. User-defined exception classes are not modelled (a columnar
     // class cannot derive a BCL base yet).
+    // Legacy TestDescriptionToMethodName: PascalCase the description words, keep letters/digits/
+    // underscores, prefix Test_ when the result would not start with a letter.
+    private static string TestDescriptionToMethodName(string description)
+    {
+        var words = description.Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        var builder = new System.Text.StringBuilder();
+        foreach (var word in words)
+        {
+            builder.Append(char.ToUpper(word[0]));
+            builder.Append(word, 1, word.Length - 1);
+        }
+
+        var filtered = new System.Text.StringBuilder(builder.Length);
+        for (var c = 0; c < builder.Length; c++)
+        {
+            if (char.IsLetterOrDigit(builder[c]) || builder[c] == '_')
+                filtered.Append(builder[c]);
+        }
+
+        var result = filtered.ToString();
+        if (result.Length == 0 || !char.IsLetter(result[0]))
+        {
+            result = "Test_" + result;
+        }
+
+        return result;
+    }
+
+    // Legacy ResolveTestFrameworkType: scan already-loaded assemblies, then load the known
+    // test-framework assemblies by simple name. Throws when the type is unreachable — the caller
+    // converts that into a decline with a reason.
+    private static Type ResolveTestFrameworkType(string fullTypeName, IReadOnlyList<string>? referenceAssemblyPaths, params string[] assemblyNames)
+    {
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
+        {
+            var loadedType = assembly.GetType(fullTypeName, throwOnError: false);
+            if (loadedType != null)
+                return loadedType;
+        }
+
+        // The compilation's RESOLVED reference paths carry the restored test-framework assemblies
+        // with exact versions — prefer them over name probing so the emitted attribute identity
+        // matches what the runner and `dotnet test` restore alongside the test assembly.
+        if (referenceAssemblyPaths != null)
+        {
+            foreach (var referencePath in referenceAssemblyPaths)
+            {
+                var fileName = Path.GetFileNameWithoutExtension(referencePath);
+                if (!fileName.StartsWith("xunit", StringComparison.OrdinalIgnoreCase)
+                    && !fileName.StartsWith("nunit", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    var loadedType = Assembly.LoadFrom(referencePath).GetType(fullTypeName, throwOnError: false);
+                    if (loadedType != null)
+                        return loadedType;
+                }
+                catch
+                {
+                    // Try the next candidate reference.
+                }
+            }
+        }
+
+        foreach (var assemblyName in assemblyNames)
+        {
+            try
+            {
+                var assembly = Assembly.Load(new AssemblyName(assemblyName));
+                var loadedType = assembly.GetType(fullTypeName, throwOnError: false);
+                if (loadedType != null)
+                    return loadedType;
+            }
+            catch
+            {
+                // Try the next known test-framework assembly name.
+            }
+        }
+
+        throw new InvalidOperationException($"Could not resolve required test framework type {fullTypeName}");
+    }
+
     private static bool TryResolveBclExceptionType(string name, out Type type)
     {
         type = name switch
@@ -8960,7 +9111,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     if (newTypeName == "StringBuilder")
                     {
-                        // `new StringBuilder()` or `new StringBuilder(int capacity)`. (Other ctor overloads
+                        // `new System.Text.StringBuilder()` or `new StringBuilder(int capacity)`. (Other ctor overloads
                         // decline.)
                         var ctorArgCount = _nodes.ChildCount(idx) - 1;
                         System.Reflection.ConstructorInfo? sbCtor;
