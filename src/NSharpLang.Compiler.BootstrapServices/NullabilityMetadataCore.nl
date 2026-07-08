@@ -106,6 +106,85 @@ class NullabilityMetadataCore {
         return typeInfo
     }
 
+    static func FormatFlowAttributePrefix(
+        hasNotNullWhen: bool,
+        notNullWhenValue: bool,
+        hasMaybeNull: bool,
+        hasNotNull: bool): string {
+        formatted := ""
+        if hasNotNullWhen {
+            valueText := "false"
+            if notNullWhenValue {
+                valueText = "true"
+            }
+
+            formatted = AppendFlowAttribute(formatted, "[NotNullWhen(" + valueText + ")]")
+        }
+
+        if hasMaybeNull {
+            formatted = AppendFlowAttribute(formatted, "[MaybeNull]")
+        }
+
+        if hasNotNull {
+            formatted = AppendFlowAttribute(formatted, "[NotNull]")
+        }
+
+        if formatted == "" {
+            return ""
+        }
+
+        return formatted + " "
+    }
+
+    static func GetMaybeNullAttributeKind(): int {
+        return 1
+    }
+
+    static func GetNotNullAttributeKind(): int {
+        return 2
+    }
+
+    static func GetNotNullWhenAttributeKind(): int {
+        return 3
+    }
+
+    static func GetParamArrayAttributeKind(): int {
+        return 4
+    }
+
+    static func GetFlowAttributeKind(attributeTypeName: string?): int {
+        name := attributeTypeName ?? ""
+        if string.Equals(
+            name,
+            "System.Diagnostics.CodeAnalysis.MaybeNullAttribute",
+            StringComparison.Ordinal) {
+            return GetMaybeNullAttributeKind()
+        }
+
+        if string.Equals(
+            name,
+            "System.Diagnostics.CodeAnalysis.NotNullAttribute",
+            StringComparison.Ordinal) {
+            return GetNotNullAttributeKind()
+        }
+
+        if string.Equals(
+            name,
+            "System.Diagnostics.CodeAnalysis.NotNullWhenAttribute",
+            StringComparison.Ordinal) {
+            return GetNotNullWhenAttributeKind()
+        }
+
+        if string.Equals(
+            name,
+            "System.ParamArrayAttribute",
+            StringComparison.Ordinal) {
+            return GetParamArrayAttributeKind()
+        }
+
+        return 0
+    }
+
     static func ApplyReadState(
         typeInfo: TypeInfo,
         isNullableValueType: bool,
@@ -245,6 +324,14 @@ class NullabilityMetadataCore {
         }
 
         return convertedCanCarryReferenceNullability
+    }
+
+    static func AppendFlowAttribute(current: string, next: string): string {
+        if current == "" {
+            return next
+        }
+
+        return current + " " + next
     }
 
     static func FormatSimpleClrTypeName(name: string): string {

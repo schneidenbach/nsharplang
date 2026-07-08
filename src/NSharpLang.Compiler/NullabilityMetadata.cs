@@ -7,10 +7,6 @@ namespace NSharpLang.Compiler;
 
 public static class NullabilityMetadata
 {
-    private const string MaybeNullAttributeName = "System.Diagnostics.CodeAnalysis.MaybeNullAttribute";
-    private const string NotNullAttributeName = "System.Diagnostics.CodeAnalysis.NotNullAttribute";
-    private const string NotNullWhenAttributeName = "System.Diagnostics.CodeAnalysis.NotNullWhenAttribute";
-
     public static TypeInfo ConvertType(Type type)
         => ConvertType(type, null, null);
 
@@ -138,8 +134,8 @@ public static class NullabilityMetadata
     {
         return NullabilityMetadataCore.ApplyFlowAttributeFacts(
             type,
-            HasAttribute(attributes, MaybeNullAttributeName),
-            HasAttribute(attributes, NotNullAttributeName));
+            HasAttributeKind(attributes, NullabilityMetadataCore.GetMaybeNullAttributeKind()),
+            HasAttributeKind(attributes, NullabilityMetadataCore.GetNotNullAttributeKind()));
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(PropertyInfo property)
@@ -182,11 +178,11 @@ public static class NullabilityMetadata
     private static bool IsNullableValueType(Type type)
         => Nullable.GetUnderlyingType(type) != null;
 
-    private static bool HasAttribute(IEnumerable<CustomAttributeData> attributes, string attributeName)
+    private static bool HasAttributeKind(IEnumerable<CustomAttributeData> attributes, int attributeKind)
     {
         foreach (var attribute in attributes)
         {
-            if (string.Equals(attribute.AttributeType.FullName, attributeName, StringComparison.Ordinal))
+            if (NullabilityMetadataCore.GetFlowAttributeKind(attribute.AttributeType.FullName) == attributeKind)
                 return true;
         }
 
@@ -195,31 +191,40 @@ public static class NullabilityMetadata
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-        return HasAttribute(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute");
+        return HasAttributeKind(parameter.GetCustomAttributesData(), NullabilityMetadataCore.GetParamArrayAttributeKind());
     }
 
     private static string FormatFlowAttributes(IEnumerable<CustomAttributeData> attributes)
     {
-        var formatted = new List<string>();
+        var hasNotNullWhen = false;
+        var notNullWhenValue = false;
+        var hasMaybeNull = false;
+        var hasNotNull = false;
         foreach (var attribute in attributes)
         {
-            if (attribute.AttributeType.FullName == NotNullWhenAttributeName
+            var attributeKind = NullabilityMetadataCore.GetFlowAttributeKind(attribute.AttributeType.FullName);
+            if (attributeKind == NullabilityMetadataCore.GetNotNullWhenAttributeKind()
                 && attribute.ConstructorArguments.Count == 1
                 && attribute.ConstructorArguments[0].Value is bool when)
             {
-                formatted.Add($"[NotNullWhen({when.ToString().ToLowerInvariant()})]");
+                hasNotNullWhen = true;
+                notNullWhenValue = when;
             }
-            else if (attribute.AttributeType.FullName == MaybeNullAttributeName)
+            else if (attributeKind == NullabilityMetadataCore.GetMaybeNullAttributeKind())
             {
-                formatted.Add("[MaybeNull]");
+                hasMaybeNull = true;
             }
-            else if (attribute.AttributeType.FullName == NotNullAttributeName)
+            else if (attributeKind == NullabilityMetadataCore.GetNotNullAttributeKind())
             {
-                formatted.Add("[NotNull]");
+                hasNotNull = true;
             }
         }
 
-        return formatted.Count == 0 ? string.Empty : string.Join(" ", formatted) + " ";
+        return NullabilityMetadataCore.FormatFlowAttributePrefix(
+            hasNotNullWhen,
+            notNullWhenValue,
+            hasMaybeNull,
+            hasNotNull);
     }
 
     private static string FormatClrTypeName(Type type)
