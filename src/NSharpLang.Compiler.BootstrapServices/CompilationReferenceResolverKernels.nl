@@ -110,6 +110,10 @@ public class CompilationReferenceResolverKernels {
         return projectName ?? "Project"
     }
 
+    public static func IsExecutableOutputType(outputType: string?): bool {
+        return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
+    }
+
     public static func GetStableOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
         return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
     }

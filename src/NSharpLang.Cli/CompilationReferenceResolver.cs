@@ -164,7 +164,7 @@ internal static class CompilationReferenceResolver
                     $"Project reference '{Path.Combine(projectRoot, "project.yml")}' failed to build:{Environment.NewLine}{diagnostics}");
             }
 
-            if (string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            if (CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
                 CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath);
             }

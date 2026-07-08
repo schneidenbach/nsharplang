@@ -122,7 +122,7 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            if (!CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
                 return Error(RunCommandKernels.GetLibraryProjectMessage());
             }
@@ -164,7 +164,7 @@ partial class Program
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
-            if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            if (!CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
                 return Error(RunCommandKernels.GetLibrarySourceFileMessage());
             }
@@ -343,7 +343,7 @@ partial class Program
             return null;
         }
 
-        if (string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+        if (CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
         {
             CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath);
         }
