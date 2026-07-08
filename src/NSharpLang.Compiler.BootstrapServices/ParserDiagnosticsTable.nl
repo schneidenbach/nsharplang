@@ -4,6 +4,9 @@ public class ParserDiagnosticMessageKind {
     public static func ReservedKeywordAsName(): int { return 1 }
     public static func ExpectedMemberNameAfterDot(): int { return 2 }
     public static func ExpectedDeclarationName(): int { return 3 }
+    public static func ExpectedParameterName(): int { return 4 }
+    public static func ExpectedParameterType(): int { return 5 }
+    public static func ExpectedParameterColon(): int { return 6 }
 }
 
 public class ParserDiagnosticContextKind {
@@ -19,6 +22,7 @@ public class ParserDiagnosticContextKind {
     public static func UnionDeclaration(): int { return 9 }
     public static func EnumDeclaration(): int { return 10 }
     public static func TypeAliasDeclaration(): int { return 11 }
+    public static func TrailingParameterComma(): int { return 12 }
 }
 
 public class ParserDiagnosticTable {

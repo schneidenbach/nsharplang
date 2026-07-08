@@ -72,6 +72,71 @@ public class ParserDiagnosticMessages {
                     "I was expecting an identifier here, but I found '" + currentText + "' instead.",
                     "An identifier is a name for a variable, function, or type.",
                     null))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedParameterName() {
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                if table.ContextKinds[index] == ParserDiagnosticContextKind.TrailingParameterComma() {
+                    suggestions := new List<string>()
+                    suggestions.Add("Add a parameter after the comma")
+                    suggestions.Add("Remove the trailing comma")
+
+                    diagnostics.Add(ParserErrorDiagnostics.Create(
+                        ErrorCode.ExpectedToken,
+                        "Expected parameter name. Got '" + currentText + "'",
+                        sourceFile.FileName,
+                        line,
+                        column,
+                        snippet,
+                        length,
+                        "Parameter lists need another parameter after a comma.",
+                        "Add the missing parameter after the comma, or remove the trailing comma.",
+                        suggestions))
+                } else {
+                    diagnostics.Add(ParserErrorDiagnostics.Create(
+                        ErrorCode.ExpectedToken,
+                        "Expected parameter name. Got '" + currentText + "'",
+                        sourceFile.FileName,
+                        line,
+                        column,
+                        snippet,
+                        length,
+                        "I was expecting an identifier here, but I found '" + currentText + "' instead.",
+                        "An identifier is a name for a variable, function, or type.",
+                        null))
+                }
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedParameterType() {
+                parameterName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add a parameter type after ':'")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected type name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Parameter '" + parameterName + "' needs a type after ':'.",
+                    "Write this parameter as `" + parameterName + ": Type`.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedParameterColon() {
+                parameterName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add ':' after '" + parameterName + "'")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected ':' after parameter name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Parameter '" + parameterName + "' needs a ':' before its type.",
+                    "Write this parameter as `" + parameterName + ": Type`.",
+                    suggestions))
             }
 
             index = index + 1

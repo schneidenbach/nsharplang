@@ -15,9 +15,197 @@ public class ColumnarSyntaxDiagnostics {
         lexer := new Lexer(source, fileName)
         tokens := lexer.Tokenize()
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
+        CollectParameterListDiagnostics(sourceFiles[0], tokens, table)
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectParameterListDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if token.Type == TokenType.LeftParen && IsParameterListOpen(tokens, index) {
+                closeIndex := FindMatchingRightParen(tokens, index)
+                if closeIndex > index {
+                    CollectParameterSegments(sourceFile, tokens, table, index, closeIndex)
+                    index = closeIndex
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func CollectParameterSegments(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        openIndex: int,
+        closeIndex: int) {
+        segmentStart := openIndex + 1
+        lastParameterStartIndex := -1
+        index := openIndex + 1
+        while index <= closeIndex {
+            if index == closeIndex || tokens[index].Type == TokenType.Comma {
+                firstIndex := FirstSignificantTokenIndexInRange(tokens, segmentStart, index)
+                if firstIndex < 0 {
+                    previousIndex := PreviousSignificantTokenIndex(tokens, index)
+                    if index == closeIndex
+                        && previousIndex >= 0
+                        && tokens[previousIndex].Type == TokenType.Comma
+                        && lastParameterStartIndex >= 0 {
+                        ReportTrailingParameterComma(sourceFile, tokens, table, lastParameterStartIndex, previousIndex, closeIndex)
+                    }
+                } else {
+                    parameterStartIndex := AnalyzeParameterSegment(sourceFile, tokens, table, firstIndex, index)
+                    if parameterStartIndex >= 0 {
+                        lastParameterStartIndex = parameterStartIndex
+                    }
+                }
+
+                segmentStart = index + 1
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func AnalyzeParameterSegment(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        firstIndex: int,
+        endIndex: int): int {
+        nameIndex := SkipParameterPrefixes(tokens, firstIndex, endIndex)
+        if nameIndex < 0 || nameIndex >= endIndex {
+            return firstIndex
+        }
+
+        nameToken := tokens[nameIndex]
+        if nameToken.Type == TokenType.Colon {
+            typeIndex := NextSignificantTokenIndexBefore(tokens, nameIndex, endIndex)
+            spanIndex := nameIndex
+            if typeIndex >= 0 && ParserTokenFacts.IsTypeReferenceStart(tokens[typeIndex].Type) {
+                spanIndex = typeIndex
+            }
+
+            spanToken := tokens[spanIndex]
+            spanStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, spanToken.Line, spanToken.Column)
+            currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, nameToken.Line, nameToken.Column)
+            ParserDiagnosticTableOps.Report(
+                table,
+                sourceFile.FileId,
+                (int)ErrorCode.ExpectedToken,
+                spanStart,
+                spanToken.Value.Length,
+                spanToken.Line,
+                spanToken.Column,
+                ParserDiagnosticMessageKind.ExpectedParameterName(),
+                ParserDiagnosticContextKind.Parameter(),
+                spanStart,
+                spanToken.Value.Length,
+                currentStart,
+                nameToken.Value.Length)
+            return -1
+        }
+
+        if nameToken.Type != TokenType.Identifier {
+            return firstIndex
+        }
+
+        nextIndex := NextSignificantTokenIndexBefore(tokens, nameIndex, endIndex)
+        nameStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, nameToken.Line, nameToken.Column)
+        if nextIndex < 0 || tokens[nextIndex].Type != TokenType.Colon {
+            if nextIndex >= 0 {
+                current := tokens[nextIndex]
+                currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, current.Line, current.Column)
+                ParserDiagnosticTableOps.Report(
+                    table,
+                    sourceFile.FileId,
+                    (int)ErrorCode.ExpectedToken,
+                    nameStart,
+                    nameToken.Value.Length,
+                    nameToken.Line,
+                    nameToken.Column,
+                    ParserDiagnosticMessageKind.ExpectedParameterColon(),
+                    ParserDiagnosticContextKind.Parameter(),
+                    nameStart,
+                    nameToken.Value.Length,
+                    currentStart,
+                    current.Value.Length)
+            }
+
+            return nameIndex
+        }
+
+        typeIndex := NextSignificantTokenIndexBefore(tokens, nextIndex, endIndex)
+        if typeIndex < 0 || IsTypeTerminatorForDiagnostics(tokens[typeIndex].Type) {
+            currentIndex := nextIndex
+            if typeIndex >= 0 {
+                currentIndex = typeIndex
+            }
+
+            current := tokens[currentIndex]
+            currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, current.Line, current.Column)
+            ParserDiagnosticTableOps.Report(
+                table,
+                sourceFile.FileId,
+                (int)ErrorCode.ExpectedToken,
+                nameStart,
+                nameToken.Value.Length,
+                nameToken.Line,
+                nameToken.Column,
+                ParserDiagnosticMessageKind.ExpectedParameterType(),
+                ParserDiagnosticContextKind.Parameter(),
+                nameStart,
+                nameToken.Value.Length,
+                currentStart,
+                current.Value.Length)
+        }
+
+        return nameIndex
+    }
+
+    static func ReportTrailingParameterComma(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        lastParameterStartIndex: int,
+        commaIndex: int,
+        closeIndex: int) {
+        startToken := tokens[lastParameterStartIndex]
+        commaToken := tokens[commaIndex]
+        closeToken := tokens[closeIndex]
+        start := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, startToken.Line, startToken.Column)
+        commaStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, commaToken.Line, commaToken.Column)
+        closeStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, closeToken.Line, closeToken.Column)
+        length := commaStart + commaToken.Value.Length - start
+        if length < 1 {
+            length = startToken.Value.Length
+        }
+
+        ParserDiagnosticTableOps.Report(
+            table,
+            sourceFile.FileId,
+            (int)ErrorCode.ExpectedToken,
+            start,
+            length,
+            startToken.Line,
+            startToken.Column,
+            ParserDiagnosticMessageKind.ExpectedParameterName(),
+            ParserDiagnosticContextKind.TrailingParameterComma(),
+            start,
+            length,
+            closeStart,
+            closeToken.Value.Length)
     }
 
     static func CollectMissingDeclarationNameDiagnostics(
@@ -304,6 +492,133 @@ public class ColumnarSyntaxDiagnostics {
         return true
     }
 
+    static func IsParameterListOpen(tokens: List<Token>, openIndex: int): bool {
+        previousIndex := PreviousSignificantTokenIndex(tokens, openIndex)
+        if previousIndex < 0 {
+            return false
+        }
+
+        previous := tokens[previousIndex]
+        if previous.Type == TokenType.With {
+            return true
+        }
+
+        if previous.Type == TokenType.Identifier && previous.Value == "constructor" {
+            return true
+        }
+
+        if previous.Type == TokenType.Identifier {
+            ownerIndex := PreviousSignificantTokenIndex(tokens, previousIndex)
+            return IsDeclarationNameOwner(tokens, ownerIndex)
+        }
+
+        if previous.Type == TokenType.Greater {
+            lessIndex := FindMatchingLess(tokens, previousIndex)
+            if lessIndex >= 0 {
+                nameIndex := PreviousSignificantTokenIndex(tokens, lessIndex)
+                if nameIndex >= 0 && tokens[nameIndex].Type == TokenType.Identifier {
+                    ownerIndex := PreviousSignificantTokenIndex(tokens, nameIndex)
+                    return IsDeclarationNameOwner(tokens, ownerIndex)
+                }
+            }
+        }
+
+        return false
+    }
+
+    static func IsDeclarationNameOwner(tokens: List<Token>, ownerIndex: int): bool {
+        if ownerIndex < 0 {
+            return false
+        }
+
+        owner := tokens[ownerIndex]
+        if owner.Type == TokenType.Func
+            || owner.Type == TokenType.Class
+            || owner.Type == TokenType.Struct
+            || owner.Type == TokenType.Record
+            || owner.Type == TokenType.Interface
+            || owner.Type == TokenType.Union {
+            return true
+        }
+
+        if owner.Type == TokenType.Star {
+            beforeStar := PreviousSignificantTokenIndex(tokens, ownerIndex)
+            return beforeStar >= 0 && tokens[beforeStar].Type == TokenType.Func
+        }
+
+        return false
+    }
+
+    static func FindMatchingRightParen(tokens: List<Token>, openIndex: int): int {
+        depth := 0
+        index := openIndex
+        while index < tokens.Count {
+            token := tokens[index]
+            if token.Type == TokenType.LeftParen {
+                depth = depth + 1
+            } else if token.Type == TokenType.RightParen {
+                depth = depth - 1
+                if depth == 0 {
+                    return index
+                }
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    static func FindMatchingLess(tokens: List<Token>, greaterIndex: int): int {
+        depth := 0
+        index := greaterIndex
+        while index >= 0 {
+            token := tokens[index]
+            if token.Type == TokenType.Greater {
+                depth = depth + 1
+            } else if token.Type == TokenType.Less {
+                depth = depth - 1
+                if depth == 0 {
+                    return index
+                }
+            }
+
+            index = index - 1
+        }
+
+        return -1
+    }
+
+    static func SkipParameterPrefixes(tokens: List<Token>, firstIndex: int, endIndex: int): int {
+        index := firstIndex
+        while index >= 0 && index < endIndex {
+            token := tokens[index]
+            if token.Type == TokenType.Params
+                || token.Type == TokenType.Ref
+                || token.Type == TokenType.Out
+                || token.Type == TokenType.This {
+                index = NextSignificantTokenIndexBefore(tokens, index, endIndex)
+            } else {
+                return index
+            }
+        }
+
+        return -1
+    }
+
+    static func IsTypeTerminatorForDiagnostics(tokenType: TokenType): bool {
+        return tokenType == TokenType.Comma
+            || tokenType == TokenType.RightParen
+            || tokenType == TokenType.RightBracket
+            || tokenType == TokenType.RightBrace
+            || tokenType == TokenType.Newline
+            || tokenType == TokenType.Eof
+            || tokenType == TokenType.Assign
+            || tokenType == TokenType.Semicolon
+            || tokenType == TokenType.Arrow
+            || tokenType == TokenType.Colon
+    }
+
     static func PreviousSignificantToken(tokens: List<Token>, tokenIndex: int): Token? {
         index := tokenIndex - 1
         while index >= 0 {
@@ -332,9 +647,51 @@ public class ColumnarSyntaxDiagnostics {
         return null
     }
 
+    static func PreviousSignificantTokenIndex(tokens: List<Token>, tokenIndex: int): int {
+        index := tokenIndex - 1
+        while index >= 0 {
+            token := tokens[index]
+            if token.Type != TokenType.Newline {
+                return index
+            }
+
+            index = index - 1
+        }
+
+        return -1
+    }
+
     static func NextSignificantTokenIndex(tokens: List<Token>, tokenIndex: int): int {
         index := tokenIndex + 1
         while index < tokens.Count {
+            token := tokens[index]
+            if token.Type != TokenType.Newline {
+                return index
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    static func NextSignificantTokenIndexBefore(tokens: List<Token>, tokenIndex: int, endIndex: int): int {
+        index := tokenIndex + 1
+        while index < endIndex && index < tokens.Count {
+            token := tokens[index]
+            if token.Type != TokenType.Newline {
+                return index
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    static func FirstSignificantTokenIndexInRange(tokens: List<Token>, startIndex: int, endIndex: int): int {
+        index := startIndex
+        while index < endIndex && index < tokens.Count {
             token := tokens[index]
             if token.Type != TokenType.Newline {
                 return index
