@@ -136,13 +136,10 @@ public static class NullabilityMetadata
 
     private static TypeInfo ApplyFlowAttributes(TypeInfo type, IEnumerable<CustomAttributeData> attributes)
     {
-        if (HasAttribute(attributes, MaybeNullAttributeName))
-            return NullabilityMetadataCore.EnsureNullable(type);
-
-        if (HasAttribute(attributes, NotNullAttributeName))
-            return NullabilityMetadataCore.EnsureNotNull(type);
-
-        return type;
+        return NullabilityMetadataCore.ApplyFlowAttributeFacts(
+            type,
+            HasAttribute(attributes, MaybeNullAttributeName),
+            HasAttribute(attributes, NotNullAttributeName));
     }
 
     private static NullabilityInfo? TryCreateNullabilityInfo(PropertyInfo property)

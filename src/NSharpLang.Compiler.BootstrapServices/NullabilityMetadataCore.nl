@@ -94,6 +94,18 @@ class NullabilityMetadataCore {
         return name + "<" + string.Join(", ", formattedArguments) + ">"
     }
 
+    static func ApplyFlowAttributeFacts(typeInfo: TypeInfo, hasMaybeNull: bool, hasNotNull: bool): TypeInfo {
+        if hasMaybeNull {
+            return EnsureNullable(typeInfo)
+        }
+
+        if hasNotNull {
+            return EnsureNotNull(typeInfo)
+        }
+
+        return typeInfo
+    }
+
     static func ApplyReadState(
         typeInfo: TypeInfo,
         isNullableValueType: bool,
