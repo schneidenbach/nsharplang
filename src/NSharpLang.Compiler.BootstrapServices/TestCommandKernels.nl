@@ -156,6 +156,10 @@ public class TestOptionSummary {
 }
 
 public class TestCommandKernels {
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
     public static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }

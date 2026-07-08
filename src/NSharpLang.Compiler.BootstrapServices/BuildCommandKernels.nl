@@ -300,6 +300,22 @@ public class BuildCommandKernels {
         return "Output: " + outputPath
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        if projectOption != null {
+            return Path.GetFullPath(projectOption ?? "")
+        }
+
+        return currentDirectory
+    }
+
+    public static func GetSourceDirectory(sourceFile: string, currentDirectory: string): string {
+        return Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? currentDirectory
+    }
+
+    public static func GetTempBuildDirectory(tempRoot: string, uniqueName: string): string {
+        return Path.Combine(tempRoot, "nlc-build-" + uniqueName)
+    }
+
     public static func GetTimingsMessage(resolveElapsed: string, compileElapsed: string, totalElapsed: string): string {
         return "Build timings:\n"
             + "  Resolve:    " + resolveElapsed + "\n"

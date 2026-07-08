@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli
 
+import System.IO
+
 public class RunOptionSummary {
     BackendOption: string?
     ShowHelp: bool
@@ -86,6 +88,14 @@ public class RunCommandKernels {
 
     public static func GetSourceStartingMessage(sourceFile: string): string {
         return "Running " + sourceFile + "..."
+    }
+
+    public static func GetProjectRoot(currentDirectory: string): string {
+        return currentDirectory
+    }
+
+    public static func GetSourceDirectory(sourceFile: string, currentDirectory: string): string {
+        return Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? currentDirectory
     }
 
     public static func GetMissingProjectFileMessage(): string {

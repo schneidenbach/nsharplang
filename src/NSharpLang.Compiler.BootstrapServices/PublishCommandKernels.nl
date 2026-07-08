@@ -284,6 +284,10 @@ public class PublishCommandKernels {
         return "Publishing project in " + projectRoot + "..."
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
     public static func GetMissingProjectFileMessage(): string {
         return "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
     }

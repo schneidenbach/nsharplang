@@ -87,9 +87,7 @@ partial class Program
             // Support both single-file and multi-file builds
             if (buildOperands.Count == 0)
             {
-                var projectRoot = buildOptions.ProjectOption != null
-                    ? Path.GetFullPath(buildOptions.ProjectOption)
-                    : Directory.GetCurrentDirectory();
+                var projectRoot = BuildCommandKernels.GetProjectRoot(buildOptions.ProjectOption, Directory.GetCurrentDirectory());
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
                 CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, currentProjectConfig);
 
@@ -113,7 +111,7 @@ partial class Program
                 return Error(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, sourceProjectConfig);
             var singleFileResult = RunBuildEmittingPerfReport(
@@ -183,7 +181,7 @@ partial class Program
 
     static string CreateTempBuildDirectory()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");
+        var tempDir = BuildCommandKernels.GetTempBuildDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         return tempDir;
     }
@@ -225,7 +223,7 @@ partial class Program
         {
             if (sourceFile == null)
             {
-                var projectRoot = Directory.GetCurrentDirectory();
+                var projectRoot = RunCommandKernels.GetProjectRoot(Directory.GetCurrentDirectory());
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
                 CompilationBackendSelectionKernels.Validate(backendOption, currentProjectConfig);
 
@@ -239,7 +237,7 @@ partial class Program
 
             Console.WriteLine(RunCommandKernels.GetSourceStartingMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var sourceDir = RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             CompilationBackendSelectionKernels.Validate(backendOption, sourceProjectConfig);
             return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
@@ -264,7 +262,7 @@ partial class Program
             return Error(publishArguments.ValidationError);
         }
 
-        var projectRoot = Path.GetFullPath(publishArguments.ProjectOption ?? Directory.GetCurrentDirectory());
+        var projectRoot = PublishCommandKernels.GetProjectRoot(publishArguments.ProjectOption, Directory.GetCurrentDirectory());
         var backendOption = publishArguments.BackendOption;
 
         try
@@ -476,8 +474,7 @@ partial class Program
             return 0;
         }
 
-        var projectRoot = testOptions.ProjectOption ?? Directory.GetCurrentDirectory();
-        projectRoot = Path.GetFullPath(projectRoot);
+        var projectRoot = TestCommandKernels.GetProjectRoot(testOptions.ProjectOption, Directory.GetCurrentDirectory());
         var outputMode = TestCommandKernels.GetOutputMode(testOptions.JsonOutput);
 
         // Parse timeout to milliseconds
