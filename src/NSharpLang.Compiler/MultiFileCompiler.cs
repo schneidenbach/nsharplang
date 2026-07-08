@@ -412,8 +412,11 @@ public class MultiFileCompiler
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
                 var decline = BuildColumnarDeclineDiagnostic();
-                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmitOnlyEmissionError(
+                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
+                    AotMode,
+                    RequiresColumnarSoaEmission(),
+                    emitOnly: true,
                     decline.Detail,
                     decline.FileName,
                     decline.Line,
@@ -461,36 +464,16 @@ public class MultiFileCompiler
             if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
             {
                 var decline = BuildColumnarDeclineDiagnostic();
-                if (AotMode)
-                {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredAotEmissionError(
-                        assemblyName,
-                        decline.Detail,
-                        decline.FileName,
-                        decline.Line,
-                        decline.Column,
-                        decline.SpanLength));
-                }
-                else if (RequiresColumnarSoaEmission())
-                {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredSoaEmissionError(
-                        assemblyName,
-                        decline.Detail,
-                        decline.FileName,
-                        decline.Line,
-                        decline.Column,
-                        decline.SpanLength));
-                }
-                else
-                {
-                    _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionError(
-                        assemblyName,
-                        decline.Detail,
-                        decline.FileName,
-                        decline.Line,
-                        decline.Column,
-                        decline.SpanLength));
-                }
+                _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
+                    assemblyName,
+                    AotMode,
+                    RequiresColumnarSoaEmission(),
+                    emitOnly: false,
+                    decline.Detail,
+                    decline.FileName,
+                    decline.Line,
+                    decline.Column,
+                    decline.SpanLength));
             }
         }
 
@@ -521,7 +504,7 @@ public class MultiFileCompiler
         }
 
         byte[] assembly;
-        var isExecutable = string.Equals(_config?.OutputType, "exe", StringComparison.OrdinalIgnoreCase);
+        var isExecutable = ColumnarEmissionPlanner.IsExecutableOutput(_config?.OutputType);
         bool emitted = sources.Count == 1
             ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _, isExecutable)
             : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _, isExecutable);

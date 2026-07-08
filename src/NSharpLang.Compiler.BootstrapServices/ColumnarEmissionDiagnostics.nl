@@ -81,6 +81,31 @@ public class ColumnarEmissionDiagnostics {
         }
     }
 
+    public static func RequiredEmissionErrorFor(
+        assemblyName: string,
+        aotMode: bool,
+        requiresSoaEmission: bool,
+        emitOnly: bool,
+        detail: string? = null,
+        fileName: string? = null,
+        line: int = 0,
+        column: int = 0,
+        spanLength: int = 1): CompilerError {
+        if emitOnly {
+            return RequiredEmitOnlyEmissionError(assemblyName, detail, fileName, line, column, spanLength)
+        }
+
+        if aotMode {
+            return RequiredAotEmissionError(assemblyName, detail, fileName, line, column, spanLength)
+        }
+
+        if requiresSoaEmission {
+            return RequiredSoaEmissionError(assemblyName, detail, fileName, line, column, spanLength)
+        }
+
+        return RequiredEmissionError(assemblyName, detail, fileName, line, column, spanLength)
+    }
+
     static func AddDetail(message: string, detail: string?): string {
         if detail == null || detail.Length == 0 {
             return message
