@@ -503,12 +503,11 @@ public class MultiFileCompiler
             sources.Add(Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors));
         }
 
-        byte[] assembly;
         var isExecutable = ColumnarEmissionPlanner.IsExecutableOutput(_config?.OutputType);
-        bool emitted = ColumnarEmissionPlanner.ShouldUseSingleSourceRoute(sources.Count)
-            ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _, isExecutable)
-            : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _, isExecutable);
-        if (!emitted)
+        ColumnarDeclineTrace.Reset();
+        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, out var program))
+            return false;
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly))
             return false;
         File.WriteAllBytes(outputPath, assembly);
         return true;

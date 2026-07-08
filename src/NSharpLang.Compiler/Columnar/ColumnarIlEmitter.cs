@@ -2935,7 +2935,6 @@ internal sealed class ColumnarIlEmitter
         string assemblyName, string typeName, ColumnarProgramInput program, bool isExecutable, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
-        var source = program.Source;
         var funcs = program.Functions;
         var enums = program.Enums;
         var structs = program.Structs;
@@ -3577,7 +3576,8 @@ internal sealed class ColumnarIlEmitter
                         typeof(void),
                         Type.EmptyTypes);
                     def.InstanceInitializerMethod = initializer;
-                    CollectTopLevelFieldInitializerAssignments(ctor.Body, source, def.InstanceInitializerFields);
+                    var ctorSource = program.GetSourceForFileId(ctor.Body.SourceFileId);
+                    CollectTopLevelFieldInitializerAssignments(ctor.Body, ctorSource, def.InstanceInitializerFields);
                     structInitializerJobs.Add((def, ctor, initializer));
                     continue;
                 }
@@ -4083,16 +4083,25 @@ internal sealed class ColumnarIlEmitter
             // ASYNC bodies check return values against the INNER type; the method's CLR signature
             // (and every sibling call site) sees the WRAPPED type.
             var bodyReturnType = asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f];
+            var functionSource = program.GetSourceForFileId(fn.SourceFileId);
             var emitter = new ColumnarIlEmitter(
-                fn.BodyNodes, source, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings,
+                fn.BodyNodes, functionSource, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                 localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes,
                 siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames,
                 asyncReturnType: asyncWrappedByFunc[f],
                 asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask");
-            if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == typeof(void)))
-                return DeclineStatic("emit.body", "function body emission declined", fn.Name);
+            ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
+            try
+            {
+                if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == typeof(void)))
+                    return DeclineStatic("emit.body", "function body emission declined", fn.Name);
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
             if (fn.LocalFunctions != null)
             {
                 // NL316 across the local-function boundary: the pipeline rejects a local-func PARAM or
@@ -4100,7 +4109,7 @@ internal sealed class ColumnarIlEmitter
                 // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
                 // any parent statement binds; extra declines are safe under-acceptance).
                 var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
-                CollectBindingNames(fn.BodyNodes, source, fn.BodyRoot, parentBindings);
+                CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
                 foreach (var localFunction in fn.LocalFunctions)
                 {
@@ -4119,14 +4128,23 @@ internal sealed class ColumnarIlEmitter
                     var localIl = target.Method.GetILGenerator();
                     // The local body shares the SAME localFuncs map (self/mutual recursion + the parent's
                     // other local functions); outer locals/params are NOT in scope — captures decline.
+                    var localFunctionSource = program.GetSourceForFileId(localFn.SourceFileId);
                     var localEmitter = new ColumnarIlEmitter(
-                        localFn.BodyNodes, source, localOrdinals, localParamTypes, target.ReturnType, localIl,
+                        localFn.BodyNodes, localFunctionSource, localOrdinals, localParamTypes, target.ReturnType, localIl,
                         siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                         programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                         localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix,
                         enclosingBindingNames: parentBindings);
-                    if (!localEmitter.EmitBody(localFn.BodyRoot, target.ReturnType == typeof(void)))
-                        return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name);
+                    ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId);
+                    try
+                    {
+                        if (!localEmitter.EmitBody(localFn.BodyRoot, target.ReturnType == typeof(void)))
+                            return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name);
+                    }
+                    finally
+                    {
+                        ColumnarDeclineTrace.ClearSourceFileId();
+                    }
                 }
             }
         }
@@ -4137,13 +4155,22 @@ internal sealed class ColumnarIlEmitter
         foreach (var job in interfaceMethodJobs)
         {
             var mil = job.Builder.GetILGenerator();
+            var methodSource = program.GetSourceForFileId(job.Method.SourceFileId);
             var emitter = new ColumnarIlEmitter(
-                job.Method.BodyNodes, source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
+                job.Method.BodyNodes, methodSource, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.Interface, enclosingType: job.Interface,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
-            if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
-                return DeclineStatic("emit.body", "default interface method body emission declined", job.Interface.Builder.Name + "." + job.Method.Name);
+            ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
+            try
+            {
+                if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
+                    return DeclineStatic("emit.body", "default interface method body emission declined", job.Interface.Builder.Name + "." + job.Method.Name);
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
         }
 
         // Emit synthesized instance-field initializer methods before constructors that call them. The N# constructor
@@ -4152,16 +4179,25 @@ internal sealed class ColumnarIlEmitter
         foreach (var job in structInitializerJobs)
         {
             var mil = job.Builder.GetILGenerator();
+            var ctorSource = program.GetSourceForFileId(job.Ctor.Body.SourceFileId);
             var emitter = new ColumnarIlEmitter(
-                job.Ctor.Body.BodyNodes, source,
+                job.Ctor.Body.BodyNodes, ctorSource,
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, Type>(StringComparer.Ordinal),
                 typeof(void), mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isSynthesizedInitializerBody: true,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
-            if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
-                return DeclineStatic("emit.body", "instance field initializer emission declined", job.Struct.Builder.Name + ".<InitializeFields>$");
+            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
+            try
+            {
+                if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
+                    return DeclineStatic("emit.body", "instance field initializer emission declined", job.Struct.Builder.Name + ".<InitializeFields>$");
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
         }
 
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
@@ -4173,15 +4209,24 @@ internal sealed class ColumnarIlEmitter
         foreach (var job in structMethodJobs)
         {
             var mil = job.Builder.GetILGenerator();
+            var methodSource = program.GetSourceForFileId(job.Method.SourceFileId);
             var emitter = new ColumnarIlEmitter(
-                job.Method.BodyNodes, source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
+                job.Method.BodyNodes, methodSource, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
-            if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
-                return DeclineStatic("emit.body", "member body emission declined", job.Struct.Builder.Name + "." + job.Method.Name);
+            ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
+            try
+            {
+                if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
+                    return DeclineStatic("emit.body", "member body emission declined", job.Struct.Builder.Name + "." + job.Method.Name);
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
         }
 
         // Emit user-constructor bodies. Each chains to the base `object` ctor first (`ldarg.0; call object::.ctor()`),
@@ -4191,54 +4236,63 @@ internal sealed class ColumnarIlEmitter
         foreach (var job in structCtorJobs)
         {
             var cil = job.Builder.GetILGenerator();
+            var ctorSource = program.GetSourceForFileId(job.Ctor.Body.SourceFileId);
             var emitter = new ColumnarIlEmitter(
-                job.Ctor.Body.BodyNodes, source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,
+                job.Ctor.Body.BodyNodes, ctorSource, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isConstructorBody: true, isSynthesizedInitializerBody: job.Ctor.IsSynthesizedInitializer,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
-            if (job.Ctor.ChainInitKind != 0)
+            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
+            try
             {
-                // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
-                // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
-                // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
-                // call (resolved by chain-arg count among the same type's / the base type's ctors) in place of the
-                // base object ctor, then the body.
-                if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
-                    return false;
-                if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
-                    return false;
-                if (job.Ctor.ChainInitKind == 2)
+                if (job.Ctor.ChainInitKind != 0)
+                {
+                    // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
+                    // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
+                    // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
+                    // call (resolved by chain-arg count among the same type's / the base type's ctors) in place of the
+                    // base object ctor, then the body.
+                    if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
+                        return false;
+                    if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
+                        return false;
+                    if (job.Ctor.ChainInitKind == 2)
+                        EmitInstanceInitializerCall(cil, job.Struct);
+                }
+                else if (job.Struct.IsReference)
+                {
+                    // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
+                    // inherited fields are the base ctor's responsibility). Synthesized initializer constructors
+                    // produced from class/record declarations may leave fields at their CLR defaults; explicit
+                    // constructors keep the all-fields-assigned check. Validate BEFORE emitting — declining here discards
+                    // the whole assembly (→ N# backend path). Then chain implicitly: to the declared base's parameterless
+                    // ctor when the type has one (decline when the base offers only parameterized ctors — ECMA-335
+                    // requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain), else to the
+                    // `object` ctor.
+                    if (job.Ctor.IsSynthesizedInitializer
+                        ? emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot)
+                        : !emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
+                        return false;
+                    if (job.Struct.BaseDef != null && ResolveParameterlessCtor(job.Struct.BaseDef) == null)
+                        return false; // base has only parameterized ctors — `: base(...)` is required.
+                    EmitCtorBaseChain(cil, job.Struct, objectCtor);
                     EmitInstanceInitializerCall(cil, job.Struct);
+                }
+                else
+                {
+                    // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
+                    // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
+                    // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
+                    if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
+                        return false;
+                }
+                if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
+                    return DeclineStatic("emit.body", "constructor body emission declined", job.Struct.Builder.Name + ".constructor");
             }
-            else if (job.Struct.IsReference)
+            finally
             {
-                // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
-                // inherited fields are the base ctor's responsibility). Synthesized initializer constructors
-                // produced from class/record declarations may leave fields at their CLR defaults; explicit
-                // constructors keep the all-fields-assigned check. Validate BEFORE emitting — declining here discards
-                // the whole assembly (→ N# backend path). Then chain implicitly: to the declared base's parameterless
-                // ctor when the type has one (decline when the base offers only parameterized ctors — ECMA-335
-                // requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain), else to the
-                // `object` ctor.
-                if (job.Ctor.IsSynthesizedInitializer
-                    ? emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot)
-                    : !emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
-                    return false;
-                if (job.Struct.BaseDef != null && ResolveParameterlessCtor(job.Struct.BaseDef) == null)
-                    return false; // base has only parameterized ctors — `: base(...)` is required.
-                EmitCtorBaseChain(cil, job.Struct, objectCtor);
-                EmitInstanceInitializerCall(cil, job.Struct);
+                ColumnarDeclineTrace.ClearSourceFileId();
             }
-            else
-            {
-                // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
-                // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
-                // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
-                if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
-                    return false;
-            }
-            if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
-                return DeclineStatic("emit.body", "constructor body emission declined", job.Struct.Builder.Name + ".constructor");
         }
 
         // Finalize the struct types before the Program type (the spike's ordering). Struct fields are already

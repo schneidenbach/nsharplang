@@ -98,6 +98,35 @@ internal static class ColumnarProgramInputBuilder
         return true;
     }
 
+    internal static bool TryBuildMultiFile(
+        IReadOnlyList<string> sources,
+        IReadOnlyList<string> fileNames,
+        out ColumnarProgramInput program)
+    {
+        program = null!;
+        var sourceFiles = ColumnarEmissionPlanner.BuildSourceFilesFromLists(sources, fileNames);
+        var programs = new ColumnarProgramInput[sources.Count];
+        for (var i = 0; i < sources.Count; i++)
+        {
+            var sourceFileId = sourceFiles[i].FileId;
+            ColumnarDeclineTrace.SetSourceFileId(sourceFileId);
+            try
+            {
+                if (!TryBuild(sources[i], out var fileProgram))
+                    return false;
+                ColumnarProgramInput.AssignSourceFileId(fileProgram, sourceFileId);
+                programs[i] = fileProgram;
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
+        }
+
+        program = ColumnarProgramInput.MergeSourceFiles(sourceFiles, programs);
+        return true;
+    }
+
     private static bool TryTokenizeColumnarSource(string source, out ColumnarTokenizedSource tokens)
     {
         tokens = null!;

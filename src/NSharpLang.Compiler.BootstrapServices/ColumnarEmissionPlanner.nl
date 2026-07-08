@@ -37,6 +37,25 @@ public class ColumnarEmissionPlanner {
         return files
     }
 
+    public static func BuildSourceFilesFromLists(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>): ColumnarSourceFile[] {
+        if sources.Count != fileNames.Count {
+            throw new ArgumentException("Columnar source and file-name lists must have the same length.")
+        }
+
+        files := new ColumnarSourceFile[](sources.Count)
+        index := 0
+        while index < sources.Count {
+            files[index] = new ColumnarSourceFile(
+                fileNames[index],
+                sources[index],
+                index,
+                BuildLineStarts(sources[index]))
+            index = index + 1
+        }
+
+        return files
+    }
+
     public static func IsExecutableOutput(outputType: string?): bool {
         return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
     }
@@ -44,18 +63,6 @@ public class ColumnarEmissionPlanner {
     public static func IsEnabledEnvironmentFlag(value: string?): bool {
         return string.Equals(value ?? "", "1", StringComparison.Ordinal)
             || string.Equals(value ?? "", "true", StringComparison.OrdinalIgnoreCase)
-    }
-
-    public static func ShouldUseSingleSourceRoute(sourceCount: int): bool {
-        return sourceCount == 1
-    }
-
-    public static func BuildLegacyMergedSource(sources: IReadOnlyList<string>?): string? {
-        if sources == null || sources.Count == 0 {
-            return null
-        }
-
-        return string.Join("\n\n", sources)
     }
 
     static func BuildLineStarts(source: string): int[] {

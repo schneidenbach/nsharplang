@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace NSharpLang.Compiler.Columnar;
 
@@ -36,25 +35,5 @@ internal static class ColumnarCompiler
         for (var i = 0; i < program.Functions.Count; i++)
             methodNames[i] = program.Functions[i].Name;
         return true;
-    }
-
-    internal static bool TryEmitProgramMultiFile(
-        IReadOnlyList<string> sources,
-        string assemblyName,
-        string typeName,
-        out byte[] assembly,
-        out string emittedTypeName,
-        out string[] methodNames,
-        bool isExecutable = false)
-    {
-        assembly = Array.Empty<byte>();
-        emittedTypeName = string.Empty;
-        methodNames = Array.Empty<string>();
-
-        var combined = ColumnarEmissionPlanner.BuildLegacyMergedSource(sources);
-        if (combined == null)
-            return false;
-
-        return TryEmitProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames, isExecutable);
     }
 }
