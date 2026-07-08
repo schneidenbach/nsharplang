@@ -137,6 +137,41 @@ public class ParserDiagnosticMessages {
                     "Parameter '" + parameterName + "' needs a ':' before its type.",
                     "Write this parameter as `" + parameterName + ": Type`.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedFieldType() {
+                fieldName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add a field type after ':'")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected type name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Field '" + fieldName + "' needs a type after ':'.",
+                    "Write this field as `" + fieldName + ": Type`.",
+                    suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedFieldColon() {
+                fieldName := SliceSource(source, table.ArgAStarts[index], table.ArgALengths[index])
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                suggestions := new List<string>()
+                suggestions.Add("Add ':' after '" + fieldName + "'")
+                suggestions.Add("Use ':=' after '" + fieldName + "' if the type should be inferred")
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    "Expected ':' or ':=' after field name. Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "Field '" + fieldName + "' needs a ':' before its type, or ':=' before an inferred initializer.",
+                    "Write this field as `" + fieldName + ": Type` or `" + fieldName + " := value`.",
+                    suggestions))
             }
 
             index = index + 1

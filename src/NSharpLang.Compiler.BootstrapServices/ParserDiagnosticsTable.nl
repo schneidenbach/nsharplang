@@ -7,6 +7,8 @@ public class ParserDiagnosticMessageKind {
     public static func ExpectedParameterName(): int { return 4 }
     public static func ExpectedParameterType(): int { return 5 }
     public static func ExpectedParameterColon(): int { return 6 }
+    public static func ExpectedFieldType(): int { return 7 }
+    public static func ExpectedFieldColon(): int { return 8 }
 }
 
 public class ParserDiagnosticContextKind {

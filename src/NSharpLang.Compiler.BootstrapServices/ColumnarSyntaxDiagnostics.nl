@@ -16,9 +16,120 @@ public class ColumnarSyntaxDiagnostics {
         tokens := lexer.Tokenize()
         CollectMissingDeclarationNameDiagnostics(sourceFiles[0], tokens, table)
         CollectParameterListDiagnostics(sourceFiles[0], tokens, table)
+        CollectFieldDeclarationDiagnostics(sourceFiles[0], tokens, table)
         CollectExpectedMemberNameDiagnostics(sourceFiles[0], tokens, table)
         CollectReservedKeywordNameDiagnostics(sourceFiles[0], tokens, table)
         return ParserDiagnosticMessages.Materialize(table, sourceFiles)
+    }
+
+    static func CollectFieldDeclarationDiagnostics(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable) {
+        braceDepth := 0
+        typeBodyDepth := -1
+        pendingTypeBody := false
+        index := 0
+        while index < tokens.Count {
+            token := tokens[index]
+            if IsPanicResetBoundary(token.Type) {
+                ParserDiagnosticTableOps.ResetPanicMode(table)
+            }
+
+            if IsTypeBodyDeclarationKeyword(token.Type) && IsDeclarationKeywordPosition(tokens, index) {
+                pendingTypeBody = true
+            }
+
+            if typeBodyDepth >= 0
+                && braceDepth == typeBodyDepth
+                && token.Type == TokenType.Identifier
+                && IsLikelyFieldStart(tokens, index) {
+                AnalyzeFieldDeclaration(sourceFile, tokens, table, index)
+            }
+
+            if token.Type == TokenType.LeftBrace {
+                braceDepth = braceDepth + 1
+                if pendingTypeBody {
+                    typeBodyDepth = braceDepth
+                    pendingTypeBody = false
+                }
+            } else if token.Type == TokenType.RightBrace {
+                if braceDepth == typeBodyDepth {
+                    typeBodyDepth = -1
+                }
+
+                braceDepth = braceDepth - 1
+                if braceDepth < 0 {
+                    braceDepth = 0
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func AnalyzeFieldDeclaration(
+        sourceFile: ColumnarSourceFile,
+        tokens: List<Token>,
+        table: ParserDiagnosticTable,
+        nameIndex: int) {
+        nameToken := tokens[nameIndex]
+        nextIndex := NextSignificantTokenIndex(tokens, nameIndex)
+        if nextIndex < 0 {
+            return
+        }
+
+        next := tokens[nextIndex]
+        if next.Type == TokenType.ColonAssign {
+            return
+        }
+
+        nameStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, nameToken.Line, nameToken.Column)
+        if next.Type != TokenType.Colon {
+            if ParserTokenFacts.IsTypeReferenceStart(next.Type) {
+                currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, next.Line, next.Column)
+                ParserDiagnosticTableOps.Report(
+                    table,
+                    sourceFile.FileId,
+                    (int)ErrorCode.ExpectedToken,
+                    nameStart,
+                    nameToken.Value.Length,
+                    nameToken.Line,
+                    nameToken.Column,
+                    ParserDiagnosticMessageKind.ExpectedFieldColon(),
+                    ParserDiagnosticContextKind.Field(),
+                    nameStart,
+                    nameToken.Value.Length,
+                    currentStart,
+                    next.Value.Length)
+            }
+
+            return
+        }
+
+        currentIndex := nextIndex + 1
+        if currentIndex >= tokens.Count {
+            currentIndex = nextIndex
+        }
+
+        current := tokens[currentIndex]
+        if IsTypeTerminatorForDiagnostics(current.Type) || LooksLikeNextFieldAfterMissingType(tokens, currentIndex) {
+            currentStart := OffsetFromLineColumn(sourceFile.LineStarts, sourceFile.Source.Length, current.Line, current.Column)
+            ParserDiagnosticTableOps.Report(
+                table,
+                sourceFile.FileId,
+                (int)ErrorCode.ExpectedToken,
+                nameStart,
+                nameToken.Value.Length,
+                nameToken.Line,
+                nameToken.Column,
+                ParserDiagnosticMessageKind.ExpectedFieldType(),
+                ParserDiagnosticContextKind.Field(),
+                nameStart,
+                nameToken.Value.Length,
+                currentStart,
+                current.Value.Length)
+        }
     }
 
     static func CollectParameterListDiagnostics(
@@ -492,6 +603,57 @@ public class ColumnarSyntaxDiagnostics {
         return true
     }
 
+    static func IsTypeBodyDeclarationKeyword(tokenType: TokenType): bool {
+        return tokenType == TokenType.Class
+            || tokenType == TokenType.Struct
+            || tokenType == TokenType.Record
+            || tokenType == TokenType.Interface
+    }
+
+    static func IsLikelyFieldStart(tokens: List<Token>, tokenIndex: int): bool {
+        token := tokens[tokenIndex]
+        if token.Value == "constructor"
+            || token.Value == "get"
+            || token.Value == "set" {
+            return false
+        }
+
+        previous := PreviousSignificantToken(tokens, tokenIndex)
+        if previous == null {
+            return false
+        }
+
+        if previous.Type == TokenType.LeftBrace
+            || previous.Type == TokenType.RightBrace
+            || previous.Type == TokenType.Semicolon {
+            return true
+        }
+
+        if IsDeclarationModifier(previous.Type)
+            || previous.Type == TokenType.Required
+            || previous.Type == TokenType.Init
+            || previous.Type == TokenType.Readonly {
+            return true
+        }
+
+        return HasLineBreakBefore(tokens, tokenIndex)
+    }
+
+    static func LooksLikeNextFieldAfterMissingType(tokens: List<Token>, tokenIndex: int): bool {
+        token := tokens[tokenIndex]
+        if token.Type != TokenType.Identifier {
+            return false
+        }
+
+        nextIndex := NextSignificantTokenIndex(tokens, tokenIndex)
+        if nextIndex < 0 {
+            return false
+        }
+
+        next := tokens[nextIndex]
+        return next.Type == TokenType.Colon || next.Type == TokenType.ColonAssign
+    }
+
     static func IsParameterListOpen(tokens: List<Token>, openIndex: int): bool {
         previousIndex := PreviousSignificantTokenIndex(tokens, openIndex)
         if previousIndex < 0 {
@@ -659,6 +821,24 @@ public class ColumnarSyntaxDiagnostics {
         }
 
         return -1
+    }
+
+    static func HasLineBreakBefore(tokens: List<Token>, tokenIndex: int): bool {
+        index := tokenIndex - 1
+        while index >= 0 {
+            token := tokens[index]
+            if token.Type == TokenType.Newline {
+                return true
+            }
+
+            if token.Type != TokenType.Newline {
+                return false
+            }
+
+            index = index - 1
+        }
+
+        return false
     }
 
     static func NextSignificantTokenIndex(tokens: List<Token>, tokenIndex: int): int {
