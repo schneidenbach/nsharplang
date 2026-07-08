@@ -126,6 +126,10 @@ public class DaemonProtocolKernels {
         return "daemon.pid"
     }
 
+    public static func GetPidFilePath(socketPath: string): string {
+        return Path.Combine(Path.GetDirectoryName(socketPath) ?? "", GetPidFileName())
+    }
+
     public static func GetAlreadyRunningMessage(projectRoot: string): string {
         return "A daemon is already running for " + projectRoot + "."
     }

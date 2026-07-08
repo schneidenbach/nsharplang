@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli.Daemon
 
+import System.IO
+
 public class DaemonStartPlan {
     FileName: string
     Arguments: string
@@ -54,6 +56,14 @@ public class DaemonClientKernels {
 
     public static func GetStartWaitDelayMilliseconds(): int {
         return 100
+    }
+
+    public static func GetCliProjectPath(candidateRoot: string): string {
+        return Path.Combine(Path.Combine(Path.Combine(candidateRoot, "src"), "NSharpLang.Cli"), "Cli.csproj")
+    }
+
+    public static func GetCliProjectDirectory(cliProjectPath: string): string? {
+        return Path.GetDirectoryName(cliProjectPath)
     }
 
     static func QuoteArgument(value: string): string {

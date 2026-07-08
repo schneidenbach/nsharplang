@@ -63,7 +63,7 @@ public class DaemonServer
     /// </summary>
     public void Run()
     {
-        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, DaemonProtocolKernels.GetPidFileName());
+        var pidPath = DaemonProtocolKernels.GetPidFilePath(_socketPath);
         var ownsSocket = false;
 
         if (File.Exists(_socketPath))
@@ -555,7 +555,7 @@ public class DaemonServer
     {
         if (!DaemonServerKernels.ShouldInvalidateForChangedPath(e.FullPath)) return;
 
-        var fileName = Path.GetFileName(e.FullPath);
+        var fileName = DaemonServerKernels.GetChangedFileName(e.FullPath);
         Console.Error.WriteLine(DaemonServerKernels.GetFileChangedMessage(fileName));
         _cacheInvalid = true;
     }

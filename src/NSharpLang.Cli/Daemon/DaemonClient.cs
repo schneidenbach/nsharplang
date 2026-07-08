@@ -214,9 +214,9 @@ public static class DaemonClient
         var dir = Directory.GetCurrentDirectory();
         while (dir != null)
         {
-            var cliProj = Path.Combine(dir, "src", "NSharpLang.Cli", "Cli.csproj");
+            var cliProj = DaemonClientKernels.GetCliProjectPath(dir);
             if (File.Exists(cliProj))
-                return Path.GetDirectoryName(cliProj);
+                return DaemonClientKernels.GetCliProjectDirectory(cliProj);
             dir = Directory.GetParent(dir)?.FullName;
         }
         return null;

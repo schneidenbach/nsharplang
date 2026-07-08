@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli.Daemon
 
 import System
+import System.IO
 import NSharpLang.Cli.Commands
 
 public class DaemonServerKernels {
@@ -133,6 +134,10 @@ public class DaemonServerKernels {
 
     public static func GetFileChangedMessage(fileName: string): string {
         return DaemonServerMessageKernels.GetFileChangedMessage(fileName)
+    }
+
+    public static func GetChangedFileName(path: string): string {
+        return Path.GetFileName(path) ?? ""
     }
 
     public static func ShouldInvalidateForChangedPath(path: string): bool {
