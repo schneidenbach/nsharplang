@@ -46,6 +46,18 @@ public class ColumnarEmissionPlanner {
             || string.Equals(value ?? "", "true", StringComparison.OrdinalIgnoreCase)
     }
 
+    public static func ShouldUseSingleSourceRoute(sourceCount: int): bool {
+        return sourceCount == 1
+    }
+
+    public static func BuildLegacyMergedSource(sources: IReadOnlyList<string>?): string? {
+        if sources == null || sources.Count == 0 {
+            return null
+        }
+
+        return string.Join("\n\n", sources)
+    }
+
     static func BuildLineStarts(source: string): int[] {
         starts := new List<int>()
         starts.Add(0)

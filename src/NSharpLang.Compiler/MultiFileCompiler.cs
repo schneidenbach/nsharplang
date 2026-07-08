@@ -505,7 +505,7 @@ public class MultiFileCompiler
 
         byte[] assembly;
         var isExecutable = ColumnarEmissionPlanner.IsExecutableOutput(_config?.OutputType);
-        bool emitted = sources.Count == 1
+        bool emitted = ColumnarEmissionPlanner.ShouldUseSingleSourceRoute(sources.Count)
             ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _, isExecutable)
             : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _, isExecutable);
         if (!emitted)

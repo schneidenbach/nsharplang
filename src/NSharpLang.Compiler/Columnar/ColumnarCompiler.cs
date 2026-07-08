@@ -51,10 +51,10 @@ internal static class ColumnarCompiler
         emittedTypeName = string.Empty;
         methodNames = Array.Empty<string>();
 
-        if (sources == null || sources.Count == 0)
+        var combined = ColumnarEmissionPlanner.BuildLegacyMergedSource(sources);
+        if (combined == null)
             return false;
 
-        var combined = string.Join("\n\n", sources);
         return TryEmitProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames, isExecutable);
     }
 }
