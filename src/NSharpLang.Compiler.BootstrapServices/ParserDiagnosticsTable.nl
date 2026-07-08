@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 public class ParserDiagnosticMessageKind {
     public static func ReservedKeywordAsName(): int { return 1 }
     public static func ExpectedMemberNameAfterDot(): int { return 2 }
+    public static func ExpectedDeclarationName(): int { return 3 }
 }
 
 public class ParserDiagnosticContextKind {
@@ -10,6 +11,14 @@ public class ParserDiagnosticContextKind {
     public static func DotMember(): int { return 1 }
     public static func Parameter(): int { return 2 }
     public static func Field(): int { return 3 }
+    public static func FunctionDeclaration(): int { return 4 }
+    public static func ClassDeclaration(): int { return 5 }
+    public static func StructDeclaration(): int { return 6 }
+    public static func RecordDeclaration(): int { return 7 }
+    public static func InterfaceDeclaration(): int { return 8 }
+    public static func UnionDeclaration(): int { return 9 }
+    public static func EnumDeclaration(): int { return 10 }
+    public static func TypeAliasDeclaration(): int { return 11 }
 }
 
 public class ParserDiagnosticTable {

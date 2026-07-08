@@ -57,6 +57,21 @@ public class ParserDiagnosticMessages {
                     "I see a " + operatorDescription + " operator but no member name after it.",
                     "After " + operatorDescription + ", I need to see a property or method name.",
                     suggestions))
+            } else if table.MessageKinds[index] == ParserDiagnosticMessageKind.ExpectedDeclarationName() {
+                currentText := SliceSource(source, table.ArgBStarts[index], table.ArgBLengths[index])
+                expectedMessage := DeclarationNameMessage(table.ContextKinds[index])
+
+                diagnostics.Add(ParserErrorDiagnostics.Create(
+                    ErrorCode.ExpectedToken,
+                    expectedMessage + ". Got '" + currentText + "'",
+                    sourceFile.FileName,
+                    line,
+                    column,
+                    snippet,
+                    length,
+                    "I was expecting an identifier here, but I found '" + currentText + "' instead.",
+                    "An identifier is a name for a variable, function, or type.",
+                    null))
             }
 
             index = index + 1
@@ -95,6 +110,42 @@ public class ParserDiagnosticMessages {
         }
 
         return "Choose a name that isn't a reserved keyword (for example '" + keyword + "Value' or '_" + keyword + "')."
+    }
+
+    static func DeclarationNameMessage(contextKind: int): string {
+        if contextKind == ParserDiagnosticContextKind.FunctionDeclaration() {
+            return "Expected function name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.ClassDeclaration() {
+            return "Expected class name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.StructDeclaration() {
+            return "Expected struct name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.RecordDeclaration() {
+            return "Expected record name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.InterfaceDeclaration() {
+            return "Expected interface name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.UnionDeclaration() {
+            return "Expected union name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.EnumDeclaration() {
+            return "Expected enum name"
+        }
+
+        if contextKind == ParserDiagnosticContextKind.TypeAliasDeclaration() {
+            return "Expected type alias name"
+        }
+
+        return "Expected identifier"
     }
 
     static func SliceSource(source: string, start: int, length: int): string {
