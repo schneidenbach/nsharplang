@@ -566,7 +566,7 @@ partial class Program
             var verifyOnly = formatOptions.VerifyOnly;
             var diffOnly = formatOptions.DiffOnly;
             var stdinMode = formatOptions.StdinMode;
-            var projectRoot = Path.GetFullPath(formatOptions.ProjectOption ?? Directory.GetCurrentDirectory());
+            var projectRoot = FormatCommandKernels.GetProjectRoot(formatOptions.ProjectOption, Directory.GetCurrentDirectory());
             var positionalFiles = PositionalArgumentKernels.GetArgs(args, ["--project"]);
 
             if (stdinMode && positionalFiles.Length > 0)
@@ -623,7 +623,7 @@ partial class Program
                 {
                     var source = File.ReadAllText(file);
                     var formatted = FormatSource(source, file, projectRoot);
-                    var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                    var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
 
                     if (FormatCommandKernels.ShouldEmitFormattedFile(source, formatted))
                     {
@@ -691,16 +691,16 @@ partial class Program
         if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
         {
             throw new Exception(FormatCommandKernels.GetParseErrorsMessage(
-                NormalizePath(Path.GetRelativePath(projectRoot, file)),
+                FormatCommandKernels.GetRelativePath(projectRoot, file),
                 string.Join(", ", parseResult.Errors.Select(e => e.Message))));
         }
 
-        var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;
+        var fileDir = FormatCommandKernels.GetFileDirectory(projectRoot, file);
         var config = FormatterConfig.FromEditorConfig(fileDir);
         var formatter = new Formatter(config);
         var result = formatter.FormatSafe(source, parseResult.CompilationUnit!, lexer.Comments, file);
 
-        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+        var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
         foreach (var warning in result.Warnings)
         {
             Console.Error.WriteLine(FormatCommandKernels.GetWarningLine(relativePath, warning));
@@ -738,7 +738,7 @@ partial class Program
 
             foreach (var childDirectory in childDirectories)
             {
-                var name = Path.GetFileName(childDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                var name = FormatCommandKernels.GetDiscoveredDirectoryName(childDirectory);
                 if (!FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(name))
                 {
                     pending.Push(childDirectory);
@@ -747,7 +747,7 @@ partial class Program
 
             foreach (var file in childFiles)
             {
-                var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
                 if (FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath))
                 {
                     yield return file;
@@ -769,9 +769,6 @@ partial class Program
         args = extraction.RemainingArgs;
         return extraction.Defines.ToList();
     }
-
-    static string NormalizePath(string path)
-        => NSharpLang.Compiler.CodeIntelligence.OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     internal static string GetVersion()
     {

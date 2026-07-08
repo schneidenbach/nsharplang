@@ -201,6 +201,47 @@ public class FormatCommandKernels {
         return Path.GetFullPath(Path.Combine(projectRoot, filePath))
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
+    public static func GetRelativePath(projectRoot: string, filePath: string): string {
+        return NormalizePath(Path.GetRelativePath(projectRoot, filePath))
+    }
+
+    public static func GetFileDirectory(projectRoot: string, filePath: string): string {
+        return Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? projectRoot
+    }
+
+    public static func GetDiscoveredDirectoryName(directoryPath: string): string {
+        end := directoryPath.Length
+        while end > 0 {
+            ch := directoryPath[end - 1]
+            if ch == '/' || ch == '\\' {
+                end = end - 1
+            } else {
+                break
+            }
+        }
+
+        start := end - 1
+        while start >= 0 {
+            ch := directoryPath[start]
+            if ch == '/' || ch == '\\' {
+                break
+            }
+
+            start = start - 1
+        }
+
+        length := end - start - 1
+        if length <= 0 {
+            return ""
+        }
+
+        return directoryPath.Substring(start + 1, length)
+    }
+
     public static func ShouldEmitFormattedFile(source: string, formatted: string): bool {
         return !string.Equals(source, formatted, StringComparison.Ordinal)
     }
@@ -255,6 +296,10 @@ public class FormatCommandKernels {
 
     public static func ShouldSkipDiscoveredDirectoryName(directoryName: string): bool {
         return FormatPathSegmentIsExcluded(directoryName, 0, directoryName.Length)
+    }
+
+    static func NormalizePath(path: string): string {
+        return path.Replace('\\', '/')
     }
 
     static func FormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
