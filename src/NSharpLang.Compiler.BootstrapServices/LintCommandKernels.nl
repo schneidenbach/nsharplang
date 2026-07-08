@@ -2,6 +2,7 @@ namespace NSharpLang.Cli.Commands
 
 import System.IO
 import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 
 public class LintOptionSummary {
     ProjectOption: string?
@@ -96,12 +97,29 @@ public class LintCommandKernels {
         return 1
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
+    public static func GetSourceFilePath(sourceFile: string): string {
+        return Path.GetFullPath(sourceFile)
+    }
+
     public static func ResolveFilePath(projectRoot: string, filePath: string): string {
         if Path.IsPathRooted(filePath) {
             return Path.GetFullPath(filePath)
         }
 
         return Path.GetFullPath(Path.Combine(projectRoot, filePath))
+    }
+
+    public static func GetRelativePath(projectRoot: string, filePath: string): string {
+        relativePath := Path.GetRelativePath(projectRoot, filePath)
+        return OutputFormatterNormalizationKernels.NormalizePath(relativePath) ?? relativePath
+    }
+
+    public static func GetFileDirectory(projectRoot: string, filePath: string): string {
+        return Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? projectRoot
     }
 
     public static func GetExitCode(hadErrors: bool, diagnosticErrorCount: int): int {

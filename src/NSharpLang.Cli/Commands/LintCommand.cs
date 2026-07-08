@@ -20,7 +20,7 @@ public static class LintCommand
         }
 
         var useJson = LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == 1;
-        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+        var projectRoot = LintCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory());
 
         var positionalFiles = LintCommandKernels.GetFileArgs(args);
 
@@ -37,7 +37,7 @@ public static class LintCommand
                 // (respects exclude patterns and excludes .tests.nl)
                 var config = ProjectFileParser.ParseFromDirectory(projectRoot) ?? ProjectFileParser.CreateDefault();
                 files = config.GetSourceFiles(projectRoot, includeTests: false)
-                    .Select(f => Path.GetFullPath(f))
+                    .Select(f => LintCommandKernels.GetSourceFilePath(f))
                     .ToArray();
             }
             else
@@ -67,7 +67,7 @@ public static class LintCommand
                 if (!File.Exists(file))
                 {
                     hadErrors = true;
-                    var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                    var relativePath = LintCommandKernels.GetRelativePath(projectRoot, file);
                     if (useJson)
                     {
                         // Surface as an error diagnostic so JSON consumers see it
@@ -94,7 +94,7 @@ public static class LintCommand
                     if (parseErrors.Count > 0)
                     {
                         hadErrors = true;
-                        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                        var relativePath = LintCommandKernels.GetRelativePath(projectRoot, file);
                         if (useJson)
                         {
                             foreach (var err in parseErrors)
@@ -115,7 +115,7 @@ public static class LintCommand
                         continue;
                     }
 
-                    var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;
+                    var fileDir = LintCommandKernels.GetFileDirectory(projectRoot, file);
                     var linterConfig = LinterConfig.FromEditorConfig(fileDir);
                     var linter = new Linter(linterConfig);
                     var diagnostics = linter.Lint(parseResult.CompilationUnit!, file, source);
@@ -128,7 +128,7 @@ public static class LintCommand
                             diag.Code,
                             LintCommandKernels.GetSeverityText(diag.Severity),
                             diag.Message,
-                            NormalizePath(Path.GetRelativePath(projectRoot, file)),
+                            LintCommandKernels.GetRelativePath(projectRoot, file),
                             diag.Location.Line,
                             diag.Location.Column,
                             Math.Max(diag.Length, 1),
@@ -144,7 +144,7 @@ public static class LintCommand
                 catch (Exception ex)
                 {
                     hadErrors = true;
-                    var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                    var relativePath = LintCommandKernels.GetRelativePath(projectRoot, file);
                     if (useJson)
                     {
                         allDiagnostics.Add(new DiagnosticResult(
@@ -199,9 +199,6 @@ public static class LintCommand
 
         return 1;
     }
-
-    private static string NormalizePath(string path)
-        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 
     private static string? ExtractSourceLine(string source, int line) =>
         CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);
