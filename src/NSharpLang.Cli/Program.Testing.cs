@@ -21,7 +21,7 @@ partial class Program
     {
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            var candidatePath = Path.Combine(assemblyDirectory, $"{assemblyName.Name}.dll");
+            var candidatePath = TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectory, assemblyName.Name);
             if (File.Exists(candidatePath))
             {
                 return LoadFromAssemblyPath(candidatePath);
@@ -143,7 +143,7 @@ partial class Program
         bool verbose,
         int? timeoutMs)
     {
-        var assemblyDirectory = Path.GetDirectoryName(assemblyPath)
+        var assemblyDirectory = TestCommandKernels.GetAssemblyDirectory(assemblyPath)
             ?? throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.");
 
         Assembly? resolveFromTestOutput(AssemblyLoadContext context, AssemblyName assemblyName)
@@ -155,7 +155,7 @@ partial class Program
                 return alreadyLoaded;
             }
 
-            var candidatePath = Path.Combine(assemblyDirectory, $"{assemblyName.Name}.dll");
+            var candidatePath = TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectory, assemblyName.Name);
             return File.Exists(candidatePath)
                 ? context.LoadFromAssemblyPath(candidatePath)
                 : null;
@@ -329,7 +329,7 @@ partial class Program
         => GetXunitDescription(test.TestCase) ?? test.DisplayName;
 
     private static string? GetXunitDescription(ITestCase testCase)
-        => testCase.Traits.TryGetValue("NSharpDescription", out var descriptions)
+        => testCase.Traits.TryGetValue(TestCommandKernels.GetNSharpDescriptionTraitKey(), out var descriptions)
             ? descriptions.FirstOrDefault()
             : null;
 
@@ -345,7 +345,7 @@ partial class Program
         bool verbose,
         int? timeoutMs)
     {
-        var assemblyDirectory = Path.GetDirectoryName(assemblyPath)
+        var assemblyDirectory = TestCommandKernels.GetAssemblyDirectory(assemblyPath)
             ?? throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.");
         var loadContext = new NativeTestLoadContext(assemblyDirectory);
 
@@ -394,7 +394,7 @@ partial class Program
 
                 var attributes = method.GetCustomAttributesData();
                 var isTest = attributes.Any(IsTestMethodAttribute);
-                if (!isTest && !string.Equals(type.Name, "NSharpTests", StringComparison.Ordinal))
+                if (!isTest && !TestCommandKernels.IsNSharpTestsTypeName(type.Name))
                 {
                     continue;
                 }
@@ -551,23 +551,17 @@ partial class Program
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)
-        => method.Name is "Setup" or "Teardown" or "InitializeAsync" or "DisposeAsync" or "Dispose";
+        => TestCommandKernels.IsLifecycleMethodName(method.Name);
 
     private static bool IsTestMethodAttribute(CustomAttributeData attribute)
-    {
-        var name = attribute.AttributeType.FullName;
-        return name is "Xunit.FactAttribute"
-            or "Xunit.TheoryAttribute"
-            or "NUnit.Framework.TestAttribute"
-            or "NUnit.Framework.TestCaseAttribute";
-    }
+        => TestCommandKernels.IsTestMethodAttributeName(attribute.AttributeType.FullName);
 
     private static string? GetNSharpDescription(IEnumerable<CustomAttributeData> attributes)
     {
-        foreach (var attribute in attributes.Where(attribute => attribute.AttributeType.FullName == "Xunit.TraitAttribute"))
+        foreach (var attribute in attributes.Where(attribute => TestCommandKernels.IsXunitTraitAttributeName(attribute.AttributeType.FullName)))
         {
             if (attribute.ConstructorArguments.Count == 2
-                && string.Equals(attribute.ConstructorArguments[0].Value as string, "NSharpDescription", StringComparison.Ordinal)
+                && TestCommandKernels.IsNSharpDescriptionTraitName(attribute.ConstructorArguments[0].Value as string)
                 && attribute.ConstructorArguments[1].Value is string description)
             {
                 return description;
@@ -581,13 +575,13 @@ partial class Program
     {
         foreach (var attribute in attributes)
         {
-            if (attribute.AttributeType.FullName == "NUnit.Framework.IgnoreAttribute"
+            if (TestCommandKernels.IsNUnitIgnoreAttributeName(attribute.AttributeType.FullName)
                 && attribute.ConstructorArguments.FirstOrDefault().Value is string ignoreReason)
             {
                 return ignoreReason;
             }
 
-            var skip = attribute.NamedArguments.FirstOrDefault(argument => argument.MemberName == "Skip");
+            var skip = attribute.NamedArguments.FirstOrDefault(argument => TestCommandKernels.IsSkipNamedArgument(argument.MemberName));
             if (skip.TypedValue.Value is string skipReason)
             {
                 return skipReason;
@@ -601,7 +595,7 @@ partial class Program
     {
         foreach (var attribute in attributes)
         {
-            if (attribute.AttributeType.FullName is not ("Xunit.InlineDataAttribute" or "NUnit.Framework.TestCaseAttribute"))
+            if (!TestCommandKernels.IsInlineDataAttributeName(attribute.AttributeType.FullName))
             {
                 continue;
             }

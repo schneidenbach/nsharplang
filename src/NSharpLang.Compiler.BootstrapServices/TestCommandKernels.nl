@@ -168,8 +168,60 @@ public class TestCommandKernels {
         return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), "Debug"), targetFramework), "tests")
     }
 
+    public static func GetAssemblyDirectory(assemblyPath: string): string? {
+        return Path.GetDirectoryName(assemblyPath)
+    }
+
+    public static func GetAssemblyCandidatePath(assemblyDirectory: string, assemblyName: string?): string {
+        return Path.Combine(assemblyDirectory, (assemblyName ?? "") + ".dll")
+    }
+
     public static func ShouldRunNUnit(testFramework: string?): bool {
         return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
+    }
+
+    public static func IsNSharpTestsTypeName(typeName: string?): bool {
+        return string.Equals(typeName ?? "", "NSharpTests", StringComparison.Ordinal)
+    }
+
+    public static func IsLifecycleMethodName(methodName: string): bool {
+        return methodName == "Setup"
+            || methodName == "Teardown"
+            || methodName == "InitializeAsync"
+            || methodName == "DisposeAsync"
+            || methodName == "Dispose"
+    }
+
+    public static func IsTestMethodAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "Xunit.FactAttribute"
+            || attributeFullName == "Xunit.TheoryAttribute"
+            || attributeFullName == "NUnit.Framework.TestAttribute"
+            || attributeFullName == "NUnit.Framework.TestCaseAttribute"
+    }
+
+    public static func IsXunitTraitAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "Xunit.TraitAttribute"
+    }
+
+    public static func IsNSharpDescriptionTraitName(traitName: string?): bool {
+        return string.Equals(traitName ?? "", "NSharpDescription", StringComparison.Ordinal)
+    }
+
+    public static func GetNSharpDescriptionTraitKey(): string {
+        return "NSharpDescription"
+    }
+
+    public static func IsNUnitIgnoreAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "NUnit.Framework.IgnoreAttribute"
+    }
+
+    public static func IsSkipNamedArgument(memberName: string): bool {
+        return memberName == "Skip"
+    }
+
+    public static func IsInlineDataAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "Xunit.InlineDataAttribute"
+            || attributeFullName == "NUnit.Framework.TestCaseAttribute"
     }
 
     public static func GetExitCode(ok: bool): int {
