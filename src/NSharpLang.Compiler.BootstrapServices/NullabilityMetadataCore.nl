@@ -236,6 +236,17 @@ class NullabilityMetadataCore {
         return true
     }
 
+    static func CanReflectedTypeCarryReferenceNullability(
+        isGenericParameter: bool,
+        isValueType: bool,
+        convertedCanCarryReferenceNullability: bool): bool {
+        if !isGenericParameter {
+            return !isValueType
+        }
+
+        return convertedCanCarryReferenceNullability
+    }
+
     static func FormatSimpleClrTypeName(name: string): string {
         if name == "Boolean" {
             return "bool"

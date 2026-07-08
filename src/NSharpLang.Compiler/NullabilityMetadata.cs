@@ -165,10 +165,10 @@ public static class NullabilityMetadata
 
     private static bool CanCarryReferenceNullability(Type type, TypeInfo converted)
     {
-        if (!type.IsGenericParameter)
-            return !type.IsValueType;
-
-        return CanCarryReferenceNullability(converted);
+        return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(
+            type.IsGenericParameter,
+            type.IsValueType,
+            CanCarryReferenceNullability(converted));
     }
 
     private static bool CanCarryReferenceNullability(TypeInfo typeInfo)
