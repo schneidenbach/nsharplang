@@ -18,10 +18,8 @@ public static class DocCommand
 
         var outputMode = DocCommandKernels.GetOutputMode(options.Json);
         var openAfterGenerate = options.Open;
-        var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
-        var outputDir = options.OutputOption ?? Path.Combine(projectRoot, "nsharp", "docs");
-        projectRoot = Path.GetFullPath(projectRoot);
-        outputDir = Path.GetFullPath(outputDir);
+        var projectRoot = DocCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory());
+        var outputDir = DocCommandKernels.GetOutputDirectory(projectRoot, options.OutputOption);
 
         if (!Directory.Exists(projectRoot))
             return EmitError(outputMode, projectRoot, DocCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
@@ -105,7 +103,7 @@ internal static class ProjectDocGenerator
             Directory.Delete(outputDir, recursive: true);
 
         Directory.CreateDirectory(outputDir);
-        var symbolDir = Path.Combine(outputDir, "symbols");
+        var symbolDir = DocCommandKernels.GetSymbolDirectory(outputDir);
         Directory.CreateDirectory(symbolDir);
 
         var pages = new List<DocPage>();
@@ -113,7 +111,7 @@ internal static class ProjectDocGenerator
         for (var i = 0; i < orderedSymbols.Count; i++)
         {
             var symbol = orderedSymbols[i];
-            rawSlugs[i] = $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
+            rawSlugs[i] = DocCommandKernels.GetRawSlug(symbol);
         }
 
         var slugs = DocCommandKernels.CreateSlugs(rawSlugs);
@@ -122,21 +120,18 @@ internal static class ProjectDocGenerator
         {
             var symbol = orderedSymbols[i];
             var slug = slugs[i];
-            var relativePath = NormalizePath(Path.Combine("symbols", $"{slug}.html"));
-            var absolutePath = Path.Combine(outputDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            var relativePath = DocCommandKernels.GetSymbolRelativePath(slug);
+            var absolutePath = DocCommandKernels.GetSymbolAbsolutePath(outputDir, relativePath, Path.DirectorySeparatorChar.ToString());
             File.WriteAllText(absolutePath, DocCommandKernels.RenderSymbolPage(symbol, projectRoot));
             pages.Add(new DocPage(symbol.Name, DocCommandKernels.GetPageKindText(symbol.Kind), relativePath));
         }
 
-        var indexPath = Path.Combine(outputDir, "index.html");
+        var indexPath = DocCommandKernels.GetIndexPath(outputDir);
         File.WriteAllText(indexPath, DocCommandKernels.RenderIndexPage(orderedSymbols, pages, projectRoot));
 
         return new DocManifest(
-            NormalizePath(indexPath),
+            DocCommandKernels.GetManifestIndexPath(indexPath),
             pages.Count,
             pages);
     }
-
-    private static string NormalizePath(string path)
-        => OutputFormatterNormalizationKernels.NormalizePath(path) ?? path;
 }

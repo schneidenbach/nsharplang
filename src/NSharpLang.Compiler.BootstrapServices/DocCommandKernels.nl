@@ -81,6 +81,42 @@ public class DocCommandKernels {
         return 2
     }
 
+    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+        return Path.GetFullPath(projectOption ?? currentDirectory)
+    }
+
+    public static func GetOutputDirectory(projectRoot: string, outputOption: string?): string {
+        if outputOption != null {
+            return Path.GetFullPath(outputOption)
+        }
+
+        return Path.GetFullPath(Path.Combine(Path.Combine(projectRoot, "nsharp"), "docs"))
+    }
+
+    public static func GetSymbolDirectory(outputDir: string): string {
+        return Path.Combine(outputDir, "symbols")
+    }
+
+    public static func GetRawSlug(symbol: SymbolResult): string {
+        return PageKind(symbol.Kind) + "-" + symbol.Name + "-" + GetFileNameWithoutExtension(symbol.File)
+    }
+
+    public static func GetSymbolRelativePath(slug: string): string {
+        return NormalizePath(Path.Combine("symbols", slug + ".html"))
+    }
+
+    public static func GetSymbolAbsolutePath(outputDir: string, relativePath: string, directorySeparator: string): string {
+        return Path.Combine(outputDir, relativePath.Replace("/", directorySeparator))
+    }
+
+    public static func GetIndexPath(outputDir: string): string {
+        return Path.Combine(outputDir, "index.html")
+    }
+
+    public static func GetManifestIndexPath(indexPath: string): string {
+        return NormalizePath(indexPath)
+    }
+
     public static func GetOpenCommand(path: string, isMacOs: bool, isWindows: bool): DocOpenCommand {
         quotedPath := QuoteProcessArgument(path)
         if isMacOs {
@@ -420,6 +456,26 @@ public class DocCommandKernels {
         return "\"" + value + "\""
     }
 
+    static func GetFileNameWithoutExtension(path: string): string {
+        fileName := Path.GetFileName(path) ?? ""
+        dotIndex := -1
+        index := fileName.Length - 1
+        while index >= 0 {
+            if fileName[index] == '.' {
+                dotIndex = index
+                index = -1
+            } else {
+                index = index - 1
+            }
+        }
+
+        if dotIndex > 0 {
+            return fileName.Substring(0, dotIndex)
+        }
+
+        return fileName
+    }
+
     static func SignaturePrefix(kind: SymbolKind): string {
         if kind == SymbolKind.Function || kind == SymbolKind.Method {
             return "func "
@@ -476,7 +532,7 @@ public class DocCommandKernels {
         return new JsonSerializerOptions { WriteIndented: true }
     }
 
-    static func NormalizePath(path: string): string {
+    public static func NormalizePath(path: string): string {
         normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
         if normalized != null {
             return normalized ?? ""
