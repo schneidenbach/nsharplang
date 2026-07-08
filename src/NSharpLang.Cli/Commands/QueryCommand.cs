@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler;
@@ -1022,9 +1021,10 @@ public static class QueryCommand
         if (response == null)
             return false;
 
-        if (response.Error != null)
+        var error = response.Error;
+        if (error != null)
         {
-            Console.Error.WriteLine(JsonSerializer.Serialize(response));
+            Console.Error.WriteLine(DaemonProtocolKernels.ErrorResponseJson(response.Id, error.Code, error.Message));
             exitCode = 1;
             return true;
         }

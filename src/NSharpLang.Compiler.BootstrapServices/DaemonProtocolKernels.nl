@@ -172,6 +172,13 @@ public class DaemonProtocolKernels {
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
     }
 
+    public static func ErrorResponseJson(id: int, code: int, message: string): string {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString()
+            + ",\"result\":null,\"error\":{\"code\":" + code.ToString()
+            + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions())
+            + "}}"
+    }
+
     public static func GetBatchDispatchAfterPrecheckMessage(): string {
         return "Batch queries should be handled before single-request dispatch."
     }
