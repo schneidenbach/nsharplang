@@ -25,7 +25,7 @@ internal static class CompilationReferenceResolver
     {
         options ??= new ReferenceResolutionOptions();
         var context = new ResolutionContext();
-        return ResolveProjectReferences(Path.GetFullPath(projectDir), config, options, context);
+        return ResolveProjectReferences(CompilationReferenceResolverKernels.GetProjectRoot(projectDir), config, options, context);
     }
 
     internal static string GetProjectAssemblyName(string projectRoot, ProjectConfig config)
@@ -40,7 +40,7 @@ internal static class CompilationReferenceResolver
         ReferenceResolutionOptions options,
         ResolutionContext context)
     {
-        projectRoot = Path.GetFullPath(projectRoot);
+        projectRoot = CompilationReferenceResolverKernels.GetProjectRoot(projectRoot);
         var result = new ReferenceResolutionResult();
 
         AddImplicitTestDependencies(projectRoot, config, options);
@@ -107,7 +107,7 @@ internal static class CompilationReferenceResolver
 
     private static void AddImplicitNSharpRuntimeAsset(ReferenceResolutionResult result)
     {
-        var compilerDirectory = Path.GetDirectoryName(typeof(ProjectConfig).Assembly.Location);
+        var compilerDirectory = CompilationReferenceResolverKernels.GetCompilerAssemblyDirectory(typeof(ProjectConfig).Assembly.Location);
         foreach (var candidate in CompilationReferenceResolverKernels.GetImplicitNSharpRuntimeAssetCandidates(
                      AppContext.BaseDirectory,
                      compilerDirectory))
@@ -126,7 +126,7 @@ internal static class CompilationReferenceResolver
         ReferenceResolutionOptions options,
         ResolutionContext context)
     {
-        projectRoot = Path.GetFullPath(projectRoot);
+        projectRoot = CompilationReferenceResolverKernels.GetProjectRoot(projectRoot);
         if (context.ProjectOutputs.TryGetValue(projectRoot, out var cachedOutput))
         {
             return cachedOutput;
@@ -333,7 +333,7 @@ internal static class CompilationReferenceResolver
             var bytes = HttpClient.GetByteArrayAsync(url).GetAwaiter().GetResult();
             File.WriteAllBytes(packagePath, bytes);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(versionDirectory)!);
+            Directory.CreateDirectory(CompilationReferenceResolverKernels.GetNuGetPackageParentDirectory(versionDirectory)!);
             var extractDirectory = CompilationReferenceResolverKernels.GetNuGetExtractDirectory(versionDirectory, Guid.NewGuid().ToString("N"));
             ZipFile.ExtractToDirectory(packagePath, extractDirectory);
 
@@ -447,7 +447,7 @@ internal static class CompilationReferenceResolver
             return;
         }
 
-        var fullPath = Path.GetFullPath(assemblyPath);
+        var fullPath = CompilationReferenceResolverKernels.GetDllReferencePath(assemblyPath);
         if (CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath))
         {
             config.Dependencies.Add(new Reference { Dll = fullPath });

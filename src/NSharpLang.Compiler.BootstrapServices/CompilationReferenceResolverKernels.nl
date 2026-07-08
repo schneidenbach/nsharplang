@@ -32,6 +32,14 @@ public class CompilationReferenceResolverKernels {
         return candidates.ToArray()
     }
 
+    public static func GetProjectRoot(projectDir: string): string {
+        return Path.GetFullPath(projectDir)
+    }
+
+    public static func GetCompilerAssemblyDirectory(assemblyLocation: string): string? {
+        return Path.GetDirectoryName(assemblyLocation)
+    }
+
     public static func GetGlobalPackagesFolder(configuredPackagesFolder: string?, userProfileFolder: string): string {
         if !string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
             return Path.GetFullPath(configuredPackagesFolder)
@@ -54,6 +62,10 @@ public class CompilationReferenceResolverKernels {
 
     public static func GetNuGetPackageVersionDirectory(packageDirectory: string, version: string): string {
         return Path.Combine(packageDirectory, NormalizeNuGetPackageVersion(version))
+    }
+
+    public static func GetNuGetPackageParentDirectory(versionDirectory: string): string? {
+        return Path.GetDirectoryName(versionDirectory)
     }
 
     public static func GetNuGetIndexUrl(packageName: string): string {
@@ -207,6 +219,10 @@ public class CompilationReferenceResolverKernels {
 
     public static func GetProjectOutputAssemblyPath(outputDirectory: string, assemblyName: string): string {
         return Path.Combine(outputDirectory, assemblyName + ".dll")
+    }
+
+    public static func GetDllReferencePath(assemblyPath: string): string {
+        return Path.GetFullPath(assemblyPath)
     }
 
     public static func ShouldTreatProjectReferenceBuildAsFailed(success: bool, outputAssemblyPath: string?): bool {
