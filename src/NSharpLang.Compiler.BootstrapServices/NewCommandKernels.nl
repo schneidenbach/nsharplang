@@ -215,6 +215,10 @@ public class NewCommandKernels {
         return Path.Combine(projectDir, GetTemplateSourceFileName(sourceFileKind))
     }
 
+    public static func GetTemplateSourceFileDirectory(projectDir: string, sourceFileKind: NewTemplateSourceFileKind): string? {
+        return Path.GetDirectoryName(GetTemplateSourceFilePath(projectDir, sourceFileKind))
+    }
+
     public static func ShouldShowSystemsCommands(template: string): bool {
         return template == "systems-cli" || template == "systems-lib"
     }

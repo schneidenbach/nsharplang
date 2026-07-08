@@ -450,7 +450,7 @@ partial class Program
         NewTemplateSourceFileKind sourceFileKind)
     {
         var path = NewCommandKernels.GetTemplateSourceFilePath(projectDir, sourceFileKind);
-        var directory = Path.GetDirectoryName(path);
+        var directory = NewCommandKernels.GetTemplateSourceFileDirectory(projectDir, sourceFileKind);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
