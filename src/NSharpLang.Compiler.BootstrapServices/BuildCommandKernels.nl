@@ -312,6 +312,30 @@ public class BuildCommandKernels {
         return Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? currentDirectory
     }
 
+    public static func GetSourceFileAssemblyName(sourceFile: string): string {
+        fileName := Path.GetFileName(sourceFile) ?? sourceFile
+        dot := -1
+        i := fileName.Length - 1
+        while i >= 0 {
+            if fileName[i] == '.' {
+                dot = i
+                break
+            }
+
+            i = i - 1
+        }
+
+        if dot <= 0 {
+            return fileName
+        }
+
+        return fileName.Substring(0, dot)
+    }
+
+    public static func NormalizeProjectRoot(projectRoot: string): string {
+        return Path.GetFullPath(projectRoot)
+    }
+
     public static func GetTempBuildDirectory(tempRoot: string, uniqueName: string): string {
         return Path.Combine(tempRoot, "nlc-build-" + uniqueName)
     }

@@ -77,8 +77,8 @@ partial class Program
         {
             Console.WriteLine(BuildCommandKernels.GetSingleFileStartMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-            var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+            var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
+            var config = GetEffectiveCompilationConfig(projectConfig, BuildCommandKernels.GetSourceFileAssemblyName(sourceFile));
             var configuration = release ? "Release" : "Debug";
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(sourceDir, configuration, config.TargetFramework, outputDir);
@@ -111,7 +111,7 @@ partial class Program
     {
         try
         {
-            projectRoot = Path.GetFullPath(projectRoot);
+            projectRoot = BuildCommandKernels.NormalizeProjectRoot(projectRoot);
             var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
@@ -158,8 +158,8 @@ partial class Program
         {
             Console.WriteLine(RunCommandKernels.GetSingleFileBackendStartMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-            var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+            var sourceDir = RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
+            var config = GetEffectiveCompilationConfig(projectConfig, BuildCommandKernels.GetSourceFileAssemblyName(sourceFile));
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
             if (!CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
@@ -201,7 +201,7 @@ partial class Program
         bool verbose = false,
         bool aotMode = false)
     {
-        projectRoot = Path.GetFullPath(projectRoot);
+        projectRoot = BuildCommandKernels.NormalizeProjectRoot(projectRoot);
         BuildCommandKernels.ApplyEffectiveDefines(config, debug: BuildCommandKernels.ShouldApplyDebugDefine(configuration), cliDefines: null);
         var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
