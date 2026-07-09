@@ -10267,6 +10267,8 @@ internal sealed class ColumnarIlEmitter
                 }
                 if (_nodes.Kind(callee) == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
                 {
+                    if (TryEmitJsonSerializerSerializeGenericCall(idx, callee, out type))
+                        return true;
                     if (TryEmitJsonSerializerDeserializeGenericCall(idx, callee, out type))
                         return true;
                     if (TryEmitExplicitEnumerableExtensionGenericCall(idx, callee, out type))
@@ -13591,6 +13593,42 @@ internal sealed class ColumnarIlEmitter
         => _currentStruct != null
            && (TryFindFieldOnChain(_currentStruct, name, out _)
                || TryFindPropertyOnChain(_currentStruct, name, out _));
+
+    private bool TryEmitJsonSerializerSerializeGenericCall(int callIdx, int callee, out Type type)
+    {
+        type = null!;
+        var calleeName = Text(callee);
+        if (calleeName != nameof(JsonSerializer.Serialize)
+            && calleeName != "JsonSerializer.Serialize")
+            return false;
+        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2)
+            return false;
+        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out var targetCanonical)
+            || !TryResolveType(targetCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var targetType)
+            || !IsSupportedType(targetType))
+            return false;
+
+        var serialize = Array.Find(
+            typeof(JsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method =>
+            {
+                if (method.Name != nameof(JsonSerializer.Serialize)
+                    || !method.IsGenericMethodDefinition
+                    || method.ReturnType != typeof(string))
+                    return false;
+                var parameters = method.GetParameters();
+                return parameters.Length == 2
+                       && parameters[0].ParameterType.IsGenericParameter
+                       && parameters[1].ParameterType == typeof(JsonSerializerOptions);
+            });
+        if (serialize == null
+            || !EmitDeclaredCallArgument(Child(callIdx, 1), targetType, allowLambdaLiteral: false)
+            || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(JsonSerializerOptions), allowLambdaLiteral: false))
+            return false;
+        _il.Emit(OpCodes.Call, serialize.MakeGenericMethod(targetType));
+        type = typeof(string);
+        return true;
+    }
 
     private bool TryEmitJsonSerializerDeserializeGenericCall(int callIdx, int callee, out Type type)
     {
