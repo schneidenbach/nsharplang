@@ -749,6 +749,103 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: StaticExpandedParamsProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Mathy {
+    static func Sum(params values: int[]): int {
+        total := 0
+        for value in values {
+            total = total + value
+        }
+        return total
+    }
+}
+
+func main() {
+    print Mathy.Sum(1, 2, 3)
+    print Mathy.Sum(5)
+    print Mathy.Sum()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "StaticExpandedParamsProject.dll");
+            var result = compiler.CompileToIlAssembly("StaticExpandedParamsProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("6\n5\n0", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsGenericExpandedParamsArrayCall()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: GenericExpandedParamsProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func PrintAll<T>(prefix: string, params items: T[]) {
+    for item in items {
+        print $"{prefix}{item}"
+    }
+}
+
+func main() {
+    PrintAll("n=", 1, 2, 3, 4, 5)
+    PrintAll("s=", "Alice", "Bob")
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "GenericExpandedParamsProject.dll");
+            var result = compiler.CompileToIlAssembly("GenericExpandedParamsProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("n=1\nn=2\nn=3\nn=4\nn=5\ns=Alice\ns=Bob", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericStringJoinForArray()
     {
         var tempDir = CreateTempDir();

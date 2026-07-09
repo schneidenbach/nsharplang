@@ -2328,16 +2328,38 @@ internal sealed class ColumnarIlEmitter
         out Type type)
     {
         type = null!;
-        if (!HasTrailingParamsParameter(target.ParamTypes, target.ParamModifierKinds))
+        if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds, allowLambdaLiteral: true))
+            return false;
+        _il.Emit(OpCodes.Call, target.Method);
+        type = target.ReturnType;
+        return true;
+    }
+
+    private bool TryEmitStaticExpandedParamsCall(
+        int callIdx,
+        (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) target,
+        out Type type)
+    {
+        type = null!;
+        if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds, allowLambdaLiteral: true))
+            return false;
+        _il.Emit(OpCodes.Call, target.Builder);
+        type = target.ReturnType;
+        return true;
+    }
+
+    private bool TryEmitExpandedParamsCallArguments(int callIdx, Type[] paramTypes, int[] paramModifierKinds, bool allowLambdaLiteral)
+    {
+        if (!HasTrailingParamsParameter(paramTypes, paramModifierKinds))
             return false;
         var argCount = _nodes.ChildCount(callIdx) - 1;
-        var fixedCount = target.ParamTypes.Length - 1;
+        var fixedCount = paramTypes.Length - 1;
         if (argCount < fixedCount
-            || !TryGetExpandedParamsElementType(target.ParamTypes[^1], out var paramsElementType))
+            || !TryGetExpandedParamsElementType(paramTypes[^1], out var paramsElementType))
             return false;
         for (var a = 1; a <= fixedCount; a++)
         {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a), target.ParamTypes[a - 1], allowLambdaLiteral: true))
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a), paramTypes[a - 1], allowLambdaLiteral))
                 return false;
         }
         for (var a = fixedCount + 1; a <= argCount; a++)
@@ -2347,14 +2369,10 @@ internal sealed class ColumnarIlEmitter
         }
         for (var p = 0; p < fixedCount; p++)
         {
-            if (!EmitDeclaredCallArgument(Child(callIdx, p + 1), target.ParamTypes[p], allowLambdaLiteral: true))
+            if (!EmitDeclaredCallArgument(Child(callIdx, p + 1), paramTypes[p], allowLambdaLiteral))
                 return false;
         }
-        if (!TryEmitExpandedParamsValue(callIdx, fixedCount, argCount, target.ParamTypes[^1], paramsElementType))
-            return false;
-        _il.Emit(OpCodes.Call, target.Method);
-        type = target.ReturnType;
-        return true;
+        return TryEmitExpandedParamsValue(callIdx, fixedCount, argCount, paramTypes[^1], paramsElementType);
     }
 
     private static bool TryGetExpandedParamsElementType(Type paramsType, out Type elementType)
@@ -2828,6 +2846,33 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
             }
+        }
+        method = default;
+        return false;
+    }
+
+    private bool TryFindStaticExpandedParamsMethodOnChain(ColumnarStructDef def, string name, int callIdx, out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (!d.StaticMethods.TryGetValue(name, out var overloads))
+                continue;
+            var selected = false;
+            method = default;
+            foreach (var candidate in overloads)
+            {
+                if (!ShouldUseExpandedParamsCall(callIdx, candidate.ParamTypes, candidate.ParamModifierKinds))
+                    continue;
+                if (selected)
+                {
+                    method = default;
+                    return false;
+                }
+                method = candidate;
+                selected = true;
+            }
+            if (selected)
+                return true;
         }
         method = default;
         return false;
@@ -7387,17 +7432,7 @@ internal sealed class ColumnarIlEmitter
                 // <var> := arr[index]  (declare the loop variable of the element type, store the current element).
                 _il.Emit(OpCodes.Ldloc, arrayLocal);
                 _il.Emit(OpCodes.Ldloc, indexLocal);
-                if (elementType == typeof(bool)) _il.Emit(OpCodes.Ldelem_U1);
-                else if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
-                else if (elementType == typeof(uint)) _il.Emit(OpCodes.Ldelem_U4);
-                else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
-                else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
-                else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
-                else if (elementType == typeof(float)) _il.Emit(OpCodes.Ldelem_R4);
-                else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
-                else if (!elementType.IsValueType) _il.Emit(OpCodes.Ldelem_Ref);
-                else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Ldelem, elementType);
-                else return false;
+                EmitArrayElementLoad(elementType);
                 var loopVar = _il.DeclareLocal(elementType);
                 _il.Emit(OpCodes.Stloc, loopVar);
                 _locals[varName] = loopVar;
@@ -13379,7 +13414,20 @@ internal sealed class ColumnarIlEmitter
         // are modelled on them, so any TypeName.Member(...) call on one declines.
         if (_structRegistry.TryGetValue(typeName, out var userType))
         {
-            if (!TryFindStaticMethodOnChain(userType, member, argCount, out var userStatic))
+            var useExpandedParams = false;
+            if (TryFindStaticMethodOnChain(userType, member, argCount, out var userStatic))
+            {
+                useExpandedParams = ShouldUseExpandedParamsCall(callIdx, userStatic.ParamTypes, userStatic.ParamModifierKinds);
+            }
+            else
+            {
+                if (!TryFindStaticExpandedParamsMethodOnChain(userType, member, callIdx, out userStatic))
+                    return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount + " argument(s) is not modeled", callIdx);
+                useExpandedParams = true;
+            }
+            if (useExpandedParams)
+                return TryEmitStaticExpandedParamsCall(callIdx, userStatic, out type);
+            if (argCount != userStatic.ParamTypes.Length)
                 return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount + " argument(s) is not modeled", callIdx);
             for (var a = 1; a <= argCount; a++)
             {
