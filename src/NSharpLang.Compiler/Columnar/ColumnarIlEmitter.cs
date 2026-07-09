@@ -10034,6 +10034,8 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (TryEmitJsonSerializerDeserializeGenericCall(idx, callee, out type))
                         return true;
+                    if (TryEmitExplicitEnumerableExtensionGenericCall(idx, callee, out type))
+                        return true;
                     var gName = Text(callee);
                     // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
                     // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
@@ -12956,6 +12958,193 @@ internal sealed class ColumnarIlEmitter
             return false;
         _il.Emit(OpCodes.Call, deserialize.MakeGenericMethod(targetType));
         type = targetType;
+        return true;
+    }
+
+    private bool TryEmitExplicitEnumerableExtensionGenericCall(int callIdx, int callee, out Type type)
+    {
+        type = null!;
+        var calleeName = Text(callee);
+        var dot = calleeName.LastIndexOf('.');
+        if (dot <= 0 || dot == calleeName.Length - 1)
+            return false;
+
+        var member = calleeName.Substring(dot + 1);
+        if (member is not ("Cast" or "OfType"))
+            return false;
+
+        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) != 1)
+            return false;
+
+        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out var targetCanonical)
+            || !TryResolveBodyType(targetCanonical, out var targetType)
+            || !IsSupportedType(targetType))
+            return false;
+
+        var receiverChain = calleeName.Substring(0, dot);
+        if (!TryGetGenericExtensionReceiverChainType(receiverChain, out var receiverType)
+            || !TryGetEnumerableElementType(receiverType, out _))
+            return false;
+
+        var method = FindEnumerableCastOrOfTypeMethod(member);
+        if (method == null)
+            return false;
+
+        if (!TryEmitGenericExtensionReceiverChain(receiverChain, out var emittedReceiverType)
+            || !TypesEquivalent(emittedReceiverType, receiverType))
+            return false;
+
+        _il.Emit(OpCodes.Call, method.MakeGenericMethod(targetType));
+        type = typeof(IEnumerable<>).MakeGenericType(targetType);
+        return true;
+    }
+
+    private static MethodInfo? FindEnumerableCastOrOfTypeMethod(string name)
+        => Array.Find(
+            typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method =>
+            {
+                if (method.Name != name
+                    || !method.IsGenericMethodDefinition
+                    || method.GetGenericArguments().Length != 1)
+                    return false;
+                var parameters = method.GetParameters();
+                return parameters.Length == 1 && parameters[0].ParameterType == typeof(IEnumerable);
+            });
+
+    private bool TryGetGenericExtensionReceiverChainType(string receiverChain, out Type type)
+    {
+        type = null!;
+        if (!IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
+            return false;
+
+        var root = names[0];
+        if (_locals.TryGetValue(root, out var local))
+        {
+            type = local.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(root, out _))
+        {
+            type = _paramTypes[root];
+            if (type.IsByRef)
+                type = type.GetElementType()!;
+        }
+        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, root, out var thisField))
+        {
+            type = thisField.FieldType;
+        }
+        else if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out var thisProperty))
+        {
+            type = thisProperty.PropertyType;
+        }
+        else
+        {
+            return false;
+        }
+
+        for (var i = 1; i < names.Length; i++)
+        {
+            var member = MaybeRewriteInterpolationTupleMemberName(root, names[i]);
+            if (!TryResolveInterpolationMemberPlan(type, member, out var hop) || hop.ValueType == null)
+                return false;
+            type = hop.ValueType;
+        }
+
+        return type != typeof(void) && IsSupportedType(type);
+    }
+
+    private bool TryEmitGenericExtensionReceiverChain(string receiverChain, out Type type)
+    {
+        type = null!;
+        if (!IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
+            return false;
+
+        var root = names[0];
+        var stackHasCurrentAddress = false;
+        if (_locals.TryGetValue(root, out var local))
+        {
+            _il.Emit(OpCodes.Ldloc, local);
+            type = local.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(root, out var ordinal))
+        {
+            EmitLoadArgument(ordinal);
+            type = _paramTypes[root];
+            if (type.IsByRef)
+            {
+                type = type.GetElementType()!;
+                EmitLoadByRefElement(type);
+            }
+        }
+        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, root, out var thisField))
+        {
+            _il.Emit(OpCodes.Ldarg_0);
+            _il.Emit(OpCodes.Ldfld, thisField);
+            type = thisField.FieldType;
+        }
+        else if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out var thisProperty))
+        {
+            _il.Emit(OpCodes.Ldarg_0);
+            _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, thisProperty.Getter);
+            type = thisProperty.PropertyType;
+        }
+        else
+        {
+            return false;
+        }
+
+        for (var i = 1; i < names.Length; i++)
+        {
+            var member = MaybeRewriteInterpolationTupleMemberName(root, names[i]);
+            if (!TryResolveInterpolationMemberPlan(type, member, out var hop) || hop.ValueType == null)
+                return false;
+            if (!TryEmitResolvedMemberHop(type, hop, ref stackHasCurrentAddress, out type))
+                return false;
+        }
+
+        return type != typeof(void) && IsSupportedType(type);
+    }
+
+    private static bool IsSupportedGenericExtensionReceiverChainText(string receiverChain, out string[] names)
+    {
+        names = Array.Empty<string>();
+        if (receiverChain.Length == 0
+            || receiverChain.Contains('(')
+            || receiverChain.Contains(')')
+            || receiverChain.Contains('[')
+            || receiverChain.Contains(']'))
+            return false;
+
+        names = receiverChain.Split('.');
+        return names.Length != 0 && !Array.Exists(names, static name => !IsSimpleIdentifierText(name));
+    }
+
+    private bool TryEmitResolvedMemberHop(Type current, ColumnarInterpolationMemberPlan hop, ref bool stackHasCurrentAddress, out Type type)
+    {
+        type = null!;
+        if (!IsReferenceWriteLink(current) && !stackHasCurrentAddress)
+        {
+            var spill = _il.DeclareLocal(current);
+            _il.Emit(OpCodes.Stloc, spill);
+            _il.Emit(OpCodes.Ldloca, spill);
+            stackHasCurrentAddress = true;
+        }
+
+        if (hop.Field != null)
+        {
+            _il.Emit(OpCodes.Ldfld, hop.Field);
+        }
+        else if (hop.Getter != null)
+        {
+            _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, hop.Getter);
+        }
+        else
+        {
+            return false;
+        }
+
+        type = hop.ValueType!;
+        stackHasCurrentAddress = false;
         return true;
     }
 

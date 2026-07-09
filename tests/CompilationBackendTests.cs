@@ -737,6 +737,61 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsExplicitGenericLinqCastAndOfType()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: GenericLinqProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Collections.Generic
+import System.Linq
+
+func main() {
+    numbers: int[] = [1, 2, 3]
+    objects := numbers.Cast<object>().ToList()
+
+    mixed := new List<object>()
+    mixed.Add(1)
+    mixed.Add("two")
+    mixed.Add(3)
+
+    justNumbers := mixed.OfType<int>().ToList()
+    justStrings := mixed.OfType<string>().ToList()
+
+    print objects.Count
+    print justNumbers.Count
+    print justStrings.Count
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "GenericLinqProject.dll");
+            var result = compiler.CompileToIlAssembly("GenericLinqProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("3\n2\n1", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsTargetTypedArrayLiteralAndForIn()
     {
         var tempDir = CreateTempDir();
