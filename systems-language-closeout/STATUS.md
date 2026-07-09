@@ -1,13 +1,15 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `fb856ee46` (2026-07-09), 250 commits after the original
+**Audited implementation base:** `399008ea9` (2026-07-09), 252 commits after the original
 `9538ab66` planning snapshot. This file is the resume point. Current code and git history outrank
 it; update it whenever they disagree.
 
-**Working-tree handoff:** at audit time, a coherent range/index coverage slice was in progress in
-`CompilerServices/ColumnarParserKernels.nl` and `ColumnarIlEmitter.cs`. Finish and verify that
-slice without disturbing it. It is the sunset exception to handwritten C# emitter growth. After
-it lands, the ownership ratchet in `goal.md` applies with no coverage exception.
+**Emitter handoff complete:** `399008ea9` finished the range/index value/read slice with persisted
+array/string execution, the existing Span-index regression, both range examples, and focused
+ILVerify evidence. This was the sunset exception to handwritten C# emitter growth. The ownership
+ratchet in `goal.md` now applies with no coverage exception; E owns `ColumnarIlEmitter.cs`
+exclusively. Array `Index`/`^` writes, compound/postfix mutation, and ref/out address lowering are
+known plan-first debt after E0, while range writes/ref and string writes remain intentional errors.
 
 Status meanings:
 
@@ -25,6 +27,11 @@ Status meanings:
 - No fresh green non-VS-Code product gate is recorded after the unit baseline became green. The
   last recorded product gates still reported example/product-path failures. Unit green is not a
   substitute for the Track A product gate.
+- Range/index value and read semantics are complete at `399008ea9`: all four range forms,
+  array/string/reference-array slicing, typed and conditional `Index`/`Range`, byte/short/enum
+  endpoints, parenthesized starts, and the existing Span integer-index path have persisted
+  execution evidence. `RangeAndIndex.nl` and `OpenEndedRanges.nl` build/run and their four emitted
+  assemblies passed ILVerify.
 - `NSharpLang.Compiler.Dogfood`, `DogfoodKernelLoader`, reflection delegate binding, and the
   parity corpus are gone. Static binding is complete.
 - Per-file columnar source identity, construction, decline provenance, and multi-file routing are
@@ -39,7 +46,7 @@ Status meanings:
 
 | Owner | `9538ab66` | `fb856ee46` | Verdict |
 |---|---:|---:|---|
-| `ColumnarIlEmitter.cs` | 13,712 LOC | 21,497 LOC | urgent ownership regression |
+| `ColumnarIlEmitter.cs` | 13,712 LOC | 21,828 LOC | frozen legacy owner; E now deletes it |
 | `Analyzer.cs` | 22,783 LOC | 23,451 LOC | no retirement yet |
 | `Parser.cs` | 7,117 LOC | 7,117 LOC | no retirement yet |
 | `SystemsAnalyzer.cs` | 2,390 LOC | 2,390 LOC | not started |
@@ -58,34 +65,32 @@ coverage work.
 Execute dependency-ready lanes in parallel only when their file domains do not contend. With one
 owner, finish one commit-sized stage before switching.
 
-1. **Finish the in-flight range/index slice.** Run its focused parser/emitter execute-and-assert
-   evidence and commit only its files. Do not expand it into another corpus sweep.
-2. **Take the product-gate inventory.** From a clean commit, run a fresh
+1. **Take the product-gate inventory.** From clean `399008ea9`, run a fresh
    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`. If red, record every concrete blocker here;
    do not restore the obsolete baseline-diff regime.
-3. **E0 — land the ownership ratchet foundation.** Create the N# code-plan model and the
+2. **E0 — land the ownership ratchet foundation.** Create the N# code-plan model and the
    mechanical C# plan replayer; port one reflection-free procedural/scalar lowering family end
    to end; delete its C# decision branches; and prove plan-vs-old behavior by execution and IL
    verification. Member/index/call families wait for the callability/binder probe because
    persisted byref/member handles have already invalidated a broader claim. No force-old flag may
    survive. Add the initial ownership-ratchet guard/allowlist in this stage so later C# growth is
    reported. From this commit onward, all new accept-set work is plan-first in N#.
-4. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
+3. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
    family, add direct C#-vs-N# ordered full-tuple parity tests over invalid, clean, and recovery
    corpora. Resolve the current duplicate-lex/collector architecture against the single-parser
    contract; do not grow two diagnostic parsers.
-5. **D1 — move the AST model to N#.** Revalidate live shapes, preserve names/defaults/mutable
+4. **D1 — move the AST model to N#.** Revalidate live shapes, preserve names/defaults/mutable
    members, delete the C# AST records atomically, and run the IDE-required evidence because the
    shared analyzer/tooling path consumes those types. This unlocks typed linter and code-
    intelligence kernels.
-6. **B3a — close DocQuery in parallel when an owner is available.** Static binding is complete
+5. **B3a — close DocQuery in parallel when an owner is available.** Static binding is complete
    and this file domain does not contend with E0/C2a/D1. Run the live go/no-go API probes, move
    remaining lookup/index/format policy into the existing N# owner, and shrink C# to a raw
    metadata/XML-loading host or delete it. Nullability is a separate B3b lane coordinated with D.
-7. **Close Track A through N# ownership.** Fix product-gate blockers—including the remaining
+6. **Close Track A through N# ownership.** Fix product-gate blockers—including the remaining
    native-test grammar—through N# parser/semantic/lowering owners. Record the first fresh green
    product-gate commit, then mark A complete.
-8. **Continue ownership lanes by the DAG.** Prefer a vertical stage that deletes the largest
+7. **Continue ownership lanes by the DAG.** Prefer a vertical stage that deletes the largest
    reachable old owner: C syntax flip; D analyzer families; E lowering families; B residual
    DocQuery/nullability/CLI ownership; F systems policy; G tooling/LSP; H tests/release. Never
    return to open-ended C# corpus widening.
@@ -95,7 +100,7 @@ owner, finish one commit-sized stage before switching.
 | Track / stage | Status | Evidence | Remaining binding work |
 |---|---|---|---|
 | A1 decline diagnostics | complete | `18df2415e`…`465856bef` | Preserve stable reason ids and spans. |
-| A2 unit-baseline restoration | partial | zero-failure unit run at `fb856ee46`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Full test grammar, dynamic corpus sweep, fresh green product gate. Remaining coverage is N# plan-first. |
+| A2 product-path restoration | partial | zero-failure unit run at `fb856ee46`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Full test grammar, dynamic corpus sweep, fresh green product gate. All remaining coverage is N# plan-first. |
 | B1 static kernel binding / Dogfood deletion | complete | `27bb97773`, `aa9ec5326`, `3c963eb5d` | Never recreate reflection binding or the deleted project. |
 | B2 JSON and CLI decisions | partial | unverified partial; live inventory required | Re-inventory live C# command policy; `OutputFormatter.cs` is not yet a tiny host. |
 | B3a DocQuery | ready | partial N# owner exists; live inventory required | Independent lane now: delete remaining decision bodies; keep only proved raw metadata/XML extraction/loading glue. |
@@ -170,11 +175,11 @@ These are binding. Patch the relevant track file when launching the affected sta
 
 ## Contention ledger (live)
 
-- `CompilerServices/ColumnarParserKernels.nl`: active coverage slice, C diagnostics, F inputs,
-  G formatter trivia. One writer at a time; partition by a recorded symbol range only if merges
-  are guaranteed.
-- `ColumnarIlEmitter.cs`: current sunset slice, then E owns it exclusively. Track A may no longer
-  add feature branches after the handoff.
+- `CompilerServices/ColumnarParserKernels.nl`: C diagnostics, F inputs, and G formatter trivia.
+  The A0 writer has released it; one writer at a time, with partitioning only when merges are
+  guaranteed.
+- `ColumnarIlEmitter.cs`: E owns it exclusively after `399008ea9`. Track A may no longer add
+  feature branches.
 - `MultiFileCompiler.cs`: C flip, F systems host, D consumer retarget, H playground/deletion.
 - `Analyzer.cs`: D owns retirement; B may supply N# metadata/version APIs but does not edit the
   analyzer concurrently.
