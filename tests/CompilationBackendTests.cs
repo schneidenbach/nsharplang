@@ -518,6 +518,80 @@ targetFramework: net10.0
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsTargetTypedNewConstructors()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TargetTypedNewProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Person {
+    readonly Name: string
+    readonly Age: int
+
+    constructor(name: string, age: int) {
+        Name = name
+        Age = age
+    }
+
+    func Label(): string {
+        return $"{Name}:{Age}"
+    }
+}
+
+class Box<T> {
+    readonly Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    func GetValue(): T {
+        return Value
+    }
+}
+
+func CreateDefaultPerson(): Person {
+    return new("Default", 0)
+}
+
+func main() {
+    person: Person = new("Alice", 30)
+    intBox: Box<int> = new(42)
+
+    print person.Label()
+    print CreateDefaultPerson().Label()
+    print intBox.GetValue()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "TargetTypedNewProject.dll");
+            var result = compiler.CompileToIlAssembly("TargetTypedNewProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("Alice:30\nDefault:0\n42", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsTargetTypedArrayLiteralAndForIn()
     {
         var tempDir = CreateTempDir();

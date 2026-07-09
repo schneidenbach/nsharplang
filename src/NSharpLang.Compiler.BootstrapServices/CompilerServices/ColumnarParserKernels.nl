@@ -406,6 +406,8 @@ class TypeReferenceTupleNameTable {
 //   TypeBindingPattern     -> kind 61  ( `Type name` inside a match arm; children [typeRoot, binding].)
 //   NameOfExpression       -> kind 62  ( `nameof(expr)` (Nameof 50) -- ONE child [expr]. The emitter accepts
 //                                         the analyzer-validated identifier/member-access target subset.)
+//   TargetTypedNewExpression -> kind 63 (`new(args...)` with no explicit type; children [arg0, ...].
+//                                         Lowering only accepts contexts that provide an expected type.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
@@ -4188,6 +4190,61 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         }
 
         st.Pos = pos + 1
+        if st.Pos < count && tokens.Kinds[st.Pos] == 127 {
+            st.Pos = st.Pos + 1
+            targetArgBase := st.ArgStackTop
+
+            if st.Pos < count && tokens.Kinds[st.Pos] != 128 {
+                if tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79 {
+                    st.ArgStackTop = targetArgBase
+                    return -1
+                }
+
+                targetFirstArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                if targetFirstArg < 0 {
+                    st.ArgStackTop = targetArgBase
+                    return -1
+                }
+
+                argStack.Values[st.ArgStackTop] = targetFirstArg
+                st.ArgStackTop = st.ArgStackTop + 1
+
+                while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                    st.Pos = st.Pos + 1
+                    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
+                        st.ArgStackTop = targetArgBase
+                        return -1
+                    }
+
+                    targetNextArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                    if targetNextArg < 0 {
+                        st.ArgStackTop = targetArgBase
+                        return -1
+                    }
+
+                    argStack.Values[st.ArgStackTop] = targetNextArg
+                    st.ArgStackTop = st.ArgStackTop + 1
+                }
+            }
+
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+                st.ArgStackTop = targetArgBase
+                return -1
+            }
+
+            targetRightParenEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            targetChildCount := st.ArgStackTop - targetArgBase
+            targetChildRun := st.ChildCursor
+            targetArg := targetArgBase
+            while targetArg < st.ArgStackTop {
+                AppendExpressionChild(st, children, argStack.Values[targetArg])
+                targetArg = targetArg + 1
+            }
+            st.ArgStackTop = targetArgBase
+            return EmitExpressionNode(st, nodes, 63, -1, 0, targetChildRun, targetChildCount, newStart, targetRightParenEnd - newStart)
+        }
+
         // The type kernel assumes splitGreaterDepth (st.SplitGreaterDepth) is 0 on entry (it is only set/cleared while
         // closing generics within a single type parse). A balanced type always leaves it 0, but reset it
         // explicitly before the call -- matching the function-signature kernel -- so the invariant never

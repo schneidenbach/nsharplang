@@ -260,6 +260,7 @@ internal sealed class ColumnarIlEmitter
     private const int NSharpModifierNativeImport = 131072;
     private const int NSharpParameterModifierThis = 4;
     private const int ColumnarNamedArgumentExpressionKind = 60;
+    private const int ColumnarTargetTypedNewExpressionKind = 63;
     private const int ColumnarFieldInitializerExpressionKind = 1001;
 
     private bool Decline(string siteId, string message, int nodeIdx = -1)
@@ -6016,6 +6017,10 @@ internal sealed class ColumnarIlEmitter
                     if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType))
                         return false;
                 }
+                else if (TryEmitTargetTypedNewAsType(retNode, _returnType, out retType))
+                {
+                    // `return new(args)` adopts the declared return type.
+                }
                 else if (TryEmitIntLiteralAsType(retNode, _returnType, out retType))
                 {
                     // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
@@ -6152,6 +6157,10 @@ internal sealed class ColumnarIlEmitter
                     if (!EmitAdoptedUnionConstruction(declaredInit, declaredType, out var adoptedType)
                         || !TypesEquivalent(adoptedType, declaredType))
                         return Decline("emit.typed-local.union-adoption", "typed local union construction could not adopt declared type for '" + declaredName + "'", declaredInit);
+                }
+                else if (TryEmitTargetTypedNewAsType(declaredInit, declaredType, out _))
+                {
+                    // `value: T = new(args)` adopts the declared type.
                 }
                 else if (TryEmitIntLiteralAsType(declaredInit, declaredType, out _))
                 {
@@ -6716,6 +6725,10 @@ internal sealed class ColumnarIlEmitter
                         if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.LocalType, out valueType))
                             return false;
                     }
+                    else if (TryEmitTargetTypedNewAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
+                    {
+                        // `local = new(args)` adopts the local's type.
+                    }
                     else if (TryEmitIntLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
                     {
                         // `b = 5` on a byte/uint/long/ulong local — constant conversion.
@@ -6766,6 +6779,10 @@ internal sealed class ColumnarIlEmitter
                             if (!EmitAdoptedUnionConstruction(Child(expr, 1), paramElementType, out byRefParamValueType))
                                 return false;
                         }
+                        else if (TryEmitTargetTypedNewAsType(Child(expr, 1), paramElementType, out byRefParamValueType))
+                        {
+                            // `out value = new(args)` adopts the byref element type.
+                        }
                         else if (TryEmitIntLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType))
                         {
                             // constant conversion onto the byref parameter's element type.
@@ -6802,6 +6819,10 @@ internal sealed class ColumnarIlEmitter
                     {
                         if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType))
                             return false;
+                    }
+                    else if (TryEmitTargetTypedNewAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
+                    {
+                        // `param = new(args)` adopts the parameter's declared type.
                     }
                     else if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
                     {
@@ -14937,12 +14958,28 @@ internal sealed class ColumnarIlEmitter
         out Type[] chosenParamTypes,
         out int[] chosenDefaultKinds,
         out string?[] chosenDefaultTexts)
+        => TrySelectUserConstructorForArgs(
+            _nodes.ChildCount(newNode) - 1,
+            a => Child(newNode, 1 + a),
+            def,
+            out chosenCtor,
+            out chosenParamTypes,
+            out chosenDefaultKinds,
+            out chosenDefaultTexts);
+
+    private bool TrySelectUserConstructorForArgs(
+        int argCount,
+        Func<int, int> argAt,
+        ColumnarStructDef def,
+        out ConstructorBuilder chosenCtor,
+        out Type[] chosenParamTypes,
+        out int[] chosenDefaultKinds,
+        out string?[] chosenDefaultTexts)
     {
         chosenCtor = null!;
         chosenParamTypes = null!;
         chosenDefaultKinds = null!;
         chosenDefaultTexts = null!;
-        var argCount = _nodes.ChildCount(newNode) - 1;
         var candidates = new List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)>();
         foreach (var ctor in def.Constructors)
         {
@@ -14984,7 +15021,7 @@ internal sealed class ColumnarIlEmitter
             var matches = true;
             for (var a = 0; a < argCount; a++)
             {
-                if (!CanEmitConstructorArgumentAs(Child(newNode, 1 + a), ctor.ParamTypes[a]))
+                if (!CanEmitConstructorArgumentAs(argAt(a), ctor.ParamTypes[a]))
                 {
                     matches = false;
                     break;
@@ -15000,6 +15037,190 @@ internal sealed class ColumnarIlEmitter
             chosenDefaultTexts = ctor.DefaultTexts;
         }
         return chosenCtor != null;
+    }
+
+    private bool CanUseTargetTypedNewAsType(int node, Type target)
+    {
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) != ColumnarTargetTypedNewExpressionKind
+            || target == typeof(void)
+            || target.IsByRef
+            || target.IsPointer)
+            return false;
+
+        var argCount = _nodes.ChildCount(node);
+        if (target is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+        {
+            if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null)
+                return true;
+            return targetDef.Constructors.Count > 0
+                   && TrySelectUserConstructorForArgs(
+                       argCount,
+                       a => Child(node, a),
+                       targetDef,
+                       out _,
+                       out _,
+                       out _,
+                       out _);
+        }
+
+        if (IsClosedUserGenericInstantiation(target)
+            && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
+            && FindDefByBuilder(openBuilder) is { } openDef)
+        {
+            var selected = false;
+            var typeArgs = target.GetGenericArguments();
+            foreach (var (_, openParamTypes, _, _) in openDef.Constructors)
+            {
+                if (openParamTypes.Length != argCount)
+                    continue;
+                var matches = true;
+                for (var a = 0; a < argCount; a++)
+                {
+                    var expected = SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
+                    if (!CanEmitConstructorArgumentAs(Child(node, a), expected))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (!matches)
+                    continue;
+                if (selected)
+                    return false;
+                selected = true;
+            }
+            return selected;
+        }
+
+        if (IsSupportedCollectionType(target))
+        {
+            if (argCount == 0)
+                return true;
+            return argCount == 1
+                   && TryGetCollectionCapacityConstructorArgument(Child(node, 0), out var capacityArgumentNode)
+                   && CanEmitConstructorArgumentAs(capacityArgumentNode, typeof(int));
+        }
+
+        return false;
+    }
+
+    private bool TryEmitTargetTypedNewAsType(int node, Type target, out Type type)
+    {
+        type = null!;
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) != ColumnarTargetTypedNewExpressionKind
+            || target == typeof(void)
+            || target.IsByRef
+            || target.IsPointer)
+            return false;
+
+        var argCount = _nodes.ChildCount(node);
+        if (target is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+        {
+            if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null)
+            {
+                _il.Emit(OpCodes.Newobj, targetDef.DefaultCtor);
+                type = targetDef.Builder;
+                return true;
+            }
+
+            if (targetDef.Constructors.Count == 0
+                || !TrySelectUserConstructorForArgs(
+                    argCount,
+                    a => Child(node, a),
+                    targetDef,
+                    out var chosenCtor,
+                    out var chosenParamTypes,
+                    out var chosenDefaultKinds,
+                    out var chosenDefaultTexts))
+                return false;
+
+            for (var a = 0; a < chosenParamTypes.Length; a++)
+            {
+                if (a >= argCount)
+                {
+                    if (!TryEmitConstructorDefaultArgument(chosenParamTypes[a], chosenDefaultKinds[a], chosenDefaultTexts[a], out _))
+                        return false;
+                    continue;
+                }
+
+                if (!TryEmitAssignableValue(Child(node, a), chosenParamTypes[a], out _))
+                    return false;
+            }
+            _il.Emit(OpCodes.Newobj, chosenCtor);
+            type = targetDef.Builder;
+            return true;
+        }
+
+        if (IsClosedUserGenericInstantiation(target)
+            && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
+            && FindDefByBuilder(openBuilder) is { } openDef)
+        {
+            ConstructorBuilder? chosenOpenCtor = null;
+            Type[]? chosenOpenParamTypes = null;
+            var typeArgs = target.GetGenericArguments();
+            foreach (var (ctor, openParamTypes, _, _) in openDef.Constructors)
+            {
+                if (openParamTypes.Length != argCount)
+                    continue;
+                var matches = true;
+                for (var a = 0; a < argCount; a++)
+                {
+                    var expected = SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
+                    if (!CanEmitConstructorArgumentAs(Child(node, a), expected))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (!matches)
+                    continue;
+                if (chosenOpenCtor != null)
+                    return false;
+                chosenOpenCtor = ctor;
+                chosenOpenParamTypes = openParamTypes;
+            }
+            if (chosenOpenCtor == null || chosenOpenParamTypes == null)
+                return false;
+
+            for (var a = 0; a < argCount; a++)
+            {
+                var expected = SubstituteClosedTypeArguments(chosenOpenParamTypes[a], typeArgs);
+                if (!TryEmitAssignableValue(Child(node, a), expected, out _))
+                    return false;
+            }
+            _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(target, chosenOpenCtor));
+            type = target;
+            return true;
+        }
+
+        if (IsSupportedCollectionType(target))
+        {
+            var collectionOpenDef = target.GetGenericTypeDefinition();
+            if (argCount == 0)
+            {
+                var defaultCtor = collectionOpenDef.GetConstructor(Type.EmptyTypes);
+                if (defaultCtor == null)
+                    return false;
+                _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(target, defaultCtor));
+                type = target;
+                return true;
+            }
+            if (argCount == 1
+                && TryGetCollectionCapacityConstructorArgument(Child(node, 0), out var capacityArgumentNode)
+                && EmitConstructorArgumentValueAs(capacityArgumentNode, typeof(int)))
+            {
+                var capacityCtor = collectionOpenDef.GetConstructor(new[] { typeof(int) });
+                if (capacityCtor == null)
+                    return false;
+                _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(target, capacityCtor));
+                type = target;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool CanUseConstructorDefaultAs(Type expectedType, int[] defaultKinds, string?[] defaultTexts, int index)
@@ -15063,6 +15284,8 @@ internal sealed class ColumnarIlEmitter
         argNode = UnwrapParenthesizedNode(argNode);
         if (_nodes.Kind(argNode) == 5)
             return !expectedType.IsValueType;
+        if (CanUseTargetTypedNewAsType(argNode, expectedType))
+            return true;
         if (CanAdoptIntLiteralAsType(argNode, expectedType))
             return true;
         return TryGetPreflightExpressionType(argNode, out var actualType)
@@ -15095,7 +15318,8 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool EmitConstructorArgumentValueAs(int argNode, Type expected)
-        => EmitExpression(argNode, out var argType)
+        => (TryEmitTargetTypedNewAsType(argNode, expected, out var argType)
+            || EmitExpression(argNode, out argType))
            && (TypesEquivalent(argType, expected)
                || TryEmitImplicitWidening(argType, expected)
                || TryEmitSpanConversion(argType, expected)
@@ -17803,6 +18027,8 @@ internal sealed class ColumnarIlEmitter
             return IsSupportedContextualDelegateType(expectedParamType);
         if (_nodes.Kind(argNode) == 5)
             return !expectedParamType.IsValueType || IsSupportedNullable(expectedParamType);
+        if (CanUseTargetTypedNewAsType(argNode, expectedParamType))
+            return true;
         if (CanAdoptIntLiteralAsType(argNode, expectedParamType))
             return true;
         if (!TryGetPreflightExpressionType(argNode, out var argType))
@@ -17829,7 +18055,8 @@ internal sealed class ColumnarIlEmitter
     // are referentially distinct — `outer.Add(inner)` on a List<List<Pt>> compares two distinct TBIs).
     // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private bool EmitArg(int callIdx, int argPosition, Type expected)
-        => EmitExpression(Child(callIdx, argPosition), out var argType)
+        => (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out var argType)
+            || EmitExpression(Child(callIdx, argPosition), out argType))
            && (TypesEquivalent(argType, expected)
                || TryEmitSpanConversion(argType, expected)
                || TryEmitInterfaceUpcast(argType, expected)
@@ -17847,6 +18074,8 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return TryEmitLambdaLiteral(argNode, expectedParamType);
+        if (TryEmitTargetTypedNewAsType(argNode, expectedParamType, out _))
+            return true;
         if (TryEmitNullLiteralAsType(argNode, expectedParamType, out _))
             return true;
         if (IsSupportedNullable(expectedParamType))
@@ -18148,6 +18377,10 @@ internal sealed class ColumnarIlEmitter
         {
             if (!EmitAdoptedUnionConstruction(valueNode, targetType, out valueType))
                 return false;
+        }
+        else if (TryEmitTargetTypedNewAsType(valueNode, targetType, out valueType))
+        {
+            // `new(args)` adopts the target storage type.
         }
         else if (TryEmitIntLiteralAsType(valueNode, targetType, out valueType))
         {
