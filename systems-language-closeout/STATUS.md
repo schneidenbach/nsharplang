@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `399008ea9` (2026-07-09), 252 commits after the original
+**Audited implementation base:** `49c0105c8` (2026-07-09), 253 commits after the original
 `9538ab66` planning snapshot. This file is the resume point. Current code and git history outrank
 it; update it whenever they disagree.
 
@@ -24,8 +24,8 @@ Status meanings:
 - A detached-HEAD `dotnet test tests/Tests.csproj` run at `fb856ee46` completed with zero
   failures on 2026-07-09. The former 67-failure baseline and all stash/`comm` instructions are
   retired.
-- No fresh green non-VS-Code product gate is recorded after the unit baseline became green. The
-  last recorded product gates still reported example/product-path failures. Unit green is not a
+- The fresh non-VS-Code product gate at `49c0105c8` ran all 3,183 unit tests green, then ended
+  `FAILURES: 4`. The concrete product blockers are inventoried below. Unit green is not a
   substitute for the Track A product gate.
 - Range/index value and read semantics are complete at `399008ea9`: all four range forms,
   array/string/reference-array slicing, typed and conditional `Index`/`Range`, byte/short/enum
@@ -65,42 +65,64 @@ coverage work.
 Execute dependency-ready lanes in parallel only when their file domains do not contend. With one
 owner, finish one commit-sized stage before switching.
 
-1. **Take the product-gate inventory.** From clean `399008ea9`, run a fresh
-   `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`. If red, record every concrete blocker here;
-   do not restore the obsolete baseline-diff regime.
-2. **E0 — land the ownership ratchet foundation.** Create the N# code-plan model and the
+1. **E0 — land the ownership ratchet foundation.** Create the N# code-plan model and the
    mechanical C# plan replayer; port one reflection-free procedural/scalar lowering family end
    to end; delete its C# decision branches; and prove plan-vs-old behavior by execution and IL
    verification. Member/index/call families wait for the callability/binder probe because
    persisted byref/member handles have already invalidated a broader claim. No force-old flag may
    survive. Add the initial ownership-ratchet guard/allowlist in this stage so later C# growth is
    reported. From this commit onward, all new accept-set work is plan-first in N#.
-3. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
+2. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
    family, add direct C#-vs-N# ordered full-tuple parity tests over invalid, clean, and recovery
    corpora. Resolve the current duplicate-lex/collector architecture against the single-parser
    contract; do not grow two diagnostic parsers.
-4. **D1 — move the AST model to N#.** Revalidate live shapes, preserve names/defaults/mutable
+3. **D1 — move the AST model to N#.** Revalidate live shapes, preserve names/defaults/mutable
    members, delete the C# AST records atomically, and run the IDE-required evidence because the
    shared analyzer/tooling path consumes those types. This unlocks typed linter and code-
    intelligence kernels.
-5. **B3a — close DocQuery in parallel when an owner is available.** Static binding is complete
+4. **B3a — close DocQuery in parallel when an owner is available.** Static binding is complete
    and this file domain does not contend with E0/C2a/D1. Run the live go/no-go API probes, move
    remaining lookup/index/format policy into the existing N# owner, and shrink C# to a raw
    metadata/XML-loading host or delete it. Nullability is a separate B3b lane coordinated with D.
-6. **Close Track A through N# ownership.** Fix product-gate blockers—including the remaining
-   native-test grammar—through N# parser/semantic/lowering owners. Record the first fresh green
-   product-gate commit, then mark A complete.
-7. **Continue ownership lanes by the DAG.** Prefer a vertical stage that deletes the largest
+5. **Close Track A through N# ownership.** Fix the recorded product-gate blockers—including the
+   remaining native-test grammar—through N# parser/semantic/lowering owners. Record the first
+   fresh green product-gate commit, then mark A complete.
+6. **Continue ownership lanes by the DAG.** Prefer a vertical stage that deletes the largest
    reachable old owner: C syntax flip; D analyzer families; E lowering families; B residual
    DocQuery/nullability/CLI ownership; F systems policy; G tooling/LSP; H tests/release. Never
    return to open-ended C# corpus widening.
+
+## Fresh product-gate blocker inventory (`49c0105c8`)
+
+Reproducer for the complete checkpoint: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`.
+The isolated run ended `FAILURES: 4` after 3,183/3,183 unit tests passed.
+`RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed. Focused decline reproducers use the fresh
+`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll` plus
+`NSHARP_COLUMNAR_DECLINE_LOG=1`; IL rows were confirmed directly with `ilverify` and the same
+framework-reference set as `scripts/ilverify.sh`.
+
+| Product blocker | Deepest evidence | Owning N# layer and dependency |
+|---|---|---|
+| Generated `nsharp-webapi` project | `emit.declaration.base-type`: base/interface type `ControllerBase` could not be resolved for `WeatherController`. Reproduce: generate `nsharp-webapi`, then run `nlc build` in it with decline logging. | Track E external type/base binder. E2 owns the decision after E0's plan boundary and E1's handle-capability matrix. |
+| `examples/08-async/AsyncStreams.nl` | `parse.declaration-scan` at 1:1: function scan rejected the first `async func*`. | Columnar parser/function-declaration facts in Track A/C must model `async func*`; generator state-machine lowering then belongs to E plans. No handwritten C# coverage; E0 is the lowering prerequisite. |
+| `examples/09-linq-and-collections/Iterators.nl` | `parse.declaration-scan` at 3:1: function scan rejected the first `func*`. | Columnar parser/function-declaration facts in Track A/C must model `func*`; iterator state-machine lowering then belongs to E plans. No handwritten C# coverage; E0 is the lowering prerequisite. |
+| `IssueTracker.dll` IL | `IL:MethodAccess` in `IssueTracker.Routes::Map`: `ldftn Program::<Lambda>_0` targets a private method on another type. | Track E N# lambda-definition placement and visibility plan; depends on E0, then the E3 definition registry/E4 lowering family. |
+| `RecordStructs.dll` IL | At `Program::Main` offset `0x55b`, `callvirt Color::<Clone>$` consumes a `Color` value instead of its address (`IL:CallVirtOnValueType` and `IL:StackUnexpected`). | Track E N# record-`with`/value-receiver lowering plan after E0; the old C# branch must be deleted with the fix. |
+| `RecordsAndInterfaces.dll` IL | `IL:InitOnly` in `Circle::<InitializeFields>$`: helper method executes `stfld` for readonly `Pi` outside `.ctor`. | Track E N# declaration/constructor initialization plan; depends on E0 and the E3 definition model before its E4 lowering deletion. |
+| `TaskCli.dll` IL | `IL:MethodAccess` in `Formatter::FormatTags`: `ldftn Program::<Lambda>_0` targets a private method on another type. | Same E lambda-definition placement/visibility owner and E0 → E3/E4 dependency as `IssueTracker.dll`. |
+| `WeatherDemo.dll` IL | `IL:MethodAccess` in `GetMinMaxTemp` and `GetHotDaysSummary`: three `ldftn` sites target private `Program::<Lambda>_0..2` methods from `WeatherService` (two normalized gate findings). | Same E lambda-definition placement/visibility owner and E0 → E3/E4 dependency; both affected methods are independently pinned. |
+
+Do not baseline these IL findings: they are product-emission defects. The four gate failure counts
+are Web API template build, `AsyncStreams`, `Iterators`, and the IL verification step; the IL step
+contains the five assembly rows and seven normalized verifier codes above (with Weather's repeated
+member finding deduplicated by the gate).
 
 ## Track status
 
 | Track / stage | Status | Evidence | Remaining binding work |
 |---|---|---|---|
 | A1 decline diagnostics | complete | `18df2415e`…`465856bef` | Preserve stable reason ids and spans. |
-| A2 product-path restoration | partial | zero-failure unit run at `fb856ee46`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Full test grammar, dynamic corpus sweep, fresh green product gate. All remaining coverage is N# plan-first. |
+| A2 product-path restoration | partial | 3,183-unit green/four-category product-gate inventory at `49c0105c8`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
 | B1 static kernel binding / Dogfood deletion | complete | `27bb97773`, `aa9ec5326`, `3c963eb5d` | Never recreate reflection binding or the deleted project. |
 | B2 JSON and CLI decisions | partial | unverified partial; live inventory required | Re-inventory live C# command policy; `OutputFormatter.cs` is not yet a tiny host. |
 | B3a DocQuery | ready | partial N# owner exists; live inventory required | Independent lane now: delete remaining decision bodies; keep only proved raw metadata/XML extraction/loading glue. |
