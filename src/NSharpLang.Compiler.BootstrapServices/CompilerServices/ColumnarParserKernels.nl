@@ -4498,18 +4498,22 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
             expr = EmitExpressionNode(st, nodes, 10, -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
-        } else if pos < count && tokens.Kinds[pos] == 100 && nodes.Kinds[expr] == 6 && IsGenericCallTypeArgs(tokens, count, pos) {
-            // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed only when the callee is
-            // a BARE identifier and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
+        } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
+            // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
+            // a bare identifier or dotted member access and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
             // well-formed type-argument list whose close is followed DIRECTLY by `(`. Each argument parses as
             // a TYPE-kernel subtree on the shared table; the result is a GenericCalleeExpression (kind 38:
-            // value span = the callee identifier's name, children = the type-arg roots). The `(` branch of
+            // value span = the full callee name, children = the type-arg roots). The `(` branch of
             // this loop then parses the CALL with the kind-38 node as its callee, so a generic call is
             // [genericCallee, arg0, ...] exactly like a plain call. The `>>` split for a nested generic close
             // is honored via the shared st.SplitGreaterDepth owed-greater state (ConsumeGreaterForTypeNodeCore).
             calleeNameStart := nodes.ValueStarts[expr]
             calleeNameLength := nodes.ValueLengths[expr]
             objSpanStart := nodes.SpanStarts[expr]
+            if nodes.Kinds[expr] == 8 {
+                calleeNameStart = objSpanStart
+                calleeNameLength = nodes.SpanLengths[expr]
+            }
             st.Pos = pos + 1
             gArgBase := st.ArgStackTop
             st.SplitGreaterDepth = 0
@@ -7660,6 +7664,24 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTabl
     return pos
 }
 
+func ParseDeclarationInitializerExpressionEndCore(tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
+    if pos < 0 || pos >= count {
+        return -1
+    }
+
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    argStack := new ParserArgumentStack(new int[](count + 1))
+    nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    children := new ParserChildIndexTable(new int[](count + 1))
+    st := new ParserState(pos, 0, 0, 0, 0, 0)
+    valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, count, st, argStack, nodes, children, 0)
+    if valueRoot < 0 || st.Pos <= pos {
+        return -1
+    }
+
+    return st.Pos
+}
+
 func ParseDeclarationSimpleInitializerTokenIsLiteral(kind: int): bool {
     return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 2 || kind == 3 || kind == 4
 }
@@ -8077,7 +8099,14 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
                     initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
                     if initEnd < 0 {
-                        return -1
+                        if memberModifiers.Values[0] != 0 {
+                            return -1
+                        }
+
+                        initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                        if initEnd < 0 {
+                            return -1
+                        }
                     }
                     initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
                     pos = initEnd - 1
@@ -10642,6 +10671,29 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 
                 j = j + 1
             }
+        } else {
+            j := 0
+            while j < i {
+                if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) && methodParamCounts[j] == paramCount {
+                    if methodName == methodNameTexts[j] {
+                        sameSignature := true
+                        paramSlot := 0
+                        while paramSlot < paramCount {
+                            if signatureOutputs.ParamTypeTexts[paramSlot] != methodParamTypeTexts[methodParamStarts[j] + paramSlot] {
+                                sameSignature = false
+                            }
+
+                            paramSlot = paramSlot + 1
+                        }
+
+                        if sameSignature {
+                            return 1
+                        }
+                    }
+                }
+
+                j = j + 1
+            }
         }
         methodNameTexts[i] = methodName
         methodParamStarts[i] = nextMethodParamType
@@ -10969,12 +11021,6 @@ func ColumnarStructMethodMemberNamesSupported(source: string, tokens: ColumnarSt
             otherMethodName := ColumnarStructMethodMemberNameText(source, tokens, outputs.MethodFuncIndices[j])
             if otherMethodName == "" {
                 return 0
-            }
-
-            if methodName == otherMethodName {
-                if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) || !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[j]) {
-                    return 0
-                }
             }
 
             j = j + 1

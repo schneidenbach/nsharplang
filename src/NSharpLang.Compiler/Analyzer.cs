@@ -10037,6 +10037,13 @@ public class Analyzer : IDisposable
             return;
         }
 
+        if (argumentTypeInfo is ArrayTypeInfo arrayTypeInfo
+            && TryGetReflectionEnumerableElementParameter(openParameterType, out var enumerableElementParameter))
+        {
+            PopulateTypeInfoBindingsFromType(enumerableElementParameter, arrayTypeInfo.ElementType, typeInfoBindings);
+            return;
+        }
+
         if (!openParameterType.IsGenericType || argumentTypeInfo is not GenericTypeInfo argGeneric)
             return;
 
@@ -10100,6 +10107,36 @@ public class Analyzer : IDisposable
                 }
             }
         }
+    }
+
+    private static bool TryGetReflectionEnumerableElementParameter(Type openParameterType, out Type elementParameter)
+    {
+        openParameterType = GetByRefElementType(openParameterType);
+        if (openParameterType.IsArray)
+        {
+            elementParameter = openParameterType.GetElementType()!;
+            return true;
+        }
+
+        if (!openParameterType.IsGenericType)
+        {
+            elementParameter = typeof(void);
+            return false;
+        }
+
+        var definitionName = openParameterType.GetGenericTypeDefinition().FullName;
+        if (definitionName is "System.Collections.Generic.IEnumerable`1"
+            or "System.Collections.Generic.IReadOnlyList`1"
+            or "System.Collections.Generic.IReadOnlyCollection`1"
+            or "System.Collections.Generic.ICollection`1"
+            or "System.Collections.Generic.IList`1")
+        {
+            elementParameter = openParameterType.GetGenericArguments()[0];
+            return true;
+        }
+
+        elementParameter = typeof(void);
+        return false;
     }
 
     /// <summary>

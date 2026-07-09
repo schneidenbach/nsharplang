@@ -304,6 +304,10 @@ public class ColumnarInterpolationSplitter {
             return true
         }
 
+        if ColumnarInterpolatedStringIsRootIndexedIdentifierChain(literal, start, length) {
+            return true
+        }
+
         if length > 2 && literal[start + length - 2] == '(' && literal[start + length - 1] == ')' {
             return ColumnarInterpolatedStringIsIdentifierChain(literal, start, length - 2)
         }
@@ -346,8 +350,91 @@ public class ColumnarInterpolationSplitter {
         return false
     }
 
+    static func ColumnarInterpolatedStringIsRootIndexedIdentifierChain(literal: string, start: int, length: int): bool {
+        if length == 0 {
+            return false
+        }
+
+        i := 0
+        if !ColumnarInterpolatedStringIsIdentifierStart(literal[start]) {
+            return false
+        }
+
+        i = 1
+        while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+            i = i + 1
+        }
+
+        if i >= length {
+            return false
+        }
+
+        if literal[start + i] != '[' {
+            return false
+        }
+
+        i = i + 1
+        if i >= length {
+            return false
+        }
+
+        if ColumnarInterpolatedStringIsAsciiDigit(literal[start + i]) {
+            while i < length && ColumnarInterpolatedStringIsAsciiDigit(literal[start + i]) {
+                i = i + 1
+            }
+        } else {
+            if !ColumnarInterpolatedStringIsIdentifierStart(literal[start + i]) {
+                return false
+            }
+
+            i = i + 1
+            while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+                i = i + 1
+            }
+        }
+
+        if i >= length {
+            return false
+        }
+
+        if literal[start + i] != ']' {
+            return false
+        }
+
+        i = i + 1
+        if i == length {
+            return true
+        }
+
+        while i < length {
+            if literal[start + i] != '.' {
+                return false
+            }
+
+            i = i + 1
+            if i >= length {
+                return false
+            }
+
+            if !ColumnarInterpolatedStringIsIdentifierStart(literal[start + i]) {
+                return false
+            }
+
+            i = i + 1
+            while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+                i = i + 1
+            }
+        }
+
+        return true
+    }
+
     static func ColumnarInterpolatedStringIsSupportedHoleExpression(literal: string, start: int, length: int): bool {
         if ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, start, length) {
+            return true
+        }
+
+        if ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal, start, length) {
             return true
         }
 
@@ -427,6 +514,61 @@ public class ColumnarInterpolationSplitter {
 
         return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
             && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    static func ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal: string, start: int, length: int): bool {
+        if length < 4 {
+            return false
+        }
+
+        if literal[start] != '(' {
+            return false
+        }
+
+        close := -1
+        i := 1
+        while i < length {
+            ch := literal[start + i]
+            if ch == ')' {
+                close = i
+                break
+            }
+
+            if ch == '(' || ch == ',' || ch == '{' || ch == '}' || ch == ':' {
+                return false
+            }
+
+            i = i + 1
+        }
+
+        if close <= 1 || close >= length - 1 {
+            return false
+        }
+
+        typeStart := start + 1
+        typeLength := close - 1
+        while typeLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[typeStart]) {
+            typeStart = typeStart + 1
+            typeLength = typeLength - 1
+        }
+
+        while typeLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[typeStart + typeLength - 1]) {
+            typeLength = typeLength - 1
+        }
+
+        operandStart := start + close + 1
+        operandLength := length - close - 1
+        while operandLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[operandStart]) {
+            operandStart = operandStart + 1
+            operandLength = operandLength - 1
+        }
+
+        while operandLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[operandStart + operandLength - 1]) {
+            operandLength = operandLength - 1
+        }
+
+        return ColumnarInterpolatedStringIsIdentifierChain(literal, typeStart, typeLength)
+            && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, operandStart, operandLength)
     }
 
     static func ColumnarInterpolatedStringFindEqualityOperator(literal: string, start: int, length: int): int {

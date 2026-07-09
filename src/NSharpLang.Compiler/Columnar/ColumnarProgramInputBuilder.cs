@@ -471,7 +471,7 @@ internal static class ColumnarProgramInputBuilder
                 for (var m = 0; m < methodCount; m++)
                 {
                     var methodModifierFlags = outMethodStaticFlags[m];
-                    if (!TryParseColumnarFunctionAt(ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, modifierFlags: methodModifierFlags))
+                    if (!TryParseColumnarFunctionAt(ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, isAsync: (methodModifierFlags & 2048) != 0, modifierFlags: methodModifierFlags))
                     {
                         return DeclineAtToken("parse.struct.method", "struct/class/record method could not be parsed into columnar input", cs, cv, outMethodFuncIndices[m], structName);
                     }
