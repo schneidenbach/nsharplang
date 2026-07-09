@@ -14055,10 +14055,25 @@ internal sealed class ColumnarIlEmitter
         if ((typeName == "String" || typeName == "string") && member == "Join" && argCount == 2)
         {
             var valuesType = typeof(IEnumerable<string>);
-            var method = typeof(string).GetMethod(nameof(string.Join), new[] { typeof(string), valuesType });
-            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, valuesType))
+            if (CanDeclaredCallArgumentMatch(Child(callIdx, 2), valuesType, allowLambdaLiteral: false))
+            {
+                var method = typeof(string).GetMethod(nameof(string.Join), new[] { typeof(string), valuesType });
+                if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, valuesType))
+                    return false;
+                _il.Emit(OpCodes.Call, method);
+                type = typeof(string);
+                return true;
+            }
+            if (!TryGetPreflightExpressionType(Child(callIdx, 2), out var joinValuesType)
+                || !TryGetStringJoinGenericElementType(joinValuesType, out var joinElementType))
                 return false;
-            _il.Emit(OpCodes.Call, method);
+            var enumerableType = typeof(IEnumerable<>).MakeGenericType(joinElementType);
+            var genericJoin = ResolveStringJoinGenericEnumerable();
+            if (genericJoin == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, enumerableType))
+                return false;
+            _il.Emit(OpCodes.Call, genericJoin.MakeGenericMethod(joinElementType));
             type = typeof(string);
             return true;
         }
@@ -14220,6 +14235,42 @@ internal sealed class ColumnarIlEmitter
         var sourceElementType = sourceArrayType.GetElementType()!;
         var destinationElementType = destinationArrayType.GetElementType()!;
         return sourceElementType == destinationElementType && IsSupportedElementType(sourceElementType);
+    }
+
+    private static bool TryGetStringJoinGenericElementType(Type valuesType, out Type elementType)
+    {
+        elementType = null!;
+        if (valuesType.IsSZArray)
+        {
+            elementType = valuesType.GetElementType()!;
+            return IsSupportedElementType(elementType);
+        }
+        if (!valuesType.IsGenericType || valuesType.IsGenericTypeDefinition)
+            return false;
+        var def = valuesType.GetGenericTypeDefinition();
+        if (def != typeof(IEnumerable<>)
+            && def != typeof(IReadOnlyList<>)
+            && def != typeof(IReadOnlyCollection<>)
+            && def != typeof(List<>))
+            return false;
+        elementType = valuesType.GetGenericArguments()[0];
+        return IsSupportedElementType(elementType) || IsAdmissibleCollectionElement(elementType);
+    }
+
+    private static MethodInfo? ResolveStringJoinGenericEnumerable()
+    {
+        foreach (var method in typeof(string).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (method.Name != nameof(string.Join) || !method.IsGenericMethodDefinition)
+                continue;
+            var parameters = method.GetParameters();
+            if (parameters.Length == 2
+                && parameters[0].ParameterType == typeof(string)
+                && parameters[1].ParameterType.IsGenericType
+                && parameters[1].ParameterType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return method;
+        }
+        return null;
     }
 
     // System.Array.Fill<T> as a generic method DEFINITION. The caller binds T via MakeGenericMethod(elementType).
