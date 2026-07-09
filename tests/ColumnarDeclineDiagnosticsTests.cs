@@ -103,7 +103,7 @@ test "x" {
 
             Assert.False(result.Success);
             Assert.Contains("Declined at parse.declaration-scan:", error.Message);
-            Assert.Contains("test, setup, or teardown", error.Message);
+            Assert.Contains("setup or teardown", error.Message);
             Assert.Equal(Path.GetFullPath(testPath), Path.GetFullPath(error.FileName!));
             Assert.Equal(1, error.Line);
             Assert.Equal(1, error.Column);

@@ -88,9 +88,18 @@ internal static class ColumnarProgramInputBuilder
             declarationResult);
         if (declarationRowCount < 0)
         {
+            var scanStage = declarationRowCount switch
+            {
+                -2 => "function scan",
+                -3 => "declaration name spans mismatched the declaration count",
+                -4 => "duplicate top-level type names",
+                -5 => "nominal (enum/union/interface) scan",
+                -6 => "struct-like scan",
+                _ => "declaration scan",
+            };
             return DeclineAtToken(
                 "parse.declaration-scan",
-                "top-level declaration scan failed; the source may contain an unmodeled declaration shape such as test, setup, or teardown",
+                "top-level declaration scan failed at " + scanStage + "; the source may contain an unmodeled declaration shape such as setup or teardown",
                 tokens.Starts,
                 tokens.ValueLengths,
                 0);
@@ -120,6 +129,11 @@ internal static class ColumnarProgramInputBuilder
         if (!TryGetColumnarTestInputs(source, tokens, out var testInputs))
         {
             return Decline("parse.test", "test declaration materialization failed");
+        }
+
+        if (!TryGetColumnarNewtypeInputs(source, tokens, structs))
+        {
+            return Decline("parse.newtype", "newtype declaration materialization failed");
         }
 
         program = ColumnarProgramInput.CreateSingleSource(source, inputs, enums, structs, unions, interfaceInputs, testInputs);
@@ -152,6 +166,54 @@ internal static class ColumnarProgramInputBuilder
         }
 
         program = ColumnarProgramInput.MergeSourceFiles(sourceFiles, programs);
+        return true;
+    }
+
+    // A NEWTYPE (`type X = newtype T`) is the legacy emitter's CreateSyntheticNewtypeRecord: a
+    // readonly record STRUCT with one primary-constructor parameter `Value: T` — synthesized here
+    // as a struct input so declaration, construction, equality, and `.Value` reads ride the
+    // record-struct machinery. Call-style construction (`X(42)`) is gated on IsNewtype downstream.
+    private static bool TryGetColumnarNewtypeInputs(
+        string source, ColumnarTokenizedSource tokens, List<ColumnarStructInput> structs)
+    {
+        var n = tokens.Count;
+        var indices = new int[n + 1];
+        var nameStarts = new int[n + 1];
+        var nameLengths = new int[n + 1];
+        var typeStarts = new int[n + 1];
+        var typeLengths = new int[n + 1];
+        var scan = new int[1];
+        var newtypeCount = global::Program.TopLevelColumnarNewtypeDeclarationIndicesInto(
+            source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, n,
+            indices, nameStarts, nameLengths, typeStarts, typeLengths, scan);
+        if (newtypeCount < 0)
+            return Decline("parse.newtype-scan", "newtype declaration scan failed (composed underlying types are not modeled)");
+
+        for (var t = 0; t < newtypeCount; t++)
+        {
+            var name = source.Substring(nameStarts[t], nameLengths[t]);
+            var underlying = source.Substring(typeStarts[t], typeLengths[t]);
+            var emptyBlock = new ColumnarNodeTable(
+                new[] { 25 }, new[] { -1 }, new[] { 0 },
+                new[] { 0 }, new[] { 0 }, Array.Empty<int>(),
+                new[] { 0 }, new[] { 0 });
+            var ctorBody = new ColumnarFunctionInput(
+                "constructor", "void", new[] { "Value" }, new[] { underlying },
+                emptyBlock, 0);
+            var ctor = new ColumnarConstructorInput(
+                ctorBody, 0, Array.Empty<int>(), Array.Empty<string>(),
+                new[] { -1 }, new[] { "" }, isSynthesizedInitializer: true);
+            structs.Add(new ColumnarStructInput(
+                name,
+                new[] { "Value" }, new[] { underlying },
+                Array.Empty<ColumnarFunctionInput>(),
+                new[] { ctor },
+                Array.Empty<ColumnarPropertyInput>(),
+                isReference: false,
+                fieldReadonlyFlags: new[] { true },
+                isRecord: true,
+                isNewtype: true));
+        }
         return true;
     }
 

@@ -13,6 +13,16 @@ public class LinterFileImportUsage {
             return true
         }
 
+        // A DOTTED use (`Alias.Type` in a type reference or qualified call) records the dotted
+        // identifier, not the bare alias — a prefix match on `<symbol>.` is a use.
+        foreach identifier in codeIdentifiers {
+            if identifier.Length > importSymbol.Length + 1
+                && identifier.StartsWith(importSymbol)
+                && identifier[importSymbol.Length] == '.' {
+                return true
+            }
+        }
+
         if importPath != null && currentFilePath != null {
             resolvedPath := ResolveFileImportPath(importPath, currentFilePath)
             if resolvedPath != null {

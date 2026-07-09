@@ -6185,30 +6185,30 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
     functionResult := new ParserDeclarationResultTable(new int[](2))
     functionCount := TopLevelColumnarFunctionDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, functionOutputs, functionResult)
     if functionCount < 0 {
-        return -1
+        return -2
     }
 
     names := new TopLevelDeclarationNameTable(new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1))
     nameCount := TopLevelDeclarationNameSpansCore(rawTokens, rawCount, names)
     if nameCount != functionResult.Values[0] {
-        return -1
+        return -3
     }
 
     if TopLevelTypeDeclarationNamesDistinct(source, rawTokens, rawCount, names, nameCount) == 0 {
-        return -1
+        return -4
     }
 
     nominalOutputs := new TopLevelColumnarNominalDeclarationTable(outputs.EnumIndices, outputs.UnionIndices, outputs.InterfaceIndices)
     nominalResult := new ParserDeclarationResultTable(new int[](3))
     nominalCount := TopLevelColumnarNominalDeclarationIndicesCore(compactTokens, compactCount, nominalOutputs, nominalResult)
     if nominalCount < 0 {
-        return -1
+        return -5
     }
 
     structOutputs := new TopLevelStructLikeDeclarationTable(outputs.StructIndices, outputs.StructReferenceFlags, outputs.StructRecordFlags)
     structCount := TopLevelStructLikeDeclarationIndicesCore(compactTokens, compactCount, structOutputs)
     if structCount < 0 {
-        return -1
+        return -6
     }
 
     result.Values[0] = functionResult.Values[0]
@@ -6576,11 +6576,15 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationKindStream, 
             }
 
             headerWalk := preceding
-            while headerWalk >= 0 && (tokens.Kinds[headerWalk] == 0 || tokens.Kinds[headerWalk] == 124) {
+            while headerWalk >= 0 && (tokens.Kinds[headerWalk] == 0 || tokens.Kinds[headerWalk] == 124 || tokens.Kinds[headerWalk] == 48) {
                 headerWalk = headerWalk - 1
             }
 
-            if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18) {
+            // Valid header prefixes: `namespace A.B` / `import A.B[.C] [as X]` / `package A`, or a
+            // FILE import with an alias — `import "path" as X` — whose walk stops at the string.
+            isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4
+                && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
+            if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
                 return 0
             }
         }
@@ -6802,6 +6806,51 @@ func TopLevelPlainTestHeaderEndsAt(tokens: ParserDeclarationTokenTable, count: i
         return -1
     }
     return i
+}
+
+// Top-level NEWTYPE declarations: `type X = newtype T` (Type 72, Identifier name, Assign 93,
+// Newtype 87, ONE simple underlying type token). Records the Type token index plus the name and
+// underlying-type token spans. A composed underlying type (generics, arrays) is unmodeled and
+// fails the scan (-1) so the host declines with a reason instead of mis-synthesizing.
+func TopLevelColumnarNewtypeDeclarationIndicesInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outIndices: int[], outNameStarts: int[], outNameLengths: int[], outTypeStarts: int[], outTypeLengths: int[], outResult: int[]): int {
+    if count < 0 || count > tokenKinds.Length || outIndices.Length < count + 1 || outResult.Length < 1 {
+        return -1
+    }
+
+    braceDepth := 0
+    outCount := 0
+    i := 0
+    while i < count {
+        kind := tokenKinds[i]
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if braceDepth == 0 && kind == 72
+            && i + 3 < count && tokenKinds[i + 1] == 0 && tokenKinds[i + 2] == 93 && tokenKinds[i + 3] == 87 {
+            if i + 4 >= count || tokenKinds[i + 4] != 0 {
+                return -1
+            }
+            // A COMPOSED underlying type (generic `<`, array `[`, dotted access) is unmodeled.
+            if i + 5 < count && (tokenKinds[i + 5] == 100 || tokenKinds[i + 5] == 131 || tokenKinds[i + 5] == 124) {
+                return -1
+            }
+            outIndices[outCount] = i
+            outNameStarts[outCount] = tokenStarts[i + 1]
+            outNameLengths[outCount] = tokenValueLengths[i + 1]
+            outTypeStarts[outCount] = tokenStarts[i + 4]
+            outTypeLengths[outCount] = tokenValueLengths[i + 4]
+            outCount = outCount + 1
+        }
+
+        i = i + 1
+    }
+
+    outResult[0] = outCount
+    return outCount
 }
 
 // Records the keyword token index of every top-level PLAIN test declaration. Returns the count.

@@ -213,6 +213,7 @@ public class ColumnarStructInput {
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     IsRecord: bool
+    IsNewtype: bool
     TypeParamNames: string[]
     SourceFileId: int
 
@@ -231,7 +232,8 @@ public class ColumnarStructInput {
         isRecord: bool = false,
         typeParamNames: string[]? = null,
         fieldReadonlyFlags: bool[]? = null,
-        sourceFileId: int = 0) {
+        sourceFileId: int = 0,
+        isNewtype: bool = false) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -253,6 +255,7 @@ public class ColumnarStructInput {
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts ?? new string[](fieldNames.Length)
         IsRecord = isRecord
+        IsNewtype = isNewtype
         TypeParamNames = typeParamNames ?? new string[](0)
         SourceFileId = sourceFileId
     }

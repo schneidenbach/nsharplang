@@ -48,6 +48,10 @@ internal sealed class ColumnarStructDef
     // True for a RECORD specifically — records can never be BASE types (the legacy emitter emits them sealed) and record
     // inheritance is unmodelled; PASS 0a' declines both shapes.
     internal bool IsRecord { get; }
+    // True for a synthesized NEWTYPE record struct (`type X = newtype T`): call-style
+    // construction (`X(42)`) resolves to its single-parameter constructor — newtypes only,
+    // matching the legacy emitter's RecordsTopLevelNewtypeNames gate.
+    internal bool IsNewtype { get; init; }
     // True for an INTERFACE (defined Public|Interface|Abstract; Methods hold its ABSTRACT member
     // declarations; no fields/ctors). Living in the struct registry makes interface-typed
     // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
@@ -2826,7 +2830,17 @@ internal sealed class ColumnarIlEmitter
             type = typeof(Action);
             return true;
         }
-        return TryResolveBuiltin(canonical, out type);
+        if (TryResolveBuiltin(canonical, out type))
+            return true;
+        // Alias/namespace-QUALIFIED user type (`Ids.UserId`, `Models.Point`): the registries key
+        // SHORT names, so retry with the unqualified tail. Analysis already validated the qualifier.
+        if (canonical.Contains('.'))
+        {
+            var unqualified = ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical);
+            if (!string.Equals(unqualified, canonical, StringComparison.Ordinal))
+                return TryResolveType(unqualified, enumRegistry, structRegistry, unionRegistry, out type);
+        }
+        return false;
     }
 
     // Resolve a delegate canonical's comma-joined type-argument list to a closed System.Func/Action.
@@ -3053,6 +3067,7 @@ internal sealed class ColumnarIlEmitter
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord)
             {
+                IsNewtype = st.IsNewtype,
                 GenericParameters = typeGenericParams,
             };
             structBuilders[s] = tb;
@@ -4290,6 +4305,14 @@ internal sealed class ColumnarIlEmitter
                     // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
                     if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
                         return false;
+                }
+                // A synthesized NEWTYPE ctor has an empty body; it assigns its single parameter
+                // to the Value field directly (the legacy synthetic record's primary-ctor contract).
+                if (job.Struct.IsNewtype && job.Struct.Fields.TryGetValue("Value", out var newtypeValueField))
+                {
+                    cil.Emit(OpCodes.Ldarg_0);
+                    cil.Emit(OpCodes.Ldarg_1);
+                    cil.Emit(OpCodes.Stfld, newtypeValueField);
                 }
                 if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
                     return DeclineStatic("emit.body", "constructor body emission declined", job.Struct.Builder.Name + ".constructor");
@@ -8600,6 +8623,27 @@ internal sealed class ColumnarIlEmitter
                         type = ownStatic.ReturnType;
                         return true;
                     }
+                    // CALL-STYLE newtype construction (`UserId(42)`): newtypes ONLY (the legacy
+                    // emitter's RecordsTopLevelNewtypeNames gate) — resolve the synthesized
+                    // single-parameter constructor and newobj it.
+                    if (_structRegistry.TryGetValue(name, out var newtypeDef) && newtypeDef.IsNewtype)
+                    {
+                        var newtypeArgCount = _nodes.ChildCount(idx) - 1;
+                        foreach (var (ctorBuilder, ctorParamTypes, _, _) in newtypeDef.Constructors)
+                        {
+                            if (ctorParamTypes.Length != newtypeArgCount)
+                                continue;
+                            for (var a = 1; a <= newtypeArgCount; a++)
+                            {
+                                if (!EmitDeclaredCallArgument(Child(idx, a), ctorParamTypes[a - 1], allowLambdaLiteral: false))
+                                    return false;
+                            }
+                            _il.Emit(OpCodes.Newobj, ctorBuilder);
+                            type = newtypeDef.Builder;
+                            return true;
+                        }
+                        return false;
+                    }
                     return false;
                 }
                 if (_nodes.Kind(callee) == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
@@ -9205,6 +9249,17 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(typeNode) == 0) // a Simple type -> a constructor call (string or StringBuilder).
                 {
                     var newTypeName = Text(typeNode);
+                    // Alias/namespace-QUALIFIED user type (`Ids.UserId`): normalize to the
+                    // registry's short name — unless the qualifier is a UNION, whose dotted
+                    // spelling is case construction and resolves on its own path.
+                    if (newTypeName.Contains('.'))
+                    {
+                        var newTypeQualifier = newTypeName.Substring(0, newTypeName.IndexOf('.'));
+                        var newTypeTail = ColumnarTypeCanonicalizer.UnqualifiedTypeName(newTypeName);
+                        if (!_unionRegistry.ContainsKey(newTypeQualifier)
+                            && (_structRegistry.ContainsKey(newTypeTail) || _enumRegistry.ContainsKey(newTypeTail)))
+                            newTypeName = newTypeTail;
+                    }
                     if (newTypeName == "string")
                     {
                         if (_nodes.ChildCount(idx) == 3)
@@ -10988,7 +11043,29 @@ internal sealed class ColumnarIlEmitter
             var receiverName = Text(receiver);
             if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName)
                 && !IsCurrentInstanceMemberName(receiverName))
+            {
+                // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
+                // the member names a synthesized newtype and the receiver is the alias qualifier.
+                if (_structRegistry.TryGetValue(memberName, out var aliasNewtypeDef) && aliasNewtypeDef.IsNewtype
+                    && !_structRegistry.ContainsKey(receiverName) && !_enumRegistry.ContainsKey(receiverName) && !_unionRegistry.ContainsKey(receiverName))
+                {
+                    foreach (var (aliasCtorBuilder, aliasCtorParamTypes, _, _) in aliasNewtypeDef.Constructors)
+                    {
+                        if (aliasCtorParamTypes.Length != argCount)
+                            continue;
+                        for (var a = 1; a <= argCount; a++)
+                        {
+                            if (!EmitDeclaredCallArgument(Child(callIdx, a), aliasCtorParamTypes[a - 1], allowLambdaLiteral: false))
+                                return false;
+                        }
+                        _il.Emit(OpCodes.Newobj, aliasCtorBuilder);
+                        type = aliasNewtypeDef.Builder;
+                        return true;
+                    }
+                    return false;
+                }
                 return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, out type);
+            }
         }
 
         if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0
