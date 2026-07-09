@@ -1018,6 +1018,136 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsArrayAndStringRangeAndIndexValues()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RangeAndIndexProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+enum Bound {
+    Zero = 0,
+    One = 1,
+    Four = 4
+}
+
+func main() {
+    values := [10, 20, 30, 40, 50]
+    text := "abcdef"
+    words := ["zero", "one", "two", "three"]
+
+    print values[^1]
+    print values[^3]
+    print text[^1]
+    print text[^3]
+
+    closed := values[1..4]
+    fromStart := values[..3]
+    toEnd := values[2..]
+    all := values[..]
+    fromEnd := values[^4..^1]
+    closedFirst := closed[0]
+    closedLast := closed[^1]
+    fromStartFirst := fromStart[0]
+    fromStartLast := fromStart[^1]
+    toEndFirst := toEnd[0]
+    toEndLast := toEnd[^1]
+    allFirst := all[0]
+    allLast := all[^1]
+    fromEndFirst := fromEnd[0]
+    fromEndLast := fromEnd[^1]
+    print $"{closedFirst}:{closedLast}:{closed.Length}"
+    print $"{fromStartFirst}:{fromStartLast}:{fromStart.Length}"
+    print $"{toEndFirst}:{toEndLast}:{toEnd.Length}"
+    print $"{allFirst}:{allLast}:{all.Length}"
+    print $"{fromEndFirst}:{fromEndLast}:{fromEnd.Length}"
+
+    print text[1..4]
+    print text[..3]
+    print text[2..]
+    print text[..]
+    print text[^4..^1]
+    middleWords := words[1..^1]
+    firstWord := middleWords[0]
+    lastWord := middleWords[1]
+    print $"{firstWord}:{lastWord}"
+
+    last: Index = ^2
+    window: Range = 1..^1
+    lastValue := values[last]
+    lastChar := text[last]
+    print $"{lastValue}:{lastChar}"
+    windowValues := values[window]
+    windowFirst := windowValues[0]
+    windowLast := windowValues[^1]
+    textWindow := text[window]
+    print $"{windowFirst}:{windowLast}:{textWindow}"
+
+    start: byte = 1
+    end: short = 4
+    fromEndCount: byte = 2
+    smallBounds := values[start..end]
+    parenthesizedStart := values[(start)..end]
+    smallFirst := smallBounds[0]
+    smallLast := smallBounds[^1]
+    parenthesizedFirst := parenthesizedStart[0]
+    parenthesizedLast := parenthesizedStart[^1]
+    fromEndValue := values[^fromEndCount]
+    fromEndChar := text[^fromEndCount]
+    print $"{smallFirst}:{smallLast}:{fromEndValue}:{fromEndChar}"
+    print $"{parenthesizedFirst}:{parenthesizedLast}:{parenthesizedStart.Length}"
+
+    rangeStart: Index = ^4
+    rangeEnd: Index = ^1
+    indexBounds := values[rangeStart..rangeEnd]
+    indexFirst := indexBounds[0]
+    indexLast := indexBounds[^1]
+    print $"{indexFirst}:{indexLast}:{indexBounds.Length}"
+
+    chooseLast := true
+    conditionalValue := values[chooseLast ? ^1 : ^2]
+    conditionalRange := values[chooseLast ? (1..^1) : (..)]
+    conditionalFirst := conditionalRange[0]
+    conditionalLast := conditionalRange[^1]
+    print $"{conditionalValue}:{conditionalFirst}:{conditionalLast}"
+
+    enumBounds := values[Bound.One..Bound.Four]
+    enumFirst := enumBounds[0]
+    enumLast := enumBounds[^1]
+    enumFromEnd := values[^Bound.One]
+    print $"{enumFirst}:{enumLast}:{enumFromEnd}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "RangeAndIndexProject.dll");
+            var result = compiler.CompileToIlAssembly("RangeAndIndexProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal(
+                "50\n30\nf\nd\n20:40:3\n10:30:3\n30:50:3\n10:50:5\n20:40:3\nbcd\nabc\ncdef\nabcdef\ncde\none:two\n40:e\n20:40:bcde\n20:40:40:e\n20:40:3\n20:40:3\n50:20:40\n20:40:50",
+                runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsNestedPropertyPatterns()
     {
         var tempDir = CreateTempDir();

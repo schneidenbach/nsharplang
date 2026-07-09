@@ -418,11 +418,15 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
+//                                         value span. Children are the present endpoint expressions; with
+//                                         one child, compare its span start to the DotDot span to classify
+//                                         start-only vs end-only.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/...).
+//   `is`/`as` type tests; every other unlisted primary (this/base/default/...).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -519,10 +523,15 @@ class ParserExpressionNodeTable {
 // in the value span); otherwise the operand is a postfix expression. (Prefix `+` is invalid in N# and is
 // refused via the postfix/primary fall-through. Postfix ++/-- and `must` are deferred.)
 
+// ParseRangeExpression (Parser.cs:3934): a unary expression optionally followed by DotDot and an optional
+// end unary expression, or an open-start range beginning with DotDot. Range endpoints stop at expression
+// separators (`)`, `]`, `}`, `:`, `,`, `;`, EOF/newline) so `xs[..]`, `xs[5..]`, and ternaries inside
+// indexers retain their enclosing punctuation.
+
 // Precedence level (higher binds tighter) for a left-associative binary operator token, or 0 if the token
 // is not a binary operator. Precedence chain, low->high:
 // ?? (NullCoalesce) < || < && < | < ^ < & < ==,!= < <,<=,>,>= < <<,>> < +,- < *,/,%.
-// `is`/`as` (type tests), range `..`, and assignment are intentionally NOT binary operators here (deferred).
+// `is`/`as` (type tests), range `..`, and assignment are intentionally NOT binary operators here.
 
 // ParseBinaryExpression: precedence climbing over the binary chain. Parses a unary
 // operand, then while the next token is a binary operator whose precedence >= minPrec, consumes it and
@@ -4644,7 +4653,9 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         castType := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         isCast := false
         if castType >= 0 && st.Pos < count && tokens.Kinds[st.Pos] == 128 {
-            if st.Pos + 1 < count && IsExpressionStartKind(tokens.Kinds[st.Pos + 1]) {
+            // `(<identifier>)..end` is a parenthesized range start, not a cast whose operand
+            // begins with `..`. Open-start ranges are expression starts everywhere else.
+            if st.Pos + 1 < count && tokens.Kinds[st.Pos + 1] != 125 && IsExpressionStartKind(tokens.Kinds[st.Pos + 1]) {
                 isCast = true
             }
         }
@@ -5125,6 +5136,75 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
     return ParsePostfixExpressionNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
+func IsRangeExpressionEndKind(kind: int): bool {
+    return kind == 122 || kind == 128 || kind == 130 || kind == 132 || kind == 133 || kind == 134 || kind == 135 || kind == 136
+}
+
+func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st.Pos < count && tokens.Kinds[st.Pos] == 125 {
+        dotDotStart := tokens.Starts[st.Pos]
+        dotDotLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+
+        endNode := -1
+        rangeEnd := dotDotStart + dotDotLength
+        if st.Pos < count && !IsRangeExpressionEndKind(tokens.Kinds[st.Pos]) {
+            endNode = ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if endNode < 0 {
+                return -1
+            }
+            rangeEnd = nodes.SpanStarts[endNode] + nodes.SpanLengths[endNode]
+        }
+
+        childRun := st.ChildCursor
+        childCount := 0
+        if endNode >= 0 {
+            AppendExpressionChild(st, children, endNode)
+            childCount = 1
+        }
+
+        return EmitExpressionNode(st, nodes, 69, dotDotStart, dotDotLength, childRun, childCount, dotDotStart, rangeEnd - dotDotStart)
+    }
+
+    startNode := ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    if startNode < 0 {
+        return -1
+    }
+
+    if st.Pos < count && tokens.Kinds[st.Pos] == 125 {
+        dotDotStart := tokens.Starts[st.Pos]
+        dotDotLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+
+        endNode := -1
+        rangeEnd := dotDotStart + dotDotLength
+        if st.Pos < count && !IsRangeExpressionEndKind(tokens.Kinds[st.Pos]) {
+            endNode = ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if endNode < 0 {
+                return -1
+            }
+            rangeEnd = nodes.SpanStarts[endNode] + nodes.SpanLengths[endNode]
+        }
+
+        childRun := st.ChildCursor
+        AppendExpressionChild(st, children, startNode)
+        childCount := 1
+        if endNode >= 0 {
+            AppendExpressionChild(st, children, endNode)
+            childCount = 2
+        }
+
+        rangeStart := nodes.SpanStarts[startNode]
+        return EmitExpressionNode(st, nodes, 69, dotDotStart, dotDotLength, childRun, childCount, rangeStart, rangeEnd - rangeStart)
+    }
+
+    return startNode
+}
+
 func BinaryOpPrecedence(kind: int): int {
     if kind == 116 {
         return 1
@@ -5167,7 +5247,7 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
         return -1
     }
 
-    left := ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    left := ParseRangeExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     if left < 0 {
         return -1
     }
