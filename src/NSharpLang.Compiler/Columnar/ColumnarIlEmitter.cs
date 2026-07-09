@@ -261,6 +261,7 @@ internal sealed class ColumnarIlEmitter
 
     private const int NSharpModifierOverride = 65536;
     private const int NSharpModifierNativeImport = 131072;
+    private const int NSharpParameterModifierParams = 3;
     private const int NSharpParameterModifierThis = 4;
     private const int ColumnarNamedArgumentExpressionKind = 60;
     private const int ColumnarTargetTypedNewExpressionKind = 63;
@@ -2190,6 +2191,9 @@ internal sealed class ColumnarIlEmitter
     {
         type = null!;
         var argCount = _nodes.ChildCount(callIdx) - 1;
+        if (ShouldUseExpandedParamsArrayCall(callIdx, target.ParamTypes, target.ParamModifierKinds)
+            && TryEmitGenericSiblingExpandedParamsArrayCall(callIdx, target, binding, out type))
+            return true;
         if (argCount != target.ParamTypes.Length)
             return false;
         for (var a = 1; a <= argCount; a++)
@@ -2197,28 +2201,8 @@ internal sealed class ColumnarIlEmitter
             if (!EmitExpression(Child(callIdx, a), out var gArgType))
                 return false;
             var declared = target.ParamTypes[a - 1];
-            if (declared.IsGenericParameter)
-            {
-                if (!TryUnifyTypeParam(target.TypeParams, binding, declared, gArgType))
-                    return false;
-            }
-            else if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
-            {
-                if (!gArgType.IsSZArray || !TryUnifyTypeParam(target.TypeParams, binding, declared.GetElementType()!, gArgType.GetElementType()!))
-                    return false;
-            }
-            else if (declared.IsGenericType && !declared.IsGenericTypeDefinition)
-            {
-                // A generic-CONTAINER parameter (`items: List<T>`, `Dictionary<string, T>`,
-                // `HashSet<T>`, or a fully
-                // concrete List<Pt>): unify structurally — List<int> against List<T> binds T=int.
-                if (!TryUnifyGenericContainer(target.TypeParams, binding, declared, gArgType))
-                    return false;
-            }
-            else if (declared != gArgType)
-            {
+            if (!TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType))
                 return false;
-            }
         }
         var boundArgs = new Type[binding.Length];
         for (var b = 0; b < binding.Length; b++)
@@ -2229,6 +2213,86 @@ internal sealed class ColumnarIlEmitter
         }
         if (!TryValidateGenericSiblingConstraints(target, binding, boundArgs))
             return false;
+        var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
+        _il.Emit(OpCodes.Call, instantiated);
+        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+    }
+
+    private bool ShouldUseExpandedParamsArrayCall(int callIdx, Type[] paramTypes, int[] paramModifierKinds)
+    {
+        if (!HasTrailingParamsArray(paramTypes, paramModifierKinds))
+            return false;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        var fixedCount = paramTypes.Length - 1;
+        if (argCount < fixedCount)
+            return false;
+        if (argCount != paramTypes.Length)
+            return true;
+        return !TryGetPreflightExpressionType(Child(callIdx, argCount), out var lastArgType)
+               || !lastArgType.IsSZArray;
+    }
+
+    private static bool HasTrailingParamsArray(Type[] paramTypes, int[] paramModifierKinds)
+        => paramTypes.Length > 0
+           && paramModifierKinds.Length >= paramTypes.Length
+           && paramModifierKinds[paramTypes.Length - 1] == NSharpParameterModifierParams
+           && paramTypes[paramTypes.Length - 1].IsSZArray;
+
+    private bool TryEmitGenericSiblingExpandedParamsArrayCall(
+        int callIdx,
+        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        Type?[] binding,
+        out Type type)
+    {
+        type = null!;
+        if (!HasTrailingParamsArray(target.ParamTypes, target.ParamModifierKinds))
+            return false;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        var fixedCount = target.ParamTypes.Length - 1;
+        if (argCount < fixedCount)
+            return false;
+        var paramsElementDeclared = target.ParamTypes[^1].GetElementType()!;
+        for (var a = 1; a <= fixedCount; a++)
+        {
+            if (!TryGetPreflightExpressionType(Child(callIdx, a), out var argType)
+                || !TryUnifyGenericCallArgument(target.TypeParams, binding, target.ParamTypes[a - 1], argType))
+                return false;
+        }
+        for (var a = fixedCount + 1; a <= argCount; a++)
+        {
+            if (!TryGetPreflightExpressionType(Child(callIdx, a), out var argType)
+                || !TryUnifyGenericCallArgument(target.TypeParams, binding, paramsElementDeclared, argType))
+                return false;
+        }
+        var boundArgs = new Type[binding.Length];
+        for (var b = 0; b < binding.Length; b++)
+        {
+            if (binding[b] == null)
+                return false;
+            boundArgs[b] = binding[b]!;
+        }
+        if (!TryValidateGenericSiblingConstraints(target, binding, boundArgs))
+            return false;
+        for (var p = 0; p < fixedCount; p++)
+        {
+            if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, target.ParamTypes[p], out var fixedParamType)
+                || !EmitDeclaredCallArgument(Child(callIdx, p + 1), fixedParamType, allowLambdaLiteral: true))
+                return false;
+        }
+        if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, paramsElementDeclared, out var paramsElementType)
+            || !IsSupportedElementType(paramsElementType))
+            return false;
+        var expandedCount = argCount - fixedCount;
+        _il.Emit(OpCodes.Ldc_I4, expandedCount);
+        _il.Emit(OpCodes.Newarr, paramsElementType);
+        for (var i = 0; i < expandedCount; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldc_I4, i);
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out _)
+                || !EmitArrayElementStore(paramsElementType))
+                return false;
+        }
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
         return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
@@ -2358,6 +2422,20 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         return ReferenceEquals(binding[pos], actual) || binding[pos] == actual;
+    }
+
+    private static bool TryUnifyGenericCallArgument(Type[] typeParams, Type?[] binding, Type declared, Type actual)
+    {
+        if (declared.IsGenericParameter)
+            return TryUnifyTypeParam(typeParams, binding, declared, actual);
+        if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
+        {
+            return actual.IsSZArray
+                   && TryUnifyTypeParam(typeParams, binding, declared.GetElementType()!, actual.GetElementType()!);
+        }
+        if (declared.IsGenericType && !declared.IsGenericTypeDefinition)
+            return TryUnifyGenericContainer(typeParams, binding, declared, actual);
+        return TypesEquivalent(declared, actual);
     }
 
     // Structurally unify a declared generic-CONTAINER parameter (List<T>, Dictionary<string,T>, HashSet<T>, nested
@@ -9885,7 +9963,8 @@ internal sealed class ColumnarIlEmitter
                     if (_siblings.TryGetValue(name, out var target))
                     {
                         var argCount = _nodes.ChildCount(idx) - 1;
-                        if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
+                        if (argCount != target.ParamTypes.Length
+                            && !ShouldUseExpandedParamsArrayCall(idx, target.ParamTypes, target.ParamModifierKinds))
                             return false;
                         if (target.TypeParams.Length > 0)
                         {
