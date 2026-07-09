@@ -19681,7 +19681,11 @@ internal sealed class ColumnarIlEmitter
                 current = typeof(bool);
             }
         }
-        if ((!allowBuilderValue && ContainsBuilderBoundType(current) && !IsKnownEnumType(current)) || !IsSupportedType(current))
+        if ((!allowBuilderValue
+             && ContainsBuilderBoundType(current)
+             && !IsKnownEnumType(current)
+             && !current.IsGenericParameter)
+            || !IsSupportedType(current))
             return false;
         valueType = current;
         return true;
