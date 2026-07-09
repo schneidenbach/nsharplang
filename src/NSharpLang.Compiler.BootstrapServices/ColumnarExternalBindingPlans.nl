@@ -278,6 +278,13 @@ public class ColumnarExternalBindingPlans {
                 "System.Threading.Tasks.Task`1[System.String]")
         }
 
+        if receiver == "System.IO.TextWriter"
+            && memberName == "WriteLine"
+            && count == 1
+            && argumentTypeNames[0] == "System.String" {
+            return VirtualCall(receiver, memberName, One("System.String"), "System.Void")
+        }
+
         if receiver == "System.Random" && memberName == "Next" && count <= 2 {
             if count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Int32")
@@ -436,6 +443,15 @@ public class ColumnarExternalBindingPlans {
     static func ExactTypeIdentity(fullName: string): string {
         if fullName.StartsWith("YamlDotNet.", StringComparison.Ordinal) {
             return fullName + ", YamlDotNet"
+        }
+        if fullName == "System.Console" {
+            return fullName + ", System.Console"
+        }
+        if fullName.StartsWith("System.Text.Json.", StringComparison.Ordinal) {
+            return fullName + ", System.Text.Json"
+        }
+        if fullName.StartsWith("System.Diagnostics.Process", StringComparison.Ordinal) {
+            return fullName + ", System.Diagnostics.Process"
         }
 
         return fullName + ", System.Private.CoreLib"
