@@ -840,6 +840,55 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsTargetTypedListLiteral()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ListLiteralProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Collections.Generic
+
+func main() {
+    list1: List<int> = [1, 2, 3]
+    list2: List<int> = [4, 5]
+    lists := new List<List<int>>()
+    lists.Add(list1)
+    lists.Add(list2)
+
+    print list1.Count
+    print list2.Count
+    print lists.Count
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ListLiteralProject.dll");
+            var result = compiler.CompileToIlAssembly("ListLiteralProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("3\n2\n2", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsUserDefinedConversionOperators()
     {
         var tempDir = CreateTempDir();

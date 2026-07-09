@@ -6122,6 +6122,10 @@ internal sealed class ColumnarIlEmitter
                 {
                     // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
                 }
+                else if (TryEmitCollectionLiteralAsType(retNode, _returnType, out retType))
+                {
+                    // target-typed collection literal return.
+                }
                 else if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType))
                 {
                     // target-typed array literal return.
@@ -6262,6 +6266,10 @@ internal sealed class ColumnarIlEmitter
                 else if (TryEmitIntLiteralAsType(declaredInit, declaredType, out _))
                 {
                     // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
+                }
+                else if (TryEmitCollectionLiteralAsType(declaredInit, declaredType, out _))
+                {
+                    // `values: List<T> = [a, b]` — the target collection type owns the element type.
                 }
                 else if (TryEmitArrayLiteralAsType(declaredInit, declaredType, out _))
                 {
@@ -14770,11 +14778,9 @@ internal sealed class ColumnarIlEmitter
     private bool TryEmitArrayLiteralAsType(int node, Type target, out Type type)
     {
         type = null!;
-        if (_nodes.Kind(node) != 58 || !target.IsSZArray)
+        if (!CanUseArrayLiteralAsType(node, target))
             return false;
         var elementType = target.GetElementType()!;
-        if (!IsSupportedElementType(elementType))
-            return false;
         var elementCount = _nodes.ChildCount(node);
         _il.Emit(OpCodes.Ldc_I4, elementCount);
         _il.Emit(OpCodes.Newarr, elementType);
@@ -14789,6 +14795,112 @@ internal sealed class ColumnarIlEmitter
         }
         type = target;
         return true;
+    }
+
+    private bool CanUseArrayLiteralAsType(int node, Type target)
+    {
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) != 58 || !target.IsSZArray)
+            return false;
+        var elementType = target.GetElementType()!;
+        if (!IsSupportedElementType(elementType))
+            return false;
+        var elementCount = _nodes.ChildCount(node);
+        for (var i = 0; i < elementCount; i++)
+        {
+            if (!CanEmitAssignableValueAsType(Child(node, i), elementType))
+                return false;
+        }
+        return true;
+    }
+
+    private bool TryEmitCollectionLiteralAsType(int node, Type target, out Type type)
+    {
+        type = null!;
+        var literalNode = UnwrapParenthesizedNode(node);
+        if (!CanUseCollectionLiteralAsType(literalNode, target)
+            || !TryGetListLiteralTarget(target, out var elementType, out var ctor, out var addMethod))
+            return false;
+
+        _il.Emit(OpCodes.Newobj, ctor);
+        var elementCount = _nodes.ChildCount(literalNode);
+        for (var i = 0; i < elementCount; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            if (!TryEmitAssignableValue(Child(literalNode, i), elementType, out _))
+                return false;
+            _il.Emit(OpCodes.Callvirt, addMethod);
+        }
+        type = target;
+        return true;
+    }
+
+    private bool CanUseCollectionLiteralAsType(int node, Type target)
+    {
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) != 58
+            || !TryGetListLiteralTarget(target, out var elementType, out _, out _))
+            return false;
+        var elementCount = _nodes.ChildCount(node);
+        for (var i = 0; i < elementCount; i++)
+        {
+            if (!CanEmitAssignableValueAsType(Child(node, i), elementType))
+                return false;
+        }
+        return true;
+    }
+
+    private bool TryGetListLiteralTarget(Type target, out Type elementType, out ConstructorInfo ctor, out MethodInfo addMethod)
+    {
+        elementType = null!;
+        ctor = null!;
+        addMethod = null!;
+        if (!IsSupportedCollectionType(target)
+            || target.GetGenericTypeDefinition() != typeof(List<>))
+            return false;
+        elementType = target.GetGenericArguments()[0];
+        if (!IsSupportedElementType(elementType)
+            && !IsAdmissibleCollectionElement(elementType))
+            return false;
+        var openCtor = typeof(List<>).GetConstructor(Type.EmptyTypes);
+        var openAdd = typeof(List<>).GetMethod(nameof(List<int>.Add));
+        if (openCtor == null || openAdd == null)
+            return false;
+        ctor = ResolveClosedGenericCtor(target, openCtor);
+        addMethod = ResolveClosedGenericMethod(target, openAdd);
+        return true;
+    }
+
+    private bool CanEmitAssignableValueAsType(int valueNode, Type targetType)
+    {
+        valueNode = UnwrapParenthesizedNode(valueNode);
+        if (_nodes.Kind(valueNode) == 5)
+            return !targetType.IsValueType || IsSupportedNullable(targetType);
+        if (CanUseTargetTypedNewAsType(valueNode, targetType))
+            return true;
+        if (CanAdoptIntLiteralAsType(valueNode, targetType))
+            return true;
+        if (CanUseCollectionLiteralAsType(valueNode, targetType))
+            return true;
+        if (CanUseArrayLiteralAsType(valueNode, targetType))
+            return true;
+        if (!TryGetPreflightExpressionType(valueNode, out var valueType))
+            return false;
+        if (IsSupportedNullable(targetType))
+        {
+            var nullableElement = targetType.GetGenericArguments()[0];
+            return TypesEquivalent(valueType, targetType)
+                   || TypesEquivalent(valueType, nullableElement)
+                   || CanUseImplicitNumericWidening(valueType, nullableElement);
+        }
+        return TypesEquivalent(valueType, targetType)
+               || CanUseImplicitNumericWidening(valueType, targetType)
+               || CanUseInterfaceUpcast(valueType, targetType)
+               || CanUseExternalInterfaceUpcast(valueType, targetType)
+               || CanUseSpanConversion(valueType, targetType)
+               || TryEmitReferenceConversion(valueType, targetType)
+               || CanUseObjectConversion(valueType, targetType)
+               || CanUseAnonymousUnionConversion(valueType, targetType);
     }
 
     private bool TryInferArrayLiteralElementType(int node, out Type elementType)
@@ -15575,6 +15687,10 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (CanAdoptIntLiteralAsType(argNode, expectedType))
             return true;
+        if (CanUseCollectionLiteralAsType(argNode, expectedType))
+            return true;
+        if (CanUseArrayLiteralAsType(argNode, expectedType))
+            return true;
         return TryGetPreflightExpressionType(argNode, out var actualType)
                && (TypesEquivalent(actualType, expectedType)
                    || CanUseImplicitNumericWidening(actualType, expectedType)
@@ -15606,6 +15722,10 @@ internal sealed class ColumnarIlEmitter
 
     private bool EmitConstructorArgumentValueAs(int argNode, Type expected)
         => (TryEmitTargetTypedNewAsType(argNode, expected, out var argType)
+            || TryEmitCollectionLiteralAsType(argNode, expected, out argType)
+            || TryEmitArrayLiteralAsType(argNode, expected, out argType)
+            || TryEmitNullLiteralAsType(argNode, expected, out argType)
+            || TryEmitIntLiteralAsType(argNode, expected, out argType)
             || EmitExpression(argNode, out argType))
            && (TypesEquivalent(argType, expected)
                || TryEmitImplicitWidening(argType, expected)
@@ -18318,6 +18438,10 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (CanAdoptIntLiteralAsType(argNode, expectedParamType))
             return true;
+        if (CanUseCollectionLiteralAsType(argNode, expectedParamType))
+            return true;
+        if (CanUseArrayLiteralAsType(argNode, expectedParamType))
+            return true;
         if (!TryGetPreflightExpressionType(argNode, out var argType))
             return false;
         if (IsSupportedNullable(expectedParamType))
@@ -18343,6 +18467,10 @@ internal sealed class ColumnarIlEmitter
     // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private bool EmitArg(int callIdx, int argPosition, Type expected)
         => (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out var argType)
+            || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType)
+            || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType)
+            || TryEmitNullLiteralAsType(Child(callIdx, argPosition), expected, out argType)
+            || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType)
             || EmitExpression(Child(callIdx, argPosition), out argType))
            && (TypesEquivalent(argType, expected)
                || TryEmitSpanConversion(argType, expected)
@@ -18362,6 +18490,10 @@ internal sealed class ColumnarIlEmitter
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return TryEmitLambdaLiteral(argNode, expectedParamType);
         if (TryEmitTargetTypedNewAsType(argNode, expectedParamType, out _))
+            return true;
+        if (TryEmitCollectionLiteralAsType(argNode, expectedParamType, out _))
+            return true;
+        if (TryEmitArrayLiteralAsType(argNode, expectedParamType, out _))
             return true;
         if (TryEmitNullLiteralAsType(argNode, expectedParamType, out _))
             return true;
@@ -18672,6 +18804,10 @@ internal sealed class ColumnarIlEmitter
         else if (TryEmitIntLiteralAsType(valueNode, targetType, out valueType))
         {
             // constant conversion onto the storage type.
+        }
+        else if (TryEmitCollectionLiteralAsType(valueNode, targetType, out valueType))
+        {
+            // target-typed collection literal.
         }
         else if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType))
         {
