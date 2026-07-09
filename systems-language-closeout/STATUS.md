@@ -4,12 +4,12 @@
 `9538ab66` planning snapshot. This file is the resume point. Current code and git history outrank
 it; update it whenever they disagree.
 
-**Emitter handoff complete:** `399008ea9` finished the range/index value/read slice with persisted
-array/string execution, the existing Span-index regression, both range examples, and focused
-ILVerify evidence. This was the sunset exception to handwritten C# emitter growth. The ownership
-ratchet in `goal.md` now applies with no coverage exception; E owns `ColumnarIlEmitter.cs`
-exclusively. Array `Index`/`^` writes, compound/postfix mutation, and ref/out address lowering are
-known plan-first debt after E0, while range writes/ref and string writes remain intentional errors.
+**Emitter handoff debt:** `399008ea9` proved range/index value/read behavior but introduced C#
+emitter decisions and C# assertions that the no-new-C# closeout rule requires E0 to replace with
+N# lowering/plan ownership and gated `.tests.nl` successors before deleting those branches and
+assertions. No further C# growth is permitted. Array `Index`/`^` writes, compound/postfix mutation,
+and ref/out address lowering remain plan-first debt after that replacement, while range writes/ref
+and string writes remain intentional errors.
 
 Status meanings:
 
@@ -65,17 +65,18 @@ coverage work.
 Execute dependency-ready lanes in parallel only when their file domains do not contend. With one
 owner, finish one commit-sized stage before switching.
 
-1. **E0 — land the ownership ratchet foundation.** Create the N# code-plan model and the
-   mechanical C# plan replayer; port one reflection-free procedural/scalar lowering family end
-   to end; delete its C# decision branches; and prove plan-vs-old behavior by execution and IL
-   verification. Member/index/call families wait for the callability/binder probe because
-   persisted byref/member handles have already invalidated a broader claim. No force-old flag may
-   survive. Add the initial ownership-ratchet guard/allowlist in this stage so later C# growth is
-   reported. From this commit onward, all new accept-set work is plan-first in N#.
+1. **E0 — land the N#-only ownership ratchet foundation and discharge `399008ea9`.** Finish the
+   N# code-plan model, implement plan execution in N#, route production directly to it, and port
+   reflection-free scalar/procedural lowering end to end without a new C# replayer, seed,
+   whitelist, callback, or test. Replace the range/index C# assertions with gated `.tests.nl`
+   successors, move their lowering decisions into the N# owner, then delete the corresponding C#
+   branches and assertions. Member/index/call capability gaps are N# language/interop
+   prerequisites, not permission for a C# bridge. No force-old flag may survive. Add an N#-owned
+   ownership guard whose shell/build entrypoint is mechanical only.
 2. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
-   family, add direct C#-vs-N# ordered full-tuple parity tests over invalid, clean, and recovery
-   corpora. Resolve the current duplicate-lex/collector architecture against the single-parser
-   contract; do not grow two diagnostic parsers.
+   family, add native N# ordered full-tuple successor tests over invalid, clean, and recovery
+   corpora, then delete the superseded C# assertions. Resolve the current duplicate-lex/collector
+   architecture against the single-parser contract; do not grow two diagnostic parsers.
 3. **D1 — move the AST model to N#.** Revalidate live shapes, preserve names/defaults/mutable
    members, delete the C# AST records atomically, and run the IDE-required evidence because the
    shared analyzer/tooling path consumes those types. This unlocks typed linter and code-
@@ -134,7 +135,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet | ready and highest priority | — | Plan model, mechanical replayer, first reflection-free scalar/procedural C# family deletion, ownership-growth guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | pre-existing untracked `ColumnarCodePlan.nl` compiles via `./scripts/dev.sh --build-only` on 2026-07-09 | N# plan execution, production route, range/index and first scalar/procedural C# branch deletion, gated native successors, N#-owned cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
@@ -194,6 +195,10 @@ These are binding. Patch the relevant track file when launching the affected sta
     `LoadProjectReferences.cs` may keep MSBuild `ITaskItem` materialization, but output/default,
     dependency-classification, ordering, and projection policy must move to N# plan objects. The
     final audit covers `.cs`, `.targets`, `.props`, TypeScript, shell, and WASM glue—not only C#.
+13. **No new C# survives the amended closeout.** Every notebook direction requesting a new C#
+    test, differential harness, replayer, seed, whitelist, callback, adapter, or feature branch is
+    stale. Implement the prerequisite and successor in N#, run it through the product/native gate,
+    then delete or reduce the old C# owner. Existing C# boundary files may not grow.
 
 ## Contention ledger (live)
 

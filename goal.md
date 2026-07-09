@@ -54,6 +54,17 @@ Execution contract:
    Server, LSP handlers, extension, or IDE experience also requires the VS Code-enabled gate,
    extension reload, computer-use verification, and screenshots.
 
+No-new-C# constraint:
+- From `2e15fa506` forward, no new `.cs` file, C# product/test branch, assertion, helper,
+  adapter, bridge, seed, whitelist, replayer, or fallback may be added. Existing C# may only be
+  deleted or reduced while handing decisions to a directly invoked N# owner.
+- All new compiler, compiler-service, CLI, tooling, lowering, emission, schema, diagnostic, and
+  canonical test behavior is implemented in `.nl`/`.tests.nl` files. Missing N# language,
+  interop, native-test, or gate capability is itself an N# prerequisite; it is never bypassed by
+  temporary C#.
+- Pre-existing non-N# ecosystem boundaries survive only when they do not grow, contain no product
+  policy, and are explicitly classified in the final survivor inventory.
+
 Operating prohibitions:
 - Do not add or preserve legacy compiler/tooling logic, fallback implementations, comparison
   routes, parity-only owners, or permanent transition adapters.

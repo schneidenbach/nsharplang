@@ -1,9 +1,11 @@
 # Track E — N# lowering, binding, metadata policy, and mechanical emit host
 
-**Live status:** highest-priority ownership lane after the in-flight Track A range/index slice.
-At audited HEAD, `ColumnarIlEmitter.cs` is 21,497 lines (21,831 with that working-tree slice), up
-from 13,712 at the old snapshot. No `ColumnarCodePlan.nl` or plan replayer exists. The old plan's
-C# general-binder and temporary Reflection.Emit whitelist routes are forbidden.
+**Live status (amended 2026-07-09):** E0 is the highest-priority ownership lane. A pre-existing
+untracked `ColumnarCodePlan.nl` candidate compiles, but it is not production-routed or proved.
+`399008ea9` range/index C# decisions and assertions are migration debt to replace and delete in
+E0. No new or expanded C# is permitted: every older instruction below that names a C# replayer,
+test, seed, whitelist, callback, adapter, or differential harness is superseded by an N# owner and
+native `.tests.nl` evidence.
 
 ## Mission
 
@@ -15,13 +17,13 @@ Replace the handwritten C# emitter as a product-decision owner. N# must select:
 - declaration/type passes, registry lookups, metadata shape, attributes, and entry-point policy;
 - TypeRef contract owners and metadata patch operations.
 
-C# may retain only a mechanical host that:
+Only a pre-existing, non-growing C# host may survive when it:
 
 - stores external Reflection.Emit/PE handles N# cannot represent;
 - replays an already-decided plan and throws on unknown operations;
 - invokes already-selected reflection members/builders;
 - serializes/saves PE metadata and performs already-planned byte patches;
-- supplies data-only runtime type/assembly seeds.
+- passes data already available at an ecosystem boundary without selecting or classifying it.
 
 The host contains no name/type/kind/arity/overload/opcode/schema/tie-breaking decision. It is
 listed path-by-path in `memory/architecture.md#non-nsharp-survivors` at closeout.
@@ -70,10 +72,11 @@ listed path-by-path in `memory/architecture.md#non-nsharp-survivors` at closeout
   `EndException`) with a documented ILGenerator auto-leave contract;
 - one plan unit per emitted/synthesized method when closures/async/type passes require it.
 
-`ColumnarPlanReplayer.cs` predeclares locals/labels, maps opcode values, replays rows, and invokes
-selected handles. Its only branch is operation/operand decoding. Unknown ids throw. It never
-resolves a name, scores a member, inserts a conversion, chooses an opcode, or converts a fault to
-a decline.
+N# plan execution predeclares locals/labels, maps opcode values, replays rows, and invokes selected
+handles through the existing product interop path. Unknown ids throw. No
+`ColumnarPlanReplayer.cs`, equivalent C# bridge, feature seed, or whitelist may be created. If an
+external API shape is not callable from N#, extending N# interop/emission and pinning it with native
+N# tests is the prerequisite.
 
 ## Remaining waves
 
@@ -81,15 +84,18 @@ a decline.
 
 Start immediately after the recorded Track A handoff; do not wait for binder/registry work.
 
-1. Add the plan model and mechanical replayer with schema-integrity and invalid-row throw tests.
+1. Finish the N# plan model and N# executor with native schema-integrity and invalid-row throw
+   tests.
 2. Add N# fragment planning before the legacy dispatch.
 3. Port one complete reflection-free family (for example scalar literal/unary/binary fragments)
    whose C# decision branch can be deleted atomically. N# owns constants, promotions, opcodes,
    and result types.
-4. Prove plan-vs-old behavior, persisted execution, and IL verification; remove the force-old
-   test hook; delete the old branch.
-5. Add an initial ownership-ratchet script/allowlist that reports feature-specific C# emitter
-   growth and permits only the named mechanical replayer/seed/save surfaces.
+4. Prove behavior with native N# successor tests, persisted execution, and IL verification; delete
+   the old branch and its C# assertions. Do not add a force-old hook or C# differential harness.
+5. Replace the `399008ea9` range/index assertions and lowering decisions with gated native N#
+   tests and N# plan ownership, then delete the introduced C# branches and assertions.
+6. Add an N#-owned ownership-ratchet audit/allowlist covering all product-adjacent languages. A
+   shell/build entrypoint may invoke it mechanically but may not own classifications.
 
 Member, index, and call families do not belong in E0. Prior commits showed that a Span claim did
 not cover persisted ReadOnlySpan byref-return handles; run E1/E2 first.
@@ -103,7 +109,8 @@ returns, exception regions, and persisted save/reload.
 For each shape record one outcome:
 
 - directly callable/storable from N# with persisted proof; or
-- mechanical plan operation/data seed executed by C#.
+- directly executed by N# through an existing, non-growing mechanical boundary whose exact
+  survivor classification is recorded.
 
 There is no third route that adds a feature-specific C# whitelist. A claim covering a family has
 a test for every advertised receiver/handle shape.
@@ -203,7 +210,7 @@ and take a fresh product gate.
 
 ## Exit criteria
 
-- [ ] E0 ratchet guard is committed; all subsequent emitter C# growth is mechanical/allowlisted.
+- [ ] E0 N#-owned ratchet guard is committed; subsequent emitter C# growth is forbidden.
 - [ ] N# binder/type resolver/registry/type passes own all member/type/metadata decisions.
 - [ ] N# plans own every opcode/operand/local/label/exception/conversion/call/lowering decision;
       every ported C# branch is deleted.
