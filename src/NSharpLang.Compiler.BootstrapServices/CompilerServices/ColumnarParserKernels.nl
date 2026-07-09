@@ -5842,14 +5842,18 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
     }
 
-    // LOCAL FUNCTION declaration (kind 41): `func name(...) ... { body }` as a statement. Record the
-    // `func` keyword's byte span and SKIP the declaration: scan to the first depth-0 `{` (the signature
-    // contains no braces in modeled forms; a `{` inside a default value mis-anchors the skip and the
-    // resulting parse fails downstream — a safe refusal), then balanced to its close.
-    if kind == 7 {
-        localFuncSpanStart := tokens.Starts[start]
-        localFuncSpanLength := tokens.ValueLengths[start]
-        funcScan := start + 1
+    // LOCAL FUNCTION declaration (kind 41): `[static|async]* func name(...) ... { body }` as a statement.
+    // The VALUE span stays on the `func` keyword because DirectLocalFunctionTokenIndicesCore maps that start
+    // back to the real function token; the SOURCE span covers any modifier prefix.
+    if kind == 7 || ((kind == 63 || kind == 68) && start + 1 < count && tokens.Kinds[start + 1] == 7) {
+        localFuncSourceStart := tokens.Starts[start]
+        funcTokenIndex := start
+        if kind != 7 {
+            funcTokenIndex = start + 1
+        }
+        localFuncValueStart := tokens.Starts[funcTokenIndex]
+        localFuncValueLength := tokens.ValueLengths[funcTokenIndex]
+        funcScan := funcTokenIndex + 1
         while funcScan < count && tokens.Kinds[funcScan] != 129 {
             funcScan = funcScan + 1
         }
@@ -5871,7 +5875,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         }
         st.Pos = funcScan
         localFuncEnd := tokens.Starts[funcScan - 1] + tokens.ValueLengths[funcScan - 1]
-        return EmitExpressionNode(st, nodes, 41, localFuncSpanStart, localFuncSpanLength, -1, 0, localFuncSpanStart, localFuncEnd - localFuncSpanStart)
+        return EmitExpressionNode(st, nodes, 41, localFuncValueStart, localFuncValueLength, -1, 0, localFuncSourceStart, localFuncEnd - localFuncSourceStart)
     }
 
     // TYPED local declaration (kind 40): `let name: Type = init` (Let 19) or bare `name: Type = init`.

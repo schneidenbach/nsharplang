@@ -749,6 +749,59 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsLocalFunctionMethodGroupsInEnumerableCalls()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LocalFunctionEnumerableProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Linq
+
+func main() {
+    func IsValid(value: int): bool {
+        return value > 0 && value < 100
+    }
+
+    static func Transform(value: int): int {
+        return value * 2
+    }
+
+    numbers := [1, 5, 50, 150]
+    filtered := numbers.Where(IsValid).Select(Transform).ToArray()
+    for item in filtered {
+        print item
+    }
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "LocalFunctionEnumerableProject.dll");
+            var result = compiler.CompileToIlAssembly("LocalFunctionEnumerableProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("2\n10\n100", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
     {
         var tempDir = CreateTempDir();

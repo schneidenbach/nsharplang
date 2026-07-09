@@ -16892,6 +16892,21 @@ internal sealed class ColumnarIlEmitter
                && IsSupportedType(returnType);
     }
 
+    private bool TryInferSingleParameterContextualDelegateReturnType(int delegateNode, Type parameterType, out Type returnType)
+    {
+        returnType = null!;
+        if (TryInferSingleParameterLambdaReturnType(delegateNode, parameterType, out returnType))
+            return true;
+        if (!TryGetVisibleLocalFunctionMethodGroup(delegateNode, out var localTarget)
+            || localTarget.ParamTypes.Length != 1
+            || !TypesEquivalent(localTarget.ParamTypes[0], parameterType)
+            || localTarget.ReturnType == typeof(void)
+            || !IsSupportedType(localTarget.ReturnType))
+            return false;
+        returnType = localTarget.ReturnType;
+        return true;
+    }
+
     private bool TryInferZeroParameterLambdaReturnType(int lambdaNode, out Type returnType)
     {
         returnType = null!;
@@ -17084,7 +17099,7 @@ internal sealed class ColumnarIlEmitter
 
         if (member == "Select" && argCount == 1)
         {
-            if (!TryInferSingleParameterLambdaReturnType(Child(callIdx, 1), sourceType, out var resultType))
+            if (!TryInferSingleParameterContextualDelegateReturnType(Child(callIdx, 1), sourceType, out var resultType))
                 return false;
             var selectorType = typeof(Func<,>).MakeGenericType(sourceType, resultType);
             var select = FindEnumerableLambdaMethod(nameof(System.Linq.Enumerable.Select), 2, typeof(Func<,>));
@@ -18690,6 +18705,8 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return IsSupportedContextualDelegateType(expectedParamType);
+        if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType))
+            return true;
         if (_nodes.Kind(argNode) == 5)
             return !expectedParamType.IsValueType || IsSupportedNullable(expectedParamType);
         if (CanUseTargetTypedNewAsType(argNode, expectedParamType))
@@ -18747,6 +18764,8 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return TryEmitLambdaLiteral(argNode, expectedParamType);
+        if (allowLambdaLiteral && TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType))
+            return true;
         if (TryEmitTargetTypedNewAsType(argNode, expectedParamType, out _))
             return true;
         if (TryEmitCollectionLiteralAsType(argNode, expectedParamType, out _))
@@ -18769,6 +18788,51 @@ internal sealed class ColumnarIlEmitter
                    || TryEmitObjectConversion(argType, expectedParamType)
                    || TryEmitAnonymousUnionConversion(argType, expectedParamType)
                    || TryEmitUserDefinedConversion(argType, expectedParamType, allowExplicit: false));
+    }
+
+    private bool TryGetVisibleLocalFunctionMethodGroup(int argNode, out (MethodBuilder Method, Type[] ParamTypes, Type ReturnType) localTarget)
+    {
+        localTarget = default;
+        argNode = UnwrapParenthesizedNode(argNode);
+        if (_nodes.Kind(argNode) != 6 || _localFuncs == null)
+            return false;
+        var name = Text(argNode);
+        return _visibleLocalFuncs.Contains(name) && _localFuncs.TryGetValue(name, out localTarget);
+    }
+
+    private bool CanEmitLocalFunctionMethodGroupAsDelegate(int argNode, Type expectedDelegateType)
+    {
+        return TryGetVisibleLocalFunctionMethodGroup(argNode, out var localTarget)
+               && TryGetSupportedDelegateSignature(expectedDelegateType, allowBuilderBoundArguments: true, out var delegateReturnType, out var delegateParamTypes, out _)
+               && LocalFunctionSignatureMatchesDelegate(localTarget, delegateReturnType, delegateParamTypes);
+    }
+
+    private bool TryEmitLocalFunctionMethodGroupAsDelegate(int argNode, Type expectedDelegateType)
+    {
+        if (!TryGetVisibleLocalFunctionMethodGroup(argNode, out var localTarget)
+            || !TryGetSupportedDelegateSignature(expectedDelegateType, allowBuilderBoundArguments: true, out var delegateReturnType, out var delegateParamTypes, out var delegateCtor)
+            || !LocalFunctionSignatureMatchesDelegate(localTarget, delegateReturnType, delegateParamTypes))
+            return false;
+        _il.Emit(OpCodes.Ldnull);
+        _il.Emit(OpCodes.Ldftn, localTarget.Method);
+        _il.Emit(OpCodes.Newobj, delegateCtor);
+        return true;
+    }
+
+    private static bool LocalFunctionSignatureMatchesDelegate(
+        (MethodBuilder Method, Type[] ParamTypes, Type ReturnType) localTarget,
+        Type delegateReturnType,
+        Type[] delegateParamTypes)
+    {
+        if (!TypesEquivalent(localTarget.ReturnType, delegateReturnType)
+            || localTarget.ParamTypes.Length != delegateParamTypes.Length)
+            return false;
+        for (var p = 0; p < delegateParamTypes.Length; p++)
+        {
+            if (!TypesEquivalent(localTarget.ParamTypes[p], delegateParamTypes[p]))
+                return false;
+        }
+        return true;
     }
 
     private static bool CanUseSpanConversion(Type sourceType, Type targetType)
