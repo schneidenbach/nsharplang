@@ -2751,6 +2751,59 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_AllowsStructPrimaryConstructorParametersInMembers()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: StructPrimaryCtorMembers
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System
+
+struct Point(x: double, y: double) {
+    func Distance(): double {
+        return Math.Sqrt(x * x + y * y)
+    }
+
+    func Label(): string {
+        return $"Point({x}, {y})"
+    }
+}
+
+func main() {
+    point := new Point(3.0, 4.0)
+    print point.Distance()
+    print point.Label()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "StructPrimaryCtorMembers.dll");
+            var result = compiler.CompileToIlAssembly("StructPrimaryCtorMembers", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("5\nPoint(3, 4)", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_AllowsRecordPrimaryConstructorParametersInMembers()
     {
         var tempDir = CreateTempDir();

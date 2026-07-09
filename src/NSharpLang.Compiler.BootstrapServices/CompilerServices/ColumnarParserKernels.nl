@@ -8774,7 +8774,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         }
     }
 
-    if (tokens.Kinds[structIndex] == 8 || tokens.Kinds[structIndex] == 13) && primaryCtorParamCount > 0 {
+    if primaryCtorParamCount > 0 {
         paramIndex := 0
         while paramIndex < primaryCtorParamCount {
             if primaryAssignedFlags[paramIndex] == 0
@@ -11125,7 +11125,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         }
     }
 
-    if tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 13 {
+    if tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 9 || tokens.Kinds[ctorIndex] == 13 {
         p = 0
         while p < paramCount {
             if assignedFlags[p] == 0 {
