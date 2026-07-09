@@ -944,6 +944,83 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsConcreteTypeBindingPatterns()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ConcreteTypePatternProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func ClassifyString(value: string): string {
+    result := match value {
+        string s when s.Length == 0 => "empty",
+        string s when s.Length > 10 => "long",
+        string s => $"short:{s}"
+    }
+
+    return result
+}
+
+func ClassifyNumber(value: int): string {
+    result := match value {
+        int n when n < 0 => "negative",
+        int n when n == 0 => "zero",
+        int n => $"positive:{n}"
+    }
+
+    return result
+}
+
+func CheckValue(value: string): string {
+    result := match value {
+        "special" => "special",
+        string s when s.StartsWith("ERR") => "error",
+        string s => $"regular:{s}"
+    }
+
+    return result
+}
+
+func main() {
+    print ClassifyString("")
+    print ClassifyString("abc")
+    print ClassifyString("this is long")
+    print ClassifyNumber(-5)
+    print ClassifyNumber(0)
+    print ClassifyNumber(12)
+    print CheckValue("special")
+    print CheckValue("ERR42")
+    print CheckValue("ok")
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ConcreteTypePatternProject.dll");
+            var result = compiler.CompileToIlAssembly("ConcreteTypePatternProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("empty\nshort:abc\nlong\nnegative\nzero\npositive:12\nspecial\nerror\nregular:ok", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
     {
         var tempDir = CreateTempDir();

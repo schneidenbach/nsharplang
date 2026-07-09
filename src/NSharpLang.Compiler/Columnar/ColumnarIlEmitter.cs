@@ -12287,10 +12287,10 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         _il.MarkLabel(armBody);
                     }
-                    else if (_nodes.Kind(patternNode) == 61) // anonymous-union type binding `Type name`.
+                    else if (_nodes.Kind(patternNode) == 61) // type binding `Type name`.
                     {
                         var armBody = _il.DefineLabel();
-                        if (!EmitAnonymousUnionTypeBindingPattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
+                        if (!EmitTypeBindingPattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
                             return false;
                         _il.MarkLabel(armBody);
                     }
@@ -13167,6 +13167,42 @@ internal sealed class ColumnarIlEmitter
         return EmitNestedPattern(Child(propertyNode, 0), fieldType, fieldLocal, successLabel, failLabel);
     }
 
+    private bool EmitTypeBindingPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        if (IsSupportedAnonymousUnionType(matchValueType))
+            return EmitAnonymousUnionTypeBindingPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel);
+
+        if (!TryResolveTypeBindingPattern(patternNode, out var targetType, out var bindName))
+            return false;
+
+        if (TypesEquivalent(matchValueType, targetType))
+        {
+            if (!targetType.IsValueType)
+            {
+                _il.Emit(OpCodes.Ldloc, matchLocal);
+                _il.Emit(OpCodes.Brfalse, failLabel);
+            }
+            return EmitPatternBinding(bindName, targetType, matchLocal, successLabel);
+        }
+
+        if (!targetType.IsValueType && !matchValueType.IsValueType)
+        {
+            var typedLocal = _il.DeclareLocal(targetType);
+            var typeOk = _il.DefineLabel();
+            _il.Emit(OpCodes.Ldloc, matchLocal);
+            _il.Emit(OpCodes.Isinst, targetType);
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Brtrue, typeOk);
+            _il.Emit(OpCodes.Pop);
+            _il.Emit(OpCodes.Br, failLabel);
+            _il.MarkLabel(typeOk);
+            _il.Emit(OpCodes.Stloc, typedLocal);
+            return EmitPatternBinding(bindName, targetType, typedLocal, successLabel);
+        }
+
+        return false;
+    }
+
     private bool EmitAnonymousUnionTypeBindingPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         if (!TryResolveAnonymousUnionTypeBindingPattern(patternNode, matchValueType, out var armType, out var bindName)
@@ -13197,17 +13233,28 @@ internal sealed class ColumnarIlEmitter
     {
         armType = null!;
         bindName = string.Empty;
+        if (!IsSupportedAnonymousUnionType(matchValueType)
+            || !TryResolveTypeBindingPattern(patternNode, out armType, out bindName)
+            || !CanUseAnonymousUnionConversion(armType, matchValueType))
+            return false;
+
+        return true;
+    }
+
+    private bool TryResolveTypeBindingPattern(int patternNode, out Type targetType, out string bindName)
+    {
+        targetType = null!;
+        bindName = string.Empty;
         if (_nodes.Kind(patternNode) != 61
-            || _nodes.ChildCount(patternNode) != 2
-            || !IsSupportedAnonymousUnionType(matchValueType))
+            || _nodes.ChildCount(patternNode) != 2)
             return false;
 
         var typeNode = Child(patternNode, 0);
         var bindNode = Child(patternNode, 1);
         if (_nodes.Kind(bindNode) != 6
             || !TryBuildTypeNodeCanonical(typeNode, out var canonical)
-            || !TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out armType)
-            || !CanUseAnonymousUnionConversion(armType, matchValueType))
+            || !TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out targetType)
+            || !IsSupportedType(targetType))
             return false;
 
         bindName = Text(bindNode);
