@@ -408,6 +408,8 @@ class TypeReferenceTupleNameTable {
 //                                         the analyzer-validated identifier/member-access target subset.)
 //   TargetTypedNewExpression -> kind 63 (`new(args...)` with no explicit type; children [arg0, ...].
 //                                         Lowering only accepts contexts that provide an expected type.)
+//   SpreadArgumentExpression -> kind 64 (`...expr` (DotDotDot 126) inside a call argument list; keyword token
+//                                         in the value span, ONE child [expr].)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
@@ -594,8 +596,9 @@ class ParserExpressionNodeTable {
 //                                             Lowered per the legacy emitter: brtrue past a
 //                                             `throw new InvalidOperationException(<msg or "Assertion failed">)`. )
 //   AssertThrowsStatement        -> kind 62  ( assert throws <TypeName> { body }; the exception TYPE name
-//                                             token in the value span, ONE child [body block]. 63 is the
-//                                             next free kind. )
+//                                             token in the value span, ONE child [body block]. Kind 63 belongs
+//                                             to the expression kernel (TargetTypedNewExpression); kind 64 belongs
+//                                             to the expression kernel (SpreadArgumentExpression). )
 //   Systems policy wrappers (`allow(...) {}`, `alloc {}`, `unsafe {}`) parse as transparent kind-25 blocks;
 //                                             systems analysis owns policy semantics before emission.
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
@@ -4842,6 +4845,21 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 func ParseCallArgumentNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
+    }
+
+    if st.Pos < count && tokens.Kinds[st.Pos] == 126 {
+        spreadStart := tokens.Starts[st.Pos]
+        spreadLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+        value := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if value < 0 {
+            return -1
+        }
+
+        valueEnd := nodes.SpanStarts[value] + nodes.SpanLengths[value]
+        childRun := st.ChildCursor
+        AppendExpressionChild(st, children, value)
+        return EmitExpressionNode(st, nodes, 64, spreadStart, spreadLength, childRun, 1, spreadStart, valueEnd - spreadStart)
     }
 
     if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {

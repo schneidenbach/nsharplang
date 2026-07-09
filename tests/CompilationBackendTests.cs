@@ -853,6 +853,73 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsSpreadArgumentForParamsArrayCall()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SpreadParamsProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Sum(params values: int[]): int {
+    total := 0
+    for value in values {
+        total = total + value
+    }
+    return total
+}
+
+func Format(prefix: string, suffix: string, params values: int[]): string {
+    middle := ""
+    for i := 0; i < values.Length; i++ {
+        if i > 0 {
+            middle += ", "
+        }
+        middle += values[i].ToString()
+    }
+    return prefix + middle + suffix
+}
+
+func PrintAll<T>(prefix: string, params items: T[]) {
+    for item in items {
+        print $"{prefix}{item}"
+    }
+}
+
+func main() {
+    numbers: int[] = [1, 2, 3, 4, 5]
+    print Sum(...numbers)
+    print Format("[", "]", ...numbers)
+    PrintAll("v=", ...numbers)
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "SpreadParamsProject.dll");
+            var result = compiler.CompileToIlAssembly("SpreadParamsProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("15\n[1, 2, 3, 4, 5]\nv=1\nv=2\nv=3\nv=4\nv=5", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericExpandedParamsArrayCall()
     {
         var tempDir = CreateTempDir();

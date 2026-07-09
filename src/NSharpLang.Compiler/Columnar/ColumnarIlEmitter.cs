@@ -9731,6 +9731,11 @@ internal sealed class ColumnarIlEmitter
                 };
             }
 
+            case 64: // SpreadArgumentExpression [value] — `...expr` in a call argument list.
+            {
+                return _nodes.ChildCount(idx) == 1 && EmitExpression(Child(idx, 0), out type);
+            }
+
             case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {
                 if (Text(idx) == "-" && _nodes.ChildCount(idx) == 1 && _nodes.Kind(Child(idx, 0)) == 0)
@@ -16185,6 +16190,8 @@ internal sealed class ColumnarIlEmitter
             }
             case 57:
                 return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
+            case 64:
+                return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
             default:
                 return false;
         }
@@ -18703,6 +18710,9 @@ internal sealed class ColumnarIlEmitter
         }
         if (_nodes.Kind(argNode) == 54)
             return false;
+        if (_nodes.Kind(argNode) == 64)
+            return _nodes.ChildCount(argNode) == 1
+                   && CanDeclaredCallArgumentMatch(Child(argNode, 0), expectedParamType, allowLambdaLiteral);
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return IsSupportedContextualDelegateType(expectedParamType);
         if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType))
@@ -18762,6 +18772,9 @@ internal sealed class ColumnarIlEmitter
             return EmitByRefCallArgument(argNode, expectedParamType);
         if (_nodes.Kind(argNode) == 54)
             return false;
+        if (_nodes.Kind(argNode) == 64)
+            return _nodes.ChildCount(argNode) == 1
+                   && EmitDeclaredCallArgument(Child(argNode, 0), expectedParamType, allowLambdaLiteral);
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
             return TryEmitLambdaLiteral(argNode, expectedParamType);
         if (allowLambdaLiteral && TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType))
