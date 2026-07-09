@@ -2023,16 +2023,16 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61, 65-66) carry
+    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61, 65-68) carry
     // arm BINDINGS; object initializers (36) carry field NAMES. A capturing lambda containing any of them
     // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
     private bool ContainsCaptureOpaqueKind(int node)
     {
         var k = _nodes.Kind(node);
-        // 18/19 match arms, 32-37/61/65-66 patterns/object-init, 52 with-expressions: their kind-6 children
+        // 18/19 match arms, 32-37/61/65-68 patterns/object-init, 52 with-expressions: their kind-6 children
         // are FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
         // them as identifier uses.
-        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61 || k == 65 || k == 66)
+        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61 || (k >= 65 && k <= 68))
             return true;
         for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
@@ -12301,6 +12301,13 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         _il.MarkLabel(armBody);
                     }
+                    else if (_nodes.Kind(patternNode) == 67) // object/property pattern `{ Field, Field: pat }`.
+                    {
+                        var armBody = _il.DefineLabel();
+                        if (!EmitObjectPattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
+                            return false;
+                        _il.MarkLabel(armBody);
+                    }
                     else // literal / relational / and-or-not combinator -> recursive pattern test.
                     {
                         // On MATCH fall through to the guard/result (armBody); on NO-MATCH branch to nextCase. The
@@ -12436,6 +12443,172 @@ internal sealed class ColumnarIlEmitter
     // (33/34/35) over those. It does NOT model bindings: an identifier (kind 6) is only handled at the TOP LEVEL of
     // an arm, so an identifier inside a combinator declines (returns false) and required columnar emission rejects
     // the program. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
+    private bool EmitNestedPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        if (_nodes.Kind(patternNode) == 6)
+            return EmitPatternBinding(Text(patternNode), matchValueType, matchLocal, successLabel);
+        if (_nodes.Kind(patternNode) == 66)
+            return false;
+        if (_nodes.Kind(patternNode) == 37)
+            return EmitUnionCasePattern(patternNode, matchValueType, matchLocal, successLabel, failLabel);
+        if (_nodes.Kind(patternNode) == 65)
+            return EmitArrayListPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel);
+        if (_nodes.Kind(patternNode) == 67)
+            return EmitObjectPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel);
+        return EmitPatternMatch(patternNode, matchValueType, matchLocal, successLabel, failLabel);
+    }
+
+    private bool EmitPatternBinding(string name, Type valueType, LocalBuilder valueLocal, Label successLabel)
+    {
+        if (name != "_")
+        {
+            if (IsVisibleBindingName(name))
+                return false;
+            var bindLocal = _il.DeclareLocal(valueType);
+            _il.Emit(OpCodes.Ldloc, valueLocal);
+            _il.Emit(OpCodes.Stloc, bindLocal);
+            _locals[name] = bindLocal;
+        }
+        _il.Emit(OpCodes.Br, successLabel);
+        return true;
+    }
+
+    private bool EmitObjectPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        if (_nodes.Kind(patternNode) != 67 || !IsSupportedType(matchValueType))
+            return false;
+
+        if (!matchValueType.IsValueType)
+        {
+            _il.Emit(OpCodes.Ldloc, matchLocal);
+            _il.Emit(OpCodes.Brfalse, failLabel);
+        }
+
+        for (var p = 0; p < _nodes.ChildCount(patternNode); p++)
+        {
+            var nextProperty = _il.DefineLabel();
+            if (!EmitPropertyPattern(Child(patternNode, p), matchValueType, matchLocal, nextProperty, failLabel))
+                return false;
+            _il.MarkLabel(nextProperty);
+        }
+
+        _il.Emit(OpCodes.Br, successLabel);
+        return true;
+    }
+
+    private bool EmitPropertyPattern(int propertyNode, Type ownerType, LocalBuilder ownerLocal, Label successLabel, Label failLabel)
+    {
+        if (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1)
+            return false;
+
+        var propertyName = Text(propertyNode);
+        if (!TryEmitReadablePatternMember(ownerType, ownerLocal, propertyName, out var propertyType, out var propertyLocal))
+            return false;
+
+        if (_nodes.ChildCount(propertyNode) == 0)
+            return EmitPatternBinding(propertyName, propertyType, propertyLocal, successLabel);
+
+        return EmitNestedPattern(Child(propertyNode, 0), propertyType, propertyLocal, successLabel, failLabel);
+    }
+
+    private bool TryEmitReadablePatternMember(Type ownerType, LocalBuilder ownerLocal, string member, out Type memberType, out LocalBuilder memberLocal)
+    {
+        memberType = null!;
+        memberLocal = null!;
+
+        if (ownerType is TypeBuilder ownerBuilder && FindDefByBuilder(ownerBuilder) is { } ownerDef)
+        {
+            if (TryFindFieldOnChain(ownerDef, member, out var field))
+            {
+                EmitLoadUserPatternReceiver(ownerLocal, ownerDef.IsReference);
+                _il.Emit(OpCodes.Ldfld, field);
+                memberType = field.FieldType;
+                return StoreReadablePatternMember(memberType, out memberLocal);
+            }
+            if (TryFindPropertyOnChain(ownerDef, member, out var property))
+            {
+                EmitLoadUserPatternReceiver(ownerLocal, ownerDef.IsReference);
+                _il.Emit(ownerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, property.Getter);
+                memberType = property.PropertyType;
+                return StoreReadablePatternMember(memberType, out memberLocal);
+            }
+            return false;
+        }
+
+        if (TryGetClosedReceiverDef(ownerType, out var closedDef, out var closedArgs))
+        {
+            if (closedDef.Fields.TryGetValue(member, out var openField))
+            {
+                EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference);
+                _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(ownerType, openField));
+                memberType = SubstituteClosedTypeArguments(openField.FieldType, closedArgs);
+                return StoreReadablePatternMember(memberType, out memberLocal);
+            }
+            if (closedDef.Properties.TryGetValue(member, out var openProperty))
+            {
+                EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference);
+                var closedGetter = TypeBuilder.GetMethod(ownerType, openProperty.Getter);
+                _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, closedGetter);
+                memberType = SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs);
+                return StoreReadablePatternMember(memberType, out memberLocal);
+            }
+            return false;
+        }
+
+        if (ownerType.IsSZArray && member == "Length")
+        {
+            _il.Emit(OpCodes.Ldloc, ownerLocal);
+            _il.Emit(OpCodes.Ldlen);
+            _il.Emit(OpCodes.Conv_I4);
+            memberType = typeof(int);
+            return StoreReadablePatternMember(memberType, out memberLocal);
+        }
+
+        if (ownerType == typeof(string) && member == nameof(string.Length))
+        {
+            _il.Emit(OpCodes.Ldloc, ownerLocal);
+            _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
+            memberType = typeof(int);
+            return StoreReadablePatternMember(memberType, out memberLocal);
+        }
+
+        if (member == "Count" && TryResolveCollectionCountGetter(ownerType, out var countGetter))
+        {
+            _il.Emit(OpCodes.Ldloc, ownerLocal);
+            _il.Emit(OpCodes.Callvirt, countGetter);
+            memberType = typeof(int);
+            return StoreReadablePatternMember(memberType, out memberLocal);
+        }
+
+        if (TryGetSupportedBclReadableProperty(ownerType, member, out var bclProperty))
+        {
+            _il.Emit(OpCodes.Ldloc, ownerLocal);
+            _il.Emit(bclProperty.GetMethod!.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, bclProperty.GetMethod);
+            memberType = bclProperty.PropertyType;
+            return StoreReadablePatternMember(memberType, out memberLocal);
+        }
+
+        return false;
+    }
+
+    private void EmitLoadUserPatternReceiver(LocalBuilder ownerLocal, bool isReference)
+    {
+        if (isReference)
+            _il.Emit(OpCodes.Ldloc, ownerLocal);
+        else
+            _il.Emit(OpCodes.Ldloca, ownerLocal);
+    }
+
+    private bool StoreReadablePatternMember(Type memberType, out LocalBuilder memberLocal)
+    {
+        memberLocal = null!;
+        if (!IsSupportedType(memberType))
+            return false;
+        memberLocal = _il.DeclareLocal(memberType);
+        _il.Emit(OpCodes.Stloc, memberLocal);
+        return true;
+    }
+
     private bool EmitArrayListPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         if (_nodes.Kind(patternNode) != 65 || !matchValueType.IsSZArray)
@@ -12525,24 +12698,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool EmitListElementPattern(int patternNode, Type elementType, LocalBuilder elementLocal, Label successLabel, Label failLabel)
     {
-        if (_nodes.Kind(patternNode) == 6)
-        {
-            var name = Text(patternNode);
-            if (name != "_")
-            {
-                if (IsVisibleBindingName(name))
-                    return false;
-                var bindLocal = _il.DeclareLocal(elementType);
-                _il.Emit(OpCodes.Ldloc, elementLocal);
-                _il.Emit(OpCodes.Stloc, bindLocal);
-                _locals[name] = bindLocal;
-            }
-            _il.Emit(OpCodes.Br, successLabel);
-            return true;
-        }
-        if (_nodes.Kind(patternNode) == 66)
-            return false;
-        return EmitPatternMatch(patternNode, elementType, elementLocal, successLabel, failLabel);
+        return EmitNestedPattern(patternNode, elementType, elementLocal, successLabel, failLabel);
     }
 
     private bool EmitArrayListSliceBinding(
@@ -12963,36 +13119,52 @@ internal sealed class ColumnarIlEmitter
         _il.MarkLabel(caseOk);
         _il.Emit(OpCodes.Stloc, caseLocal);
 
-        // Bind each listed field to a local of the field's type (`ldloc caseLocal; ldfld f; stloc bind`). A `_`
-        // binding is a discard (skip). A binding must name a case field and must not shadow a local/param.
-        // On a CLOSED case the field handle is REBOUND via TypeBuilder.GetField and the binding's local type
-        // substitutes the scrutinee's arguments positionally (`value: T` on Opt<int> binds an int local).
+        // Test or bind each listed field. A bare property entry binds the field to a same-named local;
+        // `field: pattern` loads the field into a temp and recursively tests that nested pattern. On a CLOSED
+        // case the field handle is REBOUND via TypeBuilder.GetField and the local type substitutes the
+        // scrutinee's arguments positionally (`value: T` on Opt<int> binds/tests an int local).
         var bindCount = _nodes.ChildCount(patternNode) - 1;
         for (var b = 0; b < bindCount; b++)
         {
-            var bindNode = Child(patternNode, 1 + b);
-            if (_nodes.Kind(bindNode) != 6)
+            var nextProperty = _il.DefineLabel();
+            if (!EmitUnionCasePropertyPattern(Child(patternNode, 1 + b), caseDef, caseArgs, caseTestType, caseLocal, nextProperty, failLabel))
                 return false;
-            var bindName = Text(bindNode);
-            if (bindName == "_")
-                continue;
-            if (!caseDef.Fields.TryGetValue(bindName, out var bindField))
-                return false; // the binding must name a field of the case (slice scope: bare field bindings).
-            if (_locals.ContainsKey(bindName) || _paramOrdinals.ContainsKey(bindName)
-                || _liftedLocals.ContainsKey(bindName)
-                || (_boxedCaptures != null && _boxedCaptures.ContainsKey(bindName)))
-                return false; // a binding that shadows a local/param is not modelled.
-            var bindFieldType = caseArgs.Length == 0 ? bindField.FieldType : SubstituteClosedTypeArguments(bindField.FieldType, caseArgs);
-            if (!IsSupportedType(bindFieldType))
-                return false; // a substituted binding type outside the modelled set declines.
-            var bindLocal = _il.DeclareLocal(bindFieldType);
-            _il.Emit(OpCodes.Ldloc, caseLocal);
-            _il.Emit(OpCodes.Ldfld, caseArgs.Length == 0 ? bindField : TypeBuilder.GetField(caseTestType, bindField));
-            _il.Emit(OpCodes.Stloc, bindLocal);
-            _locals[bindName] = bindLocal;
+            _il.MarkLabel(nextProperty);
         }
         _il.Emit(OpCodes.Br, successLabel);
         return true;
+    }
+
+    private bool EmitUnionCasePropertyPattern(
+        int propertyNode,
+        ColumnarUnionCaseDef caseDef,
+        Type[] caseArgs,
+        Type caseTestType,
+        LocalBuilder caseLocal,
+        Label successLabel,
+        Label failLabel)
+    {
+        var legacyBareBinding = _nodes.Kind(propertyNode) == 6;
+        if (!legacyBareBinding && (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1))
+            return false;
+
+        var propertyName = Text(propertyNode);
+        if (!caseDef.Fields.TryGetValue(propertyName, out var field))
+            return false;
+
+        var fieldType = caseArgs.Length == 0 ? field.FieldType : SubstituteClosedTypeArguments(field.FieldType, caseArgs);
+        if (!IsSupportedType(fieldType))
+            return false;
+
+        var fieldLocal = _il.DeclareLocal(fieldType);
+        _il.Emit(OpCodes.Ldloc, caseLocal);
+        _il.Emit(OpCodes.Ldfld, caseArgs.Length == 0 ? field : TypeBuilder.GetField(caseTestType, field));
+        _il.Emit(OpCodes.Stloc, fieldLocal);
+
+        if (legacyBareBinding || _nodes.ChildCount(propertyNode) == 0)
+            return EmitPatternBinding(propertyName, fieldType, fieldLocal, successLabel);
+
+        return EmitNestedPattern(Child(propertyNode, 0), fieldType, fieldLocal, successLabel, failLabel);
     }
 
     private bool EmitAnonymousUnionTypeBindingPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
@@ -13051,6 +13223,8 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsEnumType(t)
+        || t is TypeBuilder
+        || IsClosedUserGenericInstantiation(t)
         || IsSupportedAnonymousUnionType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);
 

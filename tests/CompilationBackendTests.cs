@@ -858,6 +858,92 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsNestedPropertyPatterns()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: NestedPropertyPatternProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Address {
+    City: string
+    State: string
+}
+
+class Person {
+    Name: string
+    Age: int
+    Address: Address
+}
+
+union Option {
+    Some { value: int }
+    None
+}
+
+union Response {
+    Ok { data: Option }
+    Error { message: string }
+}
+
+func Classify(person: Person): string {
+    return match person {
+        { Address: { City: "New York", State: "NY" } } => "ny",
+        { Address: { City: city, State: "CA" } } => $"ca:{city}",
+        { Age: age, Address: { State: "TX" } } => $"tx:{age}",
+        _ => "other"
+    }
+}
+
+func Extract(response: Response): int {
+    return match response {
+        Response.Ok { data: Option.Some { value } } => value,
+        Response.Ok { data: Option.None } => 0,
+        Response.Error { message } => -1
+    }
+}
+
+func main() {
+    ny := new Address { City: "New York", State: "NY" }
+    ca := new Address { City: "San Francisco", State: "CA" }
+    tx := new Address { City: "Austin", State: "TX" }
+
+    print Classify(new Person { Name: "Ada", Age: 37, Address: ny })
+    print Classify(new Person { Name: "Grace", Age: 41, Address: ca })
+    print Classify(new Person { Name: "Lin", Age: 12, Address: tx })
+    print Extract(new Response.Ok(new Option.Some(7)))
+    print Extract(new Response.Ok(new Option.None()))
+    print Extract(new Response.Error("bad"))
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "NestedPropertyPatternProject.dll");
+            var result = compiler.CompileToIlAssembly("NestedPropertyPatternProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("ny\nca:San Francisco\ntx:12\n7\n0\n-1", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
     {
         var tempDir = CreateTempDir();

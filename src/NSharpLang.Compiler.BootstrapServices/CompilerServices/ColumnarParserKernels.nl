@@ -414,6 +414,10 @@ class TypeReferenceTupleNameTable {
 //                                         patterns and at most one kind-66 slice pattern.)
 //   SlicePattern            -> kind 66  (`..` / `.. name` inside a ListPattern; optional binding name in the
 //                                         value span, no children.)
+//   ObjectPattern           -> kind 67  (`{ Prop, Prop: pat }` inside a match arm; children are kind-68
+//                                         property pattern entries.)
+//   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
+//                                         property name in the value span, optional ONE child [pat].)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
@@ -3837,6 +3841,10 @@ func ParseNotPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
 }
 
 func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+        return ParseObjectPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    }
+
     if st.Pos < count && tokens.Kinds[st.Pos] == 131 {
         return ParseListPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
     }
@@ -3866,27 +3874,21 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
         return -1
     }
 
-    // Union-case PROPERTY pattern: `<Union.Case> { bind0, bind1, ... }` -> UnionCasePattern (kind 37), children
-    // [memberAccessNode, bind0 (Identifier kind 6), bind1, ...]. Fires only when the leaf is a qualified member
-    // access (kind 8, e.g. `Result.Success`) immediately followed by `{` (129). Each binding is a BARE identifier
-    // naming a case field; `,` (134) separates and `}` (130) closes. A renamed/nested/positional sub-pattern
-    // (`{ field: <pat> }`) declines here (the `:` after a binding is neither `,` nor `}` -> -1), so required
-    // columnar emission rejects the program until that source shape is modeled. The emitter (case 37) resolves the
-    // case, `isinst`-tests it, and binds each named field to a local.
+    // Union-case PROPERTY pattern: `<Union.Case> { field, field: pat, ... }` -> UnionCasePattern (kind 37),
+    // children [memberAccessNode, propertyPattern0, ...]. Fires only when the leaf is a qualified member access
+    // (kind 8, e.g. `Result.Success`) immediately followed by `{` (129). Each property entry is kind 68 and may
+    // carry a nested pattern; a bare property entry binds the field to a same-named local.
     if nodes.Kinds[leaf] == 8 && st.Pos < count && tokens.Kinds[st.Pos] == 129 {
         st.Pos = st.Pos + 1
         caseArgBase := st.ArgStackTop
         argStack.Values[st.ArgStackTop] = leaf
         st.ArgStackTop = st.ArgStackTop + 1
         while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
-            if tokens.Kinds[st.Pos] != 0 {
+            bindNode := ParsePropertyPatternEntryNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if bindNode < 0 {
                 st.ArgStackTop = caseArgBase
                 return -1
             }
-            bindStart := tokens.Starts[st.Pos]
-            bindLen := tokens.ValueLengths[st.Pos]
-            st.Pos = st.Pos + 1
-            bindNode := EmitExpressionNode(st, nodes, 6, bindStart, bindLen, -1, 0, bindStart, bindLen)
             argStack.Values[st.ArgStackTop] = bindNode
             st.ArgStackTop = st.ArgStackTop + 1
             if st.Pos < count && tokens.Kinds[st.Pos] != 130 {
@@ -3936,6 +3938,86 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
     }
 
     return leaf
+}
+
+func ParseObjectPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
+        return -1
+    }
+
+    objectStart := tokens.Starts[st.Pos]
+    st.Pos = st.Pos + 1
+    objectArgBase := st.ArgStackTop
+
+    while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+        entry := ParsePropertyPatternEntryNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if entry < 0 {
+            st.ArgStackTop = objectArgBase
+            return -1
+        }
+        argStack.Values[st.ArgStackTop] = entry
+        st.ArgStackTop = st.ArgStackTop + 1
+
+        if st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+            if tokens.Kinds[st.Pos] != 134 {
+                st.ArgStackTop = objectArgBase
+                return -1
+            }
+            st.Pos = st.Pos + 1
+        }
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
+        st.ArgStackTop = objectArgBase
+        return -1
+    }
+
+    objectEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+    st.Pos = st.Pos + 1
+    childCount := st.ArgStackTop - objectArgBase
+    childRun := st.ChildCursor
+    a := objectArgBase
+    while a < st.ArgStackTop {
+        AppendExpressionChild(st, children, argStack.Values[a])
+        a = a + 1
+    }
+    st.ArgStackTop = objectArgBase
+    return EmitExpressionNode(st, nodes, 67, -1, 0, childRun, childCount, objectStart, objectEnd - objectStart)
+}
+
+func ParsePropertyPatternEntryNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
+        return -1
+    }
+
+    propStart := tokens.Starts[st.Pos]
+    propLength := tokens.ValueLengths[st.Pos]
+    propEnd := propStart + propLength
+    st.Pos = st.Pos + 1
+    childRun := -1
+    childCount := 0
+
+    if st.Pos < count && tokens.Kinds[st.Pos] == 122 {
+        st.Pos = st.Pos + 1
+        pattern := ParseMatchPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if pattern < 0 {
+            return -1
+        }
+        childRun = st.ChildCursor
+        AppendExpressionChild(st, children, pattern)
+        childCount = 1
+        propEnd = nodes.SpanStarts[pattern] + nodes.SpanLengths[pattern]
+    }
+
+    return EmitExpressionNode(st, nodes, 68, propStart, propLength, childRun, childCount, propStart, propEnd - propStart)
 }
 
 func ParseListPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
