@@ -20262,6 +20262,9 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
+        if (TryResolveInterpolationBaseCallPlan(text, format, out plan))
+            return true;
+
         if (TryParseInterpolationExpressionHole(text, out var expressionNodes, out var expressionRoot)
             && TryGetParsedInterpolationExpressionType(expressionNodes, text, expressionRoot, out var expressionType))
         {
@@ -20325,6 +20328,39 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool TryResolveInterpolationBaseCallPlan(string text, string? format, out ColumnarInterpolationHolePlan plan)
+    {
+        plan = null!;
+        const string prefix = "base.";
+        if (!text.StartsWith(prefix, StringComparison.Ordinal)
+            || !text.EndsWith("()", StringComparison.Ordinal)
+            || _currentStruct?.BaseDef == null)
+            return false;
+
+        var methodName = text.Substring(prefix.Length, text.Length - prefix.Length - 2).Trim();
+        if (methodName.Length == 0
+            || methodName.IndexOf('.') >= 0
+            || methodName.IndexOf('(') >= 0
+            || methodName.IndexOf(')') >= 0)
+            return false;
+
+        if (!TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out var method)
+            || method.ReturnType == typeof(void)
+            || ((!IsKnownEnumType(method.ReturnType)
+                 && !method.ReturnType.IsGenericParameter
+                 && ContainsBuilderBoundType(method.ReturnType))
+                || !IsSupportedType(method.ReturnType)))
+            return false;
+
+        plan = new ColumnarInterpolationHolePlan
+        {
+            BaseCallBuilder = method.Builder,
+            ValueType = method.ReturnType,
+            Format = format,
+        };
+        return true;
+    }
+
     private bool EmitInterpolationHoleValue(ColumnarInterpolationHolePlan plan)
     {
         if (plan.BinaryOperator != null)
@@ -20365,6 +20401,13 @@ internal sealed class ColumnarIlEmitter
         if (plan.ConstantInt is { } constantInt)
         {
             _il.Emit(OpCodes.Ldc_I4, constantInt);
+            return true;
+        }
+
+        if (plan.BaseCallBuilder != null)
+        {
+            _il.Emit(OpCodes.Ldarg_0);
+            _il.Emit(OpCodes.Call, plan.BaseCallBuilder);
             return true;
         }
 

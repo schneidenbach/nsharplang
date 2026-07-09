@@ -17,6 +17,7 @@ public class ColumnarInterpolationHolePlan {
     public RootIndexElementType: Type?
     public Hops: List<ColumnarInterpolationMemberPlan>
     public CallBuilder: MethodBuilder?
+    public BaseCallBuilder: MethodBuilder?
     public CallArgLocal: LocalBuilder?
     public CallArgOrdinal: int
     public CallArgType: Type?

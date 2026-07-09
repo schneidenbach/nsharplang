@@ -688,6 +688,70 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsBaseMethodCallsInInterpolatedStrings()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: BaseInterpolationProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Person {
+    readonly Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+
+    func Info(): string {
+        return $"person:{Name}"
+    }
+}
+
+class Employee: Person {
+    readonly Id: string
+
+    constructor(name: string, id: string): base(name) {
+        Id = id
+    }
+
+    func Label(): string {
+        return $"{base.Info()}:{Id}"
+    }
+}
+
+func main() {
+    employee := new Employee("Ada", "E-1")
+    print employee.Label()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "BaseInterpolationProject.dll");
+            var result = compiler.CompileToIlAssembly("BaseInterpolationProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("person:Ada:E-1", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericBodyCollectionConstruction()
     {
         var tempDir = CreateTempDir();
