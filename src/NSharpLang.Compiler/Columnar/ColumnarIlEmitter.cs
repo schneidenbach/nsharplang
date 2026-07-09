@@ -549,15 +549,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(Type)
         || t == typeof(Version)
         || t == typeof(Assembly)
-        || t == typeof(PropertyInfo)
-        || t == typeof(FieldInfo)
-        || t == typeof(LocalBuilder)
-        || t == typeof(FieldBuilder)
-        || t == typeof(TypeBuilder)
-        || t == typeof(MethodBuilder)
-        || t == typeof(MethodInfo)
-        || t == typeof(ConstructorBuilder)
-        || t == typeof(ILGenerator)
+        || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
         || IsSupportedJsonType(t)
         || IsSupportedExternalType(t)
         || IsSupportedReadOnlySpanType(t)
@@ -3022,15 +3014,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(Type)
         || t == typeof(Version)
         || t == typeof(Assembly)
-        || t == typeof(PropertyInfo)
-        || t == typeof(FieldInfo)
-        || t == typeof(LocalBuilder)
-        || t == typeof(FieldBuilder)
-        || t == typeof(TypeBuilder)
-        || t == typeof(MethodBuilder)
-        || t == typeof(MethodInfo)
-        || t == typeof(ConstructorBuilder)
-        || t == typeof(ILGenerator)
+        || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
         || IsSupportedNullable(t)
         || t.IsGenericParameter
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
@@ -3296,6 +3280,12 @@ internal sealed class ColumnarIlEmitter
                 return definition.MakeGenericType(substituted);
         }
         return signatureType;
+    }
+
+    private static bool TryResolveExactRuntimeType(string fullName, out Type type)
+    {
+        type = Type.GetType(fullName, throwOnError: false)!;
+        return type != null;
     }
 
     private static bool TryResolveKnownExternalType(string canonical, out Type type)
@@ -3582,51 +3572,9 @@ internal sealed class ColumnarIlEmitter
             type = typeof(Assembly);
             return true;
         }
-        if (canonical == "PropertyInfo")
-        {
-            type = typeof(PropertyInfo);
+        if (ColumnarExternalBindingPlans.TryGetRuntimeTypeName(canonical, out var runtimeTypeName)
+            && TryResolveExactRuntimeType(runtimeTypeName, out type))
             return true;
-        }
-        if (canonical == "FieldInfo")
-        {
-            type = typeof(FieldInfo);
-            return true;
-        }
-        if (canonical == "LocalBuilder")
-        {
-            type = typeof(LocalBuilder);
-            return true;
-        }
-        if (canonical == "FieldBuilder")
-        {
-            type = typeof(FieldBuilder);
-            return true;
-        }
-        if (canonical == "TypeBuilder")
-        {
-            type = typeof(TypeBuilder);
-            return true;
-        }
-        if (canonical == "MethodBuilder")
-        {
-            type = typeof(MethodBuilder);
-            return true;
-        }
-        if (canonical == "MethodInfo")
-        {
-            type = typeof(MethodInfo);
-            return true;
-        }
-        if (canonical == "ConstructorBuilder")
-        {
-            type = typeof(ConstructorBuilder);
-            return true;
-        }
-        if (canonical == "ILGenerator")
-        {
-            type = typeof(ILGenerator);
-            return true;
-        }
         if (TryResolveKnownExternalType(canonical, out type))
             return true;
         if (TryResolveBclExceptionType(canonical, out type))
@@ -9768,6 +9716,44 @@ internal sealed class ColumnarIlEmitter
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
+    private bool TryUsePlannedExternalStaticMember(
+        string typeName,
+        string memberName,
+        bool emit,
+        out Type type)
+    {
+        type = null!;
+        var plan = ColumnarExternalBindingPlans.GetStaticMemberPlan(typeName, memberName);
+        if (!plan.IsSupported
+            || !TryResolveExactRuntimeType(plan.DeclaringTypeName, out var declaringType)
+            || !TryResolveExactRuntimeType(plan.ValueTypeName, out var valueType))
+            return false;
+
+        if (plan.Kind == ColumnarExternalStaticMemberKind.Field)
+        {
+            var field = declaringType.GetField(plan.MemberName, BindingFlags.Public | BindingFlags.Static);
+            if (field == null || field.FieldType != valueType)
+                return false;
+            if (emit)
+                _il.Emit(OpCodes.Ldsfld, field);
+        }
+        else if (plan.Kind == ColumnarExternalStaticMemberKind.Property)
+        {
+            var property = declaringType.GetProperty(plan.MemberName, BindingFlags.Public | BindingFlags.Static);
+            if (property?.GetMethod == null || property.PropertyType != valueType)
+                return false;
+            if (emit)
+                _il.Emit(OpCodes.Call, property.GetMethod);
+        }
+        else
+        {
+            return false;
+        }
+
+        type = valueType;
+        return true;
+    }
+
     private bool EmitExpression(int idx, out Type type)
         => EmitExpressionCore(idx, out type);
 
@@ -10611,6 +10597,13 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(memberAccessReceiver) == 6)
                 {
                     var receiverIdent = Text(memberAccessReceiver);
+                    var receiverIsUnshadowed = !_locals.ContainsKey(receiverIdent)
+                        && !_liftedLocals.ContainsKey(receiverIdent)
+                        && !_paramOrdinals.ContainsKey(receiverIdent)
+                        && !_siblings.ContainsKey(receiverIdent);
+                    if (receiverIsUnshadowed
+                        && TryUsePlannedExternalStaticMember(receiverIdent, Text(idx), emit: true, out type))
+                        return true;
                     if (receiverIdent == "StringComparison"
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
@@ -10618,22 +10611,6 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, enumValue);
                         type = typeof(StringComparison);
-                        return true;
-                    }
-                    if (receiverIdent == "StringComparer"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) is "Ordinal" or "OrdinalIgnoreCase")
-                    {
-                        _il.Emit(OpCodes.Call, typeof(StringComparer).GetProperty(Text(idx))!.GetGetMethod()!);
-                        type = typeof(StringComparer);
-                        return true;
-                    }
-                    if (receiverIdent == "CamelCaseNamingConvention"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(CamelCaseNamingConvention.Instance))
-                    {
-                        _il.Emit(OpCodes.Ldsfld, typeof(CamelCaseNamingConvention).GetField(nameof(CamelCaseNamingConvention.Instance))!);
-                        type = typeof(INamingConvention);
                         return true;
                     }
                     if (receiverIdent == "SearchOption"
@@ -10660,74 +10637,9 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(JsonValueKind);
                         return true;
                     }
-                    if (receiverIdent == "JsonNamingPolicy"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(JsonNamingPolicy.CamelCase))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(JsonNamingPolicy).GetProperty(nameof(JsonNamingPolicy.CamelCase))!.GetGetMethod()!);
-                        type = typeof(JsonNamingPolicy);
-                        return true;
-                    }
                     if (!_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
                         && TryEmitPrimitiveStaticConstant(receiverIdent, Text(idx), out type))
                     {
-                        return true;
-                    }
-                    if (receiverIdent == "Environment"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) is nameof(Environment.NewLine) or nameof(Environment.CurrentDirectory))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(Environment).GetProperty(Text(idx))!.GetGetMethod()!);
-                        type = typeof(string);
-                        return true;
-                    }
-                    if (receiverIdent == "AppContext"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(AppContext.BaseDirectory))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(AppContext).GetProperty(nameof(AppContext.BaseDirectory))!.GetGetMethod()!);
-                        type = typeof(string);
-                        return true;
-                    }
-                    if (receiverIdent == "CultureInfo"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(System.Globalization.CultureInfo.InvariantCulture))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(System.Globalization.CultureInfo).GetProperty(nameof(System.Globalization.CultureInfo.InvariantCulture))!.GetGetMethod()!);
-                        type = typeof(System.Globalization.CultureInfo);
-                        return true;
-                    }
-                    if (receiverIdent == "AppDomain"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(AppDomain.CurrentDomain))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(AppDomain).GetProperty(nameof(AppDomain.CurrentDomain))!.GetGetMethod()!);
-                        type = typeof(AppDomain);
-                        return true;
-                    }
-                    if (receiverIdent == "Console"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(Console.Error))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(Console).GetProperty(nameof(Console.Error))!.GetGetMethod()!);
-                        type = typeof(TextWriter);
-                        return true;
-                    }
-                    if (receiverIdent == "Task"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(System.Threading.Tasks.Task.CompletedTask))
-                    {
-                        _il.Emit(OpCodes.Call,
-                            typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask))!.GetGetMethod()!);
-                        type = typeof(System.Threading.Tasks.Task);
-                        return true;
-                    }
-                    if (receiverIdent == "Random"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(Random.Shared))
-                    {
-                        _il.Emit(OpCodes.Call, typeof(Random).GetProperty(nameof(Random.Shared))!.GetGetMethod()!);
-                        type = typeof(Random);
                         return true;
                     }
                     if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool")
@@ -10747,25 +10659,6 @@ internal sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Call, memoryPoolType.GetProperty("Shared")!.GetGetMethod()!);
                         type = memoryPoolType;
                         return true;
-                    }
-                    if (receiverIdent == "DateTime"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
-                    {
-                        if (typeof(DateTime).GetProperty(Text(idx), BindingFlags.Public | BindingFlags.Static) is { GetMethod: not null } dateTimeStaticProperty
-                            && IsSupportedType(dateTimeStaticProperty.PropertyType))
-                        {
-                            _il.Emit(OpCodes.Call, dateTimeStaticProperty.GetMethod);
-                            type = dateTimeStaticProperty.PropertyType;
-                            return true;
-                        }
-                        // Static readonly fields (UnixEpoch, MinValue, MaxValue) load with ldsfld.
-                        if (typeof(DateTime).GetField(Text(idx), BindingFlags.Public | BindingFlags.Static) is { } dateTimeStaticField
-                            && IsSupportedType(dateTimeStaticField.FieldType))
-                        {
-                            _il.Emit(OpCodes.Ldsfld, dateTimeStaticField);
-                            type = dateTimeStaticField.FieldType;
-                            return true;
-                        }
                     }
                     // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
                     // local/param/sibling) and the member is one of its constants -> load the underlying int. The
@@ -17334,6 +17227,79 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
+    private bool TryGetPlannedExternalCall(
+        Type receiverType,
+        string member,
+        int callIdx,
+        out ColumnarExternalCallPlan plan,
+        out MethodInfo method,
+        out Type[] parameterTypes,
+        out Type returnType)
+    {
+        plan = null!;
+        method = null!;
+        parameterTypes = Type.EmptyTypes;
+        returnType = null!;
+
+        var argumentCount = _nodes.ChildCount(callIdx) - 1;
+        var argumentTypeNames = new string[argumentCount];
+        for (var i = 0; i < argumentCount; i++)
+        {
+            argumentTypeNames[i] = TryGetPreflightExpressionType(Child(callIdx, i + 1), out var argumentType)
+                ? argumentType.FullName ?? argumentType.Name
+                : string.Empty;
+        }
+
+        plan = ColumnarExternalBindingPlans.GetInstanceCallPlan(
+            receiverType.FullName,
+            member,
+            argumentTypeNames);
+        if (!plan.IsSupported
+            || plan.ParameterTypeNames.Length != argumentCount
+            || !TryResolveExactRuntimeType(plan.DeclaringTypeName, out var declaringType)
+            || !TryResolveExactRuntimeType(plan.ReturnTypeName, out returnType))
+            return false;
+
+        parameterTypes = new Type[argumentCount];
+        for (var i = 0; i < argumentCount; i++)
+        {
+            if (!TryResolveExactRuntimeType(plan.ParameterTypeNames[i], out parameterTypes[i])
+                || !CanDeclaredCallArgumentMatch(Child(callIdx, i + 1), parameterTypes[i], allowLambdaLiteral: false))
+                return false;
+        }
+
+        method = declaringType.GetMethod(plan.MemberName, parameterTypes)!;
+        return method != null && method.ReturnType == returnType;
+    }
+
+    private bool TryEmitPlannedExternalCall(
+        Type receiverType,
+        string member,
+        int callIdx,
+        out Type type)
+    {
+        type = null!;
+        if (!TryGetPlannedExternalCall(
+                receiverType,
+                member,
+                callIdx,
+                out var plan,
+                out var method,
+                out var parameterTypes,
+                out var returnType))
+            return false;
+
+        for (var i = 0; i < parameterTypes.Length; i++)
+        {
+            if (!EmitDeclaredCallArgument(Child(callIdx, i + 1), parameterTypes[i], allowLambdaLiteral: false))
+                return false;
+        }
+
+        _il.Emit(plan.Kind == ColumnarExternalCallKind.CallVirtual ? OpCodes.Callvirt : OpCodes.Call, method);
+        type = returnType;
+        return true;
+    }
+
     private bool TryGetPreflightInstanceCallType(Type receiverType, string member, int callIdx, out Type type)
     {
         type = null!;
@@ -17377,6 +17343,15 @@ internal sealed class ColumnarIlEmitter
         if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out type))
             return true;
         if (TryGetPreflightEnumerableExtensionCallType(receiverType, member, callIdx, out type))
+            return true;
+        if (TryGetPlannedExternalCall(
+                receiverType,
+                member,
+                callIdx,
+                out _,
+                out _,
+                out _,
+                out type))
             return true;
 
         if (IsSupportedSpanLikeType(receiverType) && member == "Slice" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3))
@@ -17632,38 +17607,11 @@ internal sealed class ColumnarIlEmitter
                 && !_siblings.ContainsKey(receiverIdent);
             if (!isUnshadowedTypeName)
                 return false;
+            if (TryUsePlannedExternalStaticMember(receiverIdent, Text(node), emit: false, out type))
+                return true;
             if (receiverIdent == "StringComparison")
             {
                 type = typeof(StringComparison);
-                return true;
-            }
-            if (receiverIdent == "StringComparer" && Text(node) is "Ordinal" or "OrdinalIgnoreCase")
-            {
-                type = typeof(StringComparer);
-                return true;
-            }
-            if (receiverIdent == "JsonNamingPolicy" && Text(node) == nameof(JsonNamingPolicy.CamelCase))
-            {
-                type = typeof(JsonNamingPolicy);
-                return true;
-            }
-            if (receiverIdent == "DateTime"
-                && typeof(DateTime).GetProperty(Text(node), BindingFlags.Public | BindingFlags.Static) is { GetMethod: not null } dateTimeStaticProperty
-                && IsSupportedType(dateTimeStaticProperty.PropertyType))
-            {
-                type = dateTimeStaticProperty.PropertyType;
-                return true;
-            }
-            if (receiverIdent == "DateTime"
-                && typeof(DateTime).GetField(Text(node), BindingFlags.Public | BindingFlags.Static) is { } dateTimeStaticField
-                && IsSupportedType(dateTimeStaticField.FieldType))
-            {
-                type = dateTimeStaticField.FieldType;
-                return true;
-            }
-            if (receiverIdent == "Random" && Text(node) == nameof(Random.Shared))
-            {
-                type = typeof(Random);
                 return true;
             }
             if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool") && Text(node) == "Shared")
@@ -18267,6 +18215,9 @@ internal sealed class ColumnarIlEmitter
     private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
     {
         type = null!;
+
+        if (TryEmitPlannedExternalCall(receiverType, member, callIdx, out type))
+            return true;
 
         if (TryEmitAspNetStaticFilesCall(callIdx, receiverType, member, argCount, out type))
             return true;
@@ -18906,95 +18857,12 @@ internal sealed class ColumnarIlEmitter
             }
             return false;
         }
-        if (receiverType == typeof(Type) && member is "GetProperty" or "GetField" && argCount == 1)
+        if (receiverType == typeof(Process)
+            && member == nameof(IDisposable.Dispose)
+            && argCount == 0)
         {
-            if (!EmitArg(callIdx, 1, typeof(string)))
-                return false;
-            var method = typeof(Type).GetMethod(member, new[] { typeof(string) });
-            if (method == null)
-                return false;
-            _il.Emit(OpCodes.Callvirt, method);
-            type = member == "GetProperty" ? typeof(PropertyInfo) : typeof(FieldInfo);
-            return true;
-        }
-        if (receiverType == typeof(PropertyInfo) && member == "GetValue" && argCount == 1)
-        {
-            if (!EmitArg(callIdx, 1, typeof(object)))
-                return false;
-            _il.Emit(OpCodes.Callvirt, typeof(PropertyInfo).GetMethod(nameof(PropertyInfo.GetValue), new[] { typeof(object) })!);
-            type = typeof(object);
-            return true;
-        }
-        if (receiverType == typeof(FieldInfo) && member == "GetValue" && argCount == 1)
-        {
-            if (!EmitArg(callIdx, 1, typeof(object)))
-                return false;
-            _il.Emit(OpCodes.Callvirt, typeof(FieldInfo).GetMethod(nameof(FieldInfo.GetValue), new[] { typeof(object) })!);
-            type = typeof(object);
-            return true;
-        }
-        if (receiverType == typeof(Process))
-        {
-            if (member == nameof(Process.Start) && argCount == 0)
-            {
-                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.Start), Type.EmptyTypes)!);
-                type = typeof(bool);
-                return true;
-            }
-            if (member == nameof(Process.WaitForExit) && argCount == 0)
-            {
-                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.WaitForExit), Type.EmptyTypes)!);
-                type = typeof(void);
-                return true;
-            }
-            if (member == nameof(Process.WaitForExit) && argCount == 1)
-            {
-                if (!EmitArg(callIdx, 1, typeof(int)))
-                    return false;
-                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.WaitForExit), new[] { typeof(int) })!);
-                type = typeof(bool);
-                return true;
-            }
-            if (member == nameof(Process.Kill) && argCount == 1)
-            {
-                if (!EmitArg(callIdx, 1, typeof(bool)))
-                    return false;
-                _il.Emit(OpCodes.Callvirt, typeof(Process).GetMethod(nameof(Process.Kill), new[] { typeof(bool) })!);
-                type = typeof(void);
-                return true;
-            }
-            if (member == nameof(IDisposable.Dispose) && argCount == 0)
-            {
-                _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!);
-                type = typeof(void);
-                return true;
-            }
-            return false;
-        }
-        if (receiverType == typeof(StreamReader) && member == nameof(StreamReader.ReadToEndAsync) && argCount == 0)
-        {
-            _il.Emit(OpCodes.Callvirt, typeof(StreamReader).GetMethod(nameof(StreamReader.ReadToEndAsync), Type.EmptyTypes)!);
-            type = typeof(System.Threading.Tasks.Task<string>);
-            return true;
-        }
-        if (receiverType == typeof(Random) && member == nameof(Random.Next) && (argCount == 0 || argCount == 1 || argCount == 2))
-        {
-            Type[] paramTypes = argCount switch
-            {
-                0 => Type.EmptyTypes,
-                1 => new[] { typeof(int) },
-                _ => new[] { typeof(int), typeof(int) },
-            };
-            var method = typeof(Random).GetMethod(nameof(Random.Next), paramTypes);
-            if (method == null)
-                return false;
-            for (var a = 0; a < argCount; a++)
-            {
-                if (!EmitArg(callIdx, 1 + a, typeof(int)))
-                    return false;
-            }
-            _il.Emit(OpCodes.Callvirt, method);
-            type = typeof(int);
+            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!);
+            type = typeof(void);
             return true;
         }
 

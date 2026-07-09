@@ -41,6 +41,20 @@ Status meanings:
 - Syntax-diagnostic kernels exist but are preparatory: `ColumnarSyntaxDiagnostics.ParseFile`
   has no production consumer or direct differential parity suite. Do not count the diagnostic
   families as ported until that proof and routing exist.
+- The first native compiler-closeout probe reached project-reference compilation on 2026-07-09,
+  but rebuilding `NSharpLang.Compiler.BootstrapServices/project.yml` through `nlc test` activates
+  the legacy validation path and rejects sources that the pinned Stage-0 SDK compiles with
+  `NSharpEmitValidateWithLegacyAnalysis=false`. A DLL-reference probe then reached emission but
+  correctly declined construction of an unmodeled external compiler-service type. C/D/H must
+  remove the validation discrepancy; E0 successor tests exercise plans through their production
+  route instead of retaining either probe as a fallback.
+- E0's direct Reflection.Emit prerequisite is now production-routed through
+  `ColumnarExternalBindingPlans.nl`: N# selects exact assembly-qualified types, static members,
+  opcode fields, call forms, and signatures; the existing emitter only materializes that payload
+  and is 124 lines smaller. The native `reflection-emit-bootstrap` project compiles real
+  `ILGenerator` local/label/opcode overloads, its one test passes, and the focused Columnar suite
+  remains 102/102 green. This is the interop prerequisite, not E0 completion: N# plan execution,
+  a production lowering family, and old lowering-branch deletion remain next.
 
 ## Ownership trend that changed the priority
 
@@ -135,7 +149,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | pre-existing untracked `ColumnarCodePlan.nl` compiles via `./scripts/dev.sh --build-only` on 2026-07-09 | N# plan execution, production route, range/index and first scalar/procedural C# branch deletion, gated native successors, N#-owned cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | direct N# Reflection.Emit bootstrap in current slice; native probe 1/1 and Columnar 102/102 green; `bc16cac51` adds range/index native successors (13/13 direct, not gated yet) | N# plan execution, production route, range/index and first scalar/procedural C# branch deletion, native gate wiring, N#-owned cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
