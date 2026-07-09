@@ -13,13 +13,20 @@ public class ColumnarInterpolationHolePlan {
     public RootType: Type?
     public Hops: List<ColumnarInterpolationMemberPlan>
     public CallBuilder: MethodBuilder?
+    public CallArgLocal: LocalBuilder?
+    public CallArgOrdinal: int
+    public CallArgType: Type?
     public ValueType: Type?
     public Format: string?
     public CoalesceRight: ColumnarInterpolationHolePlan?
     public ConstantInt: int?
+    public BinaryOperator: string?
+    public BinaryLeft: ColumnarInterpolationHolePlan?
+    public BinaryRight: ColumnarInterpolationHolePlan?
 
     constructor() {
         RootOrdinal = 0
+        CallArgOrdinal = -1
         RootThis = false
         Hops = new List<ColumnarInterpolationMemberPlan>()
     }

@@ -308,6 +308,41 @@ public class ColumnarInterpolationSplitter {
             return ColumnarInterpolatedStringIsIdentifierChain(literal, start, length - 2)
         }
 
+        if length > 4 && literal[start + length - 1] == ')' {
+            openParen := -1
+            i := 0
+            while i < length {
+                ch := literal[start + i]
+                if ch == '(' {
+                    if openParen >= 0 {
+                        return false
+                    }
+
+                    openParen = i
+                } else if ch == ',' {
+                    return false
+                }
+
+                i = i + 1
+            }
+
+            if openParen > 0 && openParen < length - 1 {
+                argStart := start + openParen + 1
+                argLength := length - openParen - 2
+                while argLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[argStart]) {
+                    argStart = argStart + 1
+                    argLength = argLength - 1
+                }
+
+                while argLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[argStart + argLength - 1]) {
+                    argLength = argLength - 1
+                }
+
+                return ColumnarInterpolatedStringIsIdentifierChain(literal, start, openParen)
+                    && ColumnarInterpolatedStringIsIdentifierChain(literal, argStart, argLength)
+            }
+        }
+
         return false
     }
 
@@ -318,6 +353,34 @@ public class ColumnarInterpolationSplitter {
 
         if ColumnarInterpolatedStringIsIntegerAdditiveExpression(literal, start, length) {
             return true
+        }
+
+        equality := ColumnarInterpolatedStringFindEqualityOperator(literal, start, length)
+        if equality >= 0 {
+            leftStart := start
+            leftLength := equality
+            rightStart := start + equality + 2
+            rightLength := length - equality - 2
+            while leftLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[leftStart]) {
+                leftStart = leftStart + 1
+                leftLength = leftLength - 1
+            }
+
+            while leftLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[leftStart + leftLength - 1]) {
+                leftLength = leftLength - 1
+            }
+
+            while rightLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[rightStart]) {
+                rightStart = rightStart + 1
+                rightLength = rightLength - 1
+            }
+
+            while rightLength > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[rightStart + rightLength - 1]) {
+                rightLength = rightLength - 1
+            }
+
+            return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
+                && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
         }
 
         coalesce := -1
@@ -364,6 +427,28 @@ public class ColumnarInterpolationSplitter {
 
         return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
             && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    static func ColumnarInterpolatedStringFindEqualityOperator(literal: string, start: int, length: int): int {
+        found := -1
+        i := 0
+        while i + 1 < length {
+            ch := literal[start + i]
+            next := literal[start + i + 1]
+            if (ch == '=' && next == '=') || (ch == '!' && next == '=') {
+                if found >= 0 {
+                    return -1
+                }
+
+                found = i
+                i = i + 2
+                continue
+            }
+
+            i = i + 1
+        }
+
+        return found
     }
 
     static func ColumnarInterpolatedStringIsTrimSpace(ch: char): bool {

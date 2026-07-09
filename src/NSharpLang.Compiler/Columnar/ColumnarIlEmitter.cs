@@ -201,6 +201,7 @@ internal sealed class ColumnarIlEmitter
     // Union CASES by qualified "Union.Case" name -> case. Lets object-initializer construction (`new Union.Case {…}`)
     // and union-case patterns (`Union.Case { f }`) resolve a case's ctor/fields/base directly by its dotted name.
     private readonly IReadOnlyDictionary<string, ColumnarUnionCaseDef> _unionCaseRegistry;
+    private readonly IReadOnlyList<string>? _referenceAssemblyPaths;
     // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
     // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
     private readonly ColumnarStructDef? _currentStruct;
@@ -309,7 +310,8 @@ internal sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, string?[]>? paramTupleNames = null,
         HashSet<string>? enclosingBindingNames = null,
         Type? asyncReturnType = null,
-        bool asyncBareReturnDeclines = false)
+        bool asyncBareReturnDeclines = false,
+        IReadOnlyList<string>? referenceAssemblyPaths = null)
     {
         _isConstructorBody = isConstructorBody;
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody;
@@ -340,6 +342,7 @@ internal sealed class ColumnarIlEmitter
         _structRegistry = structRegistry;
         _unionRegistry = unionRegistry;
         _unionCaseRegistry = unionCaseRegistry;
+        _referenceAssemblyPaths = referenceAssemblyPaths;
         _currentStruct = currentStruct;
         _enclosingType = enclosingType ?? currentStruct;
         _programType = programType;
@@ -1203,7 +1206,8 @@ internal sealed class ColumnarIlEmitter
                     _nodes, _source, instanceOrdinals, paramTypeMap, invoke.ReturnType, instanceIl, _siblings,
                     _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
                     programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                    enclosingBindingNames: VisibleBindingNamesSnapshot());
+                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                    referenceAssemblyPaths: _referenceAssemblyPaths);
                 if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, invoke.ReturnType))
                     return DeclineMember("emit.body", "instance lambda body emission declined", bodyNode, "lambda");
                 _il.Emit(OpCodes.Ldarg_0);
@@ -1219,7 +1223,8 @@ internal sealed class ColumnarIlEmitter
                 _nodes, _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
                 programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                enclosingBindingNames: VisibleBindingNamesSnapshot());
+                enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                referenceAssemblyPaths: _referenceAssemblyPaths);
             if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, invoke.ReturnType))
                 return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda");
             _il.Emit(OpCodes.Ldnull);
@@ -1301,7 +1306,8 @@ internal sealed class ColumnarIlEmitter
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
             boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
-            enclosingBindingNames: VisibleBindingNamesSnapshot());
+            enclosingBindingNames: VisibleBindingNamesSnapshot(),
+            referenceAssemblyPaths: _referenceAssemblyPaths);
         if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, invoke.ReturnType))
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda");
         _displayClasses.Add(display);
@@ -1651,7 +1657,8 @@ internal sealed class ColumnarIlEmitter
             new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-            enclosingBindingNames: VisibleBindingNamesSnapshot());
+            enclosingBindingNames: VisibleBindingNamesSnapshot(),
+            referenceAssemblyPaths: _referenceAssemblyPaths);
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
             return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda");
         lambdaIl.Emit(OpCodes.Ret);
@@ -4111,7 +4118,8 @@ internal sealed class ColumnarIlEmitter
                 localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes,
                 siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames,
                 asyncReturnType: asyncWrappedByFunc[f],
-                asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask");
+                asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask",
+                referenceAssemblyPaths: referenceAssemblyPaths);
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
             try
             {
@@ -4154,7 +4162,8 @@ internal sealed class ColumnarIlEmitter
                         siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                         programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                         localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix,
-                        enclosingBindingNames: parentBindings);
+                        enclosingBindingNames: parentBindings,
+                        referenceAssemblyPaths: referenceAssemblyPaths);
                     ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId);
                     try
                     {
@@ -4180,7 +4189,8 @@ internal sealed class ColumnarIlEmitter
                 job.Method.BodyNodes, methodSource, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.Interface, enclosingType: job.Interface,
-                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                referenceAssemblyPaths: referenceAssemblyPaths);
             ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
             try
             {
@@ -4207,7 +4217,8 @@ internal sealed class ColumnarIlEmitter
                 typeof(void), mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isSynthesizedInitializerBody: true,
-                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                referenceAssemblyPaths: referenceAssemblyPaths);
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
             try
             {
@@ -4234,7 +4245,8 @@ internal sealed class ColumnarIlEmitter
                 job.Method.BodyNodes, methodSource, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct,
-                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                referenceAssemblyPaths: referenceAssemblyPaths);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
@@ -4261,7 +4273,8 @@ internal sealed class ColumnarIlEmitter
                 job.Ctor.Body.BodyNodes, ctorSource, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isConstructorBody: true, isSynthesizedInitializerBody: job.Ctor.IsSynthesizedInitializer,
-                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                referenceAssemblyPaths: referenceAssemblyPaths);
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
             try
             {
@@ -4413,7 +4426,8 @@ internal sealed class ColumnarIlEmitter
                     typeof(void), testIl, siblings,
                     enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                     programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                    siblingReturnTupleNames: siblingReturnTupleNames);
+                    siblingReturnTupleNames: siblingReturnTupleNames,
+                    referenceAssemblyPaths: referenceAssemblyPaths);
                 ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId);
                 try
                 {
@@ -5029,9 +5043,9 @@ internal sealed class ColumnarIlEmitter
                 // a diagnostic (NL316; a same-`:=` redeclaration as an error), which the spike does not
                 // model — declining keeps the analyzer-validated product path authoritative.
                 if (IsVisibleBindingName(name))
-                    return false;
+                    return Decline("emit.local.redeclaration-or-shadowing", "local declaration shadows or redeclares a visible binding '" + name + "'", idx);
                 if (_nodes.ChildCount(idx) == 0)
-                    return false;
+                    return Decline("emit.local.missing-initializer", "local declaration has no modeled initializer", idx);
                 // A ZERO-PARAM lambda initializer (`zero := () => 99` — L1c): the only `:=` lambda shape with
                 // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
                 // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
@@ -5039,7 +5053,7 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(Child(idx, 0)) == 39)
                 {
                     if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out var lambdaType))
-                        return false;
+                        return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0));
                     var lambdaLocal = _il.DeclareLocal(lambdaType);
                     _il.Emit(OpCodes.Stloc, lambdaLocal);
                     _locals[name] = lambdaLocal;
@@ -5050,11 +5064,11 @@ internal sealed class ColumnarIlEmitter
                 // of T flow by reference equality. T[] locals likewise.
                 if (!EmitExpression(Child(idx, 0), out var initType))
                 {
-                    return false;
+                    return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0));
                 }
                 if (!(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
                 {
-                    return false;
+                    return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx);
                 }
                 // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
                 // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
@@ -5086,10 +5100,10 @@ internal sealed class ColumnarIlEmitter
                      // the declared type (a mismatch is pipeline-rejected NL202 — decline). `let` locals are
                      // MUTABLE in N# (probe-pinned: `let n: int = 5  n = 6` runs), so a plain local suffices.
                 if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(Child(idx, 0)) != 6)
-                    return false;
+                    return Decline("emit.typed-local.shape", "typed local declaration has an unsupported shape", idx);
                 var declaredName = Text(Child(idx, 0));
                 if (IsVisibleBindingName(declaredName))
-                    return false; // shadowing/redeclaration (incl. enclosing-scope NL316) — decline.
+                    return Decline("emit.typed-local.redeclaration-or-shadowing", "typed local declaration shadows or redeclares a visible binding '" + declaredName + "'", idx);
                 var typeCanonical = ColumnarTypeCanonicalizer.RemoveWhitespace(Text(idx));
                 // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
                 // canonical for resolution; the names are recorded for member access below. (The BARE
@@ -5099,7 +5113,7 @@ internal sealed class ColumnarIlEmitter
                 var declaredTupleNames = tupleStrip.Names;
                 if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
                     || !IsSupportedType(declaredType))
-                    return false;
+                    return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx);
                 var declaredInit = Child(idx, 1);
                 if (_nodes.Kind(declaredInit) == 39)
                 {
@@ -5112,7 +5126,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!EmitAdoptedUnionConstruction(declaredInit, declaredType, out var adoptedType)
                         || !TypesEquivalent(adoptedType, declaredType))
-                        return false;
+                        return Decline("emit.typed-local.union-adoption", "typed local union construction could not adopt declared type for '" + declaredName + "'", declaredInit);
                 }
                 else if (TryEmitIntLiteralAsType(declaredInit, declaredType, out _))
                 {
@@ -5130,14 +5144,14 @@ internal sealed class ColumnarIlEmitter
                 {
                     // `n: int? = 5` / `= null` / `= v` — the lifted conversion owns the emission.
                     if (!TryEmitValueAsNullable(declaredInit, declaredType, out _))
-                        return false;
+                        return Decline("emit.typed-local.nullable-conversion", "typed local nullable initializer could not convert for '" + declaredName + "'", declaredInit);
                 }
                 else
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
-                        return false;
+                        return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit);
                     if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
-                        return false; // exact or implicitly-widenable (`w: long = n`) only.
+                        return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit);
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
                 // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
@@ -7700,6 +7714,38 @@ internal sealed class ColumnarIlEmitter
         }
 
         throw new InvalidOperationException($"Could not resolve required test framework type {fullTypeName}");
+    }
+
+    private static bool TryResolveReferencedType(
+        IReadOnlyList<string>? referenceAssemblyPaths,
+        string assemblySimpleName,
+        string fullTypeName,
+        out Type type)
+    {
+        type = null!;
+        if (referenceAssemblyPaths == null)
+            return false;
+
+        foreach (var referencePath in referenceAssemblyPaths)
+        {
+            if (!string.Equals(Path.GetFileNameWithoutExtension(referencePath), assemblySimpleName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                var loadedType = Assembly.LoadFrom(referencePath).GetType(fullTypeName, throwOnError: false);
+                if (loadedType != null)
+                {
+                    type = loadedType;
+                    return true;
+                }
+            }
+            catch
+            {
+                // Try the next resolved reference path.
+            }
+        }
+
+        return false;
     }
 
     private static bool TryResolveBclExceptionType(string name, out Type type)
@@ -11122,6 +11168,32 @@ internal sealed class ColumnarIlEmitter
         }
         if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
             return false;
+        if ((typeName == "JsonConvert" || typeName == "Newtonsoft.Json.JsonConvert")
+            && member == "SerializeObject"
+            && argCount == 1)
+        {
+            if (!TryResolveReferencedType(
+                    _referenceAssemblyPaths,
+                    "Newtonsoft.Json",
+                    "Newtonsoft.Json.JsonConvert",
+                    out var jsonConvert))
+                return false;
+            var method = Array.Find(
+                jsonConvert.GetMethods(BindingFlags.Public | BindingFlags.Static),
+                candidate =>
+                {
+                    if (candidate.Name != "SerializeObject" || candidate.ReturnType != typeof(string))
+                        return false;
+                    var parameters = candidate.GetParameters();
+                    return parameters.Length == 1 && parameters[0].ParameterType == typeof(object);
+                });
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
         // The receiver may be the type NAME `Char` (via `using System`) or the builtin alias `char` (the
         // lowercase keyword) — both bind to System.Char, so accept either.
         if ((typeName == "Char" || typeName == "char") && argCount == 1)
@@ -13390,6 +13462,26 @@ internal sealed class ColumnarIlEmitter
         {
             var collectionDef = receiverType.GetGenericTypeDefinition();
             var collectionArgs = receiverType.GetGenericArguments();
+            if ((collectionDef == typeof(List<>)
+                    || collectionDef == typeof(HashSet<>)
+                    || collectionDef == typeof(Stack<>)
+                    || collectionDef == typeof(IReadOnlyList<>)
+                    || collectionDef == typeof(IReadOnlySet<>)
+                    || collectionDef == typeof(IEnumerable<>))
+                && member == "ToList"
+                && argCount == 0)
+            {
+                var toList = Array.Find(
+                    typeof(System.Linq.Enumerable).GetMethods(),
+                    method => method.Name == nameof(System.Linq.Enumerable.ToList)
+                              && method.IsGenericMethodDefinition
+                              && method.GetParameters().Length == 1);
+                if (toList == null)
+                    return false;
+                _il.Emit(OpCodes.Call, toList.MakeGenericMethod(collectionArgs[0]));
+                type = typeof(List<>).MakeGenericType(collectionArgs[0]);
+                return true;
+            }
             if (collectionDef == typeof(IReadOnlySet<>) && member == "Contains" && argCount == 1)
             {
                 if (ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0]))
@@ -14777,6 +14869,26 @@ internal sealed class ColumnarIlEmitter
     {
         plan = null!;
         text = text.Trim();
+        if (TrySplitInterpolationEquality(text, out var equalityLeftText, out var equalityOperator, out var equalityRightText))
+        {
+            if (!TryResolveInterpolationChainPlan(equalityLeftText, allowBuilderValue: true, out var equalityLeft)
+                || !TryResolveInterpolationChainPlan(equalityRightText, allowBuilderValue: true, out var equalityRight)
+                || equalityLeft.ValueType == null
+                || equalityRight.ValueType == null
+                || !TypesEquivalent(equalityLeft.ValueType, equalityRight.ValueType)
+                || !IsSupportedInterpolationEqualityType(equalityLeft.ValueType))
+                return false;
+            plan = new ColumnarInterpolationHolePlan
+            {
+                BinaryOperator = equalityOperator,
+                BinaryLeft = equalityLeft,
+                BinaryRight = equalityRight,
+                ValueType = typeof(bool),
+                Format = format,
+            };
+            return true;
+        }
+
         if (TryEvaluateInterpolationIntegerAdditiveExpression(text, out var constantInt))
         {
             plan = new ColumnarInterpolationHolePlan
@@ -14816,9 +14928,25 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveInterpolationChainPlan(string chain, out ColumnarInterpolationHolePlan plan)
+        => TryResolveInterpolationChainPlan(chain, allowBuilderValue: false, out plan);
+
+    private bool TryResolveInterpolationChainPlan(string chain, bool allowBuilderValue, out ColumnarInterpolationHolePlan plan)
     {
         plan = null!;
-        if (!TryResolveInterpolationHole(chain, out var rootLocal, out var rootOrdinal, out var rootThis, out var rootGetter, out var rootType, out var hops, out var callBuilder, out var valueType))
+        if (!TryResolveInterpolationHole(
+                chain,
+                allowBuilderValue,
+                out var rootLocal,
+                out var rootOrdinal,
+                out var rootThis,
+                out var rootGetter,
+                out var rootType,
+                out var hops,
+                out var callBuilder,
+                out var callArgLocal,
+                out var callArgOrdinal,
+                out var callArgType,
+                out var valueType))
             return false;
         plan = new ColumnarInterpolationHolePlan
         {
@@ -14829,6 +14957,9 @@ internal sealed class ColumnarIlEmitter
             RootType = rootType,
             Hops = hops,
             CallBuilder = callBuilder,
+            CallArgLocal = callArgLocal,
+            CallArgOrdinal = callArgOrdinal,
+            CallArgType = callArgType,
             ValueType = valueType,
         };
         return true;
@@ -14836,6 +14967,14 @@ internal sealed class ColumnarIlEmitter
 
     private void EmitInterpolationHoleValue(ColumnarInterpolationHolePlan plan)
     {
+        if (plan.BinaryOperator != null)
+        {
+            EmitInterpolationHoleValue(plan.BinaryLeft!);
+            EmitInterpolationHoleValue(plan.BinaryRight!);
+            EmitInterpolationEquality(plan.BinaryOperator, plan.BinaryLeft!.ValueType!);
+            return;
+        }
+
         if (plan.CoalesceRight != null)
         {
             EmitInterpolationSimpleHoleValue(plan);
@@ -14909,17 +15048,91 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Stloc, spill);
                     _il.Emit(OpCodes.Ldloca, spill);
                 }
+                EmitInterpolationCallArgument(plan);
                 _il.Emit(OpCodes.Call, plan.CallBuilder);
             }
             else
             {
+                EmitInterpolationCallArgument(plan);
                 _il.Emit(OpCodes.Callvirt, plan.CallBuilder);
             }
         }
     }
 
-    private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
-        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<ColumnarInterpolationMemberPlan> hops, out MethodBuilder? callBuilder, out Type valueType)
+    private void EmitInterpolationEquality(string op, Type operandType)
+    {
+        if (operandType == typeof(string))
+        {
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
+        }
+        else if (operandType == typeof(Type))
+        {
+            var typeEquality = typeof(Type).GetMethod(op == "==" ? "op_Equality" : "op_Inequality", new[] { typeof(Type), typeof(Type) });
+            if (typeEquality != null)
+            {
+                _il.Emit(OpCodes.Call, typeEquality);
+                return;
+            }
+            EmitComparison(op);
+            return;
+        }
+        else if (operandType is TypeBuilder recordStructTb
+                 && FindDefByBuilder(recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
+        {
+            var recordRightTemp = _il.DeclareLocal(recordStructTb);
+            _il.Emit(OpCodes.Stloc, recordRightTemp);
+            var recordLeftTemp = _il.DeclareLocal(recordStructTb);
+            _il.Emit(OpCodes.Stloc, recordLeftTemp);
+            _il.Emit(OpCodes.Ldloca, recordLeftTemp);
+            _il.Emit(OpCodes.Ldloc, recordRightTemp);
+            _il.Emit(OpCodes.Box, recordStructTb);
+            _il.Emit(OpCodes.Call, recordStructDef.RecordEquals);
+        }
+        else
+        {
+            EmitComparison(op);
+            return;
+        }
+
+        if (op == "!=")
+        {
+            _il.Emit(OpCodes.Ldc_I4_0);
+            _il.Emit(OpCodes.Ceq);
+        }
+    }
+
+    private bool IsSupportedInterpolationEqualityType(Type type)
+    {
+        if (type == typeof(string) || type == typeof(Type))
+            return true;
+        if (type is TypeBuilder typeBuilder)
+            return FindDefByBuilder(typeBuilder) is { IsReference: true }
+                || FindDefByBuilder(typeBuilder) is { IsReference: false, IsRecord: true, RecordEquals: not null };
+        return ColumnarNumericFacts.IsIntPromotable(type)
+            || type == typeof(long)
+            || type == typeof(ulong)
+            || type == typeof(uint)
+            || type == typeof(bool)
+            || type == typeof(double)
+            || type == typeof(float)
+            || IsKnownEnumType(type);
+    }
+
+    private void EmitInterpolationCallArgument(ColumnarInterpolationHolePlan plan)
+    {
+        if (plan.CallArgType == null)
+            return;
+        if (plan.CallArgLocal != null)
+            _il.Emit(OpCodes.Ldloc, plan.CallArgLocal);
+        else
+            EmitLoadArgument(plan.CallArgOrdinal);
+        if (plan.CallArgType.IsValueType)
+            _il.Emit(OpCodes.Box, plan.CallArgType);
+    }
+
+    private bool TryResolveInterpolationHole(string chain, bool allowBuilderValue, out LocalBuilder? rootLocal, out int rootOrdinal,
+        out bool rootThis, out MethodInfo? rootGetter, out Type rootType, out List<ColumnarInterpolationMemberPlan> hops,
+        out MethodBuilder? callBuilder, out LocalBuilder? callArgLocal, out int callArgOrdinal, out Type? callArgType, out Type valueType)
     {
         rootLocal = null;
         rootOrdinal = -1;
@@ -14928,11 +15141,21 @@ internal sealed class ColumnarIlEmitter
         rootType = null!;
         hops = new List<ColumnarInterpolationMemberPlan>();
         callBuilder = null;
+        callArgLocal = null;
+        callArgOrdinal = -1;
+        callArgType = null;
         valueType = null!;
         string? callMember = null;
-        if (chain.EndsWith("()", StringComparison.Ordinal))
+        string? callArgument = null;
+        if (chain.EndsWith(")", StringComparison.Ordinal))
         {
-            var callTarget = chain.Substring(0, chain.Length - 2);
+            var openParen = chain.LastIndexOf('(');
+            if (openParen < 0)
+                return false;
+            callArgument = chain.Substring(openParen + 1, chain.Length - openParen - 2).Trim();
+            if (callArgument.Contains(','))
+                return false;
+            var callTarget = chain.Substring(0, openParen);
             var lastDot = callTarget.LastIndexOf('.');
             if (lastDot <= 0 || lastDot == callTarget.Length - 1)
                 return false;
@@ -14991,18 +15214,85 @@ internal sealed class ColumnarIlEmitter
         }
         if (callMember != null)
         {
-            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def
-                || !TryFindMethodOnChain(def, callMember, out var method)
-                || method.ParamTypes.Length != 0
-                || method.ReturnType == typeof(void))
+            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def)
                 return false;
-            callBuilder = method.Builder;
-            current = method.ReturnType;
+            if (callArgument == "")
+            {
+                if (!TryFindMethodOnChain(def, callMember, out var method)
+                    || method.ParamTypes.Length != 0
+                    || method.ReturnType == typeof(void))
+                    return false;
+                callBuilder = method.Builder;
+                current = method.ReturnType;
+            }
+            else
+            {
+                if (callArgument == null
+                    || callMember != "Equals"
+                    || !def.IsRecord
+                    || def.RecordEquals == null
+                    || !TryResolveInterpolationSimpleArgument(callArgument, out var argLocal, out var argOrdinal, out var argType))
+                    return false;
+                callBuilder = def.RecordEquals;
+                callArgLocal = argLocal;
+                callArgOrdinal = argOrdinal;
+                callArgType = argType;
+                current = typeof(bool);
+            }
         }
-        if (ContainsBuilderBoundType(current) || !IsSupportedType(current))
+        if ((!allowBuilderValue && ContainsBuilderBoundType(current)) || !IsSupportedType(current))
             return false;
         valueType = current;
         return true;
+    }
+
+    private bool TryResolveInterpolationSimpleArgument(string text, out LocalBuilder? local, out int ordinal, out Type type)
+    {
+        local = null;
+        ordinal = -1;
+        type = null!;
+        if (string.IsNullOrWhiteSpace(text) || text.IndexOf('.') >= 0 || text.IndexOf('(') >= 0 || text.IndexOf(')') >= 0)
+            return false;
+        if (_locals.TryGetValue(text, out var foundLocal))
+        {
+            local = foundLocal;
+            type = foundLocal.LocalType;
+            return true;
+        }
+        if (_paramOrdinals.TryGetValue(text, out var foundOrdinal))
+        {
+            ordinal = foundOrdinal;
+            type = _paramTypes[text];
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TrySplitInterpolationEquality(string text, out string left, out string op, out string right)
+    {
+        left = "";
+        op = "";
+        right = "";
+        var found = -1;
+        for (var i = 0; i + 1 < text.Length; i++)
+        {
+            var ch = text[i];
+            var next = text[i + 1];
+            if ((ch == '=' && next == '=') || (ch == '!' && next == '='))
+            {
+                if (found >= 0)
+                    return false;
+                found = i;
+                i++;
+            }
+        }
+
+        if (found < 0)
+            return false;
+        left = text.Substring(0, found).Trim();
+        op = text.Substring(found, 2);
+        right = text.Substring(found + 2).Trim();
+        return left.Length > 0 && right.Length > 0;
     }
 
     private static bool TryEvaluateInterpolationIntegerAdditiveExpression(string text, out int value)

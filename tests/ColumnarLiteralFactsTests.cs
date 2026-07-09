@@ -80,6 +80,34 @@ public class ColumnarLiteralFactsTests
     }
 
     [Fact]
+    public void ColumnarInterpolationSplitter_AcceptsOneArgEqualsHole()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit("$\"eq={a.Equals(c)}\"", parts));
+
+        Assert.Equal(2, parts.Count);
+        Assert.False(parts[0].IsHole);
+        Assert.Equal("eq=", parts[0].Text);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal("a.Equals(c)", parts[1].Text);
+    }
+
+    [Theory]
+    [InlineData("$\"eq={a == c}\"", "a == c")]
+    [InlineData("$\"ne={a != c}\"", "a != c")]
+    public void ColumnarInterpolationSplitter_AcceptsEqualityHoles(string literal, string expectedHole)
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit(literal, parts));
+
+        Assert.Equal(2, parts.Count);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal(expectedHole, parts[1].Text);
+    }
+
+    [Fact]
     public void ColumnarInterpolationSplitter_RejectsMultipleCoalesceHole()
     {
         var parts = new List<ColumnarInterpolationPart>();
