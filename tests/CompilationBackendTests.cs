@@ -592,6 +592,102 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsConstructorChainsWithLiteralAndNewArguments()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ConstructorChainArgumentsProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+interface ICache {
+    func Get(key: string): string?
+}
+
+class MemoryCache: ICache {
+    func Get(key: string): string? {
+        return null
+    }
+}
+
+class Person {
+    readonly Name: string
+    readonly Age: int
+    readonly Email: string
+
+    constructor(name: string, age: int, email: string) {
+        Name = name
+        Age = age
+        Email = email
+    }
+
+    constructor(name: string, email: string): this(name, 0, email) {
+    }
+
+    constructor(name: string): this(name, 0, "") {
+    }
+
+    func Info(): string {
+        return $"{Name}:{Age}:{Email}"
+    }
+}
+
+class Service {
+    readonly Cache: ICache
+    readonly Config: string
+
+    constructor(cache: ICache, config: string) {
+        Cache = cache
+        Config = config
+    }
+
+    constructor(): this(new MemoryCache(), "default") {
+    }
+
+    func Info(): string {
+        return Config
+    }
+}
+
+func main() {
+    p1 := new Person("Ada", 37, "ada@example.com")
+    p2 := new Person("Bob", "bob@example.com")
+    p3 := new Person("Cy")
+    service := new Service()
+
+    print p1.Info()
+    print p2.Info()
+    print p3.Info()
+    print service.Info()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ConstructorChainArgumentsProject.dll");
+            var result = compiler.CompileToIlAssembly("ConstructorChainArgumentsProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("Ada:37:ada@example.com\nBob:0:bob@example.com\nCy:0:\ndefault", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericBodyCollectionConstruction()
     {
         var tempDir = CreateTempDir();

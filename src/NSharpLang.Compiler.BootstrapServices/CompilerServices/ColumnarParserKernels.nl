@@ -9001,14 +9001,25 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
 
     argCount := 0
     while pos < count && tokens.Kinds[pos] != 128 {
-        if tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 1 {
-            return -1
+        if tokens.Kinds[pos] == 41 {
+            if pos + 3 >= count || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 127 || tokens.Kinds[pos + 3] != 128 {
+                return -1
+            }
+            args.Kinds[argCount] = tokens.Kinds[pos]
+            args.Starts[argCount] = tokens.Starts[pos + 1]
+            args.Lengths[argCount] = tokens.ValueLengths[pos + 1]
+            argCount = argCount + 1
+            pos = pos + 4
+        } else {
+            if tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 4 {
+                return -1
+            }
+            args.Kinds[argCount] = tokens.Kinds[pos]
+            args.Starts[argCount] = tokens.Starts[pos]
+            args.Lengths[argCount] = tokens.ValueLengths[pos]
+            argCount = argCount + 1
+            pos = pos + 1
         }
-        args.Kinds[argCount] = tokens.Kinds[pos]
-        args.Starts[argCount] = tokens.Starts[pos]
-        args.Lengths[argCount] = tokens.ValueLengths[pos]
-        argCount = argCount + 1
-        pos = pos + 1
 
         if pos < count && tokens.Kinds[pos] != 128 {
             if tokens.Kinds[pos] != 134 {

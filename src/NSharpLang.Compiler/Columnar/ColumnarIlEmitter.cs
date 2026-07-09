@@ -9372,8 +9372,9 @@ internal sealed class ColumnarIlEmitter
     // (excluding the chaining ctor itself), for `: base` among the DIRECT base's constructors (no self-exclusion;
     // a zero-arg `: base()` against a no-user-ctor base resolves to its PASS-0d default ctor). Two candidates of
     // that arity are ambiguous-by-count -> decline. Each chained arg is a param IDENTIFIER (kind 0, resolved to the
-    // chaining ctor's param ordinal via `ldarg`, type-checked against the chained ctor's param type) or an INT
-    // LITERAL (kind 1, `ldc.i4`). Returns false (whole assembly discarded) on any unresolved/mismatched arg.
+    // chaining ctor's param ordinal via `ldarg`, type-checked against the chained ctor's param type), an INT LITERAL
+    // (kind 1, `ldc.i4`), a STRING LITERAL (kind 4, `ldstr`), or a simple parameterless user `new Type()` (kind 41).
+    // Returns false (whole assembly discarded) on any unresolved/mismatched arg.
     private bool EmitChainedConstructorCall(ColumnarConstructorInput ctor, ConstructorBuilder self)
     {
         if (_currentStruct == null)
@@ -9420,20 +9421,45 @@ internal sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldarg_0);
         for (var a = 0; a < argKinds.Length; a++)
         {
+            var expectedParamType = chainedParamTypes![a];
             if (argKinds[a] == 0) // a param identifier of the chaining ctor.
             {
                 if (!_paramOrdinals.TryGetValue(argTexts[a], out var ordinal) || !_paramTypes.TryGetValue(argTexts[a], out var paramType))
                     return false;
-                if (paramType != chainedParamTypes![a])
+                if (!TypesEquivalent(paramType, expectedParamType))
                     return false;
                 EmitLoadArgument(ordinal);
             }
-            else // an int literal.
+            else if (argKinds[a] == 1) // an int literal.
             {
-                if (chainedParamTypes![a] != typeof(int)
+                if (expectedParamType != typeof(int)
                     || !int.TryParse(argTexts[a], System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var literal))
                     return false;
                 _il.Emit(OpCodes.Ldc_I4, literal);
+            }
+            else if (argKinds[a] == 4) // a string literal.
+            {
+                if (expectedParamType != typeof(string) || argTexts[a].StartsWith('$'))
+                    return false;
+                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(argTexts[a]));
+            }
+            else if (argKinds[a] == 41) // a simple parameterless `new Type()`.
+            {
+                if (!_structRegistry.TryGetValue(argTexts[a], out var newDef)
+                    || !newDef.IsReference
+                    || newDef.DefaultCtor == null)
+                    return false;
+                _il.Emit(OpCodes.Newobj, newDef.DefaultCtor);
+                var newType = newDef.Builder;
+                if (!TypesEquivalent(newType, expectedParamType)
+                    && !TryEmitInterfaceUpcast(newType, expectedParamType)
+                    && !TryEmitReferenceConversion(newType, expectedParamType)
+                    && !TryEmitObjectConversion(newType, expectedParamType))
+                    return false;
+            }
+            else
+            {
+                return false;
             }
         }
         _il.Emit(OpCodes.Call, chained);
