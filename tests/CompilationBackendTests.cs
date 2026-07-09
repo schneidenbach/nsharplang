@@ -1021,6 +1021,71 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsGenericUnionPayloadFreeCallStyleAdoption()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: GenericUnionAdoptionProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+union Option<T> {
+    Some { value: T }
+    None
+}
+
+func FirstAbove(items: int[], threshold: int): Option<int> {
+    for item in items {
+        if item > threshold {
+            return new Option.Some<int>(item)
+        }
+    }
+
+    return new Option.None()
+}
+
+func main() {
+    items := [1, 5, 9]
+    found := match FirstAbove(items, 8) {
+        Option.Some { value } => $"some:{value}",
+        Option.None => "none"
+    }
+    print found
+
+    missing := match FirstAbove(items, 100) {
+        Option.Some { value } => $"some:{value}",
+        Option.None => "none"
+    }
+    print missing
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "GenericUnionAdoptionProject.dll");
+            var result = compiler.CompileToIlAssembly("GenericUnionAdoptionProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("some:9\nnone", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
     {
         var tempDir = CreateTempDir();

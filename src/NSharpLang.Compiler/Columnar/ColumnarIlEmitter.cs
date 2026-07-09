@@ -11212,6 +11212,17 @@ internal sealed class ColumnarIlEmitter
                 // previous parity baseline uses; reflection member queries throw on TypeBuilderInstantiation).
                 if (_nodes.Kind(typeNode) == 1)
                 {
+                    // CLOSED GENERIC UNION CASE: `new Option.Some<int>(value)` — a Generic type root whose
+                    // dotted head names a registered union case. The case fields define positional argument
+                    // order, and each expected field type substitutes the case arguments.
+                    if (TryGetUnionCaseByKey(Text(typeNode), out _, out var genericPositionalCaseDef))
+                    {
+                        if (!genericPositionalCaseDef.UnionBase.IsGenericTypeDefinition
+                            || !TryResolveUnionCaseTypeArgs(typeNode, genericPositionalCaseDef, out var explicitCaseArgs))
+                            return false;
+                        return TryEmitUnionCasePositionalConstruction(genericPositionalCaseDef, explicitCaseArgs, idx, _nodes.ChildCount(idx) - 1, out type);
+                    }
+
                     if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical))
                     {
                         return false;
@@ -13046,17 +13057,20 @@ internal sealed class ColumnarIlEmitter
     }
 
     // True when `exprNode` is the expected-type ADOPTION shape for a GENERIC union case: a `new Union.Case
-    // { ... }` object-init (kind 36) or brace-less `new Union.Case` (kind 42) whose Simple type root names a
-    // registered case of a GENERIC union, with the expected type a CLOSED instantiation of THAT union's base
-    // (`return new Opt.None` on `(): Opt<int>`; `n: Opt<int> = new Opt.Some { value: 5 }`). The pipeline
-    // adopts the expected type's arguments at FIVE probe-pinned positions, each with an exact expected type:
-    // return statements, typed-local inits, union-case object-init FIELD VALUES, and local/param
-    // REASSIGNMENT — exactly the emitters that consult this before their normal EmitExpression call. It
-    // REJECTS call-argument adoption (NL103 — queued known defect) and `:=` (NL207, no expected type), so
-    // kind-36/42 nodes reaching plain EmitExpression with a generic case decline there.
+    // { ... }` object-init (kind 36), brace-less `new Union.Case` (kind 42), or payload-free call-style
+    // `new Union.Case()` (kind 15) whose Simple type root names a registered case of a GENERIC union, with the
+    // expected type a CLOSED instantiation of THAT union's base (`return new Opt.None` on `(): Opt<int>`;
+    // `n: Opt<int> = new Opt.Some { value: 5 }`). The pipeline adopts the expected type's arguments at FIVE
+    // probe-pinned positions, each with an exact expected type: return statements, typed-local inits, union-case
+    // object-init FIELD VALUES, and local/param REASSIGNMENT — exactly the emitters that consult this before
+    // their normal EmitExpression call. It REJECTS call-argument adoption (NL103 — queued known defect) and `:=`
+    // (NL207, no expected type), so kind-15/36/42 nodes reaching plain EmitExpression with a generic case decline
+    // there.
     private bool IsAdoptableUnionConstruction(int exprNode, Type expectedType)
     {
-        if (_nodes.Kind(exprNode) != 36 && _nodes.Kind(exprNode) != 42)
+        if (_nodes.Kind(exprNode) != 15 && _nodes.Kind(exprNode) != 36 && _nodes.Kind(exprNode) != 42)
+            return false;
+        if (_nodes.Kind(exprNode) == 15 && _nodes.ChildCount(exprNode) != 1)
             return false;
         if (_nodes.Kind(exprNode) == 36 && (_nodes.ChildCount(exprNode) % 2) != 1)
             return false;
