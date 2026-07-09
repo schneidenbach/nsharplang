@@ -204,7 +204,9 @@ of building the surface themselves before verification.
 - **CodeFixTests** — CodeFixProviders (auto-import, unused variable removal)
 
 ### Known Testing Limitation
-`dotnet test --filter` hangs when used with this project (xUnit deadlock from assembly loading — see task 034). Run the full suite with `dotnet test` instead.
+Raw filtered `dotnet test --filter` invocations can hang in this project because of the
+assembly-loading test topology. Use `./scripts/dev.sh <pattern>` for focused work and plain
+`dotnet test tests/Tests.csproj` for the full unit suite.
 
 ## Running Tests
 
@@ -215,12 +217,12 @@ dotnet test tests/Tests.csproj
 
 ### Specific Test Class
 ```bash
-dotnet test --filter ClassName=LexerTests
+./scripts/dev.sh LexerTests
 ```
 
 ### Specific Test Method
 ```bash
-dotnet test --filter FullyQualifiedName~TestVariableDeclaration
+./scripts/dev.sh TestVariableDeclaration
 ```
 
 ### With Detailed Output
@@ -301,42 +303,64 @@ public void TestTypeMismatchError()
 
 ## N# Test Files (.tests.nl)
 
-Future feature: Write tests in N# itself:
+N# native tests use top-level `test` declarations and `assert` statements:
 
 ```
 // example.tests.nl
-using Xunit
+namespace Example
 
-class CalculatorTests {
-    [Fact]
-    func TestAdd() {
-        calc := new Calculator()
-        result := calc.Add(2, 3)
-        Assert.Equal(5, result)
-    }
+test "adds two values" {
+    result := Add(2, 3)
+    assert result == 5
 }
 ```
 
 Run with:
 ```bash
-nlc test
+nlc test --project <project-directory>
 ```
 
-## Full Validation (MANDATORY before committing)
+Plain tests and assertions are live. Check current product tests and limitations before relying
+on richer lifecycle/table/skip forms; those forms are still being closed out.
+
+## Validation cadence
+
+Use the narrowest relevant inner loop while editing:
+
+```bash
+./scripts/dev.sh <pattern>
+./scripts/dev.sh --since
+```
+
+Commit a coherent compiler slice after its focused evidence is green. Do not run the full
+product gate between every small backend commit.
+
+At integration checkpoints—before push/handoff, after SDK/runtime/build-script/package changes,
+after broad shared compiler changes, or when focused evidence is ambiguous—run a fresh
+non-VS-Code product gate:
+
+```bash
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
+```
+
+For Language Server, LSP, extension, or other IDE-affecting work, do not skip VS Code tests:
 
 ```bash
 ./scripts/test-all.sh --commit
+./scripts/reload-vscode-extension.sh
 ```
 
-This entrypoint runs the full gate from an isolated temporary copy of the
+Then use computer-use to verify the behavior in the installed extension and capture screenshots.
+`AGENTS.md` is authoritative for the exact gate boundary.
+
+The product-gate entrypoint runs from an isolated temporary copy of the
 repository with separate HOME, temp, NuGet, and npm state. Successful isolated
 runs write a content-addressed cache manifest that includes source content,
 test arguments, selected environment, tool versions, and platform data; when all
 of those inputs still match, follow-up invocations validate the manifest and
 return the recorded green result quickly. Plain `./scripts/test-all.sh` may use
-that cache for development feedback. Before committing or release verification,
-use `./scripts/test-all.sh --commit` (or `--release`) so cached results are not
-accepted.
+that cache for development feedback. Integration and release evidence uses
+`--commit` (or `--release`) so cached results are not accepted.
 
 The full isolated run:
 1. Runs all unit tests (`dotnet test`)
@@ -346,7 +370,7 @@ The full isolated run:
 5. Builds ALL example projects with `dotnet build`
 6. Validates everything works end-to-end
 
-**Never commit without `./scripts/test-all.sh --commit` passing.**
+Do not use a cached gate result as integration-checkpoint evidence.
 
 ## Continuous Testing
 
@@ -361,4 +385,4 @@ Tests run on:
 2. **Descriptive test names** (TestFeature_Scenario_ExpectedBehavior)
 3. **Arrange-Act-Assert pattern**
 4. **No test interdependencies**
-5. **Fast execution** (all tests < 5 seconds)
+5. **Fast focused execution** (keep individual facts small; broad integration suites may be slower)

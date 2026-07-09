@@ -29,7 +29,7 @@ compiler-core and tooling logic is deletion debt, not architecture.
 
 ## Main Components
 
-1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler/Lexer.cs`)
+1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`)
 2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler/Parser.cs`)
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler/Analyzer.cs`)
 4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler/Columnar/`)
@@ -60,6 +60,25 @@ compiler-core and tooling logic is deletion debt, not architecture.
 If code search finds old parser, binder, analyzer, semantic-model, diagnostics, IL-lowering, codegen,
 generated-source backend, or legacy comparison path ownership, treat it as a target for replacement
 and deletion. Do not preserve it because an older doc called it an inspection surface.
+
+<a id="non-nsharp-survivors"></a>
+
+## Non-N# survivors
+
+This is the durable location for the final closeout allowlist. During the migration, absence from
+this section does not make a non-N# file acceptable; it remains product-ownership debt until its
+N# replacement is in the product path or the final audit proves it is mechanical integration.
+
+The completed inventory will list each surviving path, the ecosystem boundary it adapts to, the
+N# owner it invokes, responsibilities it is forbidden to own, and a removal or re-evaluation
+trigger. Candidate boundary categories include MSBuild/LSP protocol objects, process/socket/file
+IO, PE/Reflection.Emit replay, metadata loading, ALC loading, NuGet/Zip/HTTP mechanics, and editor
+UI wiring. Classification is path-specific: a file does not qualify merely because it uses one
+of those APIs or is small.
+
+`systems-language-closeout/STATUS.md` is the temporary execution ledger. The final campaign
+stage replaces this paragraph with the exact reviewed allowlist and enforces it with a committed
+ownership-audit script.
 
 ## Build And Test Commands
 

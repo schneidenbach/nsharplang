@@ -1,6 +1,6 @@
 # Lexer Component
 
-**File:** `src/NSharpLang.Compiler/Lexer.cs`
+**File:** `src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`
 
 ## Responsibility
 
@@ -15,16 +15,18 @@ Converts raw source code text into a stream of tokens for the parser.
   - Interpolated: `$"hello {x}"` (full string)
 - The parser and semantic pipeline receive the source spelling unchanged.
 
-### Newline Filtering
-- Newlines are tokenized but filtered out before returning to parser
-- Makes parsing simpler (no need to handle newlines everywhere)
-- Line/column tracking still accurate
+### Newlines and indentation
+- Newline tokens are retained in the returned token list.
+- `InsertIndentationBraces` uses line starts and indentation to synthesize brace tokens outside
+  explicit braces/parentheses/brackets.
+- Line/column tracking remains 1-based.
 
 ### Comment Handling
 - Single-line comments: `// comment`
 - Multi-line comments: `/* comment */`
-- Comments are filtered out during tokenization
-- Not preserved in token stream
+- Comment tokens are removed from the main token list.
+- Comment trivia is preserved separately in `Lexer.Comments`, including line, column, text, and
+  multi-line classification.
 
 ### Numeric Literals
 - Integer literals: `42`, `1_000_000`
@@ -38,7 +40,8 @@ Converts raw source code text into a stream of tokens for the parser.
 
 ## Token Types
 
-See `src/NSharpLang.Compiler/Token.cs` for complete list (50+ token types).
+See `src/NSharpLang.Compiler.BootstrapServices/Token.nl` for the complete live token model and
+token-type enum.
 
 Notable tokens:
 - **QuestionDot**: `?.` for null-conditional member access
@@ -96,7 +99,7 @@ var tokens = lexer.Tokenize(); // Returns List<Token>
 
 ## Testing
 
-Lexer has 33 unit tests covering:
+Lexer tests cover:
 - All keywords
 - All operators
 - String interpolation
