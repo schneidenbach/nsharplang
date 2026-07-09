@@ -775,6 +775,14 @@ internal sealed class ColumnarIlEmitter
            || t == typeof(char) || t == typeof(double) || t == typeof(float)
            || IsEnumType(t);
 
+    private static MethodInfo? ResolveSpanLikeItemGetter(Type spanType)
+    {
+        if (!IsSupportedSpanLikeType(spanType))
+            return null;
+        var openGetter = spanType.GetGenericTypeDefinition().GetProperty("Item")?.GetGetMethod();
+        return openGetter == null ? null : ResolveClosedGenericMethod(spanType, openGetter);
+    }
+
     private static void TryRegisterEnumAlias(Dictionary<string, ColumnarEnumDef> registry, string name, ColumnarEnumDef def)
     {
         var shortName = ColumnarTypeCanonicalizer.UnqualifiedTypeName(name);
@@ -2232,6 +2240,24 @@ internal sealed class ColumnarIlEmitter
                || !lastArgType.IsSZArray;
     }
 
+    private bool ShouldUseExpandedParamsCall(int callIdx, Type[] paramTypes, int[] paramModifierKinds)
+    {
+        if (!HasTrailingParamsParameter(paramTypes, paramModifierKinds))
+            return false;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        var fixedCount = paramTypes.Length - 1;
+        if (argCount < fixedCount)
+            return false;
+        if (argCount != paramTypes.Length)
+            return true;
+        return !CanDeclaredCallArgumentMatch(Child(callIdx, argCount), paramTypes[^1], allowLambdaLiteral: true);
+    }
+
+    private static bool HasTrailingParamsParameter(Type[] paramTypes, int[] paramModifierKinds)
+        => paramTypes.Length > 0
+           && paramModifierKinds.Length >= paramTypes.Length
+           && paramModifierKinds[paramTypes.Length - 1] == NSharpParameterModifierParams;
+
     private static bool HasTrailingParamsArray(Type[] paramTypes, int[] paramModifierKinds)
         => paramTypes.Length > 0
            && paramModifierKinds.Length >= paramTypes.Length
@@ -2294,6 +2320,126 @@ internal sealed class ColumnarIlEmitter
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
         return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+    }
+
+    private bool TryEmitSiblingExpandedParamsCall(
+        int callIdx,
+        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        out Type type)
+    {
+        type = null!;
+        if (!HasTrailingParamsParameter(target.ParamTypes, target.ParamModifierKinds))
+            return false;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        var fixedCount = target.ParamTypes.Length - 1;
+        if (argCount < fixedCount
+            || !TryGetExpandedParamsElementType(target.ParamTypes[^1], out var paramsElementType))
+            return false;
+        for (var a = 1; a <= fixedCount; a++)
+        {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a), target.ParamTypes[a - 1], allowLambdaLiteral: true))
+                return false;
+        }
+        for (var a = fixedCount + 1; a <= argCount; a++)
+        {
+            if (!CanEmitAssignableValueAsType(Child(callIdx, a), paramsElementType))
+                return false;
+        }
+        for (var p = 0; p < fixedCount; p++)
+        {
+            if (!EmitDeclaredCallArgument(Child(callIdx, p + 1), target.ParamTypes[p], allowLambdaLiteral: true))
+                return false;
+        }
+        if (!TryEmitExpandedParamsValue(callIdx, fixedCount, argCount, target.ParamTypes[^1], paramsElementType))
+            return false;
+        _il.Emit(OpCodes.Call, target.Method);
+        type = target.ReturnType;
+        return true;
+    }
+
+    private static bool TryGetExpandedParamsElementType(Type paramsType, out Type elementType)
+    {
+        elementType = null!;
+        if (paramsType.IsSZArray)
+        {
+            elementType = paramsType.GetElementType()!;
+            return IsSupportedElementType(elementType);
+        }
+        if (IsSupportedSpanLikeType(paramsType))
+        {
+            elementType = paramsType.GetGenericArguments()[0];
+            return IsSupportedReadOnlySpanElementType(elementType);
+        }
+        if (!IsSupportedCollectionType(paramsType))
+            return false;
+        var def = paramsType.GetGenericTypeDefinition();
+        if (def != typeof(List<>)
+            && def != typeof(IReadOnlyList<>)
+            && def != typeof(IReadOnlyCollection<>)
+            && def != typeof(IEnumerable<>))
+            return false;
+        elementType = paramsType.GetGenericArguments()[0];
+        return IsAdmissibleCollectionElement(elementType);
+    }
+
+    private bool TryEmitExpandedParamsValue(int callIdx, int fixedCount, int argCount, Type paramsType, Type paramsElementType)
+    {
+        if (paramsType.IsSZArray)
+            return TryEmitExpandedParamsArrayValue(callIdx, fixedCount, argCount, paramsElementType);
+        if (IsSupportedSpanLikeType(paramsType))
+        {
+            if (!TryEmitExpandedParamsArrayValue(callIdx, fixedCount, argCount, paramsElementType))
+                return false;
+            var arrayType = paramsElementType.MakeArrayType();
+            var ctor = paramsType.GetConstructor(new[] { arrayType });
+            if (ctor == null)
+                return false;
+            _il.Emit(OpCodes.Newobj, ctor);
+            return true;
+        }
+        if (!IsSupportedCollectionType(paramsType))
+            return false;
+        var def = paramsType.GetGenericTypeDefinition();
+        if (def != typeof(List<>)
+            && def != typeof(IReadOnlyList<>)
+            && def != typeof(IReadOnlyCollection<>)
+            && def != typeof(IEnumerable<>))
+            return false;
+        var listType = typeof(List<>).MakeGenericType(paramsElementType);
+        var openCtor = typeof(List<>).GetConstructor(Type.EmptyTypes);
+        var openAdd = typeof(List<>).GetMethod(nameof(List<int>.Add));
+        if (openCtor == null || openAdd == null)
+            return false;
+        var ctorInfo = ResolveClosedGenericCtor(listType, openCtor);
+        var addMethod = ResolveClosedGenericMethod(listType, openAdd);
+        _il.Emit(OpCodes.Newobj, ctorInfo);
+        var expandedCount = argCount - fixedCount;
+        for (var i = 0; i < expandedCount; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out _))
+                return false;
+            _il.Emit(OpCodes.Callvirt, addMethod);
+        }
+        return true;
+    }
+
+    private bool TryEmitExpandedParamsArrayValue(int callIdx, int fixedCount, int argCount, Type paramsElementType)
+    {
+        if (!IsSupportedElementType(paramsElementType))
+            return false;
+        var expandedCount = argCount - fixedCount;
+        _il.Emit(OpCodes.Ldc_I4, expandedCount);
+        _il.Emit(OpCodes.Newarr, paramsElementType);
+        for (var i = 0; i < expandedCount; i++)
+        {
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldc_I4, i);
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out _)
+                || !EmitArrayElementStore(paramsElementType))
+                return false;
+        }
+        return true;
     }
 
     private bool CanGenericCallArgumentMatch(Type[] typeParams, Type?[] binding, Type declared, int argNode, bool allowLambdaLiteral)
@@ -6638,7 +6784,7 @@ internal sealed class ColumnarIlEmitter
                     if (IsSupportedSpanType(arrayType))
                     {
                         var spanElementType = arrayType.GetGenericArguments()[0];
-                        var itemGetter = arrayType.GetProperty("Item")?.GetGetMethod();
+                        var itemGetter = ResolveSpanLikeItemGetter(arrayType);
                         if (itemGetter == null || !IsSupportedElementType(spanElementType))
                             return false;
                         var spanTemp = _il.DeclareLocal(arrayType);
@@ -9966,8 +10112,8 @@ internal sealed class ColumnarIlEmitter
                     if (_siblings.TryGetValue(name, out var target))
                     {
                         var argCount = _nodes.ChildCount(idx) - 1;
-                        if (argCount != target.ParamTypes.Length
-                            && !ShouldUseExpandedParamsArrayCall(idx, target.ParamTypes, target.ParamModifierKinds))
+                        var useExpandedParams = ShouldUseExpandedParamsCall(idx, target.ParamTypes, target.ParamModifierKinds);
+                        if (argCount != target.ParamTypes.Length && !useExpandedParams)
                             return false;
                         if (target.TypeParams.Length > 0)
                         {
@@ -9976,6 +10122,8 @@ internal sealed class ColumnarIlEmitter
                             // emitted argument types (the legacy emitter's TryInferDeclaredMethodTypeArguments).
                             return TryEmitGenericSiblingCall(idx, target, new Type?[target.TypeParams.Length], out type);
                         }
+                        if (useExpandedParams)
+                            return TryEmitSiblingExpandedParamsCall(idx, target, out type);
                         // Each argument's type must match the callee's declared parameter type. int and bool are both
                         // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
                         // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
@@ -10686,10 +10834,48 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(object);
                     return true;
                 }
-                if (IsSupportedSpanLikeType(indexedType))
+                if (IsSupportedReadOnlySpanType(indexedType))
                 {
                     var spanElementType = indexedType.GetGenericArguments()[0];
-                    var itemGetter = indexedType.GetProperty("Item")?.GetGetMethod();
+                    var spanSlice = indexedType.GetMethod(nameof(ReadOnlySpan<byte>.Slice), new[] { typeof(int), typeof(int) });
+                    var asBytes = Array.Find(
+                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                        method =>
+                        {
+                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.AsBytes) || !method.IsGenericMethodDefinition)
+                                return false;
+                            var parameters = method.GetParameters();
+                            return parameters.Length == 1
+                                   && parameters[0].ParameterType.IsGenericType
+                                   && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>);
+                        });
+                    var memoryRead = Array.Find(
+                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                        method =>
+                        {
+                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.Read) || !method.IsGenericMethodDefinition)
+                                return false;
+                            var parameters = method.GetParameters();
+                            return parameters.Length == 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
+                        });
+                    if (spanSlice == null || asBytes == null || memoryRead == null)
+                        return false;
+                    var spanTemp = _il.DeclareLocal(indexedType);
+                    _il.Emit(OpCodes.Stloc, spanTemp);
+                    _il.Emit(OpCodes.Ldloca, spanTemp);
+                    if (!EmitExpression(Child(idx, 1), out var spanIndexType) || spanIndexType != typeof(int))
+                        return false;
+                    _il.Emit(OpCodes.Ldc_I4_1);
+                    _il.Emit(OpCodes.Call, spanSlice);
+                    _il.Emit(OpCodes.Call, asBytes.MakeGenericMethod(spanElementType));
+                    _il.Emit(OpCodes.Call, memoryRead.MakeGenericMethod(spanElementType));
+                    type = spanElementType;
+                    return true;
+                }
+                if (IsSupportedSpanType(indexedType))
+                {
+                    var spanElementType = indexedType.GetGenericArguments()[0];
+                    var itemGetter = ResolveSpanLikeItemGetter(indexedType);
                     if (itemGetter == null || !IsSupportedElementType(spanElementType))
                         return false;
                     var spanTemp = _il.DeclareLocal(indexedType);

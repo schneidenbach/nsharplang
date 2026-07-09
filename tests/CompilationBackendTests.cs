@@ -749,6 +749,89 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsExpandedParamsCollections()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ExpandedParamsCollectionsProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Collections.Generic
+
+func SumArray(params numbers: int[]): int {
+    total := 0
+    for number in numbers {
+        total = total + number
+    }
+    return total
+}
+
+func SumReadOnlySpan(params numbers: ReadOnlySpan<int>): int {
+    total := 0
+    for i := 0; i < numbers.Length; i++ {
+        total = total + numbers[i]
+    }
+    return total
+}
+
+func CountAll(params items: IEnumerable<string>): int {
+    count := 0
+    for item in items {
+        count = count + 1
+    }
+    return count
+}
+
+func FormatItems(separator: string, params items: IReadOnlyList<string>): string {
+    result := items[0]
+    for i := 1; i < items.Count; i++ {
+        result = result + separator + items[i]
+    }
+    return result
+}
+
+func BuildList(params items: List<int>): List<int> {
+    return items
+}
+
+func main() {
+    print SumArray(1, 2, 3)
+    print SumArray()
+    print SumReadOnlySpan(4, 5, 6)
+    print CountAll("a", "b", "c")
+    print FormatItems("-", "left", "right")
+    list := BuildList(10, 20, 30)
+    print list.Count
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ExpandedParamsCollectionsProject.dll");
+            var result = compiler.CompileToIlAssembly("ExpandedParamsCollectionsProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("6\n0\n15\n3\nleft-right\n3", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsSpanIndexReadWrite()
     {
         var tempDir = CreateTempDir();
