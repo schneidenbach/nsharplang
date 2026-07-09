@@ -410,6 +410,10 @@ class TypeReferenceTupleNameTable {
 //                                         Lowering only accepts contexts that provide an expected type.)
 //   SpreadArgumentExpression -> kind 64 (`...expr` (DotDotDot 126) inside a call argument list; keyword token
 //                                         in the value span, ONE child [expr].)
+//   ListPattern             -> kind 65  (`[pat0, .. rest, patN]` inside a match arm; children are element
+//                                         patterns and at most one kind-66 slice pattern.)
+//   SlicePattern            -> kind 66  (`..` / `.. name` inside a ListPattern; optional binding name in the
+//                                         value span, no children.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
@@ -3833,6 +3837,10 @@ func ParseNotPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
 }
 
 func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 131 {
+        return ParseListPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    }
+
     if st.Pos < count {
         relTok := tokens.Kinds[st.Pos]
         if relTok == 100 || relTok == 101 || relTok == 102 || relTok == 103 {
@@ -3928,6 +3936,78 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
     }
 
     return leaf
+}
+
+func ParseListPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 131 {
+        return -1
+    }
+
+    listStart := tokens.Starts[st.Pos]
+    st.Pos = st.Pos + 1
+    listArgBase := st.ArgStackTop
+
+    if st.Pos < count && tokens.Kinds[st.Pos] != 132 {
+        parsing := true
+        while parsing {
+            pattern := -1
+            if st.Pos < count && tokens.Kinds[st.Pos] == 125 {
+                sliceStart := tokens.Starts[st.Pos]
+                sliceLength := tokens.ValueLengths[st.Pos]
+                st.Pos = st.Pos + 1
+                bindStart := -1
+                bindLength := 0
+                sliceEnd := sliceStart + sliceLength
+                if st.Pos < count && tokens.Kinds[st.Pos] == 0 {
+                    bindStart = tokens.Starts[st.Pos]
+                    bindLength = tokens.ValueLengths[st.Pos]
+                    sliceEnd = bindStart + bindLength
+                    st.Pos = st.Pos + 1
+                }
+                pattern = EmitExpressionNode(st, nodes, 66, bindStart, bindLength, -1, 0, sliceStart, sliceEnd - sliceStart)
+            } else {
+                pattern = ParseMatchPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                if pattern < 0 {
+                    st.ArgStackTop = listArgBase
+                    return -1
+                }
+            }
+
+            argStack.Values[st.ArgStackTop] = pattern
+            st.ArgStackTop = st.ArgStackTop + 1
+
+            if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                st.Pos = st.Pos + 1
+                if st.Pos < count && tokens.Kinds[st.Pos] == 132 {
+                    st.ArgStackTop = listArgBase
+                    return -1
+                }
+            } else {
+                parsing = false
+            }
+        }
+    }
+
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
+        st.ArgStackTop = listArgBase
+        return -1
+    }
+
+    listEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+    st.Pos = st.Pos + 1
+    childCount := st.ArgStackTop - listArgBase
+    childRun := st.ChildCursor
+    a := listArgBase
+    while a < st.ArgStackTop {
+        AppendExpressionChild(st, children, argStack.Values[a])
+        a = a + 1
+    }
+    st.ArgStackTop = listArgBase
+    return EmitExpressionNode(st, nodes, 65, -1, 0, childRun, childCount, listStart, listEnd - listStart)
 }
 
 func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {

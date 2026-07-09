@@ -2023,16 +2023,16 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61) carry
+    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61, 65-66) carry
     // arm BINDINGS; object initializers (36) carry field NAMES. A capturing lambda containing any of them
     // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
     private bool ContainsCaptureOpaqueKind(int node)
     {
         var k = _nodes.Kind(node);
-        // 18/19 match arms, 32-37/61 patterns/object-init, 52 with-expressions: their kind-6 children are
-        // FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
+        // 18/19 match arms, 32-37/61/65-66 patterns/object-init, 52 with-expressions: their kind-6 children
+        // are FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
         // them as identifier uses.
-        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61)
+        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61 || k == 65 || k == 66)
             return true;
         for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
@@ -12294,6 +12294,13 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         _il.MarkLabel(armBody);
                     }
+                    else if (_nodes.Kind(patternNode) == 65) // list pattern `[head, .. rest, tail]` over arrays.
+                    {
+                        var armBody = _il.DefineLabel();
+                        if (!EmitArrayListPattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
+                            return false;
+                        _il.MarkLabel(armBody);
+                    }
                     else // literal / relational / and-or-not combinator -> recursive pattern test.
                     {
                         // On MATCH fall through to the guard/result (armBody); on NO-MATCH branch to nextCase. The
@@ -12429,6 +12436,161 @@ internal sealed class ColumnarIlEmitter
     // (33/34/35) over those. It does NOT model bindings: an identifier (kind 6) is only handled at the TOP LEVEL of
     // an arm, so an identifier inside a combinator declines (returns false) and required columnar emission rejects
     // the program. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
+    private bool EmitArrayListPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        if (_nodes.Kind(patternNode) != 65 || !matchValueType.IsSZArray)
+            return false;
+        var elementType = matchValueType.GetElementType()!;
+        if (!IsSupportedElementType(elementType))
+            return false;
+
+        var childCount = _nodes.ChildCount(patternNode);
+        var sliceIndex = -1;
+        for (var i = 0; i < childCount; i++)
+        {
+            if (_nodes.Kind(Child(patternNode, i)) != 66)
+                continue;
+            if (sliceIndex >= 0)
+                return false;
+            sliceIndex = i;
+        }
+
+        var leadingCount = sliceIndex >= 0 ? sliceIndex : childCount;
+        var trailingCount = sliceIndex >= 0 ? childCount - sliceIndex - 1 : 0;
+        var minimumLength = leadingCount + trailingCount;
+        var lengthLocal = _il.DeclareLocal(typeof(int));
+        _il.Emit(OpCodes.Ldloc, matchLocal);
+        _il.Emit(OpCodes.Ldlen);
+        _il.Emit(OpCodes.Conv_I4);
+        _il.Emit(OpCodes.Stloc, lengthLocal);
+
+        _il.Emit(OpCodes.Ldloc, lengthLocal);
+        _il.Emit(OpCodes.Ldc_I4, sliceIndex >= 0 ? minimumLength : childCount);
+        _il.Emit(sliceIndex >= 0 ? OpCodes.Blt : OpCodes.Bne_Un, failLabel);
+
+        for (var i = 0; i < leadingCount; i++)
+        {
+            var nextElement = _il.DefineLabel();
+            if (!EmitArrayListElementPattern(Child(patternNode, i), elementType, matchLocal, lengthLocal, i, fromEnd: false, nextElement, failLabel))
+                return false;
+            _il.MarkLabel(nextElement);
+        }
+
+        if (sliceIndex >= 0)
+        {
+            var sliceNode = Child(patternNode, sliceIndex);
+            if (!EmitArrayListSliceBinding(sliceNode, matchValueType, elementType, matchLocal, lengthLocal, leadingCount, trailingCount))
+                return false;
+        }
+
+        for (var i = 0; i < trailingCount; i++)
+        {
+            var nextElement = _il.DefineLabel();
+            var patternIndex = sliceIndex + 1 + i;
+            if (!EmitArrayListElementPattern(Child(patternNode, patternIndex), elementType, matchLocal, lengthLocal, trailingCount - i, fromEnd: true, nextElement, failLabel))
+                return false;
+            _il.MarkLabel(nextElement);
+        }
+
+        _il.Emit(OpCodes.Br, successLabel);
+        return true;
+    }
+
+    private bool EmitArrayListElementPattern(
+        int elementPattern,
+        Type elementType,
+        LocalBuilder arrayLocal,
+        LocalBuilder lengthLocal,
+        int indexOrFromEndOffset,
+        bool fromEnd,
+        Label successLabel,
+        Label failLabel)
+    {
+        var elementLocal = _il.DeclareLocal(elementType);
+        _il.Emit(OpCodes.Ldloc, arrayLocal);
+        if (fromEnd)
+        {
+            _il.Emit(OpCodes.Ldloc, lengthLocal);
+            _il.Emit(OpCodes.Ldc_I4, indexOrFromEndOffset);
+            _il.Emit(OpCodes.Sub);
+        }
+        else
+        {
+            _il.Emit(OpCodes.Ldc_I4, indexOrFromEndOffset);
+        }
+        EmitArrayElementLoad(elementType);
+        _il.Emit(OpCodes.Stloc, elementLocal);
+        return EmitListElementPattern(elementPattern, elementType, elementLocal, successLabel, failLabel);
+    }
+
+    private bool EmitListElementPattern(int patternNode, Type elementType, LocalBuilder elementLocal, Label successLabel, Label failLabel)
+    {
+        if (_nodes.Kind(patternNode) == 6)
+        {
+            var name = Text(patternNode);
+            if (name != "_")
+            {
+                if (IsVisibleBindingName(name))
+                    return false;
+                var bindLocal = _il.DeclareLocal(elementType);
+                _il.Emit(OpCodes.Ldloc, elementLocal);
+                _il.Emit(OpCodes.Stloc, bindLocal);
+                _locals[name] = bindLocal;
+            }
+            _il.Emit(OpCodes.Br, successLabel);
+            return true;
+        }
+        if (_nodes.Kind(patternNode) == 66)
+            return false;
+        return EmitPatternMatch(patternNode, elementType, elementLocal, successLabel, failLabel);
+    }
+
+    private bool EmitArrayListSliceBinding(
+        int sliceNode,
+        Type arrayType,
+        Type elementType,
+        LocalBuilder arrayLocal,
+        LocalBuilder lengthLocal,
+        int leadingCount,
+        int trailingCount)
+    {
+        if (_nodes.Kind(sliceNode) != 66)
+            return false;
+        if (_nodes.ValueStart(sliceNode) < 0)
+            return true;
+        var name = Text(sliceNode);
+        if (name == "_")
+            return true;
+        if (IsVisibleBindingName(name))
+            return false;
+
+        var sliceLocal = _il.DeclareLocal(arrayType);
+        var sliceLengthLocal = _il.DeclareLocal(typeof(int));
+        _il.Emit(OpCodes.Ldloc, lengthLocal);
+        _il.Emit(OpCodes.Ldc_I4, leadingCount);
+        _il.Emit(OpCodes.Sub);
+        _il.Emit(OpCodes.Ldc_I4, trailingCount);
+        _il.Emit(OpCodes.Sub);
+        _il.Emit(OpCodes.Stloc, sliceLengthLocal);
+
+        _il.Emit(OpCodes.Ldloc, sliceLengthLocal);
+        _il.Emit(OpCodes.Newarr, elementType);
+        _il.Emit(OpCodes.Stloc, sliceLocal);
+
+        var copy = typeof(Array).GetMethod(nameof(Array.Copy), new[] { typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int) });
+        if (copy == null)
+            return false;
+        _il.Emit(OpCodes.Ldloc, arrayLocal);
+        _il.Emit(OpCodes.Ldc_I4, leadingCount);
+        _il.Emit(OpCodes.Ldloc, sliceLocal);
+        _il.Emit(OpCodes.Ldc_I4_0);
+        _il.Emit(OpCodes.Ldloc, sliceLengthLocal);
+        _il.Emit(OpCodes.Call, copy);
+
+        _locals[name] = sliceLocal;
+        return true;
+    }
+
     private bool EmitPatternMatch(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         switch (_nodes.Kind(patternNode))
@@ -12887,6 +13049,7 @@ internal sealed class ColumnarIlEmitter
     private bool IsSupportedMatchValueType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
+        || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsEnumType(t)
         || IsSupportedAnonymousUnionType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);

@@ -802,6 +802,62 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsArrayListPatterns()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ArrayListPatternProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Describe(values: int[]): string {
+    result := match values {
+        [] => "empty",
+        [single] => $"one:{single}",
+        [a, b] => $"pair:{a}:{b}",
+        [first, .. middle, last] when first == last => $"same:{middle.Length}",
+        [first, .. middle, last] => $"range:{first}:{middle.Length}:{last}",
+        _ => "other"
+    }
+
+    return result
+}
+
+func main() {
+    print Describe([])
+    print Describe([9])
+    print Describe([1, 2])
+    print Describe([1, 2, 3, 4])
+    print Describe([5, 6, 5])
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ArrayListPatternProject.dll");
+            var result = compiler.CompileToIlAssembly("ArrayListPatternProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("empty\none:9\npair:1:2\nrange:1:2:4\nsame:1", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsStaticExpandedParamsCall()
     {
         var tempDir = CreateTempDir();
