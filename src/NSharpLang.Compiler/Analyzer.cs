@@ -10776,12 +10776,18 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        var targetExpectedType = expectedType is ByRefTypeInfo expectedByRef
+            ? expectedByRef.InnerType
+            : expectedType;
         var previousTargetTypes = _assignmentTargetExpressionTypes;
         expressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
         _assignmentTargetExpressionTypes = expressionTypes;
         try
         {
-            return AnalyzeExpressionWithExpectedType(argument.Value, expectedType, allowUnboundCallableReference);
+            var targetType = AnalyzeExpressionWithExpectedType(argument.Value, targetExpectedType, allowUnboundCallableReference);
+            return BuiltInTypes.IsUnknown(targetType)
+                ? targetType
+                : new ByRefTypeInfo(targetType);
         }
         finally
         {
@@ -11018,7 +11024,21 @@ public class Analyzer : IDisposable
             return paramsElementType ?? parameterType;
         }
 
-        return parameterType;
+        return ApplySyntheticParameterModifier(functionType, parameterIndex, parameterType);
+    }
+
+    private static TypeInfo ApplySyntheticParameterModifier(FunctionTypeInfo functionType, int parameterIndex, TypeInfo parameterType)
+    {
+        var modifiers = functionType.ParameterModifiers;
+        if (modifiers == null || parameterIndex < 0 || parameterIndex >= modifiers.Count)
+            return parameterType;
+
+        return modifiers[parameterIndex] switch
+        {
+            Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out when parameterType is not ByRefTypeInfo
+                => new ByRefTypeInfo(parameterType),
+            _ => parameterType
+        };
     }
 
     private TypeInfo? GetNSharpParamsElementType(TypeInfo paramsType)
@@ -11104,7 +11124,10 @@ public class Analyzer : IDisposable
             if (parameterIndex < 0 || parameterIndex >= expectedCount)
                 continue;
 
-            var expectedType = ResolveTypeAlias(ApplyNSharpGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings));
+            var expectedType = ResolveTypeAlias(ApplySyntheticParameterModifier(
+                functionType,
+                parameterIndex,
+                ApplyNSharpGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings)));
             var argType = ResolveTypeAlias(argTypes[argumentIndex]);
             if (hasParamsParameter && parameterIndex == paramsParameterIndex)
             {

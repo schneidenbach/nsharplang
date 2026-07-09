@@ -29,11 +29,15 @@ public class ColumnarInterpolationHolePlan {
     public BinaryOperator: string?
     public BinaryLeft: ColumnarInterpolationHolePlan?
     public BinaryRight: ColumnarInterpolationHolePlan?
+    public ExpressionNodes: ColumnarNodeTable?
+    public ExpressionSource: string?
+    public ExpressionRoot: int
 
     constructor() {
         RootOrdinal = 0
         CallArgOrdinal = -1
         RootIndexOrdinal = -1
+        ExpressionRoot = -1
         RootThis = false
         Hops = new List<ColumnarInterpolationMemberPlan>()
     }

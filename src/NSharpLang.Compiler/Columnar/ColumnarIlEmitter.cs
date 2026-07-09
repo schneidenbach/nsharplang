@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
@@ -67,6 +68,7 @@ internal sealed class ColumnarStructDef
     // members, known defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
     // + DefineMethodOverride, mirroring the legacy emitter's DeclareMethod.
     internal List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
+    internal List<Type> ImplementedInterfaceTypes { get; } = new();
     internal List<Type> ExternalInterfaces { get; } = new();
     // Interface method names declared with a default body. Implementers are not required to override these slots;
     // if they do, override binding still wires the implementing method to the interface method.
@@ -88,7 +90,7 @@ internal sealed class ColumnarStructDef
     // struct parser declines same-name/same-arity static overload sets before rows reach this pass). Resolved by
     // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
     // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
-    internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
     // STATIC fields declared on this type, by name -> the FieldBuilder. CLR-static (ldsfld/stsfld); excluded from
     // FieldOrder/Fields so object-init and positional construction never see them. Resolved by `TypeName.field`
     // (chain-walked) and by bare names inside INSTANCE member bodies only (the pipeline's pinned asymmetry).
@@ -142,8 +144,8 @@ internal sealed class ColumnarStructDef
 /// </summary>
 internal sealed class ColumnarIlEmitter
 {
-    private readonly ColumnarNodeTable _nodes;
-    private readonly string _source;
+    private ColumnarNodeTable _nodes;
+    private string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
     private readonly IReadOnlyDictionary<string, Type> _paramTypes;
     private readonly Type _returnType;
@@ -189,7 +191,8 @@ internal sealed class ColumnarIlEmitter
     // MethodBuilder.GetParameters()/ReturnType is unsupported before the type is created — and a Call checks each
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
-    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> _siblings;
+    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> _siblings;
+    private readonly IReadOnlyDictionary<Type, Type[]> _genericInterfaceConstraints;
     // User-defined enums in this program, by name -> (finalized enum Type, member->value). Lets member access
     // `Enum.Member` and enum match patterns resolve their underlying-int constant, and types resolve `Color` to a
     // baked type that can close runtime generics.
@@ -254,6 +257,10 @@ internal sealed class ColumnarIlEmitter
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
 
     private const int NSharpModifierOverride = 65536;
+    private const int NSharpModifierNativeImport = 131072;
+    private const int NSharpParameterModifierThis = 4;
+    private const int ColumnarNamedArgumentExpressionKind = 60;
+    private const int ColumnarFieldInitializerExpressionKind = 1001;
 
     private bool Decline(string siteId, string message, int nodeIdx = -1)
         => DeclineMember(siteId, message, nodeIdx, string.Empty);
@@ -292,7 +299,7 @@ internal sealed class ColumnarIlEmitter
         ColumnarNodeTable nodes, string source,
         Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> siblings,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings,
         IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
@@ -313,7 +320,8 @@ internal sealed class ColumnarIlEmitter
         HashSet<string>? enclosingBindingNames = null,
         Type? asyncReturnType = null,
         bool asyncBareReturnDeclines = false,
-        IReadOnlyList<string>? referenceAssemblyPaths = null)
+        IReadOnlyList<string>? referenceAssemblyPaths = null,
+        IReadOnlyDictionary<Type, Type[]>? genericInterfaceConstraints = null)
     {
         _isConstructorBody = isConstructorBody;
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody;
@@ -340,6 +348,7 @@ internal sealed class ColumnarIlEmitter
         }
         _il = il;
         _siblings = siblings;
+        _genericInterfaceConstraints = genericInterfaceConstraints ?? s_noGenericInterfaceConstraints;
         _enumRegistry = enumRegistry;
         _structRegistry = structRegistry;
         _unionRegistry = unionRegistry;
@@ -380,6 +389,8 @@ internal sealed class ColumnarIlEmitter
     // are safe under-acceptance). Empty for top-level bodies.
     private readonly HashSet<string> _enclosingBindingNames;
     private static readonly HashSet<string> s_noEnclosingBindings = new(StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<Type, Type[]> s_noGenericInterfaceConstraints =
+        new Dictionary<Type, Type[]>(0);
 
     // Whether `name` is bound ANYWHERE visible to code in this body — its own locals/params/lifted/boxed
     // tiers plus every enclosing binding. Declaring it again is the pipeline's NL316 — decline.
@@ -474,6 +485,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
         || t == typeof(uint)                      // small ints + uint (SC-4): i4-slot scalars; arithmetic
                                                   // promotes small ints to INT (ECMA §12.4.7), uint runs native u4
+        || t == typeof(IntPtr) || t == typeof(UIntPtr)
         || t == typeof(decimal)                   // decimal (SC-6): a baked VALUE struct — arithmetic and
                                                   // comparisons call System.Decimal's op_* methods
         || IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
@@ -505,6 +517,14 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(ILGenerator)
         || IsSupportedJsonType(t)
         || IsSupportedExternalType(t)
+        || IsSupportedReadOnlySpanType(t)
+        || IsSupportedSpanType(t)
+        || IsSupportedArrayPoolType(t)
+        || IsSupportedMemoryPoolType(t)
+        || IsSupportedMemoryOwnerType(t)
+        || IsSupportedMemoryType(t)
+        || IsSupportedResultType(t)
+        || IsSupportedAnonymousUnionType(t)
         || IsEnumType(t)                          // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
                                                   // only those reach here as a resolved type — the Program type never does
@@ -520,6 +540,29 @@ internal sealed class ColumnarIlEmitter
     private static bool IsSupportedParameterType(Type t) =>
         IsSupportedType(t)
         || (t.IsByRef && IsSupportedByRefElementType(t.GetElementType()!));
+
+    private static bool IsSupportedAnonymousUnionType(Type t)
+    {
+        if (!t.IsGenericType
+            || t.IsGenericTypeDefinition
+            || t.GetGenericTypeDefinition() != typeof(NSharpLang.Runtime.Union<,>))
+            return false;
+
+        var args = t.GetGenericArguments();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!IsSupportedAnonymousUnionArmType(args[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsSupportedAnonymousUnionArmType(Type t)
+        => t != typeof(void)
+           && !t.IsByRef
+           && !t.IsPointer
+           && IsSupportedType(t);
 
     private static bool IsEnumType(Type t)
     {
@@ -572,6 +615,86 @@ internal sealed class ColumnarIlEmitter
         return IsSupportedType(t.GetGenericArguments()[0]);
     }
 
+    private static bool IsByRefLikeType(Type t)
+    {
+        try
+        {
+            return t.IsByRefLike;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSupportedResultType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        if (t.GetGenericTypeDefinition() != typeof(NSharpLang.Runtime.Result<,>))
+            return false;
+        var args = t.GetGenericArguments();
+        return args.Length == 2
+               && !IsByRefLikeType(args[0])
+               && !IsByRefLikeType(args[1])
+               && IsSupportedType(args[0])
+               && IsSupportedType(args[1]);
+    }
+
+    private static bool TryResolveResultReadableProperty(Type receiverType, string member, out MethodInfo getter, out Type propertyType)
+    {
+        getter = null!;
+        propertyType = null!;
+        if (!IsSupportedResultType(receiverType))
+            return false;
+        var args = receiverType.GetGenericArguments();
+        propertyType = member switch
+        {
+            "IsOk" or "IsErr" => typeof(bool),
+            "OkValue" or "OkValueUnchecked" => args[0],
+            "ErrValue" or "ErrValueUnchecked" => args[1],
+            _ => null!,
+        };
+        if (propertyType == null)
+            return false;
+        var openGetter = typeof(NSharpLang.Runtime.Result<,>)
+            .GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            ?.GetGetMethod();
+        if (openGetter == null)
+            return false;
+        getter = ResolveClosedGenericMethod(receiverType, openGetter);
+        return true;
+    }
+
+    private static bool TryResolveMemoryReadableProperty(Type receiverType, string member, out MethodInfo getter, out Type propertyType)
+    {
+        getter = null!;
+        propertyType = null!;
+        if (IsSupportedMemoryOwnerType(receiverType) && member == "Memory")
+        {
+            var openGetter = typeof(System.Buffers.IMemoryOwner<>)
+                .GetProperty("Memory", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetGetMethod();
+            if (openGetter == null)
+                return false;
+            getter = ResolveClosedGenericMethod(receiverType, openGetter);
+            propertyType = typeof(Memory<byte>);
+            return true;
+        }
+        if (IsSupportedMemoryType(receiverType) && member == "Span")
+        {
+            var openGetter = typeof(Memory<>)
+                .GetProperty("Span", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetGetMethod();
+            if (openGetter == null)
+                return false;
+            getter = ResolveClosedGenericMethod(receiverType, openGetter);
+            propertyType = typeof(Span<byte>);
+            return true;
+        }
+        return false;
+    }
+
     private static bool IsSupportedJsonType(Type t) =>
         t == typeof(JsonElement)
         || t == typeof(JsonDocument)
@@ -581,6 +704,64 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(JsonElement.ArrayEnumerator)
         || t == typeof(JsonElement.ObjectEnumerator)
         || t == typeof(JsonProperty);
+
+    private static bool IsSupportedReadOnlySpanType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>)
+               && IsSupportedReadOnlySpanElementType(t.GetGenericArguments()[0]);
+    }
+
+    private static bool IsSupportedSpanType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(Span<>)
+               && IsSupportedReadOnlySpanElementType(t.GetGenericArguments()[0]);
+    }
+
+    private static bool IsSupportedArrayPoolType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(System.Buffers.ArrayPool<>)
+               && t.GetGenericArguments()[0] == typeof(byte);
+    }
+
+    private static bool IsSupportedMemoryPoolType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(System.Buffers.MemoryPool<>)
+               && t.GetGenericArguments()[0] == typeof(byte);
+    }
+
+    private static bool IsSupportedMemoryOwnerType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(System.Buffers.IMemoryOwner<>)
+               && t.GetGenericArguments()[0] == typeof(byte);
+    }
+
+    private static bool IsSupportedMemoryType(Type t)
+    {
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        return t.GetGenericTypeDefinition() == typeof(Memory<>)
+               && t.GetGenericArguments()[0] == typeof(byte);
+    }
+
+    private static bool IsSupportedSpanLikeType(Type t)
+        => IsSupportedReadOnlySpanType(t) || IsSupportedSpanType(t);
+
+    private static bool IsSupportedReadOnlySpanElementType(Type t)
+        => t == typeof(bool)
+           || t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong)
+           || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
+           || t == typeof(char) || t == typeof(double) || t == typeof(float)
+           || IsEnumType(t);
 
     private static void TryRegisterEnumAlias(Dictionary<string, ColumnarEnumDef> registry, string name, ColumnarEnumDef def)
     {
@@ -1185,7 +1366,93 @@ internal sealed class ColumnarIlEmitter
     // classification (L/UL), float suffixes (f/d; m declines), RAW string literals (Trim('"'), no escape decode —
     // matching the N# backend path's GetStringLiteralRuntimeValue), char escape decode, true/false. The text may carry a
     // leading `-` for numeric literals (the kernel admits it only there).
-    private static bool TryEmitStaticFieldInitializerLoad(ILGenerator il, Type fieldType, int initKind, string text)
+    private static bool TryEmitStaticFieldInitializerLoad(
+        ILGenerator il,
+        ColumnarStructDef owner,
+        Type fieldType,
+        int initKind,
+        string text,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings)
+    {
+        if (initKind == ColumnarFieldInitializerExpressionKind)
+            return TryEmitStaticFieldExpressionInitializerLoad(il, owner, fieldType, text, siblings);
+        return TryEmitStaticFieldLiteralInitializerLoad(il, fieldType, initKind, text);
+    }
+
+    private static bool TryEmitStaticFieldExpressionInitializerLoad(
+        ILGenerator il,
+        ColumnarStructDef owner,
+        Type fieldType,
+        string text,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings)
+    {
+        if (!TryParseParameterlessStaticInitializerCall(text, owner.Builder.Name ?? string.Empty, out var methodName))
+            return false;
+        if (owner.StaticMethods.TryGetValue(methodName, out var overloads))
+        {
+            for (var i = 0; i < overloads.Count; i++)
+            {
+                var overload = overloads[i];
+                if (overload.ParamTypes.Length == 0 && TypesEquivalent(overload.ReturnType, fieldType))
+                {
+                    il.Emit(OpCodes.Call, overload.Builder);
+                    return true;
+                }
+            }
+        }
+
+        if (siblings.TryGetValue(methodName, out var sibling)
+            && sibling.TypeParams.Length == 0
+            && sibling.ParamTypes.Length == 0
+            && TypesEquivalent(sibling.ReturnType, fieldType))
+        {
+            il.Emit(OpCodes.Call, sibling.Method);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseParameterlessStaticInitializerCall(string text, string ownerName, out string methodName)
+    {
+        methodName = string.Empty;
+        var trimmed = text.Trim();
+        if (!trimmed.EndsWith(")", StringComparison.Ordinal))
+            return false;
+        var openParen = trimmed.IndexOf('(');
+        if (openParen <= 0 || trimmed.IndexOf('(', openParen + 1) >= 0)
+            return false;
+        if (!string.IsNullOrWhiteSpace(trimmed.Substring(openParen + 1, trimmed.Length - openParen - 2)))
+            return false;
+        var target = trimmed.Substring(0, openParen).Trim();
+        var dot = target.LastIndexOf('.');
+        if (dot >= 0)
+        {
+            var receiver = target.Substring(0, dot).Trim();
+            if (!string.Equals(receiver, ownerName, StringComparison.Ordinal))
+                return false;
+            target = target.Substring(dot + 1).Trim();
+        }
+        if (!IsSimpleIdentifierText(target))
+            return false;
+        methodName = target;
+        return true;
+    }
+
+    private static bool IsSimpleIdentifierText(string text)
+    {
+        if (text.Length == 0 || !(char.IsLetter(text[0]) || text[0] == '_'))
+            return false;
+        for (var i = 1; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool TryEmitStaticFieldLiteralInitializerLoad(ILGenerator il, Type fieldType, int initKind, string text)
     {
         switch (initKind)
         {
@@ -1354,7 +1621,8 @@ internal sealed class ColumnarIlEmitter
                     _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
                     programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                     enclosingBindingNames: VisibleBindingNamesSnapshot(),
-                    referenceAssemblyPaths: _referenceAssemblyPaths);
+                    referenceAssemblyPaths: _referenceAssemblyPaths,
+                    genericInterfaceConstraints: _genericInterfaceConstraints);
                 if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, delegateReturnType))
                     return DeclineMember("emit.body", "instance lambda body emission declined", bodyNode, "lambda");
                 _il.Emit(OpCodes.Ldarg_0);
@@ -1369,9 +1637,10 @@ internal sealed class ColumnarIlEmitter
             var subEmitter = new ColumnarIlEmitter(
                 _nodes, _source, ordinals, paramTypeMap, delegateReturnType, lambdaIl, _siblings,
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-                programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                enclosingBindingNames: VisibleBindingNamesSnapshot(),
-                referenceAssemblyPaths: _referenceAssemblyPaths);
+                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                    referenceAssemblyPaths: _referenceAssemblyPaths,
+                    genericInterfaceConstraints: _genericInterfaceConstraints);
             if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, delegateReturnType))
                 return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda");
             _il.Emit(OpCodes.Ldnull);
@@ -1452,9 +1721,10 @@ internal sealed class ColumnarIlEmitter
             _nodes, _source, shiftedOrdinals, paramTypeMap, delegateReturnType, closureIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-            boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
-            enclosingBindingNames: VisibleBindingNamesSnapshot(),
-            referenceAssemblyPaths: _referenceAssemblyPaths);
+                    boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
+                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                    referenceAssemblyPaths: _referenceAssemblyPaths,
+                    genericInterfaceConstraints: _genericInterfaceConstraints);
         if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, delegateReturnType))
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda");
         _displayClasses.Add(display);
@@ -1496,6 +1766,7 @@ internal sealed class ColumnarIlEmitter
             && !subEmitter.TryEmitInterfaceUpcast(bodyType, returnType)
             && !TryEmitReferenceConversion(bodyType, returnType)
             && !subEmitter.TryEmitObjectConversion(bodyType, returnType)
+            && !subEmitter.TryEmitAnonymousUnionConversion(bodyType, returnType)
             && !subEmitter.TryEmitUserDefinedConversion(bodyType, returnType, allowExplicit: false))
             return false;
         lambdaIl.Emit(OpCodes.Ret);
@@ -1732,16 +2003,16 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37) carry
+    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61) carry
     // arm BINDINGS; object initializers (36) carry field NAMES. A capturing lambda containing any of them
     // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
     private bool ContainsCaptureOpaqueKind(int node)
     {
         var k = _nodes.Kind(node);
-        // 18/19 match arms, 32-37 patterns/object-init, 52 with-expressions: their kind-6 children are
+        // 18/19 match arms, 32-37/61 patterns/object-init, 52 with-expressions: their kind-6 children are
         // FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
         // them as identifier uses.
-        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52)
+        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61)
             return true;
         for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
@@ -1812,7 +2083,8 @@ internal sealed class ColumnarIlEmitter
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
             enclosingBindingNames: VisibleBindingNamesSnapshot(),
-            referenceAssemblyPaths: _referenceAssemblyPaths);
+            referenceAssemblyPaths: _referenceAssemblyPaths,
+            genericInterfaceConstraints: _genericInterfaceConstraints);
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
             return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda");
         lambdaIl.Emit(OpCodes.Ret);
@@ -1903,7 +2175,7 @@ internal sealed class ColumnarIlEmitter
     // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
     // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
     // substitutes the binding into the declared return shape.
-    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints) target, Type?[] binding, out Type type)
+    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target, Type?[] binding, out Type type)
     {
         type = null!;
         var argCount = _nodes.ChildCount(callIdx) - 1;
@@ -1944,59 +2216,109 @@ internal sealed class ColumnarIlEmitter
                 return false; // an unbound type parameter (no argument mentions it, no explicit arg) declines.
             boundArgs[b] = binding[b]!;
         }
-        // Enforce the callee's declared constraints (`where T: ...`) against the bound type arguments,
-        // mirroring the analyzer's NL208 checks: MakeGenericMethod on a Reflection.Emit MethodBuilder performs
-        // NO constraint validation (spike-proven — a violating instantiation silently persists an assembly
-        // that fails at load), so a violating OR unverifiable binding must decline here. Bindings that are the
-        // CALLER's own open type parameter, or any emitted shape (constraint implication and assignability are
-        // unanswerable before bake), decline; everything else is a baked runtime type reflection can answer.
+        if (!TryValidateGenericSiblingConstraints(target, binding, boundArgs))
+            return false;
+        var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
+        _il.Emit(OpCodes.Call, instantiated);
+        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+    }
+
+    // Enforce the callee's declared constraints (`where T: ...`) against the bound type arguments,
+    // mirroring the analyzer's NL208 checks: MakeGenericMethod on a Reflection.Emit MethodBuilder performs
+    // NO constraint validation (spike-proven — a violating instantiation silently persists an assembly
+    // that fails at load), so a violating OR unverifiable binding must decline here.
+    private bool TryValidateGenericSiblingConstraints(
+        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        Type?[] binding,
+        Type[] boundArgs)
+    {
         for (var p = 0; p < boundArgs.Length; p++)
         {
             var special = target.SpecialConstraints.Length > p ? target.SpecialConstraints[p] : 0;
             var baseConstraint = target.BaseConstraints.Length > p ? target.BaseConstraints[p] : null;
-            if (special == 0 && baseConstraint == null)
+            var interfaceConstraints = target.InterfaceConstraints.Length > p
+                ? target.InterfaceConstraints[p]
+                : System.Array.Empty<Type>();
+            if (special == 0 && baseConstraint == null && interfaceConstraints.Length == 0)
                 continue;
+
             var bound = boundArgs[p];
-            if (bound.IsGenericParameter || bound.Assembly is AssemblyBuilder)
+            if (bound.IsGenericParameter)
                 return false;
             if ((special & 1) != 0 && bound.IsValueType)
                 return false; // `class`: requires a reference type.
             if ((special & 2) != 0 && (!bound.IsValueType || Nullable.GetUnderlyingType(bound) != null))
                 return false; // `struct`: requires a non-nullable value type.
-            if ((special & 4) != 0 && !bound.IsValueType && bound.GetConstructor(Type.EmptyTypes) == null)
+            if ((special & 4) != 0 && !HasPublicParameterlessConstructorForConstraint(bound))
                 return false; // `new()`: requires a public parameterless constructor (value types qualify).
-            if (baseConstraint == null)
-                continue;
-            if (baseConstraint.IsGenericParameter)
-            {
-                // `where T: U` — the constraint is another of the CALLEE's parameters: check the two bound
-                // runtime types' assignability.
-                var otherPos = -1;
-                for (var q = 0; q < target.TypeParams.Length; q++)
-                {
-                    if (ReferenceEquals(target.TypeParams[q], baseConstraint)) { otherPos = q; break; }
-                }
-                if (otherPos < 0)
-                    return false;
-                var otherBound = boundArgs[otherPos];
-                if (otherBound.IsGenericParameter || otherBound.Assembly is AssemblyBuilder
-                    || !otherBound.IsAssignableFrom(bound))
-                    return false;
-            }
-            else if (baseConstraint.Assembly is AssemblyBuilder)
-            {
-                // A user-class base constraint: a baked runtime binding can never derive from an un-baked
-                // emitted type — unsatisfiable at this call site.
+
+            if (baseConstraint != null && !BoundSatisfiesBaseConstraint(target, boundArgs, bound, baseConstraint))
                 return false;
-            }
-            else if (!baseConstraint.IsAssignableFrom(bound))
+            foreach (var interfaceConstraint in interfaceConstraints)
             {
-                return false;
+                if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, interfaceConstraint, out var closedInterfaceConstraint)
+                    || !BoundSatisfiesInterfaceConstraint(bound, closedInterfaceConstraint))
+                    return false;
             }
         }
-        var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
-        _il.Emit(OpCodes.Call, instantiated);
-        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+
+        return true;
+    }
+
+    private bool HasPublicParameterlessConstructorForConstraint(Type bound)
+    {
+        if (bound.IsValueType)
+            return true;
+        if (bound is TypeBuilder builder && FindDefByBuilder(builder) is { DefaultCtor: not null })
+            return true;
+        return bound.GetConstructor(Type.EmptyTypes) != null;
+    }
+
+    private static bool BoundSatisfiesBaseConstraint(
+        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        Type[] boundArgs,
+        Type bound,
+        Type baseConstraint)
+    {
+        if (baseConstraint.IsGenericParameter)
+        {
+            // `where T: U` — the constraint is another of the CALLEE's parameters: check the two bound
+            // runtime types' assignability.
+            var otherPos = -1;
+            for (var q = 0; q < target.TypeParams.Length; q++)
+            {
+                if (ReferenceEquals(target.TypeParams[q], baseConstraint)) { otherPos = q; break; }
+            }
+            if (otherPos < 0)
+                return false;
+            var otherBound = boundArgs[otherPos];
+            return !otherBound.IsGenericParameter
+                   && otherBound.Assembly is not AssemblyBuilder
+                   && otherBound.IsAssignableFrom(bound);
+        }
+        if (baseConstraint.Assembly is AssemblyBuilder)
+            return false;
+        return !bound.IsGenericParameter
+               && bound.Assembly is not AssemblyBuilder
+               && baseConstraint.IsAssignableFrom(bound);
+    }
+
+    private bool BoundSatisfiesInterfaceConstraint(Type bound, Type interfaceConstraint)
+    {
+        if (bound is TypeBuilder boundBuilder && FindDefByBuilder(boundBuilder) is { } boundDef)
+        {
+            foreach (var implemented in boundDef.ImplementedInterfaceTypes)
+            {
+                if (TypesEquivalent(implemented, interfaceConstraint))
+                    return true;
+            }
+            return interfaceConstraint is TypeBuilder interfaceBuilder
+                   && AnyInterfaceEqualsOrExtends(boundDef.ImplementedInterfaces, interfaceBuilder);
+        }
+        if (bound.Assembly is AssemblyBuilder)
+            return false;
+        return IsRuntimeInterfaceType(interfaceConstraint)
+               && interfaceConstraint.IsAssignableFrom(bound);
     }
 
     // Unify one declared TYPE PARAMETER against an argument's actual type for a generic sibling call. `declared`
@@ -2014,10 +2336,9 @@ internal sealed class ColumnarIlEmitter
         }
         if (pos < 0)
             return false; // a type parameter from some other scope — not resolvable here.
-        if (!actual.IsGenericParameter && ContainsBuilderBoundType(actual))
-            return false; // T must bind a BAKED type (or the caller's own open param): builder-bound
-                          // bindings (T=Pt, T=List<Pt>) stay declined — constraint enforcement and
-                          // MakeGenericMethod reflect on the binding (GetConstructor throws on a TBI).
+        if (!actual.IsGenericParameter && ContainsBuilderBoundType(actual) && actual is not TypeBuilder && actual is not EnumBuilder)
+            return false; // T may bind a direct emitted user type, but not a builder-bound composed shape
+                          // such as List<Pt> or Box<int>; member reflection on those requires rebinding.
         if (!actual.IsGenericParameter && !IsSupportedType(actual))
             return false;
         if (binding[pos] == null)
@@ -2064,6 +2385,55 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
         }
+        return true;
+    }
+
+    private static bool TrySubstituteGenericTypeArguments(Type[] typeParams, Type?[] binding, Type type, out Type substituted)
+    {
+        substituted = null!;
+        if (type.IsGenericParameter)
+        {
+            for (var i = 0; i < typeParams.Length; i++)
+            {
+                if (ReferenceEquals(typeParams[i], type))
+                {
+                    if (binding[i] == null)
+                        return false;
+                    substituted = binding[i]!;
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (type.IsSZArray)
+        {
+            if (!TrySubstituteGenericTypeArguments(typeParams, binding, type.GetElementType()!, out var element))
+                return false;
+            substituted = element.MakeArrayType();
+            return true;
+        }
+        if (type.IsByRef)
+        {
+            if (!TrySubstituteGenericTypeArguments(typeParams, binding, type.GetElementType()!, out var element))
+                return false;
+            substituted = element.MakeByRefType();
+            return true;
+        }
+        if (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            var args = type.GetGenericArguments();
+            var substitutedArgs = new Type[args.Length];
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (!TrySubstituteGenericTypeArguments(typeParams, binding, args[i], out substitutedArgs[i]))
+                    return false;
+            }
+            substituted = type.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
+            return true;
+        }
+        if (type.ContainsGenericParameters)
+            return false;
+        substituted = type;
         return true;
     }
 
@@ -2201,7 +2571,7 @@ internal sealed class ColumnarIlEmitter
     // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
     // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
     // the emit site (a mismatch declines because implicit conversions are not modelled here).
-    private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
@@ -2232,11 +2602,34 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private bool TryEmitResultFactoryCall(int callIdx, string name, out Type type)
+    {
+        type = null!;
+        if (name != "Ok" && name != "Err")
+            return false;
+        if (!_returnType.IsGenericType || _returnType.GetGenericTypeDefinition() != typeof(NSharpLang.Runtime.Result<,>))
+            return false;
+        if (_nodes.ChildCount(callIdx) != 2 || !IsSupportedResultType(_returnType))
+            return false;
+
+        var resultArgs = _returnType.GetGenericArguments();
+        var expectedPayloadType = name == "Ok" ? resultArgs[0] : resultArgs[1];
+        if (!EmitDeclaredCallArgument(Child(callIdx, 1), expectedPayloadType, allowLambdaLiteral: true))
+            return false;
+
+        var openMethod = typeof(NSharpLang.Runtime.Result<,>).GetMethod(name, BindingFlags.Public | BindingFlags.Static);
+        if (openMethod == null)
+            return false;
+        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(_returnType, openMethod));
+        type = _returnType;
+        return true;
+    }
+
     private bool TryFindUserDefinedConversion(
         Type source,
         Type target,
         string methodName,
-        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
     {
         if (FindDefByType(source) is { } sourceDef
             && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method))
@@ -2260,7 +2653,7 @@ internal sealed class ColumnarIlEmitter
         Type source,
         Type target,
         string methodName,
-        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
@@ -2290,7 +2683,9 @@ internal sealed class ColumnarIlEmitter
     private static bool IsSupportedElementType(Type t) =>
         t == typeof(bool)
         || t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong)
+        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
         || t == typeof(char) || t == typeof(string) || t == typeof(double) || t == typeof(float)
+        || t == typeof(IntPtr) || t == typeof(UIntPtr)
         || IsEnumType(t)
         || t is TypeBuilder
         || t == typeof(object)
@@ -2358,6 +2753,32 @@ internal sealed class ColumnarIlEmitter
             }
             if (TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
+            if (genericOpen == 4 && canonical.StartsWith("Span<", StringComparison.Ordinal))
+            {
+                var spanArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                if (spanArgCanons.Count == 1
+                    && TryResolveTypeWithTypeParams(spanArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var spanElement)
+                    && IsSupportedReadOnlySpanElementType(spanElement))
+                {
+                    type = typeof(Span<>).MakeGenericType(spanElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (genericOpen == 12 && canonical.StartsWith("ReadOnlySpan<", StringComparison.Ordinal))
+            {
+                var spanArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
+                if (spanArgCanons.Count == 1
+                    && TryResolveTypeWithTypeParams(spanArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var spanElement)
+                    && IsSupportedReadOnlySpanElementType(spanElement))
+                {
+                    type = typeof(ReadOnlySpan<>).MakeGenericType(spanElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
             if (genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
                 var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
@@ -2400,6 +2821,23 @@ internal sealed class ColumnarIlEmitter
                     && IsSupportedType(valueTaskElement))
                 {
                     type = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(valueTaskElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (genericOpen == 6 && canonical.StartsWith("Result<", StringComparison.Ordinal))
+            {
+                var resultArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(7, canonical.Length - 8));
+                if (resultArgCanons.Count == 2
+                    && TryResolveTypeWithTypeParams(resultArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var okType)
+                    && TryResolveTypeWithTypeParams(resultArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var errType)
+                    && !IsByRefLikeType(okType)
+                    && !IsByRefLikeType(errType)
+                    && IsSupportedType(okType)
+                    && IsSupportedType(errType))
+                {
+                    type = typeof(NSharpLang.Runtime.Result<,>).MakeGenericType(okType, errType);
                     return true;
                 }
                 type = null!;
@@ -2653,6 +3091,27 @@ internal sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
+        var unionArms = SplitTopLevelPipes(canonical);
+        if (unionArms.Count == 2)
+        {
+            if (TryResolveType(unionArms[0], enumRegistry, structRegistry, unionRegistry, out var firstArm)
+                && TryResolveType(unionArms[1], enumRegistry, structRegistry, unionRegistry, out var secondArm)
+                && IsSupportedAnonymousUnionArmType(firstArm)
+                && IsSupportedAnonymousUnionArmType(secondArm)
+                && !TypesEquivalent(firstArm, secondArm))
+            {
+                type = typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(firstArm, secondArm);
+                return true;
+            }
+
+            type = null!;
+            return false;
+        }
+        if (unionArms.Count > 0)
+        {
+            type = null!;
+            return false;
+        }
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
             if (TryResolveType(canonical.Substring(0, canonical.Length - 2), enumRegistry, structRegistry, unionRegistry, out var elementType)
@@ -2897,6 +3356,32 @@ internal sealed class ColumnarIlEmitter
             }
             if (TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
+            if (closedGenericOpen == 4 && canonical.StartsWith("Span<", StringComparison.Ordinal))
+            {
+                var spanArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                if (spanArgCanons.Count == 1
+                    && TryResolveType(spanArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var spanElement)
+                    && IsSupportedReadOnlySpanElementType(spanElement))
+                {
+                    type = typeof(Span<>).MakeGenericType(spanElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 12 && canonical.StartsWith("ReadOnlySpan<", StringComparison.Ordinal))
+            {
+                var spanArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
+                if (spanArgCanons.Count == 1
+                    && TryResolveType(spanArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var spanElement)
+                    && IsSupportedReadOnlySpanElementType(spanElement))
+                {
+                    type = typeof(ReadOnlySpan<>).MakeGenericType(spanElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
             if (closedGenericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
                 var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
@@ -2945,6 +3430,23 @@ internal sealed class ColumnarIlEmitter
                     && IsSupportedType(valueTaskElement))
                 {
                     type = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(valueTaskElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 6 && canonical.StartsWith("Result<", StringComparison.Ordinal))
+            {
+                var resultArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(7, canonical.Length - 8));
+                if (resultArgCanons.Count == 2
+                    && TryResolveType(resultArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var okType)
+                    && TryResolveType(resultArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var errType)
+                    && !IsByRefLikeType(okType)
+                    && !IsByRefLikeType(errType)
+                    && IsSupportedType(okType)
+                    && IsSupportedType(errType))
+                {
+                    type = typeof(NSharpLang.Runtime.Result<,>).MakeGenericType(okType, errType);
                     return true;
                 }
                 type = null!;
@@ -3122,6 +3624,52 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private static List<string> SplitTopLevelPipes(string canonical)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        var angleDepth = 0;
+        var parenDepth = 0;
+        var bracketDepth = 0;
+        for (var i = 0; i < canonical.Length; i++)
+        {
+            switch (canonical[i])
+            {
+                case '<':
+                    angleDepth++;
+                    break;
+                case '>':
+                    if (angleDepth > 0)
+                        angleDepth--;
+                    break;
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    if (parenDepth > 0)
+                        parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case '|' when angleDepth == 0 && parenDepth == 0 && bracketDepth == 0:
+                    parts.Add(canonical.Substring(start, i - start));
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        if (parts.Count == 0)
+            return parts;
+
+        parts.Add(canonical.Substring(start));
+        return parts;
+    }
+
     // Resolve a delegate canonical's comma-joined type-argument list to a closed System.Func/Action.
     // `hasReturnSlot` distinguishes Func sugar (LAST argument is the return type, `void` allowed there)
     // from Action<...> (parameters only). Parameters cap at 4 (the modeled surface); every resolved part
@@ -3215,6 +3763,10 @@ internal sealed class ColumnarIlEmitter
             "float" => typeof(float),
             "decimal" => typeof(decimal),
             "string" => typeof(string),
+            "IntPtr" => typeof(IntPtr),
+            "UIntPtr" => typeof(UIntPtr),
+            "nint" => typeof(IntPtr),
+            "nuint" => typeof(UIntPtr),
             "DateTime" => typeof(DateTime),
             _ => null!,
         };
@@ -3312,9 +3864,20 @@ internal sealed class ColumnarIlEmitter
         foreach (var iface in interfaces)
         {
             var interfaceTb = module.DefineType(iface.Name, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            Dictionary<string, Type>? interfaceTypeParams = null;
+            if (iface.TypeParamNames is { Length: > 0 })
+            {
+                interfaceTypeParams = new Dictionary<string, Type>(StringComparer.Ordinal);
+                var declaredParams = interfaceTb.DefineGenericParameters(iface.TypeParamNames);
+                for (var tp = 0; tp < declaredParams.Length; tp++)
+                    interfaceTypeParams[iface.TypeParamNames[tp]] = declaredParams[tp];
+            }
             var interfaceDef = new ColumnarStructDef(interfaceTb, Array.Empty<string>(),
                 new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true)
-            { IsInterface = true };
+            {
+                IsInterface = true,
+                GenericParameters = interfaceTypeParams,
+            };
             structRegistry[iface.Name] = interfaceDef;
             TryRegisterStructAlias(structRegistry, iface.Name, interfaceDef);
             interfaceDefsInOrder.Add(interfaceDef);
@@ -3331,6 +3894,13 @@ internal sealed class ColumnarIlEmitter
             var tb = st.IsReference
                 ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
                 : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+            if (st.IsRefStruct)
+            {
+                var byRefLikeCtor = typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute).GetConstructor(Type.EmptyTypes);
+                if (byRefLikeCtor == null)
+                    return false;
+                tb.SetCustomAttribute(new CustomAttributeBuilder(byRefLikeCtor, Array.Empty<object>()));
+            }
 
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
             // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
@@ -3402,13 +3972,17 @@ internal sealed class ColumnarIlEmitter
                 Type memberReturn;
                 if (iface.MethodReturnCanonicals[m] == "void")
                     memberReturn = typeof(void);
-                else if (!TryResolveType(iface.MethodReturnCanonicals[m], enumRegistry, structRegistry, null, out memberReturn)
+                else if (!(interfaceDef.GenericParameters != null
+                             ? TryResolveTypeWithTypeParams(iface.MethodReturnCanonicals[m], interfaceDef.GenericParameters, enumRegistry, structRegistry, null, out memberReturn)
+                             : TryResolveType(iface.MethodReturnCanonicals[m], enumRegistry, structRegistry, null, out memberReturn))
                     || !IsSupportedType(memberReturn))
                     return false;
                 var memberParams = new Type[iface.MethodParamCanonicals[m].Length];
                 for (var p = 0; p < memberParams.Length; p++)
                 {
-                    if (!TryResolveType(iface.MethodParamCanonicals[m][p], enumRegistry, structRegistry, null, out memberParams[p])
+                    if (!(interfaceDef.GenericParameters != null
+                             ? TryResolveTypeWithTypeParams(iface.MethodParamCanonicals[m][p], interfaceDef.GenericParameters, enumRegistry, structRegistry, null, out memberParams[p])
+                             : TryResolveType(iface.MethodParamCanonicals[m][p], enumRegistry, structRegistry, null, out memberParams[p]))
                         || !IsSupportedParameterType(memberParams[p]))
                         return false;
                 }
@@ -3447,6 +4021,7 @@ internal sealed class ColumnarIlEmitter
                 return false; // interface inheritance cycle.
             interfaceDepths[i] = depth;
         }
+        var pendingStaticFieldInits = new List<(ColumnarStructDef Owner, FieldBuilder Field, Type Type, int InitKind, string InitText)>();
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
@@ -3455,7 +4030,6 @@ internal sealed class ColumnarIlEmitter
             var typeGenericParams = def.GenericParameters;
             var fields = def.Fields;
             var instanceFieldNames = new List<string>(st.FieldNames.Length);
-            var staticFieldInits = new List<(FieldBuilder Field, Type Type, int InitKind, string InitText)>();
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
                 // Field types resolve the type's own generic parameters FIRST (item: T), then the registries.
@@ -3482,7 +4056,7 @@ internal sealed class ColumnarIlEmitter
                     def.StaticFields[st.FieldNames[fi]] = sfb;
                     var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
-                        staticFieldInits.Add((sfb, fieldType, initKind, st.FieldInitTexts[fi]));
+                        pendingStaticFieldInits.Add((def, sfb, fieldType, initKind, st.FieldInitTexts[fi]));
                     continue;
                 }
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
@@ -3498,21 +4072,6 @@ internal sealed class ColumnarIlEmitter
                 instanceFieldNames.Add(st.FieldNames[fi]);
             }
             def.SetFieldOrder(instanceFieldNames.ToArray());
-            // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order (static-initializer
-            // semantics). Only single-token literals are modelled (the kernel guarantees it); the literal must
-            // agree with the declared field type — a mismatch declines (the legacy emitter's implicit conversions are not
-            // modelled). Fields with no initializer keep the CLR zero default (no .cctor entry needed).
-            if (staticFieldInits.Count > 0)
-            {
-                var cctorIl = tb.DefineTypeInitializer().GetILGenerator();
-                foreach (var (sfField, sfType, sfKind, sfText) in staticFieldInits)
-                {
-                    if (!TryEmitStaticFieldInitializerLoad(cctorIl, sfType, sfKind, sfText))
-                        return false;
-                    cctorIl.Emit(OpCodes.Stsfld, sfField);
-                }
-                cctorIl.Emit(OpCodes.Ret);
-            }
         }
 
         // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
@@ -3528,6 +4087,14 @@ internal sealed class ColumnarIlEmitter
             {
                 if (!structRegistry.TryGetValue(baseName, out var baseDef))
                 {
+                    if (TryResolveType(baseName, enumRegistry, structRegistry, unionRegistry, out var implementedInterfaceType)
+                        && TryResolveUserInterfaceDef(implementedInterfaceType, structRegistry, out var implementedInterfaceDef))
+                    {
+                        def.ImplementedInterfaces.Add(implementedInterfaceDef);
+                        def.ImplementedInterfaceTypes.Add(implementedInterfaceType);
+                        def.Builder.AddInterfaceImplementation(implementedInterfaceType);
+                        continue;
+                    }
                     if (TryResolveKnownExternalType(baseName, out var externalBase) && externalBase.IsInterface)
                     {
                         def.ExternalInterfaces.Add(externalBase);
@@ -3539,6 +4106,7 @@ internal sealed class ColumnarIlEmitter
                 if (baseDef.IsInterface)
                 {
                     def.ImplementedInterfaces.Add(baseDef);
+                    def.ImplementedInterfaceTypes.Add(baseDef.Builder);
                     foreach (var implemented in EnumerateInterfaceAndBases(baseDef))
                     {
                         if (seenImplementedInterfaces.Add(implemented.Builder))
@@ -3671,17 +4239,46 @@ internal sealed class ColumnarIlEmitter
                     }
                     if (!def.StaticMethods.TryGetValue(m.Name, out var overloads))
                     {
-                        overloads = new List<(MethodBuilder, Type[], Type)>();
+                        overloads = new List<(MethodBuilder, Type[], int[], Type)>();
                         def.StaticMethods[m.Name] = overloads;
                     }
                     var staticMethodAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig;
                     if (m.Name.StartsWith("op_", StringComparison.Ordinal))
                         staticMethodAttributes |= MethodAttributes.SpecialName;
                     var sSignatureReturn = sAsyncWrappedReturn ?? sReturn;
+                    if (m.IsBodylessNativeImport)
+                    {
+                        if ((m.ModifierFlags & NSharpModifierNativeImport) == 0
+                            || string.IsNullOrEmpty(m.NativeImportLibraryName)
+                            || string.IsNullOrEmpty(m.NativeImportEntryPoint)
+                            || m.TypeParamNames.Length > 0
+                            || m.IsAsync)
+                        {
+                            return DeclineStatic("emit.declaration.native-import", "native import metadata was invalid for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
+                        }
+
+                        var pInvokeAttributes = staticMethodAttributes | MethodAttributes.PinvokeImpl;
+                        var pmb = def.Builder.DefinePInvokeMethod(
+                            m.Name,
+                            m.NativeImportLibraryName,
+                            m.NativeImportEntryPoint,
+                            pInvokeAttributes,
+                            CallingConventions.Standard,
+                            sSignatureReturn,
+                            sParamTypes,
+                            CallingConvention.Cdecl,
+                            CharSet.Ansi);
+                        pmb.SetImplementationFlags(pmb.GetMethodImplementationFlags() | MethodImplAttributes.PreserveSig);
+                        if (!DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
+                            return false;
+                        overloads.Add((pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
+                        continue;
+                    }
+
                     var smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes);
                     if (!DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
                         return false;
-                    overloads.Add((smb, sParamTypes, sSignatureReturn));
+                    overloads.Add((smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
                     structMethodJobs.Add((def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, sParamTypeMap, true));
                     continue;
                 }
@@ -3722,10 +4319,10 @@ internal sealed class ColumnarIlEmitter
                 // DefineMethodOverride for every matching slot — the legacy emitter's DeclareMethod rule
                 // (implementing methods are FORCED virtual-final).
                 var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
-                List<MethodBuilder>? overriddenInterfaceMethods = null;
+                List<MethodInfo>? overriddenInterfaceMethods = null;
                 List<MethodInfo>? overriddenExternalInterfaceMethods = null;
                 MethodInfo? overriddenObjectMethod = null;
-                var seenOverriddenInterfaceMethods = new HashSet<MethodBuilder>();
+                var seenOverriddenInterfaceMethods = new HashSet<MethodInfo>();
                 var seenOverriddenExternalInterfaceMethods = new HashSet<MethodInfo>();
                 foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
@@ -3733,7 +4330,21 @@ internal sealed class ColumnarIlEmitter
                         && seenOverriddenInterfaceMethods.Add(interfaceMember))
                     {
                         methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                        overriddenInterfaceMethods ??= new List<MethodBuilder>();
+                        overriddenInterfaceMethods ??= new List<MethodInfo>();
+                        overriddenInterfaceMethods.Add(interfaceMember);
+                    }
+                }
+                foreach (var implementedInterfaceType in def.ImplementedInterfaceTypes)
+                {
+                    if (!implementedInterfaceType.IsGenericType
+                        || implementedInterfaceType.IsGenericTypeDefinition
+                        || !TryResolveUserInterfaceDef(implementedInterfaceType, structRegistry, out var implementedInterfaceDef))
+                        continue;
+                    if (TryFindClosedInterfaceMethod(implementedInterfaceType, implementedInterfaceDef, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember)
+                        && seenOverriddenInterfaceMethods.Add(interfaceMember))
+                    {
+                        methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
+                        overriddenInterfaceMethods ??= new List<MethodInfo>();
                         overriddenInterfaceMethods.Add(interfaceMember);
                     }
                 }
@@ -3789,6 +4400,22 @@ internal sealed class ColumnarIlEmitter
             {
                 foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
+                    var hasClosedImplementations = false;
+                    foreach (var implementedInterfaceType in def.ImplementedInterfaceTypes)
+                    {
+                        if (implementedInterfaceType.IsGenericType
+                            && !implementedInterfaceType.IsGenericTypeDefinition
+                            && TryResolveUserInterfaceDef(implementedInterfaceType, structRegistry, out var closedInterfaceDef)
+                            && ReferenceEquals(closedInterfaceDef, implementedInterface))
+                        {
+                            hasClosedImplementations = true;
+                            if (!ClosedInterfaceMembersSatisfied(def, implementedInterface, implementedInterfaceType))
+                                return false;
+                        }
+                    }
+                    if (hasClosedImplementations)
+                        continue;
+
                     foreach (var requiredInterface in EnumerateInterfaceAndBases(implementedInterface))
                     {
                         if (!seenRequiredInterfaces.Add(requiredInterface))
@@ -4221,7 +4848,8 @@ internal sealed class ColumnarIlEmitter
         // becomes the body emitter's _returnType so return-value checks work unchanged.
         var asyncWrappedByFunc = new Type?[funcs.Count];
         var asyncInnerByFunc = new Type[funcs.Count];
-        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)>(StringComparer.Ordinal);
+        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)>(StringComparer.Ordinal);
+        var interfaceConstraintsByFunc = new Type[funcs.Count][][];
         // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
         // name derivation; canonicals stay name-erased.
         var siblingReturnTupleNames = new Dictionary<string, string?[]>(StringComparer.Ordinal);
@@ -4236,6 +4864,7 @@ internal sealed class ColumnarIlEmitter
             Type[] fnTypeParams = emptyTypeParams;
             var fnSpecialConstraints = System.Array.Empty<int>();
             var fnBaseConstraints = System.Array.Empty<Type?>();
+            var fnInterfaceConstraints = System.Array.Empty<Type[]>();
             var typeParamMap = (Dictionary<string, Type>?)null;
             if (fn.TypeParamNames.Length > 0)
             {
@@ -4254,12 +4883,11 @@ internal sealed class ColumnarIlEmitter
                 // flag, exactly as the legacy emitter sets them; constraints persist and load — spike-proven). Applied
                 // AFTER the full typeParamMap exists so a constraint can name another of the function's own
                 // parameters (`where T: U`). Modeled base targets: another type parameter, a user REFERENCE
-                // class/record TypeBuilder, or a baked BCL class. An INTERFACE constraint never resolves here
-                // (columnar has no interface surface yet) and value types / arrays / enums / closed generics
-                // as targets decline — under-accept is safe; silently dropping a constraint never is (NL208 is
-                // call-site enforced by the pipeline).
+                // class/record TypeBuilder, or a baked BCL class. Interface constraints are emitted separately
+                // and carried into pass 2, where constrained interface calls need the closed slot metadata.
                 fnSpecialConstraints = new int[gpBuilders.Length];
                 fnBaseConstraints = new Type?[gpBuilders.Length];
+                var fnInterfaceConstraintLists = new List<Type>[gpBuilders.Length];
                 for (var g = 0; g < gpBuilders.Length; g++)
                 {
                     var special = fn.TypeParamSpecialConstraints.Length > g ? fn.TypeParamSpecialConstraints[g] : 0;
@@ -4279,32 +4907,48 @@ internal sealed class ColumnarIlEmitter
                     var typeConstraints = fn.TypeParamTypeConstraints.Length > g
                         ? fn.TypeParamTypeConstraints[g]
                         : System.Array.Empty<string>();
-                    if (typeConstraints.Length == 0)
-                        continue;
-                    // More than one type constraint is an interface list — unmodelled.
-                    if (typeConstraints.Length > 1)
-                        return false;
-                    if (!TryResolveTypeWithTypeParams(typeConstraints[0], typeParamMap, enumRegistry, structRegistry, unionRegistry, out var constraintType))
-                        return false;
-                    if (!constraintType.IsGenericParameter)
+                    foreach (var typeConstraint in typeConstraints)
                     {
-                        if (constraintType is TypeBuilder)
-                        {
-                            // A user type is admissible only with REFERENCE layout (a value struct cannot be a
-                            // base constraint); TypeBuilder.IsValueType answers structurally (base == ValueType).
-                            if (constraintType.IsValueType)
-                                return false;
-                        }
-                        else if (constraintType.Assembly is AssemblyBuilder
-                            || constraintType.IsValueType || constraintType.IsSZArray || !constraintType.IsClass)
-                        {
-                            // Non-TypeBuilder emitted shapes (EnumBuilder, TypeBuilderInstantiation) and
-                            // non-class runtime types are not modeled constraint targets.
+                        if (!TryResolveTypeWithTypeParams(typeConstraint, typeParamMap, enumRegistry, structRegistry, unionRegistry, out var constraintType))
                             return false;
+                        if (!constraintType.IsGenericParameter
+                            && (TryResolveUserInterfaceDef(constraintType, structRegistry, out _)
+                                || IsRuntimeInterfaceType(constraintType)))
+                        {
+                            (fnInterfaceConstraintLists[g] ??= new List<Type>()).Add(constraintType);
+                            continue;
                         }
+                        if (fnBaseConstraints[g] != null)
+                            return false;
+                        if (!constraintType.IsGenericParameter)
+                        {
+                            if (constraintType is TypeBuilder)
+                            {
+                                // A user type is admissible only with REFERENCE layout (a value struct cannot be a
+                                // base constraint); TypeBuilder.IsValueType answers structurally (base == ValueType).
+                                if (constraintType.IsValueType)
+                                    return false;
+                            }
+                            else if (constraintType.Assembly is AssemblyBuilder
+                                || constraintType.IsValueType || constraintType.IsSZArray || !constraintType.IsClass)
+                            {
+                                // Non-TypeBuilder emitted shapes (EnumBuilder, TypeBuilderInstantiation) and
+                                // non-class runtime types are not modeled constraint targets.
+                                return false;
+                            }
+                        }
+                        gpBuilders[g].SetBaseTypeConstraint(constraintType);
+                        fnBaseConstraints[g] = constraintType;
                     }
-                    gpBuilders[g].SetBaseTypeConstraint(constraintType);
-                    fnBaseConstraints[g] = constraintType;
+                    if (fnInterfaceConstraintLists[g] is { Count: > 0 } interfaceList)
+                        gpBuilders[g].SetInterfaceConstraints(interfaceList.ToArray());
+                }
+                fnInterfaceConstraints = new Type[gpBuilders.Length][];
+                for (var g = 0; g < gpBuilders.Length; g++)
+                {
+                    fnInterfaceConstraints[g] = fnInterfaceConstraintLists[g] is { Count: > 0 } interfaceList
+                        ? interfaceList.ToArray()
+                        : System.Array.Empty<Type>();
                 }
                 // CIRCULAR type-parameter constraints (`where T: T`, `where T: U where U: T`) emit metadata
                 // the CLR REJECTS at load (TypeLoadException — probe-proven over-accept). Walk each param's
@@ -4395,9 +5039,29 @@ internal sealed class ColumnarIlEmitter
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType; // call sites see the WRAPPED type.
             asyncWrappedByFunc[f] = asyncWrappedReturn;
             asyncInnerByFunc[f] = returnType;
+            interfaceConstraintsByFunc[f] = fnInterfaceConstraints;
             if (fn.ReturnTupleElementNames != null)
                 siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames;
-            siblings[fn.Name] = (methods[f], paramTypes, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints);
+            siblings[fn.Name] = (methods[f], paramTypes, fn.ParamModifierKinds, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints, fnInterfaceConstraints);
+        }
+
+        // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order. Emitting this after same-type
+        // static methods and top-level sibling methods are declared lets expression initializers call either shape.
+        for (var s = 0; s < structDefsInOrder.Length; s++)
+        {
+            var def = structDefsInOrder[s];
+            ILGenerator? cctorIl = null;
+            for (var i = 0; i < pendingStaticFieldInits.Count; i++)
+            {
+                var init = pendingStaticFieldInits[i];
+                if (!ReferenceEquals(init.Owner, def))
+                    continue;
+                cctorIl ??= def.Builder.DefineTypeInitializer().GetILGenerator();
+                if (!TryEmitStaticFieldInitializerLoad(cctorIl, def, init.Type, init.InitKind, init.InitText, siblings))
+                    return false;
+                cctorIl.Emit(OpCodes.Stsfld, init.Field);
+            }
+            cctorIl?.Emit(OpCodes.Ret);
         }
 
         // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared
@@ -4457,6 +5121,10 @@ internal sealed class ColumnarIlEmitter
             // (and every sibling call site) sees the WRAPPED type.
             var bodyReturnType = asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f];
             var functionSource = program.GetSourceForFileId(fn.SourceFileId);
+            var currentSibling = siblings[fn.Name];
+            var genericInterfaceConstraintMap = BuildGenericInterfaceConstraintMap(
+                currentSibling.TypeParams,
+                interfaceConstraintsByFunc[f]);
             var emitter = new ColumnarIlEmitter(
                 fn.BodyNodes, functionSource, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
@@ -4465,7 +5133,8 @@ internal sealed class ColumnarIlEmitter
                 siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames,
                 asyncReturnType: asyncWrappedByFunc[f],
                 asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask",
-                referenceAssemblyPaths: referenceAssemblyPaths);
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                genericInterfaceConstraints: genericInterfaceConstraintMap);
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
             try
             {
@@ -5372,7 +6041,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     return Decline("emit.return.expression", "return expression could not be emitted", retNode);
                 }
-                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, allowExplicit: false))
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, allowExplicit: false))
                 {
                     return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode);
                 }
@@ -5506,7 +6175,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
                         return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit);
-                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
                         return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit);
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
@@ -5838,9 +6507,46 @@ internal sealed class ColumnarIlEmitter
                         if (!EmitArg(target, 1, setIdxType))
                             return false;
                         if (!EmitExpression(Child(expr, 1), out var setValueType)
-                            || (!TypesEquivalent(setValueType, setValType) && !TryEmitReferenceConversion(setValueType, setValType) && !TryEmitObjectConversion(setValueType, setValType)))
+                            || (!TypesEquivalent(setValueType, setValType) && !TryEmitReferenceConversion(setValueType, setValType) && !TryEmitObjectConversion(setValueType, setValType) && !TryEmitAnonymousUnionConversion(setValueType, setValType)))
                             return false;
                         _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")!));
+                        return true;
+                    }
+                    if (IsSupportedSpanType(arrayType))
+                    {
+                        var spanElementType = arrayType.GetGenericArguments()[0];
+                        if (spanElementType != typeof(byte))
+                            return false;
+                        var spanSlice = arrayType.GetMethod(nameof(Span<byte>.Slice), new[] { typeof(int), typeof(int) });
+                        var memoryWrite = Array.Find(
+                            typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                            method =>
+                            {
+                                if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.Write) || !method.IsGenericMethodDefinition)
+                                    return false;
+                                var parameters = method.GetParameters();
+                                return parameters.Length == 2
+                                       && parameters[0].ParameterType == typeof(Span<byte>)
+                                       && parameters[1].ParameterType.IsByRef;
+                            });
+                        if (spanSlice == null || memoryWrite == null)
+                            return false;
+                        var spanTemp = _il.DeclareLocal(arrayType);
+                        _il.Emit(OpCodes.Stloc, spanTemp);
+                        _il.Emit(OpCodes.Ldloca, spanTemp);
+                        if (!EmitExpression(Child(target, 1), out var spanIndexType) || spanIndexType != typeof(int))
+                            return false;
+                        _il.Emit(OpCodes.Ldc_I4_1);
+                        _il.Emit(OpCodes.Call, spanSlice);
+                        var sliceTemp = _il.DeclareLocal(arrayType);
+                        _il.Emit(OpCodes.Stloc, sliceTemp);
+                        var valueTemp = _il.DeclareLocal(spanElementType);
+                        if (!TryEmitAssignableValue(Child(expr, 1), spanElementType, out _))
+                            return false;
+                        _il.Emit(OpCodes.Stloc, valueTemp);
+                        _il.Emit(OpCodes.Ldloc, sliceTemp);
+                        _il.Emit(OpCodes.Ldloca, valueTemp);
+                        _il.Emit(OpCodes.Call, memoryWrite.MakeGenericMethod(spanElementType));
                         return true;
                     }
                     if (!arrayType.IsSZArray)
@@ -5924,7 +6630,7 @@ internal sealed class ColumnarIlEmitter
                                 return false;
                             }
                             if (!TypesEquivalent(writeValueType, writeField.FieldType)
-                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType) && !TryEmitUserDefinedConversion(writeValueType, writeField.FieldType, allowExplicit: false))
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.FieldType) && !TryEmitUserDefinedConversion(writeValueType, writeField.FieldType, allowExplicit: false))
                                 return false;
                             _il.Emit(OpCodes.Stfld, writeField);
                             return true;
@@ -5973,6 +6679,14 @@ internal sealed class ColumnarIlEmitter
                 }
                 // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
                 // shared StrongBox's Value — checked before every other tier.
+                if (targetName == "_")
+                {
+                    if (!EmitExpression(Child(expr, 1), out var discardValueType))
+                        return false;
+                    if (discardValueType != typeof(void))
+                        _il.Emit(OpCodes.Pop);
+                    return true;
+                }
                 if (_boxedCaptures != null && _boxedCaptures.TryGetValue(targetName, out var boxedWrite))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
@@ -6024,7 +6738,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType) && !TryEmitUserDefinedConversion(valueType, assignTarget.LocalType, allowExplicit: false))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.LocalType) && !TryEmitUserDefinedConversion(valueType, assignTarget.LocalType, allowExplicit: false))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -6074,6 +6788,7 @@ internal sealed class ColumnarIlEmitter
                             && !TryEmitInterfaceUpcast(byRefParamValueType, paramElementType)
                             && !TryEmitReferenceConversion(byRefParamValueType, paramElementType)
                             && !TryEmitObjectConversion(byRefParamValueType, paramElementType)
+                            && !TryEmitAnonymousUnionConversion(byRefParamValueType, paramElementType)
                             && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType, allowExplicit: false))
                             return false;
                         EmitStoreByRefElement(paramElementType);
@@ -6106,7 +6821,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], allowExplicit: false))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], allowExplicit: false))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -7883,6 +8598,93 @@ internal sealed class ColumnarIlEmitter
     private ColumnarStructDef? FindDefByType(Type type)
         => type is TypeBuilder builder ? FindDefByBuilder(builder) : null;
 
+    private static bool TryResolveUserInterfaceDef(
+        Type interfaceType,
+        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
+        out ColumnarStructDef def)
+    {
+        if (interfaceType is TypeBuilder builder
+            && TryFindDefByBuilder(structRegistry, builder, out var direct)
+            && direct.IsInterface)
+        {
+            def = direct;
+            return true;
+        }
+
+        var isGenericType = false;
+        try
+        {
+            isGenericType = interfaceType.IsGenericType;
+        }
+        catch (NotSupportedException)
+        {
+            isGenericType = false;
+        }
+        catch (NotImplementedException)
+        {
+            isGenericType = false;
+        }
+
+        if (isGenericType)
+        {
+            try
+            {
+                if (interfaceType.GetGenericTypeDefinition() is TypeBuilder openBuilder
+                    && TryFindDefByBuilder(structRegistry, openBuilder, out var openDef)
+                    && openDef.IsInterface)
+                {
+                    def = openDef;
+                    return true;
+                }
+            }
+            catch (NotSupportedException)
+            {
+                // Some builder-backed instantiations expose only a narrow reflection surface.
+            }
+            catch (NotImplementedException)
+            {
+                // Some builder-backed instantiations expose only a narrow reflection surface.
+            }
+        }
+
+        def = null!;
+        return false;
+    }
+
+    private static bool IsRuntimeInterfaceType(Type type)
+    {
+        try
+        {
+            return type.IsInterface;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (NotImplementedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFindDefByBuilder(
+        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
+        TypeBuilder builder,
+        out ColumnarStructDef def)
+    {
+        foreach (var candidate in structRegistry.Values)
+        {
+            if (candidate.Builder == builder)
+            {
+                def = candidate;
+                return true;
+            }
+        }
+
+        def = null!;
+        return false;
+    }
+
     // PASS 0e bodies — the legacy emitter's synthesized record members VERBATIM (EmitRecordEquals /
     // EmitRecordGetHashCode / EmitRecordCloneMethod): Equals(object) = null-check + isinst + per-field
     // EqualityComparer<T>.Default.Equals chain; GetHashCode = `hash = 17; hash = hash * 23 +
@@ -8167,6 +8969,11 @@ internal sealed class ColumnarIlEmitter
         if (receiverType == typeof(Process) && member is nameof(Process.ExitCode) or nameof(Process.StandardOutput) or nameof(Process.StandardError))
         {
             property = typeof(Process).GetProperty(member)!;
+            return property.GetMethod != null;
+        }
+        if (member == nameof(Exception.Message) && typeof(Exception).IsAssignableFrom(receiverType))
+        {
+            property = typeof(Exception).GetProperty(nameof(Exception.Message))!;
             return property.GetMethod != null;
         }
         if (receiverType.IsGenericType
@@ -8598,6 +9405,15 @@ internal sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Ldtoken, typeOfTarget);
                 _il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), new[] { typeof(RuntimeTypeHandle) })!);
                 type = typeof(Type);
+                return true;
+            }
+
+            case 62: // NameOfExpression [target] — `nameof(identifierOrMember)` lowers to a string literal.
+            {
+                if (!TryGetNameofText(idx, out var nameOfText))
+                    return false;
+                _il.Emit(OpCodes.Ldstr, nameOfText);
+                type = typeof(string);
                 return true;
             }
 
@@ -9070,6 +9886,8 @@ internal sealed class ColumnarIlEmitter
                         type = ownStatic.ReturnType;
                         return true;
                     }
+                    if (TryEmitResultFactoryCall(idx, name, out type))
+                        return true;
                     // CALL-STYLE newtype construction (`UserId(42)`): newtypes ONLY (the legacy
                     // emitter's RecordsTopLevelNewtypeNames gate) — resolve the synthesized
                     // single-parameter constructor and newobj it.
@@ -9108,8 +9926,8 @@ internal sealed class ColumnarIlEmitter
                         return false; // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
                     // Resolve each explicit type argument: SIMPLE (kind 0) type nodes only this slice (the
                     // children of a kind-38 node are TYPE-kernel subtrees by construction). The resolved type
-                    // must be a bindable concrete type — TypeBuilder/EnumBuilder instantiations decline, exactly
-                    // like inferred bindings. The PRE-SEEDED binding then flows through the shared emission
+                    // must be a bindable type. Direct emitted user types are allowed; composed builder-bound
+                    // instantiations still do not parse through this simple-node path. The PRE-SEEDED binding then flows through the shared emission
                     // helper, whose unify loop VERIFIES each argument against it (Identity<string>(5) declines).
                     var explicitBinding = new Type?[gTarget.TypeParams.Length];
                     for (var ta = 0; ta < gTarget.TypeParams.Length; ta++)
@@ -9119,7 +9937,7 @@ internal sealed class ColumnarIlEmitter
                             return false; // composed explicit type args (List<int>, T[]) decline this slice.
                         if (!TryResolveType(Text(typeArgNode), _enumRegistry, _structRegistry, _unionRegistry, out var taType))
                             return false;
-                        if (taType is TypeBuilder || taType is EnumBuilder || !IsSupportedType(taType))
+                        if (!IsSupportedType(taType))
                             return false;
                         explicitBinding[ta] = taType;
                     }
@@ -9266,6 +10084,24 @@ internal sealed class ColumnarIlEmitter
                     {
                         _il.Emit(OpCodes.Call, typeof(Random).GetProperty(nameof(Random.Shared))!.GetGetMethod()!);
                         type = typeof(Random);
+                        return true;
+                    }
+                    if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool")
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == "Shared")
+                    {
+                        var arrayPoolType = typeof(System.Buffers.ArrayPool<byte>);
+                        _il.Emit(OpCodes.Call, arrayPoolType.GetProperty("Shared")!.GetGetMethod()!);
+                        type = arrayPoolType;
+                        return true;
+                    }
+                    if ((receiverIdent == "MemoryPool" || receiverIdent == "ByteMemoryPool")
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+                        && Text(idx) == "Shared")
+                    {
+                        var memoryPoolType = typeof(System.Buffers.MemoryPool<byte>);
+                        _il.Emit(OpCodes.Call, memoryPoolType.GetProperty("Shared")!.GetGetMethod()!);
+                        type = memoryPoolType;
                         return true;
                     }
                     if (receiverIdent == "DateTime"
@@ -9492,6 +10328,31 @@ internal sealed class ColumnarIlEmitter
                         type = structReceiverType.GetGenericArguments()[0];
                         return true;
                     }
+                    if (TryResolveResultReadableProperty(structReceiverType, member, out var resultGetter, out var resultPropertyType))
+                    {
+                        var resultTemp = _il.DeclareLocal(structReceiverType);
+                        _il.Emit(OpCodes.Stloc, resultTemp);
+                        _il.Emit(OpCodes.Ldloca, resultTemp);
+                        _il.Emit(OpCodes.Call, resultGetter);
+                        type = resultPropertyType;
+                        return true;
+                    }
+                    if (TryResolveMemoryReadableProperty(structReceiverType, member, out var memoryGetter, out var memoryPropertyType))
+                    {
+                        if (structReceiverType.IsValueType)
+                        {
+                            var memoryTemp = _il.DeclareLocal(structReceiverType);
+                            _il.Emit(OpCodes.Stloc, memoryTemp);
+                            _il.Emit(OpCodes.Ldloca, memoryTemp);
+                            _il.Emit(OpCodes.Call, memoryGetter);
+                        }
+                        else
+                        {
+                            _il.Emit(OpCodes.Callvirt, memoryGetter);
+                        }
+                        type = memoryPropertyType;
+                        return true;
+                    }
                     // `.Count` on a closed List<T>/Dictionary<K,V>/HashSet<T> — callvirt get_Count -> int
                     // (resolved from the open definition so builder-bound receivers rebind).
                     if (member == "Count" && TryResolveCollectionCountGetter(structReceiverType, out var countGetter))
@@ -9628,6 +10489,15 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(int);
                         return true;
                     }
+                    if (IsSupportedSpanLikeType(receiverType))
+                    {
+                        var spanTemp = _il.DeclareLocal(receiverType);
+                        _il.Emit(OpCodes.Stloc, spanTemp);
+                        _il.Emit(OpCodes.Ldloca, spanTemp);
+                        _il.Emit(OpCodes.Call, receiverType.GetProperty(nameof(ReadOnlySpan<byte>.Length))!.GetGetMethod()!);
+                        type = typeof(int);
+                        return true;
+                    }
                     return false;
                 }
                 // `t.ItemN` on a ValueTuple -> ldfld the element (ItemN is a public instance FIELD of ValueTuple).
@@ -9693,6 +10563,44 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     _il.Emit(OpCodes.Callvirt, typeof(IList).GetProperty("Item")!.GetGetMethod()!);
                     type = typeof(object);
+                    return true;
+                }
+                if (IsSupportedReadOnlySpanType(indexedType))
+                {
+                    var spanElementType = indexedType.GetGenericArguments()[0];
+                    var spanSlice = indexedType.GetMethod(nameof(ReadOnlySpan<byte>.Slice), new[] { typeof(int), typeof(int) });
+                    var asBytes = Array.Find(
+                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                        method =>
+                        {
+                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.AsBytes) || !method.IsGenericMethodDefinition)
+                                return false;
+                            var parameters = method.GetParameters();
+                            return parameters.Length == 1
+                                   && parameters[0].ParameterType.IsGenericType
+                                   && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>);
+                        });
+                    var memoryRead = Array.Find(
+                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
+                        method =>
+                        {
+                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.Read) || !method.IsGenericMethodDefinition)
+                                return false;
+                            var parameters = method.GetParameters();
+                            return parameters.Length == 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
+                        });
+                    if (spanSlice == null || asBytes == null || memoryRead == null)
+                        return false;
+                    var spanTemp = _il.DeclareLocal(indexedType);
+                    _il.Emit(OpCodes.Stloc, spanTemp);
+                    _il.Emit(OpCodes.Ldloca, spanTemp);
+                    if (!EmitExpression(Child(idx, 1), out var spanIndexType) || spanIndexType != typeof(int))
+                        return false;
+                    _il.Emit(OpCodes.Ldc_I4_1);
+                    _il.Emit(OpCodes.Call, spanSlice);
+                    _il.Emit(OpCodes.Call, asBytes.MakeGenericMethod(spanElementType));
+                    _il.Emit(OpCodes.Call, memoryRead.MakeGenericMethod(spanElementType));
+                    type = spanElementType;
                     return true;
                 }
                 if (!indexedType.IsSZArray)
@@ -9937,7 +10845,11 @@ internal sealed class ColumnarIlEmitter
 
                             var ctorArgNode = Child(idx, 1 + a);
                             Type ctorArgType;
-                            if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType))
+                            if (TryEmitIntLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType))
+                            {
+                                // Unsuffixed integer literal adopted to the declared constructor parameter type.
+                            }
+                            else if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType))
                             {
                                 // Null adopted to the declared reference/nullable constructor parameter type.
                             }
@@ -9948,9 +10860,12 @@ internal sealed class ColumnarIlEmitter
                             // exact match, or the INTERFACE upcast (an implementer into an
                             // interface-typed ctor param — boxes value implementers, IF-1).
                             if (!TypesEquivalent(ctorArgType, chosenParamTypes![a])
+                                && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a])
                                 && !TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a])
+                                && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a])
                                 && !TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a])
-                                && !TryEmitObjectConversion(ctorArgType, chosenParamTypes[a]))
+                                && !TryEmitObjectConversion(ctorArgType, chosenParamTypes[a])
+                                && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a]))
                             {
                                 return false;
                             }
@@ -9995,8 +10910,9 @@ internal sealed class ColumnarIlEmitter
                             return true;
                         }
                         if (collectionCtorArgs == 1
-                            && CanEmitConstructorArgumentAs(Child(idx, 1), typeof(int))
-                            && EmitArg(idx, 1, typeof(int)))
+                            && TryGetCollectionCapacityConstructorArgument(Child(idx, 1), out var capacityArgumentNode)
+                            && CanEmitConstructorArgumentAs(capacityArgumentNode, typeof(int))
+                            && EmitConstructorArgumentValueAs(capacityArgumentNode, typeof(int)))
                         {
                             var openCapacityCtor = collectionOpenDef.GetConstructor(new[] { typeof(int) });
                             if (openCapacityCtor == null)
@@ -10088,6 +11004,13 @@ internal sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Newarr, newElementType);
                 type = newElementType.MakeArrayType();
                 return true;
+            }
+
+            case 58: // ArrayLiteral [elements...] — inferred homogeneous array literal.
+            {
+                if (!TryInferArrayLiteralElementType(idx, out var literalElementType))
+                    return false;
+                return TryEmitArrayLiteralAsType(idx, literalElementType.MakeArrayType(), out type);
             }
 
             case 16: // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
@@ -10324,7 +11247,8 @@ internal sealed class ColumnarIlEmitter
                                 && !TryEmitImplicitWidening(propertyValueType, propertyType)
                                 && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
                                 && !TryEmitReferenceConversion(propertyValueType, propertyType)
-                                && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 return false;
                             _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
                         }
@@ -10389,7 +11313,8 @@ internal sealed class ColumnarIlEmitter
                                     && !TryEmitImplicitWidening(propertyValueType, propertyType)
                                     && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
                                     && !TryEmitReferenceConversion(propertyValueType, propertyType)
-                                    && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                    && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                    && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 {
                                     return false;
                                 }
@@ -10419,7 +11344,8 @@ internal sealed class ColumnarIlEmitter
                                     && !TryEmitImplicitWidening(userFieldValueType, userFieldType)
                                     && !TryEmitInterfaceUpcast(userFieldValueType, userFieldType)
                                     && !TryEmitReferenceConversion(userFieldValueType, userFieldType)
-                                    && !TryEmitObjectConversion(userFieldValueType, userFieldType))
+                                    && !TryEmitObjectConversion(userFieldValueType, userFieldType)
+                                    && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType))
                                 {
                                     return false;
                                 }
@@ -10449,7 +11375,8 @@ internal sealed class ColumnarIlEmitter
                                 && !TryEmitImplicitWidening(propertyValueType, propertyType)
                                 && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
                                 && !TryEmitReferenceConversion(propertyValueType, propertyType)
-                                && !TryEmitObjectConversion(propertyValueType, propertyType))
+                                && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 return false;
                             _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
                             continue;
@@ -10472,7 +11399,8 @@ internal sealed class ColumnarIlEmitter
                             && !TryEmitImplicitWidening(fieldValueType, fieldType)
                             && !TryEmitInterfaceUpcast(fieldValueType, fieldType)
                             && !TryEmitReferenceConversion(fieldValueType, fieldType)
-                            && !TryEmitObjectConversion(fieldValueType, fieldType))
+                            && !TryEmitObjectConversion(fieldValueType, fieldType)
+                            && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType))
                             return false;
                         _il.Emit(OpCodes.Stfld, field);
                     }
@@ -10539,7 +11467,7 @@ internal sealed class ColumnarIlEmitter
                             var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                             _il.Emit(OpCodes.Dup);
                             if (!EmitExpression(valueNode, out var closedInitValueType)
-                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType)))
+                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
                                 return false;
                             _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                         }
@@ -10562,7 +11490,7 @@ internal sealed class ColumnarIlEmitter
                         var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                         _il.Emit(OpCodes.Ldloca, closedStructValue);
                         if (!EmitExpression(valueNode, out var closedInitValueType)
-                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType)))
+                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                     }
@@ -10631,7 +11559,8 @@ internal sealed class ColumnarIlEmitter
                                 && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType)
                                 && !TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType)
                                 && !TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType)
-                                && !TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType))
+                                && !TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType))
                                 return false;
                             _il.Emit(OpCodes.Callvirt, initProperty.Setter);
                             continue;
@@ -10642,7 +11571,7 @@ internal sealed class ColumnarIlEmitter
                         // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                         // init value's type come from independent resolutions (referentially distinct TBIs).
                         if (!EmitExpression(valueNode, out var initValueType)
-                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
+                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType) && !TryEmitAnonymousUnionConversion(initValueType, initField.FieldType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -10664,8 +11593,7 @@ internal sealed class ColumnarIlEmitter
                     if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
                         return false; // unknown or duplicately-assigned field -> decline.
                     _il.Emit(OpCodes.Ldloca, structValue);
-                    if (!EmitExpression(valueNode, out var initValueType)
-                        || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType)))
+                    if (!TryEmitAssignableValue(valueNode, initField.FieldType, out _))
                         return false;
                     _il.Emit(OpCodes.Stfld, initField);
                 }
@@ -10707,7 +11635,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return Decline("emit.with.value", "with expression value for field '" + Text(withNameChild) + "' could not be emitted", Child(idx, p + 1));
                     }
-                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !TryEmitReferenceConversion(withValueType, withField.FieldType) && !TryEmitObjectConversion(withValueType, withField.FieldType))
+                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !TryEmitReferenceConversion(withValueType, withField.FieldType) && !TryEmitObjectConversion(withValueType, withField.FieldType) && !TryEmitAnonymousUnionConversion(withValueType, withField.FieldType))
                         return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withField.FieldType.FullName + "'", Child(idx, p + 1));
                     _il.Emit(OpCodes.Stfld, withField);
                 }
@@ -10939,6 +11867,45 @@ internal sealed class ColumnarIlEmitter
                         return false;
                 }
 
+                // ANONYMOUS-UNION EXHAUSTIVENESS: a runtime Union<T0,T1> match must cover both arms with
+                // top-level `Type name` patterns or carry a catch-all. This mirrors analyzer NL501 and prevents
+                // the columnar path from accepting a partial match that would otherwise throw at runtime.
+                if (IsSupportedAnonymousUnionType(matchValueType))
+                {
+                    var unionArmTypes = matchValueType.GetGenericArguments();
+                    var coveredArms = new bool[unionArmTypes.Length];
+                    var hasCatchAll = false;
+                    for (var c = 0; c < caseCount; c++)
+                    {
+                        var rawP = Child(idx, 1 + (2 * c));
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
+                            continue;
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
+                        {
+                            hasCatchAll = true;
+                            continue;
+                        }
+                        if (_nodes.Kind(rawP) == 61
+                            && TryResolveAnonymousUnionTypeBindingPattern(rawP, matchValueType, out var armType, out _))
+                        {
+                            for (var a = 0; a < unionArmTypes.Length; a++)
+                            {
+                                if (TypesEquivalent(armType, unionArmTypes[a]))
+                                    coveredArms[a] = true;
+                            }
+                        }
+                    }
+
+                    if (!hasCatchAll)
+                    {
+                        for (var a = 0; a < coveredArms.Length; a++)
+                        {
+                            if (!coveredArms[a])
+                                return false;
+                        }
+                    }
+                }
+
                 var matchEnd = _il.DefineLabel();
                 Type? matchResultType = null;
                 for (var c = 0; c < caseCount; c++)
@@ -10989,6 +11956,13 @@ internal sealed class ColumnarIlEmitter
                         // a combinator declines via EmitPatternMatch's default.
                         var armBody = _il.DefineLabel();
                         if (!EmitUnionCasePattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
+                            return false;
+                        _il.MarkLabel(armBody);
+                    }
+                    else if (_nodes.Kind(patternNode) == 61) // anonymous-union type binding `Type name`.
+                    {
+                        var armBody = _il.DefineLabel();
+                        if (!EmitAnonymousUnionTypeBindingPattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
                             return false;
                         _il.MarkLabel(armBody);
                     }
@@ -11531,6 +12505,53 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool EmitAnonymousUnionTypeBindingPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        if (!TryResolveAnonymousUnionTypeBindingPattern(patternNode, matchValueType, out var armType, out var bindName)
+            || !TryGetAnonymousUnionGenericMethod(matchValueType, "Is", armType, out var isMethod)
+            || !TryGetAnonymousUnionGenericMethod(matchValueType, "As", armType, out var asMethod))
+            return false;
+
+        _il.Emit(OpCodes.Ldloca, matchLocal);
+        _il.Emit(OpCodes.Call, isMethod);
+        _il.Emit(OpCodes.Brfalse, failLabel);
+
+        if (bindName != "_")
+        {
+            if (IsVisibleBindingName(bindName))
+                return false;
+            var bindLocal = _il.DeclareLocal(armType);
+            _il.Emit(OpCodes.Ldloca, matchLocal);
+            _il.Emit(OpCodes.Call, asMethod);
+            _il.Emit(OpCodes.Stloc, bindLocal);
+            _locals[bindName] = bindLocal;
+        }
+
+        _il.Emit(OpCodes.Br, successLabel);
+        return true;
+    }
+
+    private bool TryResolveAnonymousUnionTypeBindingPattern(int patternNode, Type matchValueType, out Type armType, out string bindName)
+    {
+        armType = null!;
+        bindName = string.Empty;
+        if (_nodes.Kind(patternNode) != 61
+            || _nodes.ChildCount(patternNode) != 2
+            || !IsSupportedAnonymousUnionType(matchValueType))
+            return false;
+
+        var typeNode = Child(patternNode, 0);
+        var bindNode = Child(patternNode, 1);
+        if (_nodes.Kind(bindNode) != 6
+            || !TryBuildTypeNodeCanonical(typeNode, out var canonical)
+            || !TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out armType)
+            || !CanUseAnonymousUnionConversion(armType, matchValueType))
+            return false;
+
+        bindName = Text(bindNode);
+        return true;
+    }
+
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
     // (op_Equality), a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case), and a
     // user-defined UNION base (isinst per union-case pattern). Records/etc. are not modelled, so a match over them
@@ -11539,6 +12560,7 @@ internal sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
         || IsEnumType(t)
+        || IsSupportedAnonymousUnionType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
@@ -11818,6 +12840,56 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool TryEmitBufferMemoryCopy(int callIdx, out Type type)
+    {
+        type = null!;
+        if (!TryGetPtrReceiverNode(Child(callIdx, 1), out var sourceNode)
+            || !TryGetPtrReceiverNode(Child(callIdx, 2), out var destinationNode)
+            || !TryGetPreflightExpressionType(Child(callIdx, 3), out var destinationSizeType)
+            || destinationSizeType != typeof(int)
+            || !TryGetPreflightExpressionType(Child(callIdx, 4), out var byteCountType)
+            || byteCountType != typeof(int))
+            return false;
+
+        var readOnlySpanByte = typeof(ReadOnlySpan<byte>);
+        var spanByte = typeof(Span<byte>);
+        var slice = readOnlySpanByte.GetMethod(nameof(ReadOnlySpan<byte>.Slice), new[] { typeof(int), typeof(int) });
+        var copyTo = readOnlySpanByte.GetMethod(nameof(ReadOnlySpan<byte>.CopyTo), new[] { spanByte });
+        if (slice == null || copyTo == null)
+            return false;
+
+        if (!EmitDeclaredCallArgument(sourceNode, readOnlySpanByte, allowLambdaLiteral: false))
+            return false;
+        var sourceTemp = _il.DeclareLocal(readOnlySpanByte);
+        _il.Emit(OpCodes.Stloc, sourceTemp);
+        _il.Emit(OpCodes.Ldloca, sourceTemp);
+        _il.Emit(OpCodes.Ldc_I4_0);
+        if (!EmitDeclaredCallArgument(Child(callIdx, 4), typeof(int), allowLambdaLiteral: false))
+            return false;
+        _il.Emit(OpCodes.Call, slice);
+
+        var slicedTemp = _il.DeclareLocal(readOnlySpanByte);
+        _il.Emit(OpCodes.Stloc, slicedTemp);
+        _il.Emit(OpCodes.Ldloca, slicedTemp);
+        if (!EmitDeclaredCallArgument(destinationNode, spanByte, allowLambdaLiteral: false))
+            return false;
+        _il.Emit(OpCodes.Call, copyTo);
+        type = typeof(void);
+        return true;
+    }
+
+    private bool TryGetPtrReceiverNode(int node, out int receiverNode)
+    {
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) == 8 && Text(node) == "ptr" && _nodes.ChildCount(node) == 1)
+        {
+            receiverNode = Child(node, 0);
+            return true;
+        }
+        receiverNode = -1;
+        return false;
+    }
+
     // Static calls (no receiver on the stack): a USER type's static methods first, then a small BCL whitelist.
     // Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
     private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount, out Type type)
@@ -11845,6 +12917,15 @@ internal sealed class ColumnarIlEmitter
         }
         if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
             return false;
+        if (typeName == "Console" && member is nameof(Console.Write) or nameof(Console.WriteLine) && argCount == 1)
+        {
+            var method = typeof(Console).GetMethod(member, new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
         if ((typeName == "JsonConvert" || typeName == "Newtonsoft.Json.JsonConvert")
             && member == "SerializeObject"
             && argCount == 1)
@@ -11922,6 +13003,62 @@ internal sealed class ColumnarIlEmitter
             type = typeof(int);
             return true;
         }
+        if ((typeName == "Interlocked" || typeName == "System.Threading.Interlocked")
+            && member == nameof(System.Threading.Interlocked.Increment)
+            && argCount == 1)
+        {
+            var refArg = Child(callIdx, 1);
+            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || Text(refArg) != "ref")
+                return false;
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out var elementType)
+                || (elementType != typeof(int) && elementType != typeof(long)))
+                return false;
+            var byRefType = elementType.MakeByRefType();
+            var method = typeof(System.Threading.Interlocked).GetMethod(
+                nameof(System.Threading.Interlocked.Increment),
+                new[] { byRefType });
+            if (method == null || !EmitByRefCallArgument(refArg, byRefType))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = elementType;
+            return true;
+        }
+        if ((typeName == "BinaryPrimitives" || typeName == "System.Buffers.Binary.BinaryPrimitives")
+            && member == "ReadInt32LittleEndian"
+            && argCount == 1)
+        {
+            var spanByteType = typeof(ReadOnlySpan<byte>);
+            var method = typeof(System.Buffers.Binary.BinaryPrimitives).GetMethod(
+                nameof(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian),
+                new[] { spanByteType });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), spanByteType, allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
+        }
+        if ((typeName == "BinaryPrimitives" || typeName == "System.Buffers.Binary.BinaryPrimitives")
+            && member == "WriteUInt32LittleEndian"
+            && argCount == 2)
+        {
+            var spanByteType = typeof(Span<byte>);
+            var method = typeof(System.Buffers.Binary.BinaryPrimitives).GetMethod(
+                nameof(System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian),
+                new[] { spanByteType, typeof(uint) });
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), spanByteType, allowLambdaLiteral: false)
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(uint), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(void);
+            return true;
+        }
+        if ((typeName == "Buffer" || typeName == "System.Buffer")
+            && member == nameof(Buffer.MemoryCopy)
+            && argCount == 4)
+        {
+            return TryEmitBufferMemoryCopy(callIdx, out type);
+        }
         if (typeName == "Math" && member == "Abs" && argCount == 1)
         {
             // System.Math.Abs(int) -> int (absolute value). The arg is an int; emit `call` (static). Negative
@@ -11932,6 +13069,15 @@ internal sealed class ColumnarIlEmitter
                 return false;
             _il.Emit(OpCodes.Call, method);
             type = typeof(int);
+            return true;
+        }
+        if (typeName == "Math" && member == "Sqrt" && argCount == 1)
+        {
+            var method = typeof(Math).GetMethod(nameof(Math.Sqrt), new[] { typeof(double) });
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(double);
             return true;
         }
         if (typeName == "Math" && member == "Max" && argCount == 2)
@@ -12085,6 +13231,15 @@ internal sealed class ColumnarIlEmitter
                 return false;
             _il.Emit(OpCodes.Call, method);
             type = typeof(string);
+            return true;
+        }
+        if (typeName == "File" && member == nameof(File.OpenRead) && argCount == 1)
+        {
+            var method = typeof(File).GetMethod(nameof(File.OpenRead), new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(Stream);
             return true;
         }
         if (typeName == "File" && member == nameof(File.ReadAllLines) && argCount == 1)
@@ -12604,6 +13759,30 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
+    private static MethodInfo? ResolveMemoryExtensionsAsSpan(int argumentCount)
+    {
+        foreach (var method in typeof(MemoryExtensions).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (method.Name != nameof(MemoryExtensions.AsSpan)
+                || !method.IsGenericMethodDefinition)
+                continue;
+            var parameters = method.GetParameters();
+            if (argumentCount == 0
+                && parameters.Length == 1
+                && parameters[0].ParameterType.IsArray
+                && parameters[0].ParameterType.GetElementType()!.IsGenericParameter)
+                return method;
+            if (argumentCount == 2
+                && parameters.Length == 3
+                && parameters[0].ParameterType.IsArray
+                && parameters[0].ParameterType.GetElementType()!.IsGenericParameter
+                && parameters[1].ParameterType == typeof(int)
+                && parameters[2].ParameterType == typeof(int))
+                return method;
+        }
+        return null;
+    }
+
     // System.Array.Resize<T>(ref T[] array, int newSize) as a generic method DEFINITION.
     private static MethodInfo? ResolveArrayResize()
     {
@@ -13015,6 +14194,85 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool TryEmitAnonymousUnionConversion(Type source, Type target)
+    {
+        if (!CanUseAnonymousUnionConversion(source, target))
+            return false;
+
+        var arms = target.GetGenericArguments();
+        for (var i = 0; i < arms.Length; i++)
+        {
+            if (!TypesEquivalent(source, arms[i]))
+                continue;
+            if (!TryGetAnonymousUnionArmCtor(target, i, out var ctor))
+                return false;
+            _il.Emit(OpCodes.Newobj, ctor);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool CanUseAnonymousUnionConversion(Type source, Type target)
+    {
+        if (source == typeof(void) || !IsSupportedAnonymousUnionType(target))
+            return false;
+
+        var arms = target.GetGenericArguments();
+        for (var i = 0; i < arms.Length; i++)
+        {
+            if (TypesEquivalent(source, arms[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetAnonymousUnionArmCtor(Type unionType, int armIndex, out ConstructorInfo ctor)
+    {
+        ctor = null!;
+        if (!IsSupportedAnonymousUnionType(unionType))
+            return false;
+
+        var openCtors = typeof(NSharpLang.Runtime.Union<,>).GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        for (var i = 0; i < openCtors.Length; i++)
+        {
+            var parameters = openCtors[i].GetParameters();
+            if (parameters.Length == 1
+                && parameters[0].ParameterType.IsGenericParameter
+                && parameters[0].ParameterType.GenericParameterPosition == armIndex)
+            {
+                ctor = ResolveClosedGenericCtor(unionType, openCtors[i]);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetAnonymousUnionGenericMethod(Type unionType, string name, Type typeArgument, out MethodInfo method)
+    {
+        method = null!;
+        if (!IsSupportedAnonymousUnionType(unionType))
+            return false;
+
+        var openMethods = typeof(NSharpLang.Runtime.Union<,>).GetMethods(BindingFlags.Public | BindingFlags.Instance);
+        for (var i = 0; i < openMethods.Length; i++)
+        {
+            var candidate = openMethods[i];
+            if (candidate.Name != name
+                || !candidate.IsGenericMethodDefinition
+                || candidate.GetGenericArguments().Length != 1
+                || candidate.GetParameters().Length != 0)
+                continue;
+
+            method = ResolveClosedGenericMethod(unionType, candidate).MakeGenericMethod(typeArgument);
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool TryEmitReferenceConversion(Type source, Type target)
     {
         if (source == typeof(void) || source.IsValueType || target.IsValueType)
@@ -13110,7 +14368,8 @@ internal sealed class ColumnarIlEmitter
             && !TryEmitImplicitWidening(valueType, propertyType)
             && !TryEmitInterfaceUpcast(valueType, propertyType)
             && !TryEmitReferenceConversion(valueType, propertyType)
-            && !TryEmitObjectConversion(valueType, propertyType))
+            && !TryEmitObjectConversion(valueType, propertyType)
+            && !TryEmitAnonymousUnionConversion(valueType, propertyType))
             return false;
 
         _il.Emit(OpCodes.Callvirt, property.SetMethod!);
@@ -13224,6 +14483,30 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    private bool TryInferArrayLiteralElementType(int node, out Type elementType)
+    {
+        elementType = null!;
+        if (_nodes.Kind(node) != 58)
+            return false;
+        var elementCount = _nodes.ChildCount(node);
+        if (elementCount == 0)
+            return false;
+        for (var i = 0; i < elementCount; i++)
+        {
+            if (!TryGetPreflightExpressionType(Child(node, i), out var currentType)
+                || !IsSupportedElementType(currentType))
+                return false;
+            if (i == 0)
+            {
+                elementType = currentType;
+                continue;
+            }
+            if (!TypesEquivalent(currentType, elementType))
+                return false;
+        }
+        return true;
+    }
+
     private bool EmitArrayElementStore(Type elementType)
     {
         if (elementType == typeof(bool)) _il.Emit(OpCodes.Stelem_I1);
@@ -13233,6 +14516,7 @@ internal sealed class ColumnarIlEmitter
         else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
         else if (elementType == typeof(float)) _il.Emit(OpCodes.Stelem_R4);
         else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
+        else if (elementType.IsGenericParameter) _il.Emit(OpCodes.Stelem, elementType);
         else if (!elementType.IsValueType) _il.Emit(OpCodes.Stelem_Ref);
         else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
         else return false;
@@ -13461,7 +14745,8 @@ internal sealed class ColumnarIlEmitter
 
     // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table
     // (kind 0 Simple = the name text; kind 1 Generic = name<argCanons>; kind 2 Array = element[],
-    // kind 3 Nullable = element?, kind 6 Tuple = ValueTuple<...>, kind 7 single-child wrapper = transparent
+    // kind 3 Nullable = element?, kind 4 anonymous union = left|right, kind 6 Tuple = ValueTuple<...>,
+    // kind 7 single-child wrapper = transparent
     // named/parenthesized type element). Other type-node kinds decline until their consumers own the
     // corresponding emit path.
     private bool TryBuildTypeNodeCanonical(int typeNode, out string canonical)
@@ -13508,6 +14793,29 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 }
                 canonical = elementCanonical + "?";
+                return true;
+            }
+            case 4:
+            {
+                var childCount = _nodes.ChildCount(typeNode);
+                if (childCount != 2)
+                {
+                    canonical = string.Empty;
+                    return false;
+                }
+                var builder = new System.Text.StringBuilder();
+                for (var c = 0; c < childCount; c++)
+                {
+                    if (c > 0)
+                        builder.Append('|');
+                    if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out var armCanonical))
+                    {
+                        canonical = string.Empty;
+                        return false;
+                    }
+                    builder.Append(armCanonical);
+                }
+                canonical = builder.ToString();
                 return true;
             }
             case 6:
@@ -13759,10 +15067,44 @@ internal sealed class ColumnarIlEmitter
             return true;
         return TryGetPreflightExpressionType(argNode, out var actualType)
                && (TypesEquivalent(actualType, expectedType)
+                   || CanUseImplicitNumericWidening(actualType, expectedType)
                    || CanUseInterfaceUpcast(actualType, expectedType)
+                   || CanUseSpanConversion(actualType, expectedType)
                    || TryEmitReferenceConversion(actualType, expectedType)
-                   || CanUseObjectConversion(actualType, expectedType));
+                   || CanUseObjectConversion(actualType, expectedType)
+                   || CanUseAnonymousUnionConversion(actualType, expectedType));
     }
+
+    private bool TryGetCollectionCapacityConstructorArgument(int argNode, out int valueNode)
+    {
+        argNode = UnwrapParenthesizedNode(argNode);
+        if (_nodes.Kind(argNode) != ColumnarNamedArgumentExpressionKind)
+        {
+            valueNode = argNode;
+            return true;
+        }
+
+        if (_nodes.ChildCount(argNode) != 1 || Text(argNode) != "capacity")
+        {
+            valueNode = -1;
+            return false;
+        }
+
+        valueNode = Child(argNode, 0);
+        return true;
+    }
+
+    private bool EmitConstructorArgumentValueAs(int argNode, Type expected)
+        => EmitExpression(argNode, out var argType)
+           && (TypesEquivalent(argType, expected)
+               || TryEmitImplicitWidening(argType, expected)
+               || TryEmitSpanConversion(argType, expected)
+               || TryEmitInterfaceUpcast(argType, expected)
+               || TryEmitExternalInterfaceUpcast(argType, expected)
+               || TryEmitReferenceConversion(argType, expected)
+               || TryEmitObjectConversion(argType, expected)
+               || TryEmitAnonymousUnionConversion(argType, expected)
+               || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
     private bool TryGetPreflightExpressionType(int node, out Type type)
     {
@@ -13820,6 +15162,8 @@ internal sealed class ColumnarIlEmitter
             }
             case 8:
                 return TryGetPreflightMemberAccessType(node, out type);
+            case 12:
+                return TryGetPreflightBinaryExpressionType(node, out type);
             case 15:
                 return TryGetNewExpressionResultType(node, out type);
             case 16:
@@ -13831,6 +15175,21 @@ internal sealed class ColumnarIlEmitter
                         || TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out type))
                        && IsSupportedType(type);
             }
+            case 55:
+            {
+                if (_nodes.ChildCount(node) != 1
+                    || !TryBuildTypeNodeCanonical(Child(node, 0), out var typeOfCanonical)
+                    || !TryResolveType(typeOfCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var typeOfTarget)
+                    || !IsSupportedType(typeOfTarget))
+                    return false;
+                type = typeof(Type);
+                return true;
+            }
+            case 62:
+                if (!TryGetNameofText(node, out _))
+                    return false;
+                type = typeof(string);
+                return true;
             case 9:
             {
                 // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
@@ -13873,8 +15232,180 @@ internal sealed class ColumnarIlEmitter
                 }
                 return false;
             }
+            case 10:
+            {
+                if (_nodes.ChildCount(node) != 2
+                    || !TryGetPreflightExpressionType(Child(node, 0), out var indexedType))
+                    return false;
+                if (indexedType == typeof(string))
+                {
+                    type = typeof(char);
+                    return TryGetPreflightExpressionType(Child(node, 1), out var stringIndexType)
+                           && stringIndexType == typeof(int);
+                }
+                if (IsSupportedIndexableCollectionType(indexedType))
+                {
+                    var indexedDef = indexedType.GetGenericTypeDefinition();
+                    var idxParamType = indexedDef == typeof(List<>)
+                        ? typeof(int)
+                        : indexedType.GetGenericArguments()[0];
+                    if (!TryGetPreflightExpressionType(Child(node, 1), out var indexArgType)
+                        || !TypesEquivalent(indexArgType, idxParamType))
+                        return false;
+                    type = indexedDef == typeof(List<>)
+                        ? indexedType.GetGenericArguments()[0]
+                        : indexedType.GetGenericArguments()[1];
+                    return true;
+                }
+                if (indexedType.IsGenericType && !indexedType.IsGenericTypeDefinition
+                    && indexedType.GetGenericTypeDefinition() == typeof(IReadOnlyList<>))
+                {
+                    if (!TryGetPreflightExpressionType(Child(node, 1), out var readOnlyIndexType)
+                        || readOnlyIndexType != typeof(int))
+                        return false;
+                    type = indexedType.GetGenericArguments()[0];
+                    return true;
+                }
+                if (indexedType == typeof(IList))
+                {
+                    type = typeof(object);
+                    return TryGetPreflightExpressionType(Child(node, 1), out var listIndexType)
+                           && listIndexType == typeof(int);
+                }
+                if (IsSupportedReadOnlySpanType(indexedType))
+                {
+                    var spanElementType = indexedType.GetGenericArguments()[0];
+                    if (!TryGetPreflightExpressionType(Child(node, 1), out var spanIndexType)
+                        || spanIndexType != typeof(int))
+                        return false;
+                    type = spanElementType;
+                    return true;
+                }
+                if (!IsSafeSzArrayType(indexedType)
+                    || !TryGetPreflightExpressionType(Child(node, 1), out var arrayIndexType)
+                    || arrayIndexType != typeof(int))
+                    return false;
+                var elementType = indexedType.GetElementType()!;
+                if (!elementType.IsGenericParameter
+                    && elementType is not TypeBuilder
+                    && !IsSupportedElementType(elementType)
+                    && !IsSupportedType(elementType))
+                    return false;
+                type = elementType;
+                return true;
+            }
             case 57:
                 return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out type);
+            default:
+                return false;
+        }
+    }
+
+    private bool TryGetPreflightBinaryExpressionType(int node, out Type type)
+    {
+        type = null!;
+        if (_nodes.Kind(node) != 12 || _nodes.ChildCount(node) != 2)
+            return false;
+        var op = Text(node);
+        if (op == "&&" || op == "||")
+        {
+            if (!TryGetPreflightExpressionType(Child(node, 0), out var shortLeft)
+                || !TryGetPreflightExpressionType(Child(node, 1), out var shortRight)
+                || shortLeft != typeof(bool)
+                || shortRight != typeof(bool))
+                return false;
+            type = typeof(bool);
+            return true;
+        }
+
+        if (!TryGetPreflightExpressionType(Child(node, 0), out var leftType)
+            || !TryGetPreflightExpressionType(Child(node, 1), out var rightType))
+            return false;
+
+        if (op == "+" && leftType == typeof(string) && rightType == typeof(string))
+        {
+            type = typeof(string);
+            return true;
+        }
+
+        if (op == "<<" || op == ">>")
+        {
+            if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong))
+                || rightType != typeof(int))
+                return false;
+            type = leftType;
+            return true;
+        }
+
+        Type opType;
+        if (TypesEquivalent(leftType, rightType))
+        {
+            opType = leftType;
+        }
+        else if (!TrySelectMixedNumericCommonType(leftType, rightType, out opType))
+        {
+            if (!ColumnarNumericFacts.IsIntPromotable(leftType) || !ColumnarNumericFacts.IsIntPromotable(rightType))
+                return false;
+            opType = typeof(int);
+        }
+
+        switch (op)
+        {
+            case "+":
+            case "-":
+            case "*":
+            case "/":
+            case "%":
+                if (opType == typeof(decimal))
+                {
+                    type = typeof(decimal);
+                    return true;
+                }
+                if (!ColumnarNumericFacts.IsIntPromotable(opType)
+                    && opType != typeof(long)
+                    && opType != typeof(ulong)
+                    && opType != typeof(uint)
+                    && opType != typeof(double)
+                    && opType != typeof(float))
+                    return false;
+                type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
+                return true;
+            case "&":
+            case "|":
+            case "^":
+                if (!ColumnarNumericFacts.IsIntPromotable(opType)
+                    && opType != typeof(long)
+                    && opType != typeof(ulong)
+                    && opType != typeof(uint))
+                    return false;
+                type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
+                return true;
+            case "<":
+            case ">":
+            case "<=":
+            case ">=":
+                if (!ColumnarNumericFacts.IsIntPromotable(opType)
+                    && opType != typeof(long)
+                    && opType != typeof(ulong)
+                    && opType != typeof(uint)
+                    && opType != typeof(double)
+                    && opType != typeof(float)
+                    && opType != typeof(decimal))
+                    return false;
+                type = typeof(bool);
+                return true;
+            case "==":
+            case "!=":
+                if (!TypesEquivalent(leftType, rightType))
+                    return false;
+                if (opType == typeof(string)
+                    || opType == typeof(Type)
+                    || IsSupportedInterpolationEqualityType(opType))
+                {
+                    type = typeof(bool);
+                    return true;
+                }
+                return false;
             default:
                 return false;
         }
@@ -13904,6 +15435,10 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
             }
+            if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out type))
+                return true;
+            if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out type))
+                return true;
             return false;
         }
 
@@ -13914,8 +15449,150 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
+        if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out type))
+            return true;
+        if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out type))
+            return true;
+
+        if (IsSupportedSpanLikeType(receiverType) && member == "Slice" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3))
+        {
+            type = receiverType;
+            return true;
+        }
+
+        if (receiverType.IsSZArray
+            && receiverType.GetElementType() == typeof(byte)
+            && member == "AsSpan"
+            && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3))
+        {
+            type = typeof(Span<byte>);
+            return true;
+        }
+
+        if (IsSupportedArrayPoolType(receiverType))
+        {
+            if (member == "Rent" && _nodes.ChildCount(callIdx) == 2)
+            {
+                type = typeof(byte[]);
+                return true;
+            }
+            if (member == "Return" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3))
+            {
+                type = typeof(void);
+                return true;
+            }
+        }
+
+        if (IsSupportedMemoryPoolType(receiverType))
+        {
+            if (member == "Rent" && _nodes.ChildCount(callIdx) == 2)
+            {
+                type = typeof(System.Buffers.IMemoryOwner<byte>);
+                return true;
+            }
+        }
+
+        if (IsSupportedMemoryOwnerType(receiverType) && member == nameof(IDisposable.Dispose) && _nodes.ChildCount(callIdx) == 1)
+        {
+            type = typeof(void);
+            return true;
+        }
+
+        if (receiverType == typeof(Stream))
+        {
+            if (member == nameof(Stream.Read) && _nodes.ChildCount(callIdx) == 4)
+            {
+                type = typeof(int);
+                return true;
+            }
+            if (member == nameof(Stream.ReadAsync) && _nodes.ChildCount(callIdx) == 4)
+            {
+                type = typeof(System.Threading.Tasks.Task<int>);
+                return true;
+            }
+            if (member == nameof(Stream.Dispose) && _nodes.ChildCount(callIdx) == 1)
+            {
+                type = typeof(void);
+                return true;
+            }
+        }
+
         return false;
     }
+
+    private bool TryGetPreflightExtensionSiblingCallType(Type receiverType, string member, int callIdx, out Type type)
+    {
+        type = null!;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        if (!_siblings.TryGetValue(member, out var target)
+            || target.TypeParams.Length > 0
+            || target.ParamTypes.Length != argCount + 1
+            || target.ParamModifierKinds.Length == 0
+            || target.ParamModifierKinds[0] != NSharpParameterModifierThis)
+            return false;
+
+        if (!CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0]))
+            return false;
+        for (var a = 0; a < argCount; a++)
+        {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], allowLambdaLiteral: true))
+                return false;
+        }
+
+        type = target.ReturnType;
+        return true;
+    }
+
+    private bool TryGetPreflightExtensionStaticMethodCallType(Type receiverType, string member, int callIdx, out Type type)
+    {
+        type = null!;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        var selected = false;
+        foreach (var def in _structRegistry.Values)
+        {
+            if (!def.StaticMethods.TryGetValue(member, out var overloads))
+                continue;
+            foreach (var target in overloads)
+            {
+                if (target.ParamTypes.Length != argCount + 1
+                    || target.ParamModifierKinds.Length == 0
+                    || target.ParamModifierKinds[0] != NSharpParameterModifierThis
+                    || !CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0]))
+                    continue;
+
+                var argsMatch = true;
+                for (var a = 0; a < argCount; a++)
+                {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], allowLambdaLiteral: true))
+                    {
+                        argsMatch = false;
+                        break;
+                    }
+                }
+                if (!argsMatch)
+                    continue;
+
+                if (selected)
+                {
+                    type = null!;
+                    return false;
+                }
+                type = target.ReturnType;
+                selected = true;
+            }
+        }
+        return selected;
+    }
+
+    private bool CanUseExtensionReceiverConversion(Type sourceType, Type targetType)
+        => TypesEquivalent(sourceType, targetType)
+           || CanUseImplicitNumericWidening(sourceType, targetType)
+           || CanUseSpanConversion(sourceType, targetType)
+           || CanUseInterfaceUpcast(sourceType, targetType)
+           || CanUseExternalInterfaceUpcast(sourceType, targetType)
+           || TryEmitReferenceConversion(sourceType, targetType)
+           || CanUseObjectConversion(sourceType, targetType)
+           || CanUseAnonymousUnionConversion(sourceType, targetType);
 
     private bool TryGetPreflightMemberAccessType(int node, out Type type)
     {
@@ -13928,6 +15605,16 @@ internal sealed class ColumnarIlEmitter
 
         var receiver = Child(node, 0);
         var member = Text(node);
+        if (TryGetPreflightExpressionType(receiver, out var resultReceiverType)
+            && TryResolveResultReadableProperty(resultReceiverType, member, out _, out type))
+        {
+            return true;
+        }
+        if (TryGetPreflightExpressionType(receiver, out var memoryReceiverType)
+            && TryResolveMemoryReadableProperty(memoryReceiverType, member, out _, out type))
+        {
+            return true;
+        }
         if (TryGetPreflightExpressionType(receiver, out var instanceReceiverType)
             && TryResolveInterpolationMemberPlan(instanceReceiverType, member, out var instanceHop)
             && IsSupportedType(instanceHop.ValueType))
@@ -13939,6 +15626,17 @@ internal sealed class ColumnarIlEmitter
         if (member == "Count"
             && TryGetPreflightExpressionType(receiver, out var receiverType)
             && TryResolveCollectionCountGetter(receiverType, out _))
+        {
+            type = typeof(int);
+            return true;
+        }
+
+        if (member == "Length"
+            && TryGetPreflightExpressionType(receiver, out var lengthReceiverType)
+            && (lengthReceiverType.IsSZArray
+                || lengthReceiverType == typeof(string)
+                || lengthReceiverType == typeof(System.Text.StringBuilder)
+                || IsSupportedSpanLikeType(lengthReceiverType)))
         {
             type = typeof(int);
             return true;
@@ -13985,6 +15683,16 @@ internal sealed class ColumnarIlEmitter
             if (receiverIdent == "Random" && Text(node) == nameof(Random.Shared))
             {
                 type = typeof(Random);
+                return true;
+            }
+            if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool") && Text(node) == "Shared")
+            {
+                type = typeof(System.Buffers.ArrayPool<byte>);
+                return true;
+            }
+            if ((receiverIdent == "MemoryPool" || receiverIdent == "ByteMemoryPool") && Text(node) == "Shared")
+            {
+                type = typeof(System.Buffers.MemoryPool<byte>);
                 return true;
             }
             if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
@@ -14059,6 +15767,20 @@ internal sealed class ColumnarIlEmitter
                 return false;
             type = elementType.MakeArrayType();
             return true;
+        }
+        return false;
+    }
+
+    private bool TryGetNameofText(int node, out string text)
+    {
+        text = string.Empty;
+        if (_nodes.Kind(node) != 62 || _nodes.ChildCount(node) != 1)
+            return false;
+        var target = UnwrapParenthesizedNode(Child(node, 0));
+        if (_nodes.Kind(target) == 6 || _nodes.Kind(target) == 8)
+        {
+            text = Text(target);
+            return text.Length > 0;
         }
         return false;
     }
@@ -14166,7 +15888,9 @@ internal sealed class ColumnarIlEmitter
     private static bool TryGetEnumerableElementType(Type receiverType, out Type elementType)
     {
         elementType = null!;
-        if (receiverType.IsSZArray)
+        if (receiverType.IsGenericParameter)
+            return false;
+        if (IsSafeSzArrayType(receiverType))
         {
             elementType = receiverType.GetElementType()!;
             return IsSupportedElementType(elementType);
@@ -14182,6 +15906,24 @@ internal sealed class ColumnarIlEmitter
             return false;
         elementType = args[0];
         return IsAdmissibleCollectionElement(elementType) || IsSupportedElementType(elementType);
+    }
+
+    private static bool IsSafeSzArrayType(Type type)
+    {
+        if (type.IsGenericParameter)
+            return false;
+        try
+        {
+            return type.IsSZArray;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (NotImplementedException)
+        {
+            return false;
+        }
     }
 
     private static MethodInfo? FindEnumerableSourceOnlyMethod(string name)
@@ -14254,7 +15996,8 @@ internal sealed class ColumnarIlEmitter
             localFuncs: _localFuncs, declaredLocalFuncNodes: _declaredLocalFuncNodes, visibleLocalFuncs: _visibleLocalFuncs,
             siblingReturnTupleNames: _siblingReturnTupleNames,
             enclosingBindingNames: VisibleBindingNamesSnapshot(),
-            referenceAssemblyPaths: _referenceAssemblyPaths);
+            referenceAssemblyPaths: _referenceAssemblyPaths,
+            genericInterfaceConstraints: _genericInterfaceConstraints);
         return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 1), out returnType)
                && returnType != typeof(void)
                && IsSupportedType(returnType);
@@ -14274,7 +16017,8 @@ internal sealed class ColumnarIlEmitter
             localFuncs: _localFuncs, declaredLocalFuncNodes: _declaredLocalFuncNodes, visibleLocalFuncs: _visibleLocalFuncs,
             siblingReturnTupleNames: _siblingReturnTupleNames,
             enclosingBindingNames: VisibleBindingNamesSnapshot(),
-            referenceAssemblyPaths: _referenceAssemblyPaths);
+            referenceAssemblyPaths: _referenceAssemblyPaths,
+            genericInterfaceConstraints: _genericInterfaceConstraints);
         return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 0), out returnType)
                && returnType != typeof(void)
                && IsSupportedType(returnType);
@@ -14535,6 +16279,16 @@ internal sealed class ColumnarIlEmitter
             return true;
 
         if (TryEmitEnumerableExtensionCall(callIdx, receiverType, member, argCount, out type))
+            return true;
+
+        if (TryEmitExtensionSiblingCall(callIdx, receiverType, member, argCount, out type))
+            return true;
+
+        if (TryEmitExtensionStaticMethodCall(callIdx, receiverType, member, argCount, out type))
+            return true;
+
+        if (receiverType.IsGenericParameter
+            && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out type))
             return true;
 
         if (receiverType == typeof(AppDomain) && member == nameof(AppDomain.GetAssemblies) && argCount == 0)
@@ -14798,6 +16552,56 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
+        }
+
+        if (IsSupportedArrayPoolType(receiverType))
+        {
+            if (member == "Rent" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<>).GetMethod("Rent")!));
+                type = typeof(byte[]);
+                return true;
+            }
+            if (member == "Return" && (argCount == 1 || argCount == 2))
+            {
+                if (!EmitArg(callIdx, 1, typeof(byte[])))
+                    return false;
+                if (argCount == 2)
+                {
+                    if (!EmitArg(callIdx, 2, typeof(bool)))
+                        return false;
+                }
+                else
+                {
+                    _il.Emit(OpCodes.Ldc_I4_0);
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<>).GetMethod("Return")!));
+                type = typeof(void);
+                return true;
+            }
+            return false;
+        }
+
+        if (IsSupportedMemoryPoolType(receiverType))
+        {
+            if (member == "Rent" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.MemoryPool<>).GetMethod("Rent")!));
+                type = typeof(System.Buffers.IMemoryOwner<byte>);
+                return true;
+            }
+            return false;
+        }
+
+        if (IsSupportedMemoryOwnerType(receiverType) && member == nameof(IDisposable.Dispose) && argCount == 0)
+        {
+            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!);
+            type = typeof(void);
+            return true;
         }
 
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
@@ -15071,6 +16875,40 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
+        if (receiverType == typeof(Stream))
+        {
+            if (member == nameof(Stream.Read) && argCount == 3)
+            {
+                var method = typeof(Stream).GetMethod(nameof(Stream.Read), new[] { typeof(byte[]), typeof(int), typeof(int) });
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(byte[]))
+                    || !EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(int);
+                return true;
+            }
+            if (member == nameof(Stream.ReadAsync) && argCount == 3)
+            {
+                var method = typeof(Stream).GetMethod(nameof(Stream.ReadAsync), new[] { typeof(byte[]), typeof(int), typeof(int) });
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(byte[]))
+                    || !EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method);
+                type = typeof(System.Threading.Tasks.Task<int>);
+                return true;
+            }
+            if (member == nameof(Stream.Dispose) && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, typeof(Stream).GetMethod(nameof(Stream.Dispose), Type.EmptyTypes)!);
+                type = typeof(void);
+                return true;
+            }
+            return false;
+        }
         if (receiverType == typeof(Type) && member is "GetProperty" or "GetField" && argCount == 1)
         {
             if (!EmitArg(callIdx, 1, typeof(string)))
@@ -15248,6 +17086,41 @@ internal sealed class ColumnarIlEmitter
             }
             _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder));
             type = SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
+            return true;
+        }
+
+        if (IsSafeSzArrayType(receiverType)
+            && receiverType.GetElementType() == typeof(byte)
+            && member == "AsSpan"
+            && (argCount == 0 || argCount == 2))
+        {
+            var method = ResolveMemoryExtensionsAsSpan(argCount);
+            if (method == null)
+                return false;
+            if (argCount == 2 && (!EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))))
+                return false;
+            _il.Emit(OpCodes.Call, method.MakeGenericMethod(typeof(byte)));
+            type = typeof(Span<byte>);
+            return true;
+        }
+
+        if (IsSupportedSpanLikeType(receiverType) && member == "Slice" && (argCount == 1 || argCount == 2))
+        {
+            var parameterTypes = argCount == 1
+                ? new[] { typeof(int) }
+                : new[] { typeof(int), typeof(int) };
+            var method = receiverType.GetMethod(nameof(ReadOnlySpan<byte>.Slice), parameterTypes);
+            if (method == null)
+                return false;
+            var spanTemp = _il.DeclareLocal(receiverType);
+            _il.Emit(OpCodes.Stloc, spanTemp);
+            _il.Emit(OpCodes.Ldloca, spanTemp);
+            if (!EmitArg(callIdx, 1, typeof(int)))
+                return false;
+            if (argCount == 2 && !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = receiverType;
             return true;
         }
 
@@ -15576,6 +17449,237 @@ internal sealed class ColumnarIlEmitter
             callIdx);
     }
 
+    private bool TryEmitExtensionSiblingCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
+    {
+        type = null!;
+        if (!_siblings.TryGetValue(member, out var target)
+            || target.TypeParams.Length > 0
+            || target.ParamTypes.Length != argCount + 1
+            || target.ParamModifierKinds.Length == 0
+            || target.ParamModifierKinds[0] != NSharpParameterModifierThis)
+            return false;
+
+        if (!TryConvertAlreadyEmittedValue(receiverType, target.ParamTypes[0]))
+            return false;
+        for (var a = 0; a < argCount; a++)
+        {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), target.ParamTypes[1 + a], allowLambdaLiteral: true))
+                return false;
+        }
+        _il.Emit(OpCodes.Call, target.Method);
+        type = target.ReturnType;
+        return true;
+    }
+
+    private bool TryEmitExtensionStaticMethodCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
+    {
+        type = null!;
+        MethodBuilder? selectedBuilder = null;
+        Type[]? selectedParamTypes = null;
+        Type? selectedReturnType = null;
+        var found = false;
+        foreach (var def in _structRegistry.Values)
+        {
+            if (!def.StaticMethods.TryGetValue(member, out var overloads))
+                continue;
+            foreach (var target in overloads)
+            {
+                if (target.ParamTypes.Length != argCount + 1
+                    || target.ParamModifierKinds.Length == 0
+                    || target.ParamModifierKinds[0] != NSharpParameterModifierThis
+                    || !CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0]))
+                    continue;
+
+                var argsMatch = true;
+                for (var a = 0; a < argCount; a++)
+                {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], allowLambdaLiteral: true))
+                    {
+                        argsMatch = false;
+                        break;
+                    }
+                }
+                if (!argsMatch)
+                    continue;
+
+                if (found)
+                    return false;
+                selectedBuilder = target.Builder;
+                selectedParamTypes = target.ParamTypes;
+                selectedReturnType = target.ReturnType;
+                found = true;
+            }
+        }
+
+        if (!found || selectedBuilder == null || selectedParamTypes == null || selectedReturnType == null)
+            return false;
+        if (!TryConvertAlreadyEmittedValue(receiverType, selectedParamTypes[0]))
+            return false;
+        for (var a = 0; a < argCount; a++)
+        {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), selectedParamTypes[1 + a], allowLambdaLiteral: true))
+                return false;
+        }
+        _il.Emit(OpCodes.Call, selectedBuilder);
+        type = selectedReturnType;
+        return true;
+    }
+
+    private bool TryConvertAlreadyEmittedValue(Type sourceType, Type targetType)
+        => TypesEquivalent(sourceType, targetType)
+           || TryEmitImplicitWidening(sourceType, targetType)
+           || TryEmitSpanConversion(sourceType, targetType)
+           || TryEmitInterfaceUpcast(sourceType, targetType)
+           || TryEmitExternalInterfaceUpcast(sourceType, targetType)
+           || TryEmitReferenceConversion(sourceType, targetType)
+           || TryEmitObjectConversion(sourceType, targetType)
+           || TryEmitAnonymousUnionConversion(sourceType, targetType)
+           || TryEmitUserDefinedConversion(sourceType, targetType, allowExplicit: false);
+
+    private bool TryEmitGenericParameterConstrainedInterfaceCall(
+        int callIdx,
+        Type receiverType,
+        string member,
+        int argCount,
+        out Type type)
+    {
+        type = null!;
+        var constraints = GetGenericInterfaceConstraints(receiverType);
+        foreach (var constraint in constraints)
+        {
+            if (!TryResolveUserInterfaceDef(constraint, _structRegistry, out var interfaceDef))
+                continue;
+            if (!TrySelectClosedInterfaceMethodForCall(
+                    constraint,
+                    interfaceDef,
+                    member,
+                    callIdx,
+                    argCount,
+                    out var method,
+                    out var paramTypes,
+                    out var returnType))
+                continue;
+
+            var receiverTemp = _il.DeclareLocal(receiverType);
+            _il.Emit(OpCodes.Stloc, receiverTemp);
+            _il.Emit(OpCodes.Ldloca, receiverTemp);
+            for (var a = 0; a < paramTypes.Length; a++)
+            {
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), paramTypes[a], allowLambdaLiteral: true))
+                    return false;
+            }
+            _il.Emit(OpCodes.Constrained, receiverType);
+            _il.Emit(OpCodes.Callvirt, method);
+            type = returnType;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Type[] GetGenericInterfaceConstraints(Type type)
+    {
+        if (_genericInterfaceConstraints.TryGetValue(type, out var constraints))
+            return constraints;
+        foreach (var pair in _genericInterfaceConstraints)
+        {
+            if (GenericParameterIdentityMatches(pair.Key, type))
+                return pair.Value;
+        }
+        return GetSafeGenericParameterConstraints(type);
+    }
+
+    private static IReadOnlyDictionary<Type, Type[]> BuildGenericInterfaceConstraintMap(
+        Type[] typeParams,
+        Type[][] interfaceConstraints)
+    {
+        if (typeParams.Length == 0 || interfaceConstraints.Length == 0)
+            return s_noGenericInterfaceConstraints;
+        Dictionary<Type, Type[]>? map = null;
+        var count = Math.Min(typeParams.Length, interfaceConstraints.Length);
+        for (var i = 0; i < count; i++)
+        {
+            if (interfaceConstraints[i].Length == 0)
+                continue;
+            (map ??= new Dictionary<Type, Type[]>())[typeParams[i]] = interfaceConstraints[i];
+        }
+        return map ?? s_noGenericInterfaceConstraints;
+    }
+
+    private static bool GenericParameterIdentityMatches(Type left, Type right)
+    {
+        if (!left.IsGenericParameter || !right.IsGenericParameter || left.Name != right.Name)
+            return false;
+        try
+        {
+            return left.GenericParameterPosition == right.GenericParameterPosition;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (NotImplementedException)
+        {
+            return false;
+        }
+    }
+
+    private static Type[] GetSafeGenericParameterConstraints(Type type)
+    {
+        try
+        {
+            return type.GetGenericParameterConstraints();
+        }
+        catch (NotSupportedException)
+        {
+            return Array.Empty<Type>();
+        }
+        catch (NotImplementedException)
+        {
+            return Array.Empty<Type>();
+        }
+    }
+
+    private bool TrySelectClosedInterfaceMethodForCall(
+        Type closedInterfaceType,
+        ColumnarStructDef openInterfaceDef,
+        string member,
+        int callIdx,
+        int argCount,
+        out MethodInfo method,
+        out Type[] paramTypes,
+        out Type returnType)
+    {
+        method = null!;
+        paramTypes = Array.Empty<Type>();
+        returnType = null!;
+        if (!openInterfaceDef.MethodOverloads.TryGetValue(member, out var overloads))
+            return false;
+
+        var selected = false;
+        foreach (var overload in overloads)
+        {
+            if (overload.ParamTypes.Length != argCount)
+                continue;
+            var closedParams = new Type[overload.ParamTypes.Length];
+            for (var i = 0; i < closedParams.Length; i++)
+                closedParams[i] = CloseInterfaceMemberType(overload.ParamTypes[i], openInterfaceDef, closedInterfaceType);
+            if (!CanDeclaredCallArgumentsMatch(callIdx, closedParams, allowLambdaLiteral: true))
+                continue;
+
+            if (selected)
+                return false;
+            method = closedInterfaceType.IsGenericType && !closedInterfaceType.IsGenericTypeDefinition
+                ? ResolveClosedGenericMethod(closedInterfaceType, overload.Builder)
+                : overload.Builder;
+            paramTypes = closedParams;
+            returnType = CloseInterfaceMemberType(overload.ReturnType, openInterfaceDef, closedInterfaceType);
+            selected = true;
+        }
+
+        return selected;
+    }
+
     private bool TrySelectInstanceMethodOnChain(
         ColumnarStructDef def,
         string name,
@@ -15699,6 +17803,8 @@ internal sealed class ColumnarIlEmitter
             return IsSupportedContextualDelegateType(expectedParamType);
         if (_nodes.Kind(argNode) == 5)
             return !expectedParamType.IsValueType || IsSupportedNullable(expectedParamType);
+        if (CanAdoptIntLiteralAsType(argNode, expectedParamType))
+            return true;
         if (!TryGetPreflightExpressionType(argNode, out var argType))
             return false;
         if (IsSupportedNullable(expectedParamType))
@@ -15712,8 +17818,10 @@ internal sealed class ColumnarIlEmitter
                || CanUseImplicitNumericWidening(argType, expectedParamType)
                || CanUseInterfaceUpcast(argType, expectedParamType)
                || CanUseExternalInterfaceUpcast(argType, expectedParamType)
+               || CanUseSpanConversion(argType, expectedParamType)
                || TryEmitReferenceConversion(argType, expectedParamType)
-               || CanUseObjectConversion(argType, expectedParamType);
+               || CanUseObjectConversion(argType, expectedParamType)
+               || CanUseAnonymousUnionConversion(argType, expectedParamType);
     }
 
     // Emit the argument at child position `argPosition` of the call and require its type to match
@@ -15723,10 +17831,12 @@ internal sealed class ColumnarIlEmitter
     private bool EmitArg(int callIdx, int argPosition, Type expected)
         => EmitExpression(Child(callIdx, argPosition), out var argType)
            && (TypesEquivalent(argType, expected)
+               || TryEmitSpanConversion(argType, expected)
                || TryEmitInterfaceUpcast(argType, expected)
                || TryEmitExternalInterfaceUpcast(argType, expected)
                || TryEmitReferenceConversion(argType, expected)
                || TryEmitObjectConversion(argType, expected)
+               || TryEmitAnonymousUnionConversion(argType, expected)
                || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
     private bool EmitDeclaredCallArgument(int argNode, Type expectedParamType, bool allowLambdaLiteral)
@@ -15741,14 +17851,73 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (IsSupportedNullable(expectedParamType))
             return TryEmitValueAsNullable(argNode, expectedParamType, out _);
+        if (TryEmitIntLiteralAsType(argNode, expectedParamType, out _))
+            return true;
         return EmitExpression(argNode, out var argType)
                && (TypesEquivalent(argType, expectedParamType)
                    || TryEmitImplicitWidening(argType, expectedParamType)
+                   || TryEmitSpanConversion(argType, expectedParamType)
                    || TryEmitInterfaceUpcast(argType, expectedParamType)
                    || TryEmitExternalInterfaceUpcast(argType, expectedParamType)
                    || TryEmitReferenceConversion(argType, expectedParamType)
                    || TryEmitObjectConversion(argType, expectedParamType)
+                   || TryEmitAnonymousUnionConversion(argType, expectedParamType)
                    || TryEmitUserDefinedConversion(argType, expectedParamType, allowExplicit: false));
+    }
+
+    private static bool CanUseSpanConversion(Type sourceType, Type targetType)
+    {
+        if (sourceType.IsSZArray && IsSupportedSpanLikeType(targetType))
+            return TypesEquivalent(sourceType.GetElementType()!, targetType.GetGenericArguments()[0]);
+        if (IsSupportedSpanType(sourceType) && IsSupportedReadOnlySpanType(targetType))
+            return TypesEquivalent(sourceType.GetGenericArguments()[0], targetType.GetGenericArguments()[0]);
+        return false;
+    }
+
+    private bool TryEmitSpanConversion(Type sourceType, Type targetType)
+    {
+        if (!CanUseSpanConversion(sourceType, targetType))
+            return false;
+        if (sourceType.IsSZArray)
+        {
+            var elementArrayType = targetType.GetGenericArguments()[0].MakeArrayType();
+            var ctor = targetType.GetConstructor(new[] { elementArrayType });
+            if (ctor == null)
+                return false;
+            _il.Emit(OpCodes.Newobj, ctor);
+            return true;
+        }
+        var conversion = ResolveSpanToReadOnlySpanConversion(sourceType);
+        if (conversion == null)
+            return false;
+        _il.Emit(OpCodes.Call, conversion);
+        return true;
+    }
+
+    private static MethodInfo? ResolveSpanToReadOnlySpanConversion(Type sourceType)
+    {
+        var elementType = sourceType.GetGenericArguments()[0];
+        var readOnlyOpen = Array.Find(
+            typeof(ReadOnlySpan<>).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            IsSpanToReadOnlySpanConversion);
+        if (readOnlyOpen != null)
+            return ResolveClosedGenericMethod(typeof(ReadOnlySpan<>).MakeGenericType(elementType), readOnlyOpen);
+        var spanOpen = Array.Find(
+            typeof(Span<>).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            IsSpanToReadOnlySpanConversion);
+        return spanOpen == null ? null : ResolveClosedGenericMethod(sourceType, spanOpen);
+    }
+
+    private static bool IsSpanToReadOnlySpanConversion(MethodInfo method)
+    {
+        if (method.Name != "op_Implicit")
+            return false;
+        var parameters = method.GetParameters();
+        return parameters.Length == 1
+               && parameters[0].ParameterType.IsGenericType
+               && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(Span<>)
+               && method.ReturnType.IsGenericType
+               && method.ReturnType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>);
     }
 
     private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
@@ -16007,6 +18176,7 @@ internal sealed class ColumnarIlEmitter
             || TryEmitInterfaceUpcast(valueType, targetType)
             || TryEmitReferenceConversion(valueType, targetType)
             || TryEmitObjectConversion(valueType, targetType)
+            || TryEmitAnonymousUnionConversion(valueType, targetType)
             || TryEmitUserDefinedConversion(valueType, targetType, allowExplicit: false);
         return assignable;
     }
@@ -16225,6 +18395,103 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
+    private static bool TryFindClosedInterfaceMethod(
+        Type closedInterfaceType,
+        ColumnarStructDef openInterfaceDef,
+        string name,
+        Type returnType,
+        Type[] paramTypes,
+        out MethodInfo method)
+    {
+        if (openInterfaceDef.Methods.TryGetValue(name, out var own)
+            && ClosedInterfaceMethodMatches(closedInterfaceType, openInterfaceDef, own, returnType, paramTypes))
+        {
+            method = closedInterfaceType.IsGenericType && !closedInterfaceType.IsGenericTypeDefinition
+                ? ResolveClosedGenericMethod(closedInterfaceType, own.Builder)
+                : own.Builder;
+            return true;
+        }
+
+        foreach (var baseInterface in openInterfaceDef.InterfaceBases)
+        {
+            if (TryFindClosedInterfaceMethod(closedInterfaceType, baseInterface, name, returnType, paramTypes, out method))
+                return true;
+        }
+
+        method = null!;
+        return false;
+    }
+
+    private static bool ClosedInterfaceMethodMatches(
+        Type closedInterfaceType,
+        ColumnarStructDef openInterfaceDef,
+        (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) member,
+        Type returnType,
+        Type[] paramTypes)
+    {
+        if (!TypesEquivalent(CloseInterfaceMemberType(member.ReturnType, openInterfaceDef, closedInterfaceType), returnType))
+            return false;
+        if (member.ParamTypes.Length != paramTypes.Length)
+            return false;
+        for (var i = 0; i < paramTypes.Length; i++)
+        {
+            if (!TypesEquivalent(CloseInterfaceMemberType(member.ParamTypes[i], openInterfaceDef, closedInterfaceType), paramTypes[i]))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool ClosedInterfaceMembersSatisfied(
+        ColumnarStructDef implementer,
+        ColumnarStructDef openInterfaceDef,
+        Type closedInterfaceType)
+    {
+        foreach (var requiredInterface in EnumerateInterfaceAndBases(openInterfaceDef))
+        {
+            foreach (var (memberName, member) in requiredInterface.Methods)
+            {
+                if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
+                    continue;
+                if (!implementer.Methods.TryGetValue(memberName, out var impl)
+                    || !ClosedInterfaceMethodMatches(closedInterfaceType, requiredInterface, member, impl.ReturnType, impl.ParamTypes))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static Type CloseInterfaceMemberType(Type memberType, ColumnarStructDef openInterfaceDef, Type closedInterfaceType)
+    {
+        if (!closedInterfaceType.IsGenericType || closedInterfaceType.IsGenericTypeDefinition)
+            return memberType;
+
+        if (memberType.IsGenericParameter)
+        {
+            var closedArguments = closedInterfaceType.GetGenericArguments();
+            var position = memberType.GenericParameterPosition;
+            if (position >= 0 && position < closedArguments.Length)
+                return closedArguments[position];
+            return memberType;
+        }
+
+        if (memberType.IsSZArray)
+            return CloseInterfaceMemberType(memberType.GetElementType()!, openInterfaceDef, closedInterfaceType).MakeArrayType();
+        if (memberType.IsByRef)
+            return CloseInterfaceMemberType(memberType.GetElementType()!, openInterfaceDef, closedInterfaceType).MakeByRefType();
+
+        if (memberType.IsGenericType && memberType.ContainsGenericParameters)
+        {
+            var args = memberType.GetGenericArguments();
+            var closedArgs = new Type[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                closedArgs[i] = CloseInterfaceMemberType(args[i], openInterfaceDef, closedInterfaceType);
+            return memberType.GetGenericTypeDefinition().MakeGenericType(closedArgs);
+        }
+
+        return memberType;
+    }
+
     private static bool ColumnarStructInputSatisfiesDuckInterface(
         ColumnarStructInput source,
         ColumnarStructDef sourceDef,
@@ -16428,7 +18695,9 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         var parts = new List<ColumnarInterpolationPart>();
         if (!ColumnarInterpolationSplitter.TrySplit(literal, parts))
-            return false;
+            return DeclineStatic(
+                "emit.interpolation.split",
+                "interpolated string literal could not be split into literal and hole parts");
         var formattedCount = 0;
         foreach (var part in parts)
         {
@@ -16477,7 +18746,10 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
             var plan = holePlans[holeIndex++];
-            EmitInterpolationHoleValue(plan);
+            if (!EmitInterpolationHoleValue(plan))
+                return DeclineStatic(
+                    "emit.interpolation.emit",
+                    "interpolated string hole '" + part.Text + "' could not be emitted");
             if (plan.ValueType == typeof(string) && plan.Format == null)
             {
                 _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })!);
@@ -16569,10 +18841,27 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (!TryResolveInterpolationChainPlan(text, out plan))
-            return false;
-        plan.Format = format;
-        return true;
+        if (TryResolveInterpolationChainPlan(text, out plan))
+        {
+            plan.Format = format;
+            return true;
+        }
+
+        if (TryParseInterpolationExpressionHole(text, out var expressionNodes, out var expressionRoot)
+            && TryGetParsedInterpolationExpressionType(expressionNodes, text, expressionRoot, out var expressionType))
+        {
+            plan = new ColumnarInterpolationHolePlan
+            {
+                ExpressionNodes = expressionNodes,
+                ExpressionSource = text,
+                ExpressionRoot = expressionRoot,
+                ValueType = expressionType,
+                Format = format,
+            };
+            return true;
+        }
+
+        return false;
     }
 
     private bool TryResolveInterpolationChainPlan(string chain, out ColumnarInterpolationHolePlan plan)
@@ -16621,37 +18910,47 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private void EmitInterpolationHoleValue(ColumnarInterpolationHolePlan plan)
+    private bool EmitInterpolationHoleValue(ColumnarInterpolationHolePlan plan)
     {
         if (plan.BinaryOperator != null)
         {
-            EmitInterpolationHoleValue(plan.BinaryLeft!);
-            EmitInterpolationHoleValue(plan.BinaryRight!);
+            if (!EmitInterpolationHoleValue(plan.BinaryLeft!)
+                || !EmitInterpolationHoleValue(plan.BinaryRight!))
+                return false;
             EmitInterpolationEquality(plan.BinaryOperator, plan.BinaryLeft!.ValueType!);
-            return;
+            return true;
         }
 
         if (plan.CoalesceRight != null)
         {
-            EmitInterpolationSimpleHoleValue(plan);
+            if (!EmitInterpolationSimpleHoleValue(plan))
+                return false;
             var end = _il.DefineLabel();
             _il.Emit(OpCodes.Dup);
             _il.Emit(OpCodes.Brtrue, end);
             _il.Emit(OpCodes.Pop);
-            EmitInterpolationHoleValue(plan.CoalesceRight);
+            if (!EmitInterpolationHoleValue(plan.CoalesceRight))
+                return false;
             _il.MarkLabel(end);
-            return;
+            return true;
         }
 
-        EmitInterpolationSimpleHoleValue(plan);
+        return EmitInterpolationSimpleHoleValue(plan);
     }
 
-    private void EmitInterpolationSimpleHoleValue(ColumnarInterpolationHolePlan plan)
+    private bool EmitInterpolationSimpleHoleValue(ColumnarInterpolationHolePlan plan)
     {
+        if (plan.ExpressionNodes != null && plan.ExpressionSource != null)
+        {
+            return plan.ExpressionRoot >= 0
+                   && EmitParsedInterpolationExpression(plan.ExpressionNodes, plan.ExpressionSource, plan.ExpressionRoot, out var emittedType)
+                   && TypesEquivalent(emittedType, plan.ValueType!);
+        }
+
         if (plan.ConstantInt is { } constantInt)
         {
             _il.Emit(OpCodes.Ldc_I4, constantInt);
-            return;
+            return true;
         }
 
         if (plan.RootThis)
@@ -16701,7 +19000,7 @@ internal sealed class ColumnarIlEmitter
             }
             else
             {
-                throw new InvalidOperationException("Invalid interpolation member plan");
+                return false;
             }
             current = hop.ValueType;
             stackHasCurrentAddress = false;
@@ -16727,7 +19026,128 @@ internal sealed class ColumnarIlEmitter
         }
         if (plan.CastSourceType != null && plan.CastTargetType != null)
             EmitInterpolationCast(plan.CastSourceType, plan.CastTargetType);
+        return true;
     }
+
+    private static bool TryParseInterpolationExpressionHole(string text, out ColumnarNodeTable nodes, out int root)
+    {
+        nodes = null!;
+        root = -1;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var capacity = Math.Max(3 * (text.Length + 1) + 8, 32);
+        var rawKinds = new int[capacity];
+        var rawStarts = new int[capacity];
+        var rawValueLengths = new int[capacity];
+        var tokenKinds = new int[capacity];
+        var tokenStarts = new int[capacity];
+        var tokenValueLengths = new int[capacity];
+        var tokenCounts = new int[2];
+        var tokenCount = global::Program.TokenizeColumnarSourceInto(
+            text,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts);
+        var rawCount = tokenCounts[0];
+        if (rawCount < 0 || rawCount > capacity || tokenCount <= 0 || tokenCount > rawCount || tokenCount != tokenCounts[1])
+            return false;
+
+        var nodeCapacity = capacity;
+        var childCapacity = Math.Max(capacity * 4, 32);
+        var nodeKinds = new int[nodeCapacity];
+        var valueStarts = new int[nodeCapacity];
+        var valueLengths = new int[nodeCapacity];
+        var childStarts = new int[nodeCapacity];
+        var childCounts = new int[nodeCapacity];
+        var childIndices = new int[childCapacity];
+        var spanStarts = new int[nodeCapacity];
+        var spanLengths = new int[nodeCapacity];
+        var result = new int[3];
+        var nodeCount = global::Program.ParseColumnarExpressionInto(
+            text,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            result);
+        if (nodeCount < 0 || result[1] != nodeCount || result[0] < 0 || result[0] >= nodeCount || result[2] < 0 || result[2] > childIndices.Length)
+            return false;
+
+        var rowCount = Math.Min(nodeCount + 1, nodeKinds.Length);
+        var childLimit = 0;
+        for (var i = 0; i < nodeCount; i++)
+        {
+            var childEnd = childStarts[i] + childCounts[i];
+            if (childEnd > childLimit)
+                childLimit = childEnd;
+        }
+        childLimit = Math.Clamp(childLimit, 0, childIndices.Length);
+        nodes = new ColumnarNodeTable(
+            nodeKinds[..rowCount],
+            valueStarts[..rowCount],
+            valueLengths[..rowCount],
+            childStarts[..rowCount],
+            childCounts[..rowCount],
+            childIndices[..childLimit],
+            spanStarts[..rowCount],
+            spanLengths[..rowCount]);
+        root = result[0];
+        return true;
+    }
+
+    private bool TryGetParsedInterpolationExpressionType(ColumnarNodeTable nodes, string source, int root, out Type type)
+    {
+        var previousNodes = _nodes;
+        var previousSource = _source;
+        _nodes = nodes;
+        _source = source;
+        try
+        {
+            return TryGetPreflightExpressionType(root, out type)
+                   && IsSupportedParsedInterpolationHoleType(type);
+        }
+        finally
+        {
+            _nodes = previousNodes;
+            _source = previousSource;
+        }
+    }
+
+    private bool EmitParsedInterpolationExpression(ColumnarNodeTable nodes, string source, int root, out Type type)
+    {
+        var previousNodes = _nodes;
+        var previousSource = _source;
+        _nodes = nodes;
+        _source = source;
+        try
+        {
+            return EmitExpression(root, out type)
+                   && IsSupportedParsedInterpolationHoleType(type);
+        }
+        finally
+        {
+            _nodes = previousNodes;
+            _source = previousSource;
+        }
+    }
+
+    private bool IsSupportedParsedInterpolationHoleType(Type type)
+        => type != typeof(void)
+           && IsSupportedType(type)
+           && (!ContainsBuilderBoundType(type) || IsKnownEnumType(type));
 
     private bool TrySplitInterpolationCast(string text, out string targetName, out string operandText)
     {
@@ -17009,7 +19429,7 @@ internal sealed class ColumnarIlEmitter
                 current = typeof(bool);
             }
         }
-        if ((!allowBuilderValue && ContainsBuilderBoundType(current)) || !IsSupportedType(current))
+        if ((!allowBuilderValue && ContainsBuilderBoundType(current) && !IsKnownEnumType(current)) || !IsSupportedType(current))
             return false;
         valueType = current;
         return true;

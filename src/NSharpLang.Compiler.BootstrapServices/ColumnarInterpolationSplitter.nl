@@ -343,11 +343,51 @@ public class ColumnarInterpolationSplitter {
                 }
 
                 return ColumnarInterpolatedStringIsIdentifierChain(literal, start, openParen)
-                    && ColumnarInterpolatedStringIsIdentifierChain(literal, argStart, argLength)
+                    && ColumnarInterpolatedStringIsSupportedCallArgument(literal, argStart, argLength)
             }
         }
 
         return false
+    }
+
+    static func ColumnarInterpolatedStringIsSupportedCallArgument(literal: string, start: int, length: int): bool {
+        if length == 0 {
+            return false
+        }
+
+        parenDepth := 0
+        bracketDepth := 0
+        i := 0
+        while i < length {
+            ch := literal[start + i]
+            if ch == '{' || ch == '}' || ch == ':' || ch == '"' || ch == '\\' {
+                return false
+            }
+
+            if ch == ',' && parenDepth == 0 && bracketDepth == 0 {
+                return false
+            }
+
+            if ch == '(' {
+                parenDepth = parenDepth + 1
+            } else if ch == ')' {
+                parenDepth = parenDepth - 1
+                if parenDepth < 0 {
+                    return false
+                }
+            } else if ch == '[' {
+                bracketDepth = bracketDepth + 1
+            } else if ch == ']' {
+                bracketDepth = bracketDepth - 1
+                if bracketDepth < 0 {
+                    return false
+                }
+            }
+
+            i = i + 1
+        }
+
+        return parenDepth == 0 && bracketDepth == 0
     }
 
     static func ColumnarInterpolatedStringIsRootIndexedIdentifierChain(literal: string, start: int, length: int): bool {
@@ -442,6 +482,10 @@ public class ColumnarInterpolationSplitter {
             return true
         }
 
+        if ColumnarInterpolatedStringIsSupportedParsedHoleExpression(literal, start, length) {
+            return true
+        }
+
         equality := ColumnarInterpolatedStringFindEqualityOperator(literal, start, length)
         if equality >= 0 {
             leftStart := start
@@ -514,6 +558,49 @@ public class ColumnarInterpolationSplitter {
 
         return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
             && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    static func ColumnarInterpolatedStringIsSupportedParsedHoleExpression(literal: string, start: int, length: int): bool {
+        if length == 0 {
+            return false
+        }
+
+        parenDepth := 0
+        bracketDepth := 0
+        sawOperator := false
+        i := 0
+        while i < length {
+            ch := literal[start + i]
+            if ch == '{' || ch == '}' || ch == ':' || ch == '"' || ch == '\\' {
+                return false
+            }
+
+            if ch == ',' && parenDepth == 0 && bracketDepth == 0 {
+                return false
+            }
+
+            if ch == '(' {
+                parenDepth = parenDepth + 1
+            } else if ch == ')' {
+                parenDepth = parenDepth - 1
+                if parenDepth < 0 {
+                    return false
+                }
+            } else if ch == '[' {
+                bracketDepth = bracketDepth + 1
+            } else if ch == ']' {
+                bracketDepth = bracketDepth - 1
+                if bracketDepth < 0 {
+                    return false
+                }
+            } else if ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%' || ch == '<' || ch == '>' || ch == '&' || ch == '|' {
+                sawOperator = true
+            }
+
+            i = i + 1
+        }
+
+        return sawOperator && parenDepth == 0 && bracketDepth == 0
     }
 
     static func ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal: string, start: int, length: int): bool {

@@ -6,6 +6,8 @@ namespace NSharpLang.Compiler.Columnar;
 
 internal static class ColumnarProgramInputBuilder
 {
+    private const int NSharpModifierNativeImport = 131072;
+
     private static bool Decline(string siteId, string message, int spanStart = -1, int spanLength = 0, string memberName = "")
     {
         ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName);
@@ -396,6 +398,7 @@ internal static class ColumnarProgramInputBuilder
                 var structIndex = declIndices[declSlot];
                 var isReference = declReferenceFlags[declSlot] == 1;
                 var isRecord = declRecordFlags[declSlot] == 1;
+                var isRefStruct = !isReference && structIndex > 0 && ck[structIndex - 1] == 78;
                 var cap = n + 1;
                 var outFieldNameTexts = new string[cap];
                 var outFieldTypeTexts = new string[cap];
@@ -471,7 +474,12 @@ internal static class ColumnarProgramInputBuilder
                 for (var m = 0; m < methodCount; m++)
                 {
                     var methodModifierFlags = outMethodStaticFlags[m];
-                    if (!TryParseColumnarFunctionAt(ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: (methodModifierFlags & 16) != 0, isAsync: (methodModifierFlags & 2048) != 0, modifierFlags: methodModifierFlags))
+                    if (!TryParseColumnarFunctionAt(
+                            ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput,
+                            isStatic: (methodModifierFlags & 16) != 0,
+                            isAsync: (methodModifierFlags & 2048) != 0,
+                            modifierFlags: methodModifierFlags,
+                            isBodylessNativeImport: (methodModifierFlags & NSharpModifierNativeImport) != 0))
                     {
                         return DeclineAtToken("parse.struct.method", "struct/class/record method could not be parsed into columnar input", cs, cv, outMethodFuncIndices[m], structName);
                     }
@@ -500,7 +508,7 @@ internal static class ColumnarProgramInputBuilder
                     properties.Add(propInput);
                 }
 
-                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags));
+                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct));
             }
             return true;
         }
@@ -589,7 +597,8 @@ internal static class ColumnarProgramInputBuilder
 
     private static bool TryParseColumnarFunctionAt(
         int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
-        out ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false, int modifierFlags = 0)
+        out ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false, int modifierFlags = 0,
+        bool isBodylessNativeImport = false)
     {
         input = null!;
         var cap = n + 1;
@@ -620,12 +629,18 @@ internal static class ColumnarProgramInputBuilder
         var localFunctionNodeIndices = new int[cap];
         var localFunctionTokenIndices = new int[cap];
         var result = new int[9];
-        var paramCount = global::Program.ParseColumnarProductFunctionInfoInto(
-            source, ck, cs, cv, n, funcIndex, isLocalFunction ? 1 : 0, functionNameTexts, returnTypeTexts,
-            paramNameTexts, paramTypeTexts, paramModifierKinds, paramDefaultKinds, paramDefaultTexts,
-            paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
-            typeParamTexts, typeParamSpecials, typeParamConstraintCounts, typeParamConstraintTypeTexts,
-            bk, bvs, bvl, bcs, bcc, bci, bss, bsl, localFunctionNodeIndices, localFunctionTokenIndices, result);
+        var paramCount = isBodylessNativeImport
+            ? global::Program.ParseColumnarProductFunctionSignatureInfoInto(
+                source, ck, cs, cv, n, funcIndex, functionNameTexts, returnTypeTexts,
+                paramNameTexts, paramTypeTexts, paramModifierKinds, paramDefaultKinds, paramDefaultTexts,
+                paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
+                typeParamTexts, typeParamSpecials, typeParamConstraintCounts, typeParamConstraintTypeTexts, result)
+            : global::Program.ParseColumnarProductFunctionInfoInto(
+                source, ck, cs, cv, n, funcIndex, isLocalFunction ? 1 : 0, functionNameTexts, returnTypeTexts,
+                paramNameTexts, paramTypeTexts, paramModifierKinds, paramDefaultKinds, paramDefaultTexts,
+                paramTupleNameCounts, paramTupleNameTexts, returnTupleNameTexts,
+                typeParamTexts, typeParamSpecials, typeParamConstraintCounts, typeParamConstraintTypeTexts,
+                bk, bvs, bvl, bcs, bcc, bci, bss, bsl, localFunctionNodeIndices, localFunctionTokenIndices, result);
         if (paramCount < 0)
         {
             return DeclineAtToken("parse.function", "function body or signature could not be parsed into columnar input", cs, cv, funcIndex);
@@ -673,7 +688,7 @@ internal static class ColumnarProgramInputBuilder
         }
 
         var bodyBrace = result[1];
-        if (bodyBrace < 0 || bodyBrace >= n || (ck[bodyBrace] != 129 && ck[bodyBrace] != 120))
+        if (!isBodylessNativeImport && (bodyBrace < 0 || bodyBrace >= n || (ck[bodyBrace] != 129 && ck[bodyBrace] != 120)))
             return DeclineAtToken("parse.function.body", "function body was not materialized as a supported block or expression body", cs, cv, funcIndex, functionName);
 
         var typeParamNames = Array.Empty<string>();
@@ -717,12 +732,29 @@ internal static class ColumnarProgramInputBuilder
 
         var rootBlock = result[6];
         var bodyNodeCount = result[7];
-        if (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount)
+        if (!isBodylessNativeImport && (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount))
         {
             return DeclineAtToken("parse.function.body-nodes", "function body node table was invalid", cs, cv, funcIndex, functionName);
         }
 
-        var bodyNodes = BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
+        var bodyNodes = isBodylessNativeImport
+            ? new ColumnarNodeTable(
+                Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>(),
+                Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>(),
+                Array.Empty<int>(), Array.Empty<int>())
+            : BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
+        var nativeImportLibraryName = "";
+        var nativeImportEntryPoint = "";
+        if (isBodylessNativeImport)
+        {
+            var nativeImportTexts = new string[2];
+            if (global::Program.ParseColumnarNativeImportInfoInto(source, ck, cs, cv, n, funcIndex, functionName, nativeImportTexts) != 1)
+                return DeclineAtToken("parse.function.native-import", "LibraryImport metadata could not be parsed into columnar input", cs, cv, funcIndex, functionName);
+            nativeImportLibraryName = nativeImportTexts[0];
+            nativeImportEntryPoint = nativeImportTexts[1];
+            rootBlock = -1;
+            bodyNodeCount = 0;
+        }
         input = new ColumnarFunctionInput(
             functionName, returnCanonical, paramNames, paramCanonicals,
             bodyNodes, rootBlock, isStatic, typeParamNames,
@@ -731,7 +763,10 @@ internal static class ColumnarProgramInputBuilder
             paramModifierKinds: parsedParamModifierKinds,
             paramDefaultKinds: parsedParamDefaultKinds, paramDefaultTexts: parsedParamDefaultTexts,
             isAsync: isAsync,
-            modifierFlags: modifierFlags);
+            modifierFlags: modifierFlags,
+            isBodylessNativeImport: isBodylessNativeImport,
+            nativeImportLibraryName: nativeImportLibraryName,
+            nativeImportEntryPoint: nativeImportEntryPoint);
 
         var localFunctionCount = result[8];
         if (localFunctionCount < 0 || localFunctionCount > localFunctionNodeIndices.Length)
@@ -945,11 +980,12 @@ internal static class ColumnarProgramInputBuilder
                 var outMethodBodyFlags = new int[cap];
                 var outMethodParamNameTexts = new string[cap];
                 var outMethodParamTypeTexts = new string[cap];
+                var outTypeParamTexts = new string[cap];
                 var outResult = new int[8];
                 var methodCount = global::Program.ParseColumnarInterfaceInfoInto(source, ck, cs, cv, n, interfaceIndex,
                     outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts,
                     outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
-                    outMethodParamNameTexts, outMethodParamTypeTexts, outResult);
+                    outMethodParamNameTexts, outMethodParamTypeTexts, outTypeParamTexts, outResult);
                 if (methodCount < 0)
                     return DeclineAtToken("parse.interface", "interface declaration could not be parsed into columnar input", cs, cv, interfaceIndex);
                 var interfaceName = outInterfaceNameTexts[0];
@@ -959,6 +995,17 @@ internal static class ColumnarProgramInputBuilder
                 {
                     var baseInterfaceName = outBaseNameTexts[b];
                     baseInterfaceNames[b] = baseInterfaceName;
+                }
+                var typeParamCount = outResult[4];
+                if (typeParamCount < 0 || typeParamCount > outTypeParamTexts.Length)
+                    return DeclineAtToken("parse.interface.type-params", "interface type parameter metadata was invalid", cs, cv, interfaceIndex, interfaceName);
+                var typeParamNames = new string[typeParamCount];
+                for (var tp = 0; tp < typeParamCount; tp++)
+                {
+                    var typeParamName = outTypeParamTexts[tp];
+                    if (string.IsNullOrWhiteSpace(typeParamName))
+                        return DeclineAtToken("parse.interface.type-param", "interface type parameter name was invalid", cs, cv, interfaceIndex, interfaceName);
+                    typeParamNames[tp] = typeParamName;
                 }
                 var methodNames = new string[methodCount];
                 var methodReturns = new string[methodCount];
@@ -1003,7 +1050,8 @@ internal static class ColumnarProgramInputBuilder
                 if (paramCursor != flatParamCount)
                     return DeclineAtToken("parse.interface.params", "interface parameter metadata did not consume the expected count", cs, cv, interfaceIndex, interfaceName);
                 interfaceInputs.Add(new ColumnarInterfaceInput(
-                    interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies));
+                    interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies,
+                    typeParamNames: typeParamNames));
             }
             return true;
         }

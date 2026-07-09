@@ -247,8 +247,108 @@ public class OutputFormatterJsonKernels {
         }
 
         envelope["position"] = BuildPosition(line, col)
-        envelope["facts"] = facts
+        envelope["facts"] = BuildPerfFacts(facts)
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    static func BuildPerfFacts(facts: IReadOnlyList<object>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach fact in facts {
+            payload.Add(BuildPerfFact(fact))
+        }
+
+        return payload
+    }
+
+    static func BuildPerfFact(fact: object): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        source := ReadObjectStringProperty(fact, "source")
+        if source != null {
+            payload["source"] = source ?? ""
+        }
+
+        if source == "systems" {
+            AddObjectProperty(payload, "code", fact, "Code")
+            AddObjectProperty(payload, "severity", fact, "Severity")
+            AddObjectProperty(payload, "effect", fact, "Effect")
+            AddObjectProperty(payload, "message", fact, "Message")
+            AddObjectProperty(payload, "function", fact, "Function")
+            AddObjectProperty(payload, "policy", fact, "Policy")
+            AddObjectProperty(payload, "suggestion", fact, "Suggestion")
+            return payload
+        }
+
+        if source == "systemsFunction" {
+            AddObjectProperty(payload, "name", fact, "Name")
+            AddObjectProperty(payload, "isHot", fact, "IsHot")
+            AddObjectProperty(payload, "isBoundary", fact, "IsBoundary")
+            AddObjectProperty(payload, "allocNone", fact, "AllocNone")
+            AddObjectProperty(payload, "summarySource", fact, "SummarySource")
+            AddSystemsEffectFactsObject(payload, fact)
+            AddObjectProperty(payload, "calls", fact, "Calls")
+            return payload
+        }
+
+        AddObjectProperty(payload, "file", fact, "file")
+        AddObjectProperty(payload, "line", fact, "line")
+        AddObjectProperty(payload, "column", fact, "column")
+        AddObjectProperty(payload, "allocation", fact, "allocation")
+        AddObjectProperty(payload, "capture", fact, "capture")
+        AddObjectProperty(payload, "dispatch", fact, "dispatch")
+        AddObjectProperty(payload, "escape", fact, "escape")
+        AddObjectProperty(payload, "valueLayout", fact, "valueLayout")
+        AddObjectProperty(payload, "aotSafety", fact, "aotSafety")
+        return payload
+    }
+
+    static func AddSystemsEffectFactsObject(payload: Dictionary<string, object>, fact: object) {
+        effects := ReadObjectProperty(fact, "Effects")
+        if effects == null {
+            return
+        }
+
+        effectPayload := new Dictionary<string, object>()
+        AddObjectProperty(effectPayload, "allocates", effects, "Allocates")
+        AddObjectProperty(effectPayload, "boxes", effects, "Boxes")
+        AddObjectProperty(effectPayload, "constructsDelegate", effects, "ConstructsDelegate")
+        AddObjectProperty(effectPayload, "capturesClosure", effects, "CapturesClosure")
+        AddObjectProperty(effectPayload, "usesRuntimeDispatch", effects, "UsesRuntimeDispatch")
+        AddObjectProperty(effectPayload, "usesReflection", effects, "UsesReflection")
+        AddObjectProperty(effectPayload, "usesDynamicCode", effects, "UsesDynamicCode")
+        AddObjectProperty(effectPayload, "throws", effects, "Throws")
+        AddObjectProperty(effectPayload, "hasImplicitTrapObligation", effects, "HasImplicitTrapObligation")
+        AddObjectProperty(effectPayload, "usesUnknownExternalCall", effects, "UsesUnknownExternalCall")
+        AddObjectProperty(effectPayload, "usesResource", effects, "UsesResource")
+        AddObjectProperty(effectPayload, "usesPool", effects, "UsesPool")
+        AddObjectProperty(effectPayload, "usesConcurrencyPrimitive", effects, "UsesConcurrencyPrimitive")
+        AddObjectProperty(effectPayload, "requiresWarmup", effects, "RequiresWarmup")
+        AddObjectProperty(effectPayload, "aotSafe", effects, "AotSafe")
+        payload["effects"] = effectPayload
+    }
+
+    static func AddObjectProperty(payload: Dictionary<string, object>, outputName: string, value: object, propertyName: string) {
+        rawValue := ReadObjectProperty(value, propertyName)
+        if rawValue != null {
+            payload[outputName] = rawValue
+        }
+    }
+
+    static func ReadObjectStringProperty(value: object, propertyName: string): string? {
+        rawValue := ReadObjectProperty(value, propertyName)
+        if rawValue == null {
+            return null
+        }
+
+        return rawValue as string
+    }
+
+    static func ReadObjectProperty(value: object, propertyName: string): object? {
+        property := value.GetType().GetProperty(propertyName)
+        if property != null {
+            return property.GetValue(value)
+        }
+
+        return null
     }
 
     public static func ReferencesToJson(symbolName: string, symbolKind: string, definedAt: LocationResult?, results: List<ReferenceResult>): string {

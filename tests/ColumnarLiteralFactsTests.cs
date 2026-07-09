@@ -94,6 +94,33 @@ public class ColumnarLiteralFactsTests
     }
 
     [Theory]
+    [InlineData("$\"value={ClassifyNumber(150)}\"", "ClassifyNumber(150)")]
+    [InlineData("$\"value={ClassifyNumber(-5)}\"", "ClassifyNumber(-5)")]
+    public void ColumnarInterpolationSplitter_AcceptsBareCallHolesWithNumericArguments(string literal, string expectedHole)
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit(literal, parts));
+
+        Assert.Equal(2, parts.Count);
+        Assert.False(parts[0].IsHole);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal(expectedHole, parts[1].Text);
+    }
+
+    [Fact]
+    public void ColumnarInterpolationSplitter_AcceptsParsedArithmeticHole()
+    {
+        var parts = new List<ColumnarInterpolationPart>();
+
+        Assert.True(ColumnarInterpolationSplitter.TrySplit("$\"Duration: {Minutes % 60}m\"", parts));
+
+        Assert.Equal(3, parts.Count);
+        Assert.True(parts[1].IsHole);
+        Assert.Equal("Minutes % 60", parts[1].Text);
+    }
+
+    [Theory]
     [InlineData("$\"eq={a == c}\"", "a == c")]
     [InlineData("$\"ne={a != c}\"", "a != c")]
     public void ColumnarInterpolationSplitter_AcceptsEqualityHoles(string literal, string expectedHole)

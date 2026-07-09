@@ -85,6 +85,9 @@ public class ColumnarFunctionInput {
     TypeParamTypeConstraints: string[][]
     ModifierFlags: int
     SourceFileId: int
+    IsBodylessNativeImport: bool
+    NativeImportLibraryName: string
+    NativeImportEntryPoint: string
     public LocalFunctions: List<ColumnarLocalFunctionInput>?
 
     constructor(
@@ -105,12 +108,18 @@ public class ColumnarFunctionInput {
         paramDefaultTexts: string[]? = null,
         isAsync: bool = false,
         modifierFlags: int = 0,
-        sourceFileId: int = 0) {
+        sourceFileId: int = 0,
+        isBodylessNativeImport: bool = false,
+        nativeImportLibraryName: string = "",
+        nativeImportEntryPoint: string = "") {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
         ModifierFlags = modifierFlags
         SourceFileId = sourceFileId
+        IsBodylessNativeImport = isBodylessNativeImport
+        NativeImportLibraryName = nativeImportLibraryName
+        NativeImportEntryPoint = nativeImportEntryPoint
         ParamNames = paramNames
         ParamCanonicals = paramCanonicals
         ParamModifierKinds = paramModifierKinds ?? new int[](0)
@@ -207,6 +216,7 @@ public class ColumnarStructInput {
     Constructors: IReadOnlyList<ColumnarConstructorInput>
     Properties: IReadOnlyList<ColumnarPropertyInput>
     IsReference: bool
+    IsRefStruct: bool
     BaseNames: string[]
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
@@ -233,7 +243,8 @@ public class ColumnarStructInput {
         typeParamNames: string[]? = null,
         fieldReadonlyFlags: bool[]? = null,
         sourceFileId: int = 0,
-        isNewtype: bool = false) {
+        isNewtype: bool = false,
+        isRefStruct: bool = false) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -241,6 +252,7 @@ public class ColumnarStructInput {
         Constructors = constructors
         Properties = properties
         IsReference = isReference
+        IsRefStruct = isRefStruct
         BaseNames = baseNames ?? new string[](0)
         FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
         FieldReadonlyFlags = fieldReadonlyFlags ?? new bool[](fieldNames.Length)
@@ -264,6 +276,7 @@ public class ColumnarStructInput {
 public class ColumnarInterfaceInput {
     Name: string
     BaseInterfaceNames: string[]
+    TypeParamNames: string[]
     MethodNames: string[]
     MethodReturnCanonicals: string[]
     MethodParamNames: string[][]
@@ -279,9 +292,11 @@ public class ColumnarInterfaceInput {
         methodParamNames: string[][],
         methodParamCanonicals: string[][],
         methodBodies: ColumnarFunctionInput?[]? = null,
+        typeParamNames: string[]? = null,
         sourceFileId: int = 0) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
+        TypeParamNames = typeParamNames ?? new string[](0)
         MethodNames = methodNames
         MethodReturnCanonicals = methodReturnCanonicals
         MethodParamNames = methodParamNames

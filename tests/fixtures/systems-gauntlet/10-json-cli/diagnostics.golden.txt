@@ -1,1 +1,1 @@
-NSYS050 warning: call to 'JsonSerializer.Serialize' is not covered by HotSummary
+NSYS050 warning: boundary external call 'JsonSerializer.Serialize' reported for systems handoff review

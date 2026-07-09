@@ -318,9 +318,11 @@ class TypeReferenceTupleNameTable {
 //                                         left-associative precedence chain ?? || && | ^ & ==/!= rel << >> +- */% )
 //   TernaryExpression       -> kind 13  ( cond ? then : else -- slice 15; children [cond, then, else] )
 //   AssignmentExpression    -> kind 14  ( target OP value -- slice 15; = += -= *= /= ??=; right-associative )
-//   NewExpression           -> kind 15  ( new <type> ( args ) -- slice 19; children [typeRoot, arg0, ...];
+//   NewExpression           -> kind 15  ( new <type> ( args ) or new <elementType>[length] -- slice 19;
+//                                         children [typeRoot, arg0, ...] or [arrayTypeRoot, length];
 //                                         the type child is a TYPE-kernel subtree (kinds 0-5), args are
-//                                         expression subtrees -- the host walks child[0] as a type and the
+//                                         expression subtrees. Constructor named args are kind-60 wrappers.
+//                                         The host walks child[0] as a type and the
 //                                         rest as expressions. Composes the type kernel via the unified st. )
 //   CastExpression          -> kind 16  ( ( <type> ) operand -- hard cast; children [typeRoot, operand];
 //                                         operand is a unary expression. Detected by speculatively parsing a
@@ -398,9 +400,17 @@ class TypeReferenceTupleNameTable {
 //   AnonymousObjectInitializer -> kind 59 (`new { Field: value, ... }`; children [name0 (Identifier kind 6),
 //                                         value0, name1, value1, ...]. The parser records the shape; lowering is
 //                                         a later backend slice, so today's emitter declines this node explicitly.)
+//   NamedArgumentExpression -> kind 60 (`name: value` inside a `new <type>(...)` argument list; name in the
+//                                         value span, ONE child [value]. Calls still decline named args until
+//                                         call-site semantic binding owns parameter-name matching.)
+//   TypeBindingPattern     -> kind 61  ( `Type name` inside a match arm; children [typeRoot, binding].)
+//   NameOfExpression       -> kind 62  ( `nameof(expr)` (Nameof 50) -- ONE child [expr]. The emitter accepts
+//                                         the analyzer-validated identifier/member-access target subset.)
+// `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
+// product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
-//   method calls (callee<T>(...)), named (`name:`) call arguments,
-//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/...).
+//   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
+//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/...).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -735,10 +745,14 @@ class InterfaceDeclarationTable {
     MethodFuncIndices: int[]
     BaseNameStarts: int[]
     BaseNameLengths: int[]
-    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[]) {
+    TypeParamStarts: int[]
+    TypeParamLengths: int[]
+    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[]) {
         MethodFuncIndices = methodFuncIndices
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
+        TypeParamStarts = typeParamStarts
+        TypeParamLengths = typeParamLengths
     }
 }
 
@@ -1039,9 +1053,10 @@ class ParserDeclarationResultTable {
 // parsed into the shared node table, or a special-constraint sentinel (-2 `class`, -3 `struct`,
 // -4 `new()`). Clause grouping is NOT preserved (the host groups rows by owner name).
 // Parameter modifiers `ref` (78) and `out` (79) wrap the parsed parameter type in a ByRef type node; `params`
-// (82), `this` (42), and attribute lists `[...]` are skipped. Supported one-token default values are
+// (82), `this` (42), `scoped 'a` lifetime annotations, `returns 'a` return-lifetime annotations,
+// and attribute lists `[...]` are skipped. Supported one-token default values are
 // materialized for CLR optional-parameter metadata; richer default expressions decline.
-// Deferred (the corpus avoids them): `->` return-type syntax, scoped/lifetime parameter annotations,
+// Deferred (the corpus avoids them): `->` return-type syntax, `returns param(...)`/`returns heap(...)`,
 // expression-bodied functions with full control-flow analysis, and non-literal default values.
 //
 // Output:
@@ -1209,11 +1224,13 @@ class InterfaceSignatureBaseOutputTable {
     BaseNameLengths: int[]
     BaseNameTexts: string[]
     InterfaceNameTexts: string[]
-    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[]) {
+    TypeParamTexts: string[]
+    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[]) {
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
+        TypeParamTexts = typeParamTexts
     }
 }
 
@@ -1713,9 +1730,13 @@ class ColumnarInterfaceTokenTable {
 class ColumnarInterfaceBaseScratchTable {
     BaseNameStarts: int[]
     BaseNameLengths: int[]
-    constructor(baseNameStarts: int[], baseNameLengths: int[]) {
+    TypeParamStarts: int[]
+    TypeParamLengths: int[]
+    constructor(baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[]) {
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
+        TypeParamStarts = typeParamStarts
+        TypeParamLengths = typeParamLengths
     }
 }
 
@@ -1729,7 +1750,8 @@ class ColumnarInterfaceOutputTable {
     MethodBodyFlags: int[]
     MethodParamNameTexts: string[]
     MethodParamTypeTexts: string[]
-    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[]) {
+    TypeParamTexts: string[]
+    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], typeParamTexts: string[]) {
         MethodFuncIndices = methodFuncIndices
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
@@ -1739,6 +1761,7 @@ class ColumnarInterfaceOutputTable {
         MethodBodyFlags = methodBodyFlags
         MethodParamNameTexts = methodParamNameTexts
         MethodParamTypeTexts = methodParamTypeTexts
+        TypeParamTexts = typeParamTexts
     }
 }
 
@@ -3878,6 +3901,26 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
         return EmitExpressionNode(st, nodes, 37, -1, 0, caseChildRun, caseChildCount, caseSpanStart, caseEnd - caseSpanStart)
     }
 
+    // Anonymous-union TYPE-BINDING pattern: `int number => ...` / `string text => ...`.
+    // The first token has already parsed as an identifier leaf; when a second bare identifier follows and
+    // the pattern is immediately terminated by `=>` or `when`, reinterpret the first identifier as a SIMPLE
+    // type root and the second as the arm binding. Composed type-binding patterns remain deliberately
+    // under-accepted until the emitter models them.
+    if nodes.Kinds[leaf] == 6 && st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0
+        && (tokens.Kinds[st.Pos + 1] == 120 || tokens.Kinds[st.Pos + 1] == 54) {
+        bindStart := tokens.Starts[st.Pos]
+        bindLen := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+
+        typeNode := EmitExpressionNode(st, nodes, 0, nodes.ValueStarts[leaf], nodes.ValueLengths[leaf], -1, 0, nodes.SpanStarts[leaf], nodes.SpanLengths[leaf])
+        bindNode := EmitExpressionNode(st, nodes, 6, bindStart, bindLen, -1, 0, bindStart, bindLen)
+        bindingChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, typeNode)
+        AppendExpressionChild(st, children, bindNode)
+        bindingSpanEnd := bindStart + bindLen
+        return EmitExpressionNode(st, nodes, 61, -1, 0, bindingChildRun, 2, nodes.SpanStarts[leaf], bindingSpanEnd - nodes.SpanStarts[leaf])
+    }
+
     return leaf
 }
 
@@ -3922,6 +3965,10 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     if kind == 131 {
         return ParseArrayLiteralExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
+    if kind == 143 {
+        st.Pos = pos + 1
+        return ParsePrimaryExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    }
     if kind == 0 {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, 6, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
@@ -3946,6 +3993,26 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         typeOfChildRun := st.ChildCursor
         AppendExpressionChild(st, children, typeRoot)
         return EmitExpressionNode(st, nodes, 55, -1, 0, typeOfChildRun, 1, typeOfStart, typeOfEnd - typeOfStart)
+    }
+    if kind == 50 {
+        nameOfStart := tokenStart
+        st.Pos = pos + 1
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+            return -1
+        }
+        st.Pos = st.Pos + 1
+        target := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if target < 0 {
+            return -1
+        }
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+            return -1
+        }
+        nameOfEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+        nameOfChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, target)
+        return EmitExpressionNode(st, nodes, 62, -1, 0, nameOfChildRun, 1, nameOfStart, nameOfEnd - nameOfStart)
     }
     if kind == 83 || kind == 84 {
         checkedStart := tokenStart
@@ -4068,9 +4135,10 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         // (e.g. new int[](length + 1)). COMPOSES the type kernel (the element/constructed type, via the
         // now-unified shared st + argStack) with the expression kernel (the positional constructor args).
         // NewExpression (kind 15): children = [typeRoot, arg0, arg1, ...]. The `new <type> { Field: value, ... }`
-        // OBJECT INITIALIZER form is handled below (ObjectInitializerExpression kind 36). The `new <type> [size]`
-        // (sized array) and target-typed `new ( ... )` forms are deferred (refused). Named / ref / out constructor
-        // arguments are also refused.
+        // OBJECT INITIALIZER form is handled below (ObjectInitializerExpression kind 36). The `new <type>[size]`
+        // sized-array form emits kind 15 with an ArrayTypeReference child and one length-expression child.
+        // Target-typed `new ( ... )` and ref/out constructor arguments are still refused. Constructor named
+        // arguments are recorded as kind-60 wrappers so lowering can bind supported names explicitly.
         newStart := tokenStart
         if pos + 1 < count && tokens.Kinds[pos + 1] == 129 {
             st.Pos = pos + 2
@@ -4129,6 +4197,38 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         typeRoot := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         if typeRoot < 0 {
             return -1
+        }
+
+        if st.Pos < count && tokens.Kinds[st.Pos] == 131 {
+            st.Pos = st.Pos + 1
+            lengthExpression := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if lengthExpression < 0 {
+                return -1
+            }
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
+                return -1
+            }
+            arrayEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+
+            arrayTypeChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, typeRoot)
+            arrayTypeRoot := EmitExpressionNode(st, nodes, 2, -1, 0, arrayTypeChildRun, 1, nodes.SpanStarts[typeRoot], arrayEnd - nodes.SpanStarts[typeRoot])
+
+            sizedArgBase := st.ArgStackTop
+            argStack.Values[st.ArgStackTop] = arrayTypeRoot
+            st.ArgStackTop = st.ArgStackTop + 1
+            argStack.Values[st.ArgStackTop] = lengthExpression
+            st.ArgStackTop = st.ArgStackTop + 1
+
+            sizedChildRun := st.ChildCursor
+            sa := sizedArgBase
+            while sa < st.ArgStackTop {
+                AppendExpressionChild(st, children, argStack.Values[sa])
+                sa = sa + 1
+            }
+            st.ArgStackTop = sizedArgBase
+            return EmitExpressionNode(st, nodes, 15, -1, 0, sizedChildRun, 2, newStart, arrayEnd - newStart)
         }
 
         // `new <type> { Field: value, ... }` -- OBJECT INITIALIZER (ObjectInitializerExpression kind 36): children
@@ -4207,7 +4307,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 return -1
             }
 
-            firstArg := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            firstArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
             if firstArg < 0 {
                 st.ArgStackTop = argBase
                 return -1
@@ -4223,7 +4323,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     return -1
                 }
 
-                nextArg := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                nextArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if nextArg < 0 {
                     st.ArgStackTop = argBase
                     return -1
@@ -4702,6 +4802,33 @@ func ParseCallArgumentNode(tokens: ParserTokenTable, count: int, st: ParserState
     }
 
     return ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+}
+
+func ParseConstructorArgumentNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
+        return -1
+    }
+
+    if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
+        nameStart := tokens.Starts[st.Pos]
+        nameLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 2
+        value := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if value < 0 {
+            return -1
+        }
+
+        valueEnd := nodes.SpanStarts[value] + nodes.SpanLengths[value]
+        childRun := st.ChildCursor
+        AppendExpressionChild(st, children, value)
+        return EmitExpressionNode(st, nodes, 60, nameStart, nameLength, childRun, 1, nameStart, valueEnd - nameStart)
+    }
+
+    return ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
 func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
@@ -5802,6 +5929,39 @@ func ParseStatementNodesCore(source: string, tokens: ParserTokenTable, count: in
 
     outResult.Values[0] = root
     outResult.Values[1] = st.Pos
+    return st.NodeCursor
+}
+
+func ParseColumnarExpressionInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
+    if outResult.Length < 3 {
+        return -1
+    }
+    if count < 0 {
+        return -1
+    }
+
+    parseCount := count
+    if parseCount > 0 && tokenKinds[parseCount - 1] == 135 {
+        parseCount = parseCount - 1
+    }
+    if parseCount <= 0 {
+        return -1
+    }
+
+    tokens := new ParserTokenTable(tokenKinds, tokenStarts, tokenValueLengths)
+    argStack := new ParserArgumentStack(new int[](parseCount + 1))
+    nodes := new ParserExpressionNodeTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths)
+    children := new ParserChildIndexTable(outChildIndices)
+    st := new ParserState(0, 0, 0, 0, 0, 0, source)
+
+    root := ParseLambdaOrAssignmentExpressionNode(tokens, parseCount, st, argStack, nodes, children, 0)
+    if root < 0 || st.Pos != parseCount {
+        return -1
+    }
+
+    outResult[0] = root
+    outResult[1] = st.NodeCursor
+    outResult[2] = st.ChildCursor
     return st.NodeCursor
 }
 
@@ -7012,21 +7172,50 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
+    typeParamCount := 0
     if pos < count && tokens.Kinds[pos] == 100 {
-        return -1
+        pos = pos + 1
+        while pos < count && tokens.Kinds[pos] != 102 {
+            if tokens.Kinds[pos] != 0 {
+                return -1
+            }
+            decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
+            decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
+            typeParamCount = typeParamCount + 1
+            pos = pos + 1
+
+            if pos < count && tokens.Kinds[pos] != 102 {
+                if tokens.Kinds[pos] != 134 {
+                    return -1
+                }
+                pos = pos + 1
+                if pos >= count || tokens.Kinds[pos] != 0 {
+                    return -1
+                }
+            }
+        }
+        if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
+            return -1
+        }
+        pos = pos + 1
+    }
+    if result.Values.Length > 4 {
+        result.Values[4] = typeParamCount
     }
 
+    baseTypeResult := new ParserDeclarationResultTable(new int[](2))
     baseCount := 0
     if pos < count && tokens.Kinds[pos] == 122 {
         pos = pos + 1
         while true {
-            if pos >= count || tokens.Kinds[pos] != 0 {
+            typeEnd := ParseDeclarationTypeSpanCore(tokens, count, pos, baseTypeResult)
+            if typeEnd < 0 {
                 return -1
             }
-            decl.BaseNameStarts[baseCount] = tokens.Starts[pos]
-            decl.BaseNameLengths[baseCount] = tokens.ValueLengths[pos]
+            decl.BaseNameStarts[baseCount] = baseTypeResult.Values[0]
+            decl.BaseNameLengths[baseCount] = baseTypeResult.Values[1]
             baseCount = baseCount + 1
-            pos = pos + 1
+            pos = typeEnd
 
             if pos < count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
@@ -7514,6 +7703,177 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
     return pos
 }
 
+func ColumnarStructNativeImportModifierFlag(): int {
+    return 131072
+}
+
+func ColumnarStructMethodFlagIsNativeImport(flags: int): bool {
+    return (flags & ColumnarStructNativeImportModifierFlag()) != 0
+}
+
+func ParseDeclarationFunctionSignatureEndCore(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    typeStack := new ParserArgumentStack(new int[](count + 1))
+    nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    children := new ParserChildIndexTable(new int[](count + 1))
+    parameters := new ParserFunctionParameterTable(new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](count + 1), new int[](count + 1))
+    whereItems := new ParserFunctionWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    signatureResult := new ParserResultTable(new int[](8))
+    paramCount := ParseFunctionSignatureCore(signatureTokens, count, funcIndex, typeStack, nodes, children, parameters, typeParams, whereItems, signatureResult)
+    if paramCount < 0 {
+        return -1
+    }
+    return signatureResult.Values[6]
+}
+
+func ColumnarStructLibraryImportAttributeSpanCore(source: string, tokens: ParserDeclarationTokenTable, memberStart: int, result: ParserDeclarationResultTable): int {
+    if result.Values.Length < 2 {
+        return 0
+    }
+
+    result.Values[0] = -1
+    result.Values[1] = -1
+    scan := memberStart - 1
+    while scan >= 0 && ParserDeclarationMemberModifierKind(tokens.Kinds[scan]) != 0 {
+        scan = scan - 1
+    }
+    if scan < 0 || tokens.Kinds[scan] != 132 {
+        return 0
+    }
+
+    attributeEnd := tokens.Starts[scan] + tokens.ValueLengths[scan]
+    closeIndex := scan
+    depth := 1
+    scan = scan - 1
+    while scan >= 0 {
+        if tokens.Kinds[scan] == 132 {
+            depth = depth + 1
+        } else if tokens.Kinds[scan] == 131 {
+            depth = depth - 1
+            if depth == 0 {
+                attributeStart := tokens.Starts[scan]
+                if attributeStart < 0 || attributeEnd < attributeStart || attributeEnd > source.Length {
+                    return 0
+                }
+                attributeText := source.Substring(attributeStart, attributeEnd - attributeStart)
+                if attributeText.IndexOf("LibraryImport", StringComparison.Ordinal) >= 0 {
+                    result.Values[0] = scan
+                    result.Values[1] = closeIndex
+                    return 1
+                }
+                return 0
+            }
+        }
+        scan = scan - 1
+    }
+
+    return 0
+}
+
+func ColumnarStructMethodHasLibraryImportAttribute(source: string, tokens: ParserDeclarationTokenTable, memberStart: int): bool {
+    spanResult := new ParserDeclarationResultTable(new int[](2))
+    return ColumnarStructLibraryImportAttributeSpanCore(source, tokens, memberStart, spanResult) == 1
+}
+
+func ColumnarTokenTextEquals(source: string, tokens: ParserDeclarationTokenTable, index: int, text: string): bool {
+    if index < 0 || index >= tokens.Kinds.Length {
+        return false
+    }
+    if tokens.Starts[index] < 0 || tokens.ValueLengths[index] != text.Length {
+        return false
+    }
+    if tokens.Starts[index] + tokens.ValueLengths[index] > source.Length {
+        return false
+    }
+
+    return source.Substring(tokens.Starts[index], tokens.ValueLengths[index]) == text
+}
+
+func DecodeColumnarAttributeStringToken(source: string, tokens: ParserDeclarationTokenTable, index: int): string {
+    if index < 0 || index >= tokens.Kinds.Length || tokens.Kinds[index] != 4 {
+        return ""
+    }
+
+    start := tokens.Starts[index]
+    length := tokens.ValueLengths[index]
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    if length >= 2 && source[start] == '"' && source[start + length - 1] == '"' {
+        return source.Substring(start + 1, length - 2)
+    }
+
+    return source.Substring(start, length)
+}
+
+func ParseColumnarNativeImportInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, memberStart: int, methodName: string, outTexts: string[]): int {
+    if outTexts.Length < 2 {
+        return -1
+    }
+
+    tokens := new ParserDeclarationTokenTable(tokenKinds, tokenStarts, tokenValueLengths)
+    spanResult := new ParserDeclarationResultTable(new int[](2))
+    if ColumnarStructLibraryImportAttributeSpanCore(source, tokens, memberStart, spanResult) != 1 {
+        return -1
+    }
+
+    openIndex := spanResult.Values[0]
+    closeIndex := spanResult.Values[1]
+    if openIndex < 0 || closeIndex <= openIndex || closeIndex >= count {
+        return -1
+    }
+
+    scan := openIndex + 1
+    while scan < closeIndex && !ColumnarTokenTextEquals(source, tokens, scan, "LibraryImport") {
+        scan = scan + 1
+    }
+    if scan >= closeIndex {
+        return -1
+    }
+    scan = scan + 1
+
+    if scan >= closeIndex || tokenKinds[scan] != 127 {
+        return -1
+    }
+    scan = scan + 1
+
+    if scan >= closeIndex || tokenKinds[scan] != 4 {
+        return -1
+    }
+    libraryName := DecodeColumnarAttributeStringToken(source, tokens, scan)
+    if libraryName == "" {
+        return -1
+    }
+    entryPointName := methodName
+    scan = scan + 1
+
+    if scan < closeIndex && tokenKinds[scan] == 134 {
+        scan = scan + 1
+        if scan + 2 >= closeIndex || !ColumnarTokenTextEquals(source, tokens, scan, "EntryPoint") || tokenKinds[scan + 1] != 93 || tokenKinds[scan + 2] != 4 {
+            return -1
+        }
+
+        entryPointName = DecodeColumnarAttributeStringToken(source, tokens, scan + 2)
+        if entryPointName == "" {
+            return -1
+        }
+        scan = scan + 3
+    }
+
+    if scan >= closeIndex || tokenKinds[scan] != 128 {
+        return -1
+    }
+
+    outTexts[0] = libraryName
+    outTexts[1] = entryPointName
+    return 1
+}
+
+    return false
+}
+
 func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
     if result.Values.Length < 2 || pos < 0 || pos >= count || tokens.Kinds[pos] != 0 {
         return -1
@@ -7684,6 +8044,10 @@ func ParseDeclarationInitializerExpressionEndCore(tokens: ParserDeclarationToken
 
 func ParseDeclarationSimpleInitializerTokenIsLiteral(kind: int): bool {
     return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 2 || kind == 3 || kind == 4
+}
+
+func ParserDeclarationFieldInitializerExpressionKind(): int {
+    return 1001
 }
 
 func PrimaryConstructorParameterIndexOf(source: string, parameters: PrimaryConstructorParameterTable, parameterCount: int, nameStart: int, nameLength: int): int {
@@ -7928,27 +8292,28 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         result.Values[9] = primaryCtorParamCount
     }
 
-    // Optional BASE / INTERFACE LIST: `class D: Base, IFace {` or `struct S: IFace {` — a `:` (122) after
-    // the type name followed by one or more comma-separated SINGLE Identifiers. Composed/generic bases are
-    // not modelled and return -1. The host resolves names against type registries and decides which one, if
-    // any, is a class base versus implemented interface.
+    // Optional BASE / INTERFACE LIST: `class D: Base, IFace {` or `struct S: IFace<T> {` — a `:` (122)
+    // after the type name followed by one or more comma-separated type references. The host resolves names
+    // against type registries and decides which one, if any, is a class base versus implemented interface.
     result.Values[5] = 0
     result.Values[6] = 0
+    baseTypeResult := new ParserDeclarationResultTable(new int[](2))
     baseNameCount := 0
     if pos < count && tokens.Kinds[pos] == 122 {
         pos = pos + 1
         while true {
-            if pos >= count || tokens.Kinds[pos] != 0 {
+            typeEnd := ParseDeclarationTypeSpanCore(tokens, count, pos, baseTypeResult)
+            if typeEnd < 0 {
                 return -1
             }
-            decl.BaseNameStarts[baseNameCount] = tokens.Starts[pos]
-            decl.BaseNameLengths[baseNameCount] = tokens.ValueLengths[pos]
+            decl.BaseNameStarts[baseNameCount] = baseTypeResult.Values[0]
+            decl.BaseNameLengths[baseNameCount] = baseTypeResult.Values[1]
             if baseNameCount == 0 {
-                result.Values[5] = tokens.Starts[pos]
-                result.Values[6] = tokens.ValueLengths[pos]
+                result.Values[5] = baseTypeResult.Values[0]
+                result.Values[6] = baseTypeResult.Values[1]
             }
             baseNameCount = baseNameCount + 1
-            pos = pos + 1
+            pos = typeEnd
 
             if pos < count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
@@ -8089,7 +8454,15 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                     if paramIndex < 0 {
                         initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
                         if initEnd < 0 {
-                            return -1
+                            if memberModifiers.Values[0] == 0 {
+                                return -1
+                            }
+
+                            initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                            if initEnd < 0 {
+                                return -1
+                            }
+                            initKind = ParserDeclarationFieldInitializerExpressionKind()
                         }
                         initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
                         pos = initEnd - 1
@@ -8099,13 +8472,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
                     initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
                     if initEnd < 0 {
-                        if memberModifiers.Values[0] != 0 {
-                            return -1
-                        }
-
                         initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
                         if initEnd < 0 {
                             return -1
+                        }
+                        if memberModifiers.Values[0] != 0 {
+                            initKind = ParserDeclarationFieldInitializerExpressionKind()
                         }
                     }
                     initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
@@ -8156,7 +8528,8 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     // kernels — it has no name token and no `: ret`, so the signature kernel yields name=-1, returnRoot=-1; a
     // constructor INITIALIZER `: this(...)`/`base(...)` is skipped by the signature kernel and parsed separately
     // via ParseConstructorChainInfoCore, with the composed constructor core verifying the identifier text.
-    // A member with no `{` body declines.
+    // A member with no `{` body declines unless it is a static LibraryImport method; those carry a native-import
+    // modifier bit and materialize as P/Invoke methods without managed bodies.
     methodCount := 0
     ctorCount := 0
     syntheticCtorNeeded := primaryCtorParamCount > 0 || hasInstanceInitializer == 1
@@ -8175,13 +8548,33 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
                 methodFlags = methodFlags | 16
             }
+            signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, memberStart)
+            if signatureEnd < 0 || signatureEnd >= count {
+                return -1
+            }
+            if tokens.Kinds[signatureEnd] != 129 && tokens.Kinds[signatureEnd] != 120 {
+                if (methodFlags & 16) == 0 || !ColumnarStructMethodHasLibraryImportAttribute(source, tokens, memberStart) {
+                    return -1
+                }
+
+                methodFlags = methodFlags | ColumnarStructNativeImportModifierFlag()
+                decl.MethodFuncIndices[methodCount] = memberStart
+                decl.MethodStaticFlags[methodCount] = methodFlags
+                if decl.MethodModifierFlags.Length > methodCount {
+                    decl.MethodModifierFlags[methodCount] = methodFlags
+                }
+                methodCount = methodCount + 1
+                pos = signatureEnd
+                continue
+            }
+
             decl.MethodFuncIndices[methodCount] = memberStart
             decl.MethodStaticFlags[methodCount] = methodFlags
             if decl.MethodModifierFlags.Length > methodCount {
                 decl.MethodModifierFlags[methodCount] = methodFlags
             }
             methodCount = methodCount + 1
-            pos = memberStart + 1
+            pos = signatureEnd
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             if memberModifiers.Values[0] == 1 {
                 return -1
@@ -8492,7 +8885,7 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     }
 
     bodyStart := signatureResult.Values[6]
-    if bodyStart < 0 || bodyStart >= count || (tokens.Kinds[bodyStart] != 129 && tokens.Kinds[bodyStart] != 120) {
+    if bodyStart < 0 || bodyStart >= count {
         return -1
     }
 
@@ -8746,6 +9139,10 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
                 modifierKind = 1
             } else if tokens.Kinds[pos] == 79 {
                 modifierKind = 2
+            } else if tokens.Kinds[pos] == 82 {
+                modifierKind = 3
+            } else if tokens.Kinds[pos] == 42 {
+                modifierKind = 4
             }
             pos = pos + 1
         }
@@ -8770,6 +9167,9 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
             return -1
         }
         pos = st.Pos
+        if pos + 1 < count && tokens.Kinds[pos] == 147 && tokens.Kinds[pos + 1] == 142 {
+            pos = pos + 2
+        }
 
         outputs.ParamDefaultKinds[paramCount] = -1
         outputs.ParamDefaultTexts[paramCount] = ""
@@ -9141,19 +9541,23 @@ func ParseFunctionSignatureCore(
         i = i + 1
     }
 
-    // Optional generic TYPE-PARAMETER list `<T, U>`: bare comma-separated Identifiers only. An inline
-    // constraint (`<T: Base>`), an empty list, or any other form is unmodelled — return -1 (the host
-    // declines to the N# backend path). With no `<`, the list is empty.
+    // Optional generic TYPE-PARAMETER list `<T, U>`: bare comma-separated Identifiers only, with lifetime
+    // parameters (`<'a>`) accepted and ignored for emission metadata. An inline constraint (`<T: Base>`),
+    // an empty list, or any other form is unmodelled — return -1 (the host declines to the N# backend path).
+    // With no `<`, the list is empty.
     typeParamCount := 0
     if i < count && tokens.Kinds[i] == 100 {
         i = i + 1
+        typeParamItemCount := 0
         while i < count && tokens.Kinds[i] != 102 {
-            if tokens.Kinds[i] != 0 {
+            if tokens.Kinds[i] == 0 {
+                typeParams.Starts[typeParamCount] = tokens.Starts[i]
+                typeParams.Lengths[typeParamCount] = tokens.ValueLengths[i]
+                typeParamCount = typeParamCount + 1
+            } else if tokens.Kinds[i] != 142 {
                 return -1
             }
-            typeParams.Starts[typeParamCount] = tokens.Starts[i]
-            typeParams.Lengths[typeParamCount] = tokens.ValueLengths[i]
-            typeParamCount = typeParamCount + 1
+            typeParamItemCount = typeParamItemCount + 1
             i = i + 1
 
             if i < count && tokens.Kinds[i] != 102 {
@@ -9164,12 +9568,12 @@ func ParseFunctionSignatureCore(
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
                 // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
-                if i >= count || tokens.Kinds[i] != 0 {
+                if i >= count || (tokens.Kinds[i] != 0 && tokens.Kinds[i] != 142) {
                     return -1
                 }
             }
         }
-        if i >= count || tokens.Kinds[i] != 102 || typeParamCount == 0 {
+        if i >= count || tokens.Kinds[i] != 102 || typeParamItemCount == 0 {
             return -1
         }
         i = i + 1
@@ -9250,6 +9654,9 @@ func ParseFunctionSignatureCore(
             typeSpanEnd := typeSpanStart + nodes.SpanLengths[typeRoot]
             typeRoot = EmitTypeReferenceNode(st, nodes, 5, -1, 0, childRunStart, 1, typeSpanStart, typeSpanEnd - typeSpanStart)
         }
+        if i + 1 < count && tokens.Kinds[i] == 147 && tokens.Kinds[i + 1] == 142 {
+            i = i + 2
+        }
 
         parameters.NameStarts[paramCount] = paramNameStart
         parameters.NameLengths[paramCount] = paramNameLength
@@ -9314,6 +9721,9 @@ func ParseFunctionSignatureCore(
             }
             i = st.Pos
         }
+    }
+    if i + 1 < count && tokens.Kinds[i] == 0 && tokens.Kinds[i + 1] == 142 {
+        i = i + 2
     }
 
     // Generic CONSTRAINT clauses `where T: Item, Item ... where U: Item ...` (D-17b). Each item appends one flat row (owner name span + code); the
@@ -9602,12 +10012,12 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
 }
 
 func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTokenTable, count: int, interfaceIndex: int, baseOutputs: InterfaceSignatureBaseOutputTable, methodOutputs: InterfaceSignatureMethodOutputTable, typeStack: ParserArgumentStack, nodes: ParserNodeTable, children: ParserChildIndexTable, canonicalNodes: TypeReferenceCanonicalTable, tupleNodes: InterfaceSignatureTupleNodeTable, parameters: ParserFunctionParameterTable, typeParams: ParserFunctionTypeParameterTable, whereItems: ParserFunctionWhereTable, signatureResult: ParserResultTable, result: ParserResultTable): int {
-    if result.Values.Length < 4 {
+    if result.Values.Length < 5 {
         return -1
     }
 
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths)
+    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1))
     declarationResult := new ParserDeclarationResultTable(result.Values)
     methodCount := ParseInterfaceDeclarationCore(declarationTokens, count, interfaceIndex, declaration, declarationResult)
     if methodCount < 0 {
@@ -9615,7 +10025,12 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     }
 
     baseCount := result.Values[2]
-    if baseOutputs.InterfaceNameTexts.Length < 1 || baseCount > baseOutputs.BaseNameTexts.Length {
+    typeParamCount := result.Values[4]
+    if baseOutputs.InterfaceNameTexts.Length < 1 || baseCount > baseOutputs.BaseNameTexts.Length || typeParamCount > baseOutputs.TypeParamTexts.Length {
+        return -1
+    }
+    declaredInterfaceTypeParamNames := new FunctionSignatureNameSpanTable(declaration.TypeParamStarts, declaration.TypeParamLengths)
+    if FunctionSignatureTypeParameterNamesDistinctCore(source, declaredInterfaceTypeParamNames, typeParamCount) == 0 {
         return -1
     }
 
@@ -9627,13 +10042,24 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
 
     baseIndex := 0
     while baseIndex < baseCount {
-        baseName := ParserDeclarationSpanText(source, declaration.BaseNameStarts[baseIndex], declaration.BaseNameLengths[baseIndex])
+        baseName := ParserDeclarationCanonicalTypeText(source, declaration.BaseNameStarts[baseIndex], declaration.BaseNameLengths[baseIndex])
         if baseName == "" {
             return -1
         }
 
         baseOutputs.BaseNameTexts[baseIndex] = baseName
         baseIndex = baseIndex + 1
+    }
+
+    typeParamIndex := 0
+    while typeParamIndex < typeParamCount {
+        typeParamName := ParserDeclarationSpanText(source, declaration.TypeParamStarts[typeParamIndex], declaration.TypeParamLengths[typeParamIndex])
+        if typeParamName == "" {
+            return -1
+        }
+
+        baseOutputs.TypeParamTexts[typeParamIndex] = typeParamName
+        typeParamIndex = typeParamIndex + 1
     }
 
     if methodCount > methodOutputs.NameTexts.Length || methodCount > methodOutputs.ReturnTexts.Length || methodCount > methodOutputs.ParamCounts.Length || methodCount > methodOutputs.BodyFlags.Length {
@@ -9790,6 +10216,33 @@ func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tok
     locals := new ColumnarFunctionLocalTable(outLocalFunctionNodeIndices, outLocalFunctionTokenIndices)
     result := new ColumnarFunctionResultTable(outResult)
     return ParseColumnarFunctionInfoCore(source, tokens, funcIndex, isLocalFunction, signatureOutputs, body, locals, result)
+}
+
+func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
+    tokens := new ColumnarFunctionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
+    return ParseColumnarFunctionSignatureOnlyInfoCore(source, tokens, funcIndex, signatureOutputs, new ColumnarFunctionResultTable(outResult))
+}
+
+func ParseColumnarFunctionSignatureOnlyInfoCore(source: string, tokens: ColumnarFunctionTokenTable, funcIndex: int, signatureOutputs: ColumnarFunctionSignatureOutputTable, result: ColumnarFunctionResultTable): int {
+    if result.Values.Length < 6 {
+        return -1
+    }
+
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
+    typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    children := new ParserChildIndexTable(new int[](tokens.Count + 1))
+    canonicalNodes := new TypeReferenceCanonicalTable(nodes.Kinds, nodes.ValueStarts, nodes.ValueLengths, nodes.ChildStart, nodes.ChildCount, children.Indices)
+    parameters := new ParserFunctionParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    whereItems := new ParserFunctionWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    functionSignatureResult := new ParserResultTable(new int[](8))
+    ownerIndices := new FunctionSignatureOwnerIndexTable(new int[](tokens.Count + 1))
+    tupleNames := new FunctionSignatureTupleNameScratchTable(new string[](tokens.Count + 1))
+    signatureResult := new ParserResultTable(result.Values)
+    return ParseFunctionSignatureInfoCore(source, signatureTokens, tokens.Count, funcIndex, signatureOutput, typeStack, nodes, children, canonicalNodes, parameters, typeParams, whereItems, functionSignatureResult, ownerIndices, tupleNames, signatureResult)
 }
 
 func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionTokenTable, funcIndex: int, isLocalFunction: int, signatureOutputs: ColumnarFunctionSignatureOutputTable, body: ColumnarFunctionBodyTable, locals: ColumnarFunctionLocalTable, result: ColumnarFunctionResultTable): int {
@@ -10577,7 +11030,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
     i = 0
     while i < baseNameCount {
-        baseName := ParserDeclarationSpanText(source, scratch.BaseNameStarts[i], scratch.BaseNameLengths[i])
+        baseName := ParserDeclarationCanonicalTypeText(source, scratch.BaseNameStarts[i], scratch.BaseNameLengths[i])
         if baseName == "" {
             return -1
         }
@@ -10633,7 +11086,17 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     nextMethodParamType := 0
 
     for i := 0; i < methodCount; i++ {
-        paramCount := ParseColumnarFunctionInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], 0, signatureOutputs, body, locals, result)
+        result.Values[8] = 0
+        nativeImportMethod := ColumnarStructMethodFlagIsNativeImport(outputs.MethodStaticFlags[i])
+        paramCount := 0
+        if nativeImportMethod {
+            if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
+                return -1
+            }
+            paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
+        } else {
+            paramCount = ParseColumnarFunctionInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], 0, signatureOutputs, body, locals, result)
+        }
         if paramCount < 0 {
             return -1
         }
@@ -10710,7 +11173,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
         if result.Values[2] > 0 {
             return 1
         }
-        if result.Values[8] > 0 {
+        if !nativeImportMethod && result.Values[8] > 0 {
             return 1
         }
     }
@@ -11528,17 +11991,17 @@ func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMember
     return 1
 }
 
-func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outResult: int[]): int {
+func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outTypeParamTexts: string[], outResult: int[]): int {
     tokens := new ColumnarInterfaceTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts)
+    scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outTypeParamTexts)
     result := new ColumnarInterfaceResultTable(outResult)
     return ParseColumnarInterfaceInfoCore(source, tokens, interfaceIndex, scratch, outputs, result)
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts)
+    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
