@@ -14032,6 +14032,17 @@ internal sealed class ColumnarIlEmitter
             type = typeof(double);
             return true;
         }
+        if (typeName == "Math" && member == "Atan2" && argCount == 2)
+        {
+            var method = typeof(Math).GetMethod(nameof(Math.Atan2), new[] { typeof(double), typeof(double) });
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), allowLambdaLiteral: false)
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(double), allowLambdaLiteral: false))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(double);
+            return true;
+        }
         if (typeName == "Math" && member == "Max" && argCount == 2)
         {
             var method = typeof(Math).GetMethod(nameof(Math.Max), new[] { typeof(int), typeof(int) });
