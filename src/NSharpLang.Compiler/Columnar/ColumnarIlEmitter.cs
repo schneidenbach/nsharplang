@@ -6638,38 +6638,24 @@ internal sealed class ColumnarIlEmitter
                     if (IsSupportedSpanType(arrayType))
                     {
                         var spanElementType = arrayType.GetGenericArguments()[0];
-                        if (spanElementType != typeof(byte))
-                            return false;
-                        var spanSlice = arrayType.GetMethod(nameof(Span<byte>.Slice), new[] { typeof(int), typeof(int) });
-                        var memoryWrite = Array.Find(
-                            typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
-                            method =>
-                            {
-                                if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.Write) || !method.IsGenericMethodDefinition)
-                                    return false;
-                                var parameters = method.GetParameters();
-                                return parameters.Length == 2
-                                       && parameters[0].ParameterType == typeof(Span<byte>)
-                                       && parameters[1].ParameterType.IsByRef;
-                            });
-                        if (spanSlice == null || memoryWrite == null)
+                        var itemGetter = arrayType.GetProperty("Item")?.GetGetMethod();
+                        if (itemGetter == null || !IsSupportedElementType(spanElementType))
                             return false;
                         var spanTemp = _il.DeclareLocal(arrayType);
                         _il.Emit(OpCodes.Stloc, spanTemp);
-                        _il.Emit(OpCodes.Ldloca, spanTemp);
                         if (!EmitExpression(Child(target, 1), out var spanIndexType) || spanIndexType != typeof(int))
                             return false;
-                        _il.Emit(OpCodes.Ldc_I4_1);
-                        _il.Emit(OpCodes.Call, spanSlice);
-                        var sliceTemp = _il.DeclareLocal(arrayType);
-                        _il.Emit(OpCodes.Stloc, sliceTemp);
-                        var valueTemp = _il.DeclareLocal(spanElementType);
+                        var spanIndexTemp = _il.DeclareLocal(typeof(int));
+                        _il.Emit(OpCodes.Stloc, spanIndexTemp);
                         if (!TryEmitAssignableValue(Child(expr, 1), spanElementType, out _))
                             return false;
+                        var valueTemp = _il.DeclareLocal(spanElementType);
                         _il.Emit(OpCodes.Stloc, valueTemp);
-                        _il.Emit(OpCodes.Ldloc, sliceTemp);
-                        _il.Emit(OpCodes.Ldloca, valueTemp);
-                        _il.Emit(OpCodes.Call, memoryWrite.MakeGenericMethod(spanElementType));
+                        _il.Emit(OpCodes.Ldloca, spanTemp);
+                        _il.Emit(OpCodes.Ldloc, spanIndexTemp);
+                        _il.Emit(OpCodes.Call, itemGetter);
+                        _il.Emit(OpCodes.Ldloc, valueTemp);
+                        EmitStoreByRefElement(spanElementType);
                         return true;
                     }
                     if (!arrayType.IsSZArray)
@@ -10700,41 +10686,22 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(object);
                     return true;
                 }
-                if (IsSupportedReadOnlySpanType(indexedType))
+                if (IsSupportedSpanLikeType(indexedType))
                 {
                     var spanElementType = indexedType.GetGenericArguments()[0];
-                    var spanSlice = indexedType.GetMethod(nameof(ReadOnlySpan<byte>.Slice), new[] { typeof(int), typeof(int) });
-                    var asBytes = Array.Find(
-                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
-                        method =>
-                        {
-                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.AsBytes) || !method.IsGenericMethodDefinition)
-                                return false;
-                            var parameters = method.GetParameters();
-                            return parameters.Length == 1
-                                   && parameters[0].ParameterType.IsGenericType
-                                   && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>);
-                        });
-                    var memoryRead = Array.Find(
-                        typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static),
-                        method =>
-                        {
-                            if (method.Name != nameof(System.Runtime.InteropServices.MemoryMarshal.Read) || !method.IsGenericMethodDefinition)
-                                return false;
-                            var parameters = method.GetParameters();
-                            return parameters.Length == 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
-                        });
-                    if (spanSlice == null || asBytes == null || memoryRead == null)
+                    var itemGetter = indexedType.GetProperty("Item")?.GetGetMethod();
+                    if (itemGetter == null || !IsSupportedElementType(spanElementType))
                         return false;
                     var spanTemp = _il.DeclareLocal(indexedType);
                     _il.Emit(OpCodes.Stloc, spanTemp);
-                    _il.Emit(OpCodes.Ldloca, spanTemp);
                     if (!EmitExpression(Child(idx, 1), out var spanIndexType) || spanIndexType != typeof(int))
                         return false;
-                    _il.Emit(OpCodes.Ldc_I4_1);
-                    _il.Emit(OpCodes.Call, spanSlice);
-                    _il.Emit(OpCodes.Call, asBytes.MakeGenericMethod(spanElementType));
-                    _il.Emit(OpCodes.Call, memoryRead.MakeGenericMethod(spanElementType));
+                    var spanIndexTemp = _il.DeclareLocal(typeof(int));
+                    _il.Emit(OpCodes.Stloc, spanIndexTemp);
+                    _il.Emit(OpCodes.Ldloca, spanTemp);
+                    _il.Emit(OpCodes.Ldloc, spanIndexTemp);
+                    _il.Emit(OpCodes.Call, itemGetter);
+                    EmitLoadByRefElement(spanElementType);
                     type = spanElementType;
                     return true;
                 }

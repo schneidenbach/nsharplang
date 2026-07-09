@@ -749,6 +749,56 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsSpanIndexReadWrite()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SpanIndexProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Modify(values: Span<int>) {
+    for i := 0; i < values.Length; i++ {
+        values[i] = values[i] * 2
+    }
+}
+
+func main() {
+    values := new int[3]
+    values[0] = 1
+    values[1] = 2
+    values[2] = 3
+    Modify(values)
+    print $"{values[0]}:{values[1]}:{values[2]}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "SpanIndexProject.dll");
+            var result = compiler.CompileToIlAssembly("SpanIndexProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("2:4:6", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericParameterInterpolation()
     {
         var tempDir = CreateTempDir();
