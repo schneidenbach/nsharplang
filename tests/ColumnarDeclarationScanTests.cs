@@ -31,4 +31,37 @@ func Value(): int {
 
         Assert.Equal(42, method.Invoke(null, null));
     }
+
+    [Fact]
+    public void ColumnarCompiler_AcceptsExpressionBodiedFunctionsBeforeFunction()
+    {
+        Assert.True(ColumnarCompiler.TryEmitProgram(
+            """
+import System
+
+func Value(): int => 42
+func Label(): string => "value"
+
+func Main(): int {
+    if Label() == "value" {
+        return Value()
+    }
+
+    return 0
+}
+""",
+            "ColumnarExpressionBodiedFunctionPreambles",
+            "Program",
+            out var assembly,
+            out _,
+            out _));
+
+        using var scope = CollectibleAssemblyScope.Load(assembly);
+        var type = scope.Assembly.GetType("Program");
+        Assert.NotNull(type);
+        var method = type.GetMethod("Main", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        Assert.Equal(42, method.Invoke(null, null));
+    }
 }

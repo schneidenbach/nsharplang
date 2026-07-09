@@ -78,6 +78,8 @@ internal static class ColumnarProgramInputBuilder
             tokens.RawValueLengths,
             tokens.RawCount,
             tokens.Kinds,
+            tokens.Starts,
+            tokens.ValueLengths,
             n,
             funcIndices,
             funcAsyncFlags,

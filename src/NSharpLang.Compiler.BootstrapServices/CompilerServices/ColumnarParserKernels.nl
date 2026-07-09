@@ -6389,15 +6389,15 @@ func TopLevelColumnarNominalDeclarationIndicesCore(tokens: ParserDeclarationKind
     return enumCount + unionCount + interfaceCount
 }
 
-func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
+func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
     rawTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
-    compactTokens := new ParserDeclarationKindStream(compactTokenKinds)
+    compactTokens := new ParserDeclarationTokenTable(compactTokenKinds, compactTokenStarts, compactTokenValueLengths)
     outputs := new TopLevelColumnarProgramDeclarationTable(outFuncIndices, outFuncAsyncFlags, outEnumIndices, outUnionIndices, outInterfaceIndices, outStructIndices, outStructReferenceFlags, outStructRecordFlags)
     result := new ParserDeclarationResultTable(outResult)
     return TopLevelColumnarProgramDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, outputs, result)
 }
 
-func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: ParserDeclarationTokenTable, rawCount: int, compactTokens: ParserDeclarationKindStream, compactCount: int, outputs: TopLevelColumnarProgramDeclarationTable, result: ParserDeclarationResultTable): int {
+func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: ParserDeclarationTokenTable, rawCount: int, compactTokens: ParserDeclarationTokenTable, compactCount: int, outputs: TopLevelColumnarProgramDeclarationTable, result: ParserDeclarationResultTable): int {
     if result.Values.Length < 6 {
         return -1
     }
@@ -6421,13 +6421,14 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
 
     nominalOutputs := new TopLevelColumnarNominalDeclarationTable(outputs.EnumIndices, outputs.UnionIndices, outputs.InterfaceIndices)
     nominalResult := new ParserDeclarationResultTable(new int[](3))
-    nominalCount := TopLevelColumnarNominalDeclarationIndicesCore(compactTokens, compactCount, nominalOutputs, nominalResult)
+    compactKindStream := new ParserDeclarationKindStream(compactTokens.Kinds)
+    nominalCount := TopLevelColumnarNominalDeclarationIndicesCore(compactKindStream, compactCount, nominalOutputs, nominalResult)
     if nominalCount < 0 {
         return -5
     }
 
     structOutputs := new TopLevelStructLikeDeclarationTable(outputs.StructIndices, outputs.StructReferenceFlags, outputs.StructRecordFlags)
-    structCount := TopLevelStructLikeDeclarationIndicesCore(compactTokens, compactCount, structOutputs)
+    structCount := TopLevelStructLikeDeclarationIndicesCore(compactKindStream, compactCount, structOutputs)
     if structCount < 0 {
         return -6
     }
@@ -6540,8 +6541,8 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: ParserDeclarationKindStr
     return outCount
 }
 
-func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: ParserDeclarationTokenTable, rawCount: int, compactTokens: ParserDeclarationKindStream, compactCount: int, outputs: TopLevelColumnarFunctionDeclarationTable, result: ParserDeclarationResultTable): int {
-    if rawCount < 0 || compactCount < 0 || rawCount > rawTokens.Kinds.Length || rawCount > rawTokens.Starts.Length || rawCount > rawTokens.ValueLengths.Length || compactCount > compactTokens.Kinds.Length || result.Values.Length < 2 {
+func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: ParserDeclarationTokenTable, rawCount: int, compactTokens: ParserDeclarationTokenTable, compactCount: int, outputs: TopLevelColumnarFunctionDeclarationTable, result: ParserDeclarationResultTable): int {
+    if rawCount < 0 || compactCount < 0 || rawCount > rawTokens.Kinds.Length || rawCount > rawTokens.Starts.Length || rawCount > rawTokens.ValueLengths.Length || compactCount > compactTokens.Kinds.Length || compactCount > compactTokens.Starts.Length || compactCount > compactTokens.ValueLengths.Length || result.Values.Length < 2 {
         return -1
     }
 
@@ -6596,8 +6597,9 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
         return -1
     }
 
+    compactKindStream := new ParserDeclarationKindStream(compactTokens.Kinds)
     indices := new TopLevelDeclarationIndexTable(outputs.Indices)
-    funcCount := TopLevelDeclarationIndicesCore(compactTokens, compactCount, 7, 0, indices)
+    funcCount := TopLevelDeclarationIndicesCore(compactKindStream, compactCount, 7, 0, indices)
     if funcCount < 0 || funcCount > outputs.AsyncFlags.Length {
         return -1
     }
@@ -6721,7 +6723,7 @@ func TopLevelDeclarationIndicesCore(tokens: ParserDeclarationKindStream, count: 
     return outCount
 }
 
-func TopLevelFunctionPreamblePreviousToken(tokens: ParserDeclarationKindStream, start: int): int {
+func TopLevelFunctionPreamblePreviousToken(tokens: ParserDeclarationTokenTable, start: int): int {
     pos := start
     changed := true
     while changed {
@@ -6746,7 +6748,7 @@ func TopLevelFunctionPreamblePreviousToken(tokens: ParserDeclarationKindStream, 
     return pos
 }
 
-func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationKindStream, closeIndex: int): int {
+func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationTokenTable, closeIndex: int): int {
     depth := 0
     pos := closeIndex
     while pos >= 0 {
@@ -6766,7 +6768,7 @@ func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationKindStream, 
     return -1
 }
 
-func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationKindStream, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
+func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
         funcIndex := indices.Indices[i]
@@ -6779,7 +6781,9 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationKindStream, 
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
                 if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
-                    return 0
+                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                        return 0
+                    }
                 }
 
                 i = i + 1
@@ -6806,7 +6810,9 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationKindStream, 
             isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4
                 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
-                return 0
+                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                    return 0
+                }
             }
         }
 
@@ -6814,6 +6820,32 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationKindStream, 
     }
 
     return 1
+}
+
+func TopLevelExpressionBodiedFunctionEndsAt(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
+    if funcIndex < 0 || funcIndex >= count || nextFuncIndex <= funcIndex || nextFuncIndex > count || tokens.Kinds[funcIndex] != 7 {
+        return 0
+    }
+
+    signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, funcIndex)
+    if signatureEnd < 0 || signatureEnd >= count || tokens.Kinds[signatureEnd] != 120 {
+        return 0
+    }
+
+    expressionEnd := ParseDeclarationExpressionBodyEndCore(tokens, count, signatureEnd)
+    if expressionEnd < 0 {
+        return 0
+    }
+
+    if expressionEnd == nextFuncIndex {
+        return 1
+    }
+
+    if expressionEnd + 1 == nextFuncIndex && expressionEnd < count && tokens.Kinds[expressionEnd] == 133 {
+        return 1
+    }
+
+    return 0
 }
 
 func MatchingCloseBraceCore(tokens: ParserDeclarationKindStream, count: int, open: int): int {
