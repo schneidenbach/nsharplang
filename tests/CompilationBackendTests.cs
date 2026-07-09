@@ -696,6 +696,59 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsExplicitNullableGenericCall()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ExplicitNullableGenericProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Collections.Generic
+import System.Linq
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main() {
+    numbers := CreateList<int?>(1, null, 3)
+    present := numbers.Where(n => n != null).ToList()
+    print $"{numbers.Count}:{present.Count}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "ExplicitNullableGenericProject.dll");
+            var result = compiler.CompileToIlAssembly("ExplicitNullableGenericProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("3:2", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsGenericParameterInterpolation()
     {
         var tempDir = CreateTempDir();

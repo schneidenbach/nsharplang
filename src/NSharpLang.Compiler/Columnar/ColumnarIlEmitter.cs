@@ -2254,14 +2254,12 @@ internal sealed class ColumnarIlEmitter
         var paramsElementDeclared = target.ParamTypes[^1].GetElementType()!;
         for (var a = 1; a <= fixedCount; a++)
         {
-            if (!TryGetPreflightExpressionType(Child(callIdx, a), out var argType)
-                || !TryUnifyGenericCallArgument(target.TypeParams, binding, target.ParamTypes[a - 1], argType))
+            if (!CanGenericCallArgumentMatch(target.TypeParams, binding, target.ParamTypes[a - 1], Child(callIdx, a), allowLambdaLiteral: true))
                 return false;
         }
         for (var a = fixedCount + 1; a <= argCount; a++)
         {
-            if (!TryGetPreflightExpressionType(Child(callIdx, a), out var argType)
-                || !TryUnifyGenericCallArgument(target.TypeParams, binding, paramsElementDeclared, argType))
+            if (!CanGenericCallArgumentMatch(target.TypeParams, binding, paramsElementDeclared, Child(callIdx, a), allowLambdaLiteral: true))
                 return false;
         }
         var boundArgs = new Type[binding.Length];
@@ -2296,6 +2294,16 @@ internal sealed class ColumnarIlEmitter
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
         return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+    }
+
+    private bool CanGenericCallArgumentMatch(Type[] typeParams, Type?[] binding, Type declared, int argNode, bool allowLambdaLiteral)
+    {
+        if (TrySubstituteGenericTypeArguments(typeParams, binding, declared, out var expected)
+            && CanDeclaredCallArgumentMatch(argNode, expected, allowLambdaLiteral))
+            return true;
+
+        return TryGetPreflightExpressionType(argNode, out var argType)
+               && TryUnifyGenericCallArgument(typeParams, binding, declared, argType);
     }
 
     // Enforce the callee's declared constraints (`where T: ...`) against the bound type arguments,
@@ -2790,6 +2798,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(MethodInfo)
         || t == typeof(ConstructorBuilder)
         || t == typeof(ILGenerator)
+        || IsSupportedNullable(t)
         || t.IsGenericParameter
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
@@ -10053,18 +10062,15 @@ internal sealed class ColumnarIlEmitter
                         return Decline("emit.call.generic-unresolved", "generic call '" + gName + "' with " + (_nodes.ChildCount(idx) - 1) + " argument(s) could not be resolved", idx);
                     if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length)
                         return false; // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
-                    // Resolve each explicit type argument: SIMPLE (kind 0) type nodes only this slice (the
-                    // children of a kind-38 node are TYPE-kernel subtrees by construction). The resolved type
-                    // must be a bindable type. Direct emitted user types are allowed; composed builder-bound
-                    // instantiations still do not parse through this simple-node path. The PRE-SEEDED binding then flows through the shared emission
+                    // Resolve each explicit type argument from its TYPE-kernel subtree. The resolved type
+                    // must be bindable, and the PRE-SEEDED binding then flows through the shared emission
                     // helper, whose unify loop VERIFIES each argument against it (Identity<string>(5) declines).
                     var explicitBinding = new Type?[gTarget.TypeParams.Length];
                     for (var ta = 0; ta < gTarget.TypeParams.Length; ta++)
                     {
                         var typeArgNode = Child(callee, ta);
-                        if (_nodes.Kind(typeArgNode) != 0)
-                            return false; // composed explicit type args (List<int>, T[]) decline this slice.
-                        if (!TryResolveBodyType(Text(typeArgNode), out var taType))
+                        if (!TryBuildTypeNodeCanonical(typeArgNode, out var canonicalTypeArg)
+                            || !TryResolveBodyType(canonicalTypeArg, out var taType))
                             return false;
                         if (!IsSupportedType(taType))
                             return false;

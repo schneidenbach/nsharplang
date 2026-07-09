@@ -473,8 +473,9 @@ class ParserExpressionNodeTable {
 // Increment 113, Decrement 114, LeftParen 127, LeftBracket 131, Alloc 143, Stackalloc 145.
 
 // Mirrors Parser.cs IsGenericMethodCall (the `<`-after-callee disambiguation, Parser.cs:1993): from the `<` at
-// `lessPos`, scan a candidate TYPE-ARGUMENT list — identifiers, dots (124), array brackets (131/132), commas
-// (134), and nested `<`(100)/`>`(102)/`>>`(112) — and answer true ONLY when the matching close is followed
+// `lessPos`, scan a candidate TYPE-ARGUMENT list — identifiers, dots (124), nullable suffixes (115),
+// array brackets (131/132), commas (134), and nested `<`(100)/`>`(102)/`>>`(112) — and answer true ONLY
+// when the matching close is followed
 // DIRECTLY by `(` (127). Anything else (an operator, a literal, a `)` …) means the `<` is a comparison, not a
 // type-argument list, so the kernel commits to a generic call only for the production generic-call shape.
 
@@ -3736,7 +3737,7 @@ func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): 
     depth := 1
     while i < count {
         k := tokens.Kinds[i]
-        if k == 0 || k == 124 || k == 134 || k == 131 || k == 132 {
+        if k == 0 || k == 115 || k == 124 || k == 134 || k == 131 || k == 132 {
             i = i + 1
         } else if k == 100 {
             depth = depth + 1
