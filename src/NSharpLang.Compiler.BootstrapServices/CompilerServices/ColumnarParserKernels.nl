@@ -6506,7 +6506,7 @@ func TopLevelFunctionPreamblePreviousToken(tokens: ParserDeclarationKindStream, 
     while changed {
         changed = false
 
-        while pos >= 0 && (tokens.Kinds[pos] == 63 || tokens.Kinds[pos] == 68) {
+        while pos >= 0 && ModifierFlag(tokens.Kinds[pos]) != 0 {
             pos = pos - 1
             changed = true
         }

@@ -79,6 +79,22 @@ public class OutputFormatterTextBuilders {
         return OutputFormatterTextKernels.GetDefinitionLineText(result)
     }
 
+    public static func DefinitionSearchToText(query: string, results: IReadOnlyList<DefinitionResult>): string {
+        builder := new StringBuilder()
+        builder.AppendLine(DefinitionSearchKernels.GetDefinitionSearchHeader(query, results.Count))
+
+        if results.Count == 0 {
+            builder.AppendLine(DefinitionSearchKernels.GetDefinitionSearchNote(0))
+            return builder.ToString()
+        }
+
+        foreach result in results {
+            builder.AppendLine(OutputFormatterTextKernels.GetDefinitionSearchResultLineText(result))
+        }
+
+        return builder.ToString()
+    }
+
     public static func ReferencesToText(symbolName: string, results: List<ReferenceResult>): string {
         if results.Count == 0 {
             return OutputFormatterTextKernels.GetNoReferencesText(symbolName)

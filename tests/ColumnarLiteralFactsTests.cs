@@ -142,4 +142,32 @@ func Value(): char {
         var value = Assert.IsType<char>(method.Invoke(null, null));
         Assert.Equal('\n', value);
     }
+
+    [Fact]
+    public void ColumnarCompiler_PackageHeader_AllowsPublicTopLevelFunction()
+    {
+        Assert.True(ColumnarCompiler.TryEmitProgram(
+            """
+package Demo
+
+public func buildExplicit(): string {
+    return "explicit"
+}
+""",
+            "ColumnarPackagePublicFunction",
+            "Program",
+            out var assembly,
+            out var emittedTypeName,
+            out var methodNames));
+
+        Assert.Equal("Program", emittedTypeName);
+        Assert.Contains("buildExplicit", methodNames);
+
+        using var scope = CollectibleAssemblyScope.Load(assembly);
+        var type = scope.Assembly.GetType("Program");
+        Assert.NotNull(type);
+        var method = type.GetMethod("buildExplicit", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        Assert.Equal("explicit", method.Invoke(null, null));
+    }
 }

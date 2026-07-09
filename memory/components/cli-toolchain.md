@@ -67,6 +67,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query inspect --file F --pos L:C` | One-shot symbol/type/definition/refs/completions bundle | `nlc query inspect --file Program.nl --pos 5:4` |
 | `nlc query inspect --summary --file F --pos L:C` | Compact envelope for tooling that only needs the high-level inspection summary | `nlc query inspect --summary --file Program.nl --pos 85:22` |
 | `nlc query def --file F --pos L:C` | Definition at position (semantic) | `nlc query def --file Program.nl --pos 5:12` |
+| `nlc query def --name N` | Public definitions matching an exact symbol name | `nlc query def --name Point` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions --file F --pos L:C` | Completions at position | `nlc query completions --file Program.nl --pos 5:12` |
 | `nlc query hover --file F --pos L:C` | Signature + docs at position (shared model with LSP) | `nlc query hover --file Program.nl --pos 5:6` |
@@ -78,6 +79,8 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query trusted` | Governed Systems N# `[trusted]` wrappers and metadata | `nlc query trusted` |
 
 Type-use positions are first-class semantic navigation targets. `type`, `inspect`, `def`, `refs`, and `hover` resolve annotations and type arguments through the same BindingMap/SemanticModel data used by the LSP, including `Person`, `List<Person>`, `Person?`, `Person[]`, and `Func<Person, string>`. Duplicate simple type names in different namespaces/files are resolved by semantic binding, not text search.
+
+`nlc query def --name N` is the non-positional fallback for LLM discovery and scripts. It searches the public symbol outline by exact name, returns a stable `definition` envelope with `query`, `results`, and `note`, and exits 1 when there is no public match. Prefer `--file/--pos` when a cursor location is available because that path is fully semantic.
 
 `nlc query type` and `nlc query inspect` type results include `nullability` (`unknown`, `null`, `maybeNull`, `notNull`, or `oblivious`) so CLI automation and the LSP can reason about the same null-flow facts.
 

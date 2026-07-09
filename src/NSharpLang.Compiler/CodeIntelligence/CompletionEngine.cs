@@ -350,9 +350,68 @@ public class CompletionEngine
             return clrType != null;
         }
 
+        if (typeInfo is GenericTypeInfo genericType)
+        {
+            var genericDefinition = genericType.Name switch
+            {
+                "List" or "System.Collections.Generic.List" => typeof(List<>),
+                "IEnumerable" or "System.Collections.Generic.IEnumerable" => typeof(IEnumerable<>),
+                "ICollection" or "System.Collections.Generic.ICollection" => typeof(ICollection<>),
+                "IList" or "System.Collections.Generic.IList" => typeof(IList<>),
+                "IReadOnlyCollection" or "System.Collections.Generic.IReadOnlyCollection" => typeof(IReadOnlyCollection<>),
+                "IReadOnlyList" or "System.Collections.Generic.IReadOnlyList" => typeof(IReadOnlyList<>),
+                "Dictionary" or "System.Collections.Generic.Dictionary" => typeof(Dictionary<,>),
+                "IDictionary" or "System.Collections.Generic.IDictionary" => typeof(IDictionary<,>),
+                "IReadOnlyDictionary" or "System.Collections.Generic.IReadOnlyDictionary" => typeof(IReadOnlyDictionary<,>),
+                "HashSet" or "System.Collections.Generic.HashSet" => typeof(HashSet<>),
+                "Queue" or "System.Collections.Generic.Queue" => typeof(Queue<>),
+                "Stack" or "System.Collections.Generic.Stack" => typeof(Stack<>),
+                "Nullable" or "System.Nullable" => typeof(Nullable<>),
+                "Task" or "System.Threading.Tasks.Task" => typeof(System.Threading.Tasks.Task<>),
+                "ValueTask" or "System.Threading.Tasks.ValueTask" => typeof(System.Threading.Tasks.ValueTask<>),
+                _ => null
+            };
+
+            if (genericDefinition != null &&
+                genericDefinition.GetGenericArguments().Length == genericType.TypeArguments.Count)
+            {
+                var genericArguments = genericType.TypeArguments
+                    .Select(GetReflectionTypeArgumentOrObject)
+                    .ToArray();
+                clrType = genericDefinition.MakeGenericType(genericArguments);
+                return true;
+            }
+        }
+
         clrType = null;
         return false;
     }
+
+    private static Type GetReflectionTypeArgumentOrObject(TypeInfo typeInfo)
+        => typeInfo switch
+        {
+            ReflectionTypeInfo reflectionType => reflectionType.Type,
+            SimpleTypeInfo simpleType => simpleType.Name switch
+            {
+                "string" or "System.String" => typeof(string),
+                "int" or "System.Int32" => typeof(int),
+                "long" or "System.Int64" => typeof(long),
+                "bool" or "System.Boolean" => typeof(bool),
+                "double" or "System.Double" => typeof(double),
+                "float" or "System.Single" => typeof(float),
+                "char" or "System.Char" => typeof(char),
+                "object" or "System.Object" => typeof(object),
+                "decimal" or "System.Decimal" => typeof(decimal),
+                "byte" or "System.Byte" => typeof(byte),
+                "short" or "System.Int16" => typeof(short),
+                "uint" or "System.UInt32" => typeof(uint),
+                "ulong" or "System.UInt64" => typeof(ulong),
+                "ushort" or "System.UInt16" => typeof(ushort),
+                "sbyte" or "System.SByte" => typeof(sbyte),
+                _ => typeof(object)
+            },
+            _ => typeof(object)
+        };
 
     private static List<CompletionItem> BuildReflectionMemberItems(Type clrType, BindingFlags flags)
     {

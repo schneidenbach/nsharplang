@@ -245,6 +245,11 @@ public static class OutputFormatter
         return OutputFormatterJsonKernels.DefinitionToJson(result);
     }
 
+    public static string DefinitionSearchToJson(string query, IReadOnlyList<DefinitionResult> results)
+    {
+        return OutputFormatterJsonKernels.DefinitionSearchToJson(query, results);
+    }
+
     public static string ReferencesToJson(string symbolName, string symbolKind,
         LocationResult? definedAt, List<ReferenceResult> results)
     {
@@ -355,6 +360,11 @@ public static class OutputFormatter
     public static string DefinitionToText(DefinitionResult result)
     {
         return OutputFormatterTextBuilders.DefinitionToText(result);
+    }
+
+    public static string DefinitionSearchToText(string query, IReadOnlyList<DefinitionResult> results)
+    {
+        return OutputFormatterTextBuilders.DefinitionSearchToText(query, results);
     }
 
     public static string ReferencesToText(string symbolName, List<ReferenceResult> results)

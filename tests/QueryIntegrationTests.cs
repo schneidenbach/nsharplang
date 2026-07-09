@@ -923,8 +923,8 @@ func Main() {
     [Fact]
     public void Type_IssueTracker_LocalVariableFromNewExpression_Resolves()
     {
-        // Program.nl line 18: service := new IssueService(store, hub)
-        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 18, 5);
+        // Program.nl line 16: service := new IssueService(store, hub)
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 16, 5);
         Assert.NotNull(result);
         Assert.Equal("service", result!.Name);
         Assert.Equal("IssueService", result.ResolvedType);
@@ -943,8 +943,8 @@ func Main() {
     [Fact]
     public void Type_IssueTracker_LocalVariableFromImportedMethodCall_Resolves()
     {
-        // Program.nl line 17: store := new IssueStore()
-        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 17, 5);
+        // Program.nl line 15: store := new IssueStore()
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 15, 5);
         var programSemanticModel = IssueTracker.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
         var variables = string.Join(", ", programSemanticModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
         Assert.True(result != null, $"Expected store type. Program variables: [{variables}]");
@@ -959,6 +959,7 @@ func Main() {
         var result = _service.GetTypeAtPosition(IssueTracker, "Service.nl", 11, 5);
         Assert.NotNull(result);
         Assert.Equal("store", result!.Name);
+        Assert.Equal("IssueStore", result.ResolvedType);
     }
 
     [Fact]

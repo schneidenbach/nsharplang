@@ -332,6 +332,11 @@ public class OutputFormatterTextKernels {
             definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
     }
 
+    public static func GetDefinitionSearchResultLineText(definition: DefinitionResult): string {
+        return "  " + definition.Kind + " " + definition.Name + " at " +
+            definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
+    }
+
     static func QuerySymbolParametersLineText(
         indent: int,
         names: string[],

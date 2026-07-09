@@ -333,6 +333,10 @@ public class CodeIntelligenceService
 
         snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
 
+        var declarationType = ResolveDeclaredNameTypeAtPosition(snapshot, filePath, cu, line, col);
+        if (declarationType != null)
+            return declarationType;
+
         var typeUse = ResolveTypeUseAtPosition(snapshot, filePath, cu, semanticModel, line, col);
         if (typeUse != null)
             return typeUse;
@@ -840,6 +844,105 @@ public class CodeIntelligenceService
                 declaration.Line,
                 declaration.Column),
             typeInfo != null ? NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)) : null);
+    }
+
+    private TypeResult? ResolveDeclaredNameTypeAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
+        int line, int col)
+    {
+        var selectedName = ExtractWordAtPosition(snapshot, filePath, line, col);
+        if (string.IsNullOrWhiteSpace(selectedName))
+            return null;
+
+        foreach (var declaration in currentUnit.Declarations)
+        {
+            var result = ResolveDeclaredNameTypeInDeclaration(
+                snapshot,
+                filePath,
+                declaration,
+                selectedName!,
+                line);
+            if (result != null)
+                return result;
+        }
+
+        return null;
+    }
+
+    private TypeResult? ResolveDeclaredNameTypeInDeclaration(ProjectSnapshot snapshot, string filePath, Declaration declaration,
+        string selectedName, int line)
+    {
+        var declarationName = DeclarationFacts.GetDeclarationName(declaration);
+        if (declaration.Line == line
+            && string.Equals(declarationName, selectedName, StringComparison.Ordinal)
+            && TryGetDeclaredNameTypeInfo(declaration, snapshot, out var typeInfo))
+        {
+            var resolvedType = NullabilityMetadata.FormatTypeInfo(typeInfo);
+            return new TypeResult(
+                selectedName,
+                resolvedType,
+                TypeInfoToKind(typeInfo),
+                new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), declaration.Line, declaration.Column),
+                NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)));
+        }
+
+        foreach (var member in DeclarationFacts.GetDeclarationMembers(declaration)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
+        {
+            var memberResult = ResolveDeclaredNameTypeInDeclaration(
+                snapshot,
+                filePath,
+                member,
+                selectedName,
+                line);
+            if (memberResult != null)
+                return memberResult;
+        }
+
+        return null;
+    }
+
+    private bool TryGetDeclaredNameTypeInfo(Declaration declaration, ProjectSnapshot snapshot, out TypeInfo typeInfo)
+    {
+        switch (declaration)
+        {
+            case FunctionDeclaration function:
+                typeInfo = function.ReturnType != null
+                    ? ResolveTypeReferenceToTypeInfo(function.ReturnType, snapshot)
+                    : new SimpleTypeInfo("void");
+                return true;
+            case FieldDeclaration { Type: { } fieldType }:
+                typeInfo = ResolveTypeReferenceToTypeInfo(fieldType, snapshot);
+                return true;
+            case PropertyDeclaration property:
+                typeInfo = ResolveTypeReferenceToTypeInfo(property.Type, snapshot);
+                return true;
+            case ClassDeclaration cls:
+                typeInfo = NominalTypeInfoFactory.FromClassDeclaration(cls);
+                return true;
+            case StructDeclaration str:
+                typeInfo = NominalTypeInfoFactory.FromStructDeclaration(str);
+                return true;
+            case RecordDeclaration record:
+                typeInfo = NominalTypeInfoFactory.FromRecordDeclaration(record);
+                return true;
+            case InterfaceDeclaration iface:
+                typeInfo = NominalTypeInfoFactory.FromInterfaceDeclaration(iface);
+                return true;
+            case EnumDeclaration enumDecl:
+                typeInfo = EnumTypeInfoFactory.FromDeclaration(enumDecl);
+                return true;
+            case UnionDeclaration union:
+                typeInfo = UnionTypeInfoFactory.FromDeclaration(union);
+                return true;
+            case TypeAliasDeclaration alias:
+                typeInfo = ResolveTypeReferenceToTypeInfo(alias.Type, snapshot);
+                return true;
+            case NewtypeDeclaration newtype:
+                typeInfo = new NewtypeInfo(newtype.Name, newtype.UnderlyingType);
+                return true;
+            default:
+                typeInfo = BuiltInTypes.Unknown;
+                return false;
+        }
     }
 
     private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)

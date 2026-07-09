@@ -38,6 +38,17 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
+    public static func DefinitionSearchToJson(query: string, results: IReadOnlyList<DefinitionResult>): string {
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 1
+        envelope["command"] = "definition"
+        envelope["ok"] = results.Count > 0
+        envelope["query"] = query
+        envelope["results"] = BuildDefinitionResults(results)
+        envelope["note"] = DefinitionSearchKernels.GetDefinitionSearchNote(results.Count)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
     static func BuildDefinitionResult(result: DefinitionResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["name"] = result.Name
@@ -46,6 +57,15 @@ public class OutputFormatterJsonKernels {
         payload["line"] = result.Line
         payload["column"] = result.Column
         payload["length"] = result.Length
+        return payload
+    }
+
+    static func BuildDefinitionResults(results: IReadOnlyList<DefinitionResult>): List<Dictionary<string, object>> {
+        payload := new List<Dictionary<string, object>>()
+        foreach result in results {
+            payload.Add(BuildDefinitionResult(result))
+        }
+
         return payload
     }
 
@@ -462,6 +482,8 @@ public class OutputFormatterJsonKernels {
         receiver := BuildCompletionReceiver(result)
         if receiver != null {
             envelope["receiver"] = receiver
+        } else {
+            envelope["receiver"] = new Dictionary<string, object>()
         }
 
         envelope["completions"] = BuildCompletionGroups(result.Completions)

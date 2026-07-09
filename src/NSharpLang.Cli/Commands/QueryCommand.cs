@@ -582,6 +582,25 @@ public static class QueryCommand
         var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
+        var name = summary.Name;
+
+        if (name != null)
+        {
+            var snapshot = LoadProjectOrFail(options);
+            if (snapshot == null) return 1;
+
+            var results = DefinitionSearchKernels.FindDefinitions(Service.GetSymbols(snapshot), name, 200);
+            if (outputMode == 2)
+            {
+                Console.Write(OutputFormatter.DefinitionSearchToText(name, results));
+            }
+            else
+            {
+                Console.Write(OutputFormatter.DefinitionSearchToJson(name, results));
+            }
+
+            return QueryCommandKernels.GetResultPresenceExitCode(results.Count);
+        }
 
         // Position-based (primary, semantic)
         if (file != null && posStr != null)
