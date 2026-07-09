@@ -595,6 +595,10 @@ internal sealed class ColumnarIlEmitter
         {
             return t.IsEnum;
         }
+        catch (NotImplementedException)
+        {
+            return false;
+        }
         catch (NotSupportedException)
         {
             return false;
@@ -2237,7 +2241,7 @@ internal sealed class ColumnarIlEmitter
         if (argCount != paramTypes.Length)
             return true;
         return !TryGetPreflightExpressionType(Child(callIdx, argCount), out var lastArgType)
-               || !lastArgType.IsSZArray;
+               || !IsSzArrayType(lastArgType);
     }
 
     private bool ShouldUseExpandedParamsCall(int callIdx, Type[] paramTypes, int[] paramModifierKinds)
@@ -2262,7 +2266,7 @@ internal sealed class ColumnarIlEmitter
         => paramTypes.Length > 0
            && paramModifierKinds.Length >= paramTypes.Length
            && paramModifierKinds[paramTypes.Length - 1] == NSharpParameterModifierParams
-           && paramTypes[paramTypes.Length - 1].IsSZArray;
+           && IsSzArrayType(paramTypes[paramTypes.Length - 1]);
 
     private bool TryEmitGenericSiblingExpandedParamsArrayCall(
         int callIdx,
@@ -2378,9 +2382,12 @@ internal sealed class ColumnarIlEmitter
     private static bool TryGetExpandedParamsElementType(Type paramsType, out Type elementType)
     {
         elementType = null!;
-        if (paramsType.IsSZArray)
+        if (IsSzArrayType(paramsType))
         {
-            elementType = paramsType.GetElementType()!;
+            var arrayElementType = TryGetElementType(paramsType);
+            if (arrayElementType == null)
+                return false;
+            elementType = arrayElementType;
             return IsSupportedElementType(elementType);
         }
         if (IsSupportedSpanLikeType(paramsType))
@@ -2402,7 +2409,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool TryEmitExpandedParamsValue(int callIdx, int fixedCount, int argCount, Type paramsType, Type paramsElementType)
     {
-        if (paramsType.IsSZArray)
+        if (IsSzArrayType(paramsType))
             return TryEmitExpandedParamsArrayValue(callIdx, fixedCount, argCount, paramsElementType);
         if (IsSupportedSpanLikeType(paramsType))
         {
@@ -15604,6 +15611,8 @@ internal sealed class ColumnarIlEmitter
             return !targetType.IsValueType || IsSupportedNullable(targetType);
         if (CanUseTargetTypedNewAsType(valueNode, targetType))
             return true;
+        if (CanUseObjectInitializerAsType(valueNode, targetType))
+            return true;
         if (CanAdoptIntLiteralAsType(valueNode, targetType))
             return true;
         if (CanUseCollectionLiteralAsType(valueNode, targetType))
@@ -15627,6 +15636,71 @@ internal sealed class ColumnarIlEmitter
                || TryEmitReferenceConversion(valueType, targetType)
                || CanUseObjectConversion(valueType, targetType)
                || CanUseAnonymousUnionConversion(valueType, targetType);
+    }
+
+    private bool CanUseObjectInitializerAsType(int node, Type targetType)
+    {
+        node = UnwrapParenthesizedNode(node);
+        if (_nodes.Kind(node) != 36 || (targetType.IsValueType && targetType is not TypeBuilder))
+            return false;
+
+        var initChildCount = _nodes.ChildCount(node);
+        if ((initChildCount % 2) != 1)
+            return false;
+
+        if (!TryBuildTypeNodeCanonical(Child(node, 0), out var initCanonical)
+            || !TryResolveBodyType(initCanonical, out var initType)
+            || !TypesEquivalent(initType, targetType))
+            return false;
+
+        ColumnarStructDef? initDef = null;
+        var closedArgs = Array.Empty<Type>();
+        if (initType is TypeBuilder initBuilder)
+        {
+            initDef = FindDefByBuilder(initBuilder);
+        }
+        else if (TryGetClosedReceiverDef(initType, out var closedDef, out var closedReceiverArgs))
+        {
+            initDef = closedDef;
+            closedArgs = closedReceiverArgs;
+        }
+        if (initDef == null)
+            return false;
+        if (initDef.IsReference && initDef.DefaultCtor == null)
+            return false;
+
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
+        for (var p = 1; p + 1 < initChildCount; p += 2)
+        {
+            var nameNode = Child(node, p);
+            var valueNode = Child(node, p + 1);
+            if (_nodes.Kind(nameNode) != 6)
+                return false;
+            var memberName = Text(nameNode);
+            if (!assigned.Add(memberName))
+                return false;
+
+            Type memberType;
+            if (TryFindPropertyOnChain(initDef, memberName, out var property))
+            {
+                if (property.Setter == null)
+                    return false;
+                memberType = closedArgs.Length == 0 ? property.PropertyType : SubstituteClosedTypeArguments(property.PropertyType, closedArgs);
+            }
+            else if (TryFindFieldOnChain(initDef, memberName, out var field))
+            {
+                memberType = closedArgs.Length == 0 ? field.FieldType : SubstituteClosedTypeArguments(field.FieldType, closedArgs);
+            }
+            else
+            {
+                return false;
+            }
+
+            if (!CanEmitAssignableValueAsType(valueNode, memberType))
+                return false;
+        }
+
+        return true;
     }
 
     private bool TryInferArrayLiteralElementType(int node, out Type elementType)
@@ -16013,10 +16087,18 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (IsEnumType(a) || IsEnumType(b))
             return IsSameEnumType(a, b);
-        if (a.IsByRef || b.IsByRef)
-            return a.IsByRef && b.IsByRef && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
-        if (a.IsSZArray || b.IsSZArray)
-            return a.IsSZArray && b.IsSZArray && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
+        if (IsByRefType(a) || IsByRefType(b))
+            return IsByRefType(a)
+                   && IsByRefType(b)
+                   && TryGetElementType(a) is { } aElement
+                   && TryGetElementType(b) is { } bElement
+                   && TypesEquivalent(aElement, bElement);
+        if (IsSzArrayType(a) || IsSzArrayType(b))
+            return IsSzArrayType(a)
+                   && IsSzArrayType(b)
+                   && TryGetElementType(a) is { } aElement
+                   && TryGetElementType(b) is { } bElement
+                   && TypesEquivalent(aElement, bElement);
         if (a is TypeBuilder || b is TypeBuilder)
         {
             if (a is not TypeBuilder leftBuilder || b is not TypeBuilder rightBuilder)
@@ -16046,6 +16128,56 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
         return true;
+    }
+
+    private static bool IsByRefType(Type type)
+    {
+        try
+        {
+            return type.IsByRef;
+        }
+        catch (NotImplementedException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSzArrayType(Type type)
+    {
+        try
+        {
+            return type.IsSZArray;
+        }
+        catch (NotImplementedException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        return TryGetElementType(type) != null
+               && ((type.Name?.EndsWith("[]", StringComparison.Ordinal) ?? false)
+                   || (type.FullName?.EndsWith("[]", StringComparison.Ordinal) ?? false));
+    }
+
+    private static Type? TryGetElementType(Type type)
+    {
+        try
+        {
+            return type.GetElementType();
+        }
+        catch (NotImplementedException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private static bool IsSameEnumType(Type a, Type b)
@@ -16812,6 +16944,8 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out type))
             return true;
+        if (TryGetPreflightEnumerableExtensionCallType(receiverType, member, callIdx, out type))
+            return true;
 
         if (IsSupportedSpanLikeType(receiverType) && member == "Slice" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3))
         {
@@ -16874,6 +17008,62 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(void);
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    private bool TryGetPreflightEnumerableExtensionCallType(Type receiverType, string member, int callIdx, out Type type)
+    {
+        type = null!;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
+        if (!TryGetEnumerableElementType(receiverType, out var sourceType))
+            return false;
+
+        if (member == "Where" && argCount == 1)
+        {
+            var predicateType = typeof(Func<,>).MakeGenericType(sourceType, typeof(bool));
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1), predicateType, allowLambdaLiteral: true))
+                return false;
+            type = typeof(IEnumerable<>).MakeGenericType(sourceType);
+            return true;
+        }
+
+        if (member == "Select" && argCount == 1)
+        {
+            if (!TryInferSingleParameterContextualDelegateReturnType(Child(callIdx, 1), sourceType, out var resultType))
+                return false;
+            type = typeof(IEnumerable<>).MakeGenericType(resultType);
+            return true;
+        }
+
+        if (member == "ToArray" && argCount == 0)
+        {
+            if (!IsSupportedElementType(sourceType))
+                return false;
+            type = sourceType.MakeArrayType();
+            return true;
+        }
+
+        if (member == "ToList" && argCount == 0)
+        {
+            type = typeof(List<>).MakeGenericType(sourceType);
+            return true;
+        }
+
+        if ((member == "Min" || member == "Max") && argCount == 0 && sourceType == typeof(int))
+        {
+            type = typeof(int);
+            return true;
+        }
+
+        if (member == "Contains" && argCount == 1)
+        {
+            if (ContainsNonEnumBuilderBoundType(sourceType)
+                || !CanDeclaredCallArgumentMatch(Child(callIdx, 1), sourceType, allowLambdaLiteral: false))
+                return false;
+            type = typeof(bool);
+            return true;
         }
 
         return false;

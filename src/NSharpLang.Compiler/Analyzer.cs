@@ -12622,12 +12622,14 @@ public class Analyzer : IDisposable
                 continue;
 
             var parameterTypeRef = sourceParameterTypes[parameterIndex];
+            var argumentType = argTypes[argumentIndex];
             if (paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex)
             {
                 parameterTypeRef = GetParamsInferenceTypeReference(parameterTypeRef);
+                argumentType = GetParamsInferenceArgumentType(call.Arguments[argumentIndex], argumentType);
             }
 
-            CollectNSharpTypeParameterBounds(parameterTypeRef, argTypes[argumentIndex], typeParameters, allBounds);
+            CollectNSharpTypeParameterBounds(parameterTypeRef, argumentType, typeParameters, allBounds);
         }
 
         foreach (var tp in typeParameters)
@@ -12654,6 +12656,18 @@ public class Analyzer : IDisposable
             ArrayTypeReference array => array.ElementType,
             GenericTypeReference { TypeArguments.Count: 1 } generic => generic.TypeArguments[0],
             _ => paramsTypeRef
+        };
+    }
+
+    private TypeInfo GetParamsInferenceArgumentType(Argument argument, TypeInfo argumentType)
+    {
+        if (argument.Value is not SpreadExpression)
+            return argumentType;
+
+        return ResolveTypeAlias(argumentType) switch
+        {
+            ArrayTypeInfo array => ResolveTypeAlias(array.ElementType),
+            _ => argumentType
         };
     }
 
