@@ -7156,6 +7156,17 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Stfld, thisFieldTarget);
                     return true;
                 }
+                if (_currentStruct != null
+                    && _currentStruct.IsReference
+                    && TryFindPropertyOnChain(_currentStruct, targetName, out var thisPropertyTarget)
+                    && thisPropertyTarget.Setter != null)
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out _))
+                        return false;
+                    _il.Emit(OpCodes.Callvirt, thisPropertyTarget.Setter);
+                    return true;
+                }
                 // Bare STATIC-field write inside an INSTANCE member body (`count = expr` where count is a static
                 // field on the chain). The N# pipeline's pinned ASYMMETRY: bare static-field access resolves in
                 // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
@@ -10299,6 +10310,24 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(Environment.SpecialFolder);
                     return true;
                 }
+                if (TryGetDottedMemberAccessName(memberAccessReceiver, out var enumReceiverName, out var enumReceiverRoot)
+                    && _enumRegistry.TryGetValue(enumReceiverName, out var dottedUserEnum)
+                    && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot))
+                {
+                    if (dottedUserEnum.StringConstants != null)
+                    {
+                        if (!dottedUserEnum.StringConstants.TryGetValue(Text(idx), out var stringValue))
+                            return false;
+                        _il.Emit(OpCodes.Ldstr, stringValue);
+                        type = typeof(string);
+                        return true;
+                    }
+                    if (!dottedUserEnum.Constants.TryGetValue(Text(idx), out var memberValue))
+                        return false;
+                    _il.Emit(OpCodes.Ldc_I4, memberValue);
+                    type = dottedUserEnum.EnumType;
+                    return true;
+                }
                 if (_nodes.Kind(memberAccessReceiver) == 6)
                 {
                     var receiverIdent = Text(memberAccessReceiver);
@@ -12841,13 +12870,12 @@ internal sealed class ColumnarIlEmitter
             case 8: // MemberAccess pattern: `Enum.Member` (enum-constant equality) OR `Union.Case` (a bare union TYPE
             {        // pattern — match the case by type, NO destructuring/binding).
                 var recv = Child(patternNode, 0);
-                if (_nodes.Kind(recv) != 6)
+                if (!TryGetDottedMemberAccessName(recv, out var recvName, out var recvRootName))
                     return false;
-                var recvName = Text(recv);
                 // ENUM constant: the receiver names a REGISTERED enum (not shadowed by a local/param/sibling), the
                 // member is one of its constants, and the match value is THAT enum's type. Underlying-int Ceq.
                 if (_enumRegistry.TryGetValue(recvName, out var enumDef)
-                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                    && !_locals.ContainsKey(recvRootName) && !_liftedLocals.ContainsKey(recvRootName) && !_paramOrdinals.ContainsKey(recvRootName) && !_siblings.ContainsKey(recvRootName))
                 {
                     if (matchValueType != enumDef.EnumType)
                         return false;
@@ -12883,7 +12911,7 @@ internal sealed class ColumnarIlEmitter
                 // (read via the public get_Tag) instead of an isinst — there is no reference identity to test.
                 if (TryGetUnionCaseByKey(qualifiedCase, out _, out var bareValueStructCase) && bareValueStructCase.IsValueStruct
                     && bareValueStructCase.UnionBase == matchValueType && bareValueStructCase.ValueStructTagGetter != null
-                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                    && !_locals.ContainsKey(recvRootName) && !_liftedLocals.ContainsKey(recvRootName) && !_paramOrdinals.ContainsKey(recvRootName) && !_siblings.ContainsKey(recvRootName))
                 {
                     _il.Emit(OpCodes.Ldloca, matchLocal);
                     _il.Emit(OpCodes.Call, bareValueStructCase.ValueStructTagGetter);
@@ -12894,7 +12922,7 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
                 if (TryGetCaseTestType(qualifiedCase, matchValueType, out _, out var bareCaseTestType, out _)
-                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                    && !_locals.ContainsKey(recvRootName) && !_liftedLocals.ContainsKey(recvRootName) && !_paramOrdinals.ContainsKey(recvRootName) && !_siblings.ContainsKey(recvRootName))
                 {
                     _il.Emit(OpCodes.Ldloc, matchLocal);
                     _il.Emit(OpCodes.Isinst, bareCaseTestType);
@@ -21129,6 +21157,36 @@ internal sealed class ColumnarIlEmitter
         => _nodes.Kind(idx) == 14 && _nodes.ValueStart(idx) < 0 && _nodes.ValueLengths[idx] == 1
             ? "="
             : _nodes.Text(_source, idx);
+
+    private bool TryGetDottedMemberAccessName(int node, out string name, out string rootName)
+    {
+        if (_nodes.Kind(node) == 6)
+        {
+            name = Text(node);
+            rootName = name;
+            return name.Length > 0;
+        }
+
+        if (_nodes.Kind(node) == 8
+            && _nodes.ChildCount(node) == 1
+            && TryGetDottedMemberAccessName(Child(node, 0), out var receiverName, out rootName))
+        {
+            var memberName = Text(node);
+            if (memberName.Length == 0)
+            {
+                name = null!;
+                rootName = null!;
+                return false;
+            }
+
+            name = receiverName + "." + memberName;
+            return true;
+        }
+
+        name = null!;
+        rootName = null!;
+        return false;
+    }
 
     private bool IsExplicitThisIdentifier(int idx)
     {

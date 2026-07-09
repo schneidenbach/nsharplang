@@ -6551,7 +6551,7 @@ func TopLevelColumnarNominalDeclarationIndicesCore(tokens: ParserDeclarationKind
     }
 
     enumTable := new TopLevelDeclarationIndexTable(outputs.EnumIndices)
-    enumCount := TopLevelDeclarationIndicesCore(tokens, count, 14, 0, enumTable)
+    enumCount := ColumnarEnumDeclarationIndicesCore(tokens, count, enumTable)
     if enumCount < 0 {
         return -1
     }
@@ -6572,6 +6572,52 @@ func TopLevelColumnarNominalDeclarationIndicesCore(tokens: ParserDeclarationKind
     result.Values[1] = unionCount
     result.Values[2] = interfaceCount
     return enumCount + unionCount + interfaceCount
+}
+
+func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, count: int, indices: TopLevelDeclarationIndexTable): int {
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    outCount := 0
+
+    i := 0
+    while i < count {
+        kind := tokens.Kinds[i]
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        } else if (braceDepth == 0 || braceDepth == 1) && bracketDepth == 0 && parenDepth == 0 && kind == 14 {
+            if outCount >= indices.Indices.Length {
+                return -1
+            }
+
+            indices.Indices[outCount] = i
+            outCount = outCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return outCount
 }
 
 func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
@@ -7709,6 +7755,54 @@ func ParserDeclarationQualifiedNameText(source: string, tokens: ParserDeclaratio
     return namespaceName + "." + name
 }
 
+func ParserDeclarationDirectContainingTypeNameText(source: string, tokens: ParserDeclarationTokenTable, count: int, declarationIndex: int): string {
+    if declarationIndex < 0 || declarationIndex > count {
+        return ""
+    }
+
+    depth := 0
+    i := declarationIndex - 1
+    while i >= 0 {
+        kind := tokens.Kinds[i]
+        if kind == 130 {
+            depth = depth + 1
+        } else if kind == 129 {
+            if depth == 0 {
+                ownerKeyword := i - 1
+                ownerFound := 0
+                while ownerKeyword >= 0 && ownerFound == 0 {
+                    ownerKind := tokens.Kinds[ownerKeyword]
+                    if ownerKind == 8 || ownerKind == 9 || ownerKind == 13 {
+                        ownerFound = 1
+                    } else {
+                        ownerKeyword = ownerKeyword - 1
+                    }
+                }
+
+                if ownerFound == 0 {
+                    return ""
+                }
+
+                ownerNameIndex := ownerKeyword + 1
+                if tokens.Kinds[ownerKeyword] == 13 && ownerNameIndex < count && tokens.Kinds[ownerNameIndex] == 9 {
+                    ownerNameIndex = ownerNameIndex + 1
+                }
+                if ownerNameIndex >= count || tokens.Kinds[ownerNameIndex] != 0 {
+                    return ""
+                }
+
+                return ParserDeclarationQualifiedNameText(source, tokens, count, ownerKeyword, tokens.Starts[ownerNameIndex], tokens.ValueLengths[ownerNameIndex])
+            }
+
+            depth = depth - 1
+        }
+
+        i = i - 1
+    }
+
+    return ""
+}
+
 func ParserDeclarationNamespacesEqual(source: string, tokens: ParserDeclarationTokenTable, count: int, leftDeclarationIndex: int, rightDeclarationIndex: int): int {
     leftResult := new ParserDeclarationResultTable(new int[](2))
     rightResult := new ParserDeclarationResultTable(new int[](2))
@@ -8157,6 +8251,11 @@ func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: in
     typeEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
     pos = pos + 1
 
+    while pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        typeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
+        pos = pos + 2
+    }
+
     if pos < count && tokens.Kinds[pos] == 100 {
         gdepth := 0
         parenDepth := 0
@@ -8495,6 +8594,40 @@ func StructDeclarationFieldIndexOf(source: string, decl: StructDeclarationTable,
     return -1
 }
 
+func ParseDeclarationNestedTypeDeclarationKind(kind: int): bool {
+    return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14
+}
+
+func ParseDeclarationSkipDeclarationBlockCore(tokens: ParserDeclarationTokenTable, count: int, start: int): int {
+    pos := start
+    while pos < count && tokens.Kinds[pos] != 129 {
+        pos = pos + 1
+    }
+    if pos >= count || tokens.Kinds[pos] != 129 {
+        return -1
+    }
+
+    depth := 0
+    done := 0
+    while pos < count && done == 0 {
+        if tokens.Kinds[pos] == 129 {
+            depth = depth + 1
+        } else if tokens.Kinds[pos] == 130 {
+            depth = depth - 1
+            if depth == 0 {
+                done = 1
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    if done == 0 {
+        return -1
+    }
+    return pos
+}
+
 func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTable, count: int, structIndex: int, decl: StructDeclarationTable, result: ParserDeclarationResultTable): int {
     pos := structIndex
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
@@ -8629,6 +8762,11 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             fieldsDone = 1
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             fieldsDone = 1
+        } else if ParseDeclarationNestedTypeDeclarationKind(tokens.Kinds[memberStart]) {
+            pos = ParseDeclarationSkipDeclarationBlockCore(tokens, count, memberStart)
+            if pos < 0 {
+                return -1
+            }
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 3 < count && tokens.Kinds[memberStart + 1] == 122 && tokens.Kinds[memberStart + 2] == 0 && tokens.Kinds[memberStart + 3] == 129 {
             decl.PropIndices[propCount] = memberStart
             decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
@@ -8859,6 +8997,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
             pos = memberStart + 1
+        } else if ParseDeclarationNestedTypeDeclarationKind(tokens.Kinds[memberStart]) {
+            pos = ParseDeclarationSkipDeclarationBlockCore(tokens, count, memberStart)
+            if pos < 0 {
+                return -1
+            }
+            continue
         } else if tokens.Kinds[memberStart] == 0 {
             propTypePos := memberStart + 1
             if propTypePos >= count || tokens.Kinds[propTypePos] != 122 {
@@ -12146,6 +12290,15 @@ func ParseColumnarEnumInfoCore(source: string, tokens: ColumnarEnumTokenTable, e
     enumName := ParserDeclarationQualifiedNameText(source, declarationTokens, tokens.Count, enumIndex, result.Values[0], result.Values[1])
     if enumName == "" {
         return -1
+    }
+    containerName := ParserDeclarationDirectContainingTypeNameText(source, declarationTokens, tokens.Count, enumIndex)
+    if containerName != "" {
+        simpleName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+        if simpleName == "" {
+            return -1
+        }
+
+        enumName = containerName + "." + simpleName
     }
     outputs.EnumNameTexts[0] = enumName
 

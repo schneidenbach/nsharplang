@@ -2115,6 +2115,132 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_EmitsNestedEnumMembersOnClasses()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: NestedEnumClassProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Account {
+    enum Status {
+        Active,
+        Frozen,
+        Closed
+    }
+
+    class Transaction {
+        Amount: int
+    }
+
+    CurrentStatus: Account.Status
+
+    constructor() {
+        CurrentStatus = Account.Status.Active
+    }
+
+    func Freeze() {
+        CurrentStatus = Account.Status.Frozen
+    }
+
+    func Label(): string {
+        return $"{CurrentStatus}"
+    }
+}
+
+func main() {
+    account := new Account()
+    print account.Label()
+    account.Freeze()
+    print account.Label()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "NestedEnumClassProject.dll");
+            var result = compiler.CompileToIlAssembly("NestedEnumClassProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("Active\nFrozen", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsBareInstancePropertyAssignmentInMethods()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: BarePropertyAssignmentProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class Account {
+    balance: double
+
+    Balance: double {
+        get { return balance }
+        set { balance = value }
+    }
+
+    constructor(initial: double) {
+        balance = initial
+    }
+
+    func Deposit(amount: double) {
+        Balance = Balance + amount
+    }
+}
+
+func main() {
+    account := new Account(100.0)
+    account.Deposit(25.0)
+    print account.Balance
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "BarePropertyAssignmentProject.dll");
+            var result = compiler.CompileToIlAssembly("BarePropertyAssignmentProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("125", runResult.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsReadonlyClassFieldsInitializedByConstructor()
     {
         var tempDir = CreateTempDir();
