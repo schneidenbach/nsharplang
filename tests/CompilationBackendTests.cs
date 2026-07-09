@@ -46,7 +46,7 @@ func Greeting(): string {
             var outputPath = Path.Combine(outputDir, "IlProject.dll");
             var result = compiler.CompileToIlAssembly("IlProject", outputPath);
 
-            Assert.True(result.Success);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
             Assert.Equal(outputPath, result.OutputAssemblyPath);
             Assert.True(File.Exists(outputPath));
 
@@ -584,6 +584,57 @@ func main() {
             var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
             Assert.Equal(0, runResult.ExitCode);
             Assert.Equal("Alice:30\nDefault:0\n42", runResult.Stdout.Replace("\r\n", "\n").Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_EmitsGenericBodyCollectionConstruction()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: GenericBodyCollectionProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Collections.Generic
+
+func CountItems<T>(items: T[]): int {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list.Count
+}
+
+func main() {
+    print CountItems<int>(new int[3])
+    print CountItems<string>(new string[2])
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "GenericBodyCollectionProject.dll");
+            var result = compiler.CompileToIlAssembly("GenericBodyCollectionProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Equal("3\n2", runResult.Stdout.Replace("\r\n", "\n").Trim());
         }
         finally
         {

@@ -206,6 +206,9 @@ internal sealed class ColumnarIlEmitter
     // Union CASES by qualified "Union.Case" name -> case. Lets object-initializer construction (`new Union.Case {…}`)
     // and union-case patterns (`Union.Case { f }`) resolve a case's ctor/fields/base directly by its dotted name.
     private readonly IReadOnlyDictionary<string, ColumnarUnionCaseDef> _unionCaseRegistry;
+    // Method/type generic parameters visible to this body. Signature resolution already uses these in pass 1;
+    // body-side type nodes (`new List<T>()`, typed locals, explicit generic call args) need the same map.
+    private readonly IReadOnlyDictionary<string, Type>? _typeParameters;
     private readonly IReadOnlyList<string>? _referenceAssemblyPaths;
     // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
     // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
@@ -322,7 +325,8 @@ internal sealed class ColumnarIlEmitter
         Type? asyncReturnType = null,
         bool asyncBareReturnDeclines = false,
         IReadOnlyList<string>? referenceAssemblyPaths = null,
-        IReadOnlyDictionary<Type, Type[]>? genericInterfaceConstraints = null)
+        IReadOnlyDictionary<Type, Type[]>? genericInterfaceConstraints = null,
+        IReadOnlyDictionary<string, Type>? typeParameters = null)
     {
         _isConstructorBody = isConstructorBody;
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody;
@@ -354,6 +358,7 @@ internal sealed class ColumnarIlEmitter
         _structRegistry = structRegistry;
         _unionRegistry = unionRegistry;
         _unionCaseRegistry = unionCaseRegistry;
+        _typeParameters = typeParameters;
         _referenceAssemblyPaths = referenceAssemblyPaths;
         _currentStruct = currentStruct;
         _enclosingType = enclosingType ?? currentStruct;
@@ -366,6 +371,11 @@ internal sealed class ColumnarIlEmitter
         if (visibleLocalFuncs != null)
             _visibleLocalFuncs.UnionWith(visibleLocalFuncs);
     }
+
+    private bool TryResolveBodyType(string canonical, out Type type)
+        => _typeParameters != null
+            ? TryResolveTypeWithTypeParams(canonical, _typeParameters, _enumRegistry, _structRegistry, _unionRegistry, out type)
+            : TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out type);
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
     // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
@@ -2702,6 +2712,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(MethodInfo)
         || t == typeof(ConstructorBuilder)
         || t == typeof(ILGenerator)
+        || t.IsGenericParameter
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     /// <summary>
@@ -5126,6 +5137,13 @@ internal sealed class ColumnarIlEmitter
             var genericInterfaceConstraintMap = BuildGenericInterfaceConstraintMap(
                 currentSibling.TypeParams,
                 interfaceConstraintsByFunc[f]);
+            Dictionary<string, Type>? bodyTypeParamMap = null;
+            if (fn.TypeParamNames.Length > 0)
+            {
+                bodyTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                for (var tp = 0; tp < fn.TypeParamNames.Length && tp < currentSibling.TypeParams.Length; tp++)
+                    bodyTypeParamMap[fn.TypeParamNames[tp]] = currentSibling.TypeParams[tp];
+            }
             var emitter = new ColumnarIlEmitter(
                 fn.BodyNodes, functionSource, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings,
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
@@ -5135,7 +5153,8 @@ internal sealed class ColumnarIlEmitter
                 asyncReturnType: asyncWrappedByFunc[f],
                 asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask",
                 referenceAssemblyPaths: referenceAssemblyPaths,
-                genericInterfaceConstraints: genericInterfaceConstraintMap);
+                genericInterfaceConstraints: genericInterfaceConstraintMap,
+                typeParameters: bodyTypeParamMap);
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
             try
             {
@@ -6141,7 +6160,7 @@ internal sealed class ColumnarIlEmitter
                 var tupleStrip = ColumnarTypeCanonicalizer.StripTupleElementNames(typeCanonical);
                 typeCanonical = tupleStrip.Canonical;
                 var declaredTupleNames = tupleStrip.Names;
-                if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
+                if (!TryResolveBodyType(typeCanonical, out var declaredType)
                     || !IsSupportedType(declaredType))
                     return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx);
                 var declaredInit = Child(idx, 1);
@@ -9956,7 +9975,7 @@ internal sealed class ColumnarIlEmitter
                         var typeArgNode = Child(callee, ta);
                         if (_nodes.Kind(typeArgNode) != 0)
                             return false; // composed explicit type args (List<int>, T[]) decline this slice.
-                        if (!TryResolveType(Text(typeArgNode), _enumRegistry, _structRegistry, _unionRegistry, out var taType))
+                        if (!TryResolveBodyType(Text(typeArgNode), out var taType))
                             return false;
                         if (!IsSupportedType(taType))
                             return false;
@@ -10909,7 +10928,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
+                    if (!TryResolveBodyType(closedCanonical, out var closedType))
                     {
                         return false;
                     }
@@ -11017,7 +11036,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 var elementNode = Child(typeNode, 0); // the array's element type subtree.
                 if (!TryBuildTypeNodeCanonical(elementNode, out var elementCanonical)
-                    || !TryResolveType(elementCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var newElementType)
+                    || !TryResolveBodyType(elementCanonical, out var newElementType)
                     || !IsSupportedElementType(newElementType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var sizeType) || sizeType != typeof(int)) // length: int.
@@ -11042,7 +11061,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 var castTargetName = Text(castTypeNode);
                 if (!TryResolveBuiltin(castTargetName, out var targetType)
-                    && !TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out targetType))
+                    && !TryResolveBodyType(castTargetName, out targetType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var sourceType))
                     return false;
