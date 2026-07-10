@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Reflection
+import System.Reflection.Emit
 import System.Runtime.CompilerServices
 
 enum ColumnarExecutorProbeEnum {
@@ -121,6 +122,102 @@ func ExecutorStaticIntCallPlan(argumentTypeValue: Type, method: MethodInfo): Col
     plan.CompleteFragment(root, method.get_ReturnType())
     plan.CompleteV2(method.get_ReturnType())
     return plan
+}
+
+func ExecutorV3Int64Plan(resultType: Type, value: long): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1110, 0)
+    valueIndex := plan.AddInt64(value)
+    plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+    plan.CompleteFragment(root, resultType)
+    plan.CompleteV3(resultType)
+    return plan
+}
+
+func ExecutorV3SinglePlan(value: float): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1111, 0)
+    valueIndex := plan.AddSingle(value)
+    plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), valueIndex)
+    plan.CompleteFragment(root, typeof(float))
+    plan.CompleteV3(typeof(float))
+    return plan
+}
+
+func ExecutorV3DoublePlan(value: double): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1112, 0)
+    valueIndex := plan.AddDouble(value)
+    plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), valueIndex)
+    plan.CompleteFragment(root, typeof(double))
+    plan.CompleteV3(typeof(double))
+    return plan
+}
+
+func ExecutorV3StringPlan(value: string): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1113, 0)
+    valueIndex := plan.AddString(value)
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
+    plan.CompleteFragment(root, typeof(string))
+    plan.CompleteV3(typeof(string))
+    return plan
+}
+
+func ExecutorV3I8MergePlan(resultType: Type): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1114, 0)
+    resultTypeIndex := plan.AddType(resultType)
+    argumentIndex := plan.AddArgument(0, resultTypeIndex)
+    valueIndex := plan.AddInt64((long)-1)
+    falseLabel := plan.DefineLabel()
+    endLabel := plan.DefineLabel()
+
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), falseLabel)
+    plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+    plan.AppendMarkLabel(falseLabel)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+    plan.AppendMarkLabel(endLabel)
+
+    plan.CompleteFragment(root, resultType)
+    plan.CompleteV3(resultType)
+    return plan
+}
+
+func ExecutorSetObject(values: object[], index: int, value: object) {
+    values[index] = value
+}
+
+func ExecutorRunV3ScalarPlan(plan: ColumnarCodePlan, resultType: Type): string {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    constructorInfo := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if constructorInfo == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    constructorArguments := new object[](3)
+    ExecutorSetObject(constructorArguments, 0, "NSharpV3ScalarConstant")
+    ExecutorSetObject(constructorArguments, 1, resultType)
+    ExecutorSetObject(constructorArguments, 2, new Type[](0))
+    dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
+    il := dynamicMethod.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    target: object? = null
+    result := dynamicMethod.Invoke(target, new object[](0))
+    if result == null {
+        throw new InvalidOperationException("Scalar DynamicMethod returned null unexpectedly.")
+    }
+    return result.ToString() ?? ""
 }
 
 test "schema v2 executor accepts exact literal fragment categories without erasing loaded types" {
@@ -1072,4 +1169,115 @@ test "schema v2 executor bounds tampered label counts before allocation" {
     plan := ExecutorConstantPlan(typeof(int))
     plan.LabelCount = 1000000000
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(plan) }
+}
+
+test "schema v3 executor validates exact scalar constants repeatedly without consuming" {
+    int64Plan := ExecutorV3Int64Plan(typeof(long), (long)-7)
+    uint64Plan := ExecutorV3Int64Plan(typeof(ulong), (long)-1)
+    singlePlan := ExecutorV3SinglePlan((float)1.25)
+    doublePlan := ExecutorV3DoublePlan(2.5)
+    stringPlan := ExecutorV3StringPlan("scalar")
+
+    ColumnarCodePlanExecutor.Validate(int64Plan)
+    ColumnarCodePlanExecutor.Validate(int64Plan)
+    ColumnarCodePlanExecutor.Validate(uint64Plan)
+    ColumnarCodePlanExecutor.Validate(singlePlan)
+    ColumnarCodePlanExecutor.Validate(doublePlan)
+    ColumnarCodePlanExecutor.Validate(stringPlan)
+    assert int64Plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert uint64Plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert stringPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 I8 slot merges with exact long and ulong but rejects unrelated results" {
+    ColumnarCodePlanExecutor.Validate(ExecutorV3I8MergePlan(typeof(long)))
+    ColumnarCodePlanExecutor.Validate(ExecutorV3I8MergePlan(typeof(ulong)))
+
+    unrelated := ExecutorV3Int64Plan(typeof(double), (long)1)
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unrelated) }
+}
+
+test "schema v3 executor rejects every unused scalar pool entry" {
+    unusedInt64 := new ColumnarCodePlan()
+    unusedInt64.PrepareV3()
+    int64Root := unusedInt64.BeginFragment(-1, 1115, 0)
+    unusedInt64.AddInt64((long)1)
+    unusedInt64.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    unusedInt64.CompleteFragment(int64Root, typeof(int))
+    unusedInt64.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unusedInt64) }
+
+    unusedSingle := new ColumnarCodePlan()
+    unusedSingle.PrepareV3()
+    singleRoot := unusedSingle.BeginFragment(-1, 1116, 0)
+    unusedSingle.AddSingle((float)1)
+    unusedSingle.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    unusedSingle.CompleteFragment(singleRoot, typeof(int))
+    unusedSingle.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unusedSingle) }
+
+    unusedDouble := new ColumnarCodePlan()
+    unusedDouble.PrepareV3()
+    doubleRoot := unusedDouble.BeginFragment(-1, 1117, 0)
+    unusedDouble.AddDouble(1.0)
+    unusedDouble.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    unusedDouble.CompleteFragment(doubleRoot, typeof(int))
+    unusedDouble.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unusedDouble) }
+
+    unusedString := new ColumnarCodePlan()
+    unusedString.PrepareV3()
+    stringRoot := unusedString.BeginFragment(-1, 1118, 0)
+    unusedString.AddString("unused")
+    unusedString.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    unusedString.CompleteFragment(stringRoot, typeof(int))
+    unusedString.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unusedString) }
+}
+
+test "schema v1 and v2 executor validation rejects scalar operand smuggling" {
+    v1 := ValidBooleanCodePlan()
+    v1.Int64Count = 1
+    v1.Int64Values = new long[](1)
+    v1.OperandKinds[0] = ColumnarCodePlanContract.Int64Operand()
+    v1.OpCodeValues[0] = ColumnarCodePlanContract.LdcI8()
+    v1.OperandIndices[0] = 0
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(v1) }
+
+    v2 := ExecutorConstantPlan(typeof(int))
+    v2.Int64Count = 1
+    v2.Int64Values = new long[](1)
+    v2.OperandKinds[0] = ColumnarCodePlanContract.Int64Operand()
+    v2.OpCodeValues[0] = ColumnarCodePlanContract.LdcI8()
+    v2.OperandIndices[0] = 0
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(v2) }
+}
+
+test "schema v3 executor validates before null IL and does not consume" {
+    plan := ExecutorV3StringPlan("still sealed")
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Execute(plan, null) }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "schema v3 executor emits every scalar constant through DynamicMethod" {
+    int64Plan := ExecutorV3Int64Plan(typeof(long), (long)-7)
+    assert ExecutorRunV3ScalarPlan(int64Plan, typeof(long)) == "-7"
+    assert int64Plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    uint64Plan := ExecutorV3Int64Plan(typeof(ulong), (long)-1)
+    assert ExecutorRunV3ScalarPlan(uint64Plan, typeof(ulong)) == "18446744073709551615"
+    assert uint64Plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    singlePlan := ExecutorV3SinglePlan((float)1.25)
+    assert ExecutorRunV3ScalarPlan(singlePlan, typeof(float)) == "1.25"
+    assert singlePlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    doublePlan := ExecutorV3DoublePlan(2.5)
+    assert ExecutorRunV3ScalarPlan(doublePlan, typeof(double)) == "2.5"
+    assert doublePlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    stringPlan := ExecutorV3StringPlan("emitted scalar")
+    assert ExecutorRunV3ScalarPlan(stringPlan, typeof(string)) == "emitted scalar"
+    assert stringPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
 }

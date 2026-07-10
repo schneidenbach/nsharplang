@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 9
+        return 10
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -247,5 +247,13 @@ public class ReflectionEmitBootstrapProbe {
         il.Emit(OpCodes.Ldelem_Ref)
         il.Emit(OpCodes.Ldelem, elementType)
         il.MarkLabel(label)
+    }
+
+    // Compile-time proof for every scalar-constant overload consumed by schema-v3 execution.
+    public static func EmitScalarConstantSurface(il: ILGenerator) {
+        il.Emit(OpCodes.Ldc_I8, (long)-1)
+        il.Emit(OpCodes.Ldc_R4, (float)1.25)
+        il.Emit(OpCodes.Ldc_R8, 2.5)
+        il.Emit(OpCodes.Ldstr, "scalar")
     }
 }

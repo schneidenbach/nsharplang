@@ -27,9 +27,10 @@ class ColumnarCodePlanIdentity {
 // Opcode values are the signed values exposed by System.Reflection.Emit.OpCode.Value.
 // They are never positional reflection indices or a second semantic numbering system.
 public class ColumnarCodePlanContract {
-    // Schema v1 remains the current production executor contract until schema-v2 execution lands.
+    // Versioned wire identities remain stable across the boolean, recursive, and scalar executors.
     public static func CurrentSchemaVersion(): int { return 1 }
     public static func RecursiveSchemaVersion(): int { return 2 }
+    public static func ScalarSchemaVersion(): int { return 3 }
 
     public static func EmitInstructionOperation(): int { return 1 }
     public static func MarkLabelOperation(): int { return 2 }
@@ -44,6 +45,10 @@ public class ColumnarCodePlanContract {
     public static func FieldOperand(): int { return 7 }
     public static func PlanLocalOperand(): int { return 8 }
     public static func LabelOperand(): int { return 9 }
+    public static func Int64Operand(): int { return 10 }
+    public static func SingleOperand(): int { return 11 }
+    public static func DoubleOperand(): int { return 12 }
+    public static func StringOperand(): int { return 13 }
 
     // A private runtime type is the unsealed fragment sentinel because stage-0 cannot lower a
     // null assignment into a Type[] cell. It can never be a language expression result.
@@ -63,11 +68,15 @@ public class ColumnarCodePlanContract {
     public static func LdcI4_7(): short { return 29 }
     public static func LdcI4_8(): short { return 30 }
     public static func LdcI4(): short { return 32 }
+    public static func LdcI8(): short { return 33 }
+    public static func LdcR4(): short { return 34 }
+    public static func LdcR8(): short { return 35 }
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
     public static func ConvI4(): short { return 105 }
     public static func Callvirt(): short { return 111 }
+    public static func Ldstr(): short { return 114 }
     public static func Newobj(): short { return 115 }
     public static func Ldfld(): short { return 123 }
     public static func Ldlen(): short { return 142 }
@@ -122,10 +131,15 @@ public class ColumnarCodePlanContract {
 public class ColumnarCodePlanCheckpoint {
     OwnerIdentity: ColumnarCodePlanIdentity
     Generation: int
+    SchemaVersion: int
     BranchIndex: int
     OperationCount: int
     TypeCount: int
     Int32Count: int
+    Int64Count: int
+    SingleCount: int
+    DoubleCount: int
+    StringCount: int
     ArgumentCount: int
     AmbientLocalCount: int
     MethodCount: int
@@ -140,10 +154,15 @@ public class ColumnarCodePlanCheckpoint {
     constructor(
         ownerIdentity: ColumnarCodePlanIdentity,
         generation: int,
+        schemaVersion: int,
         branchIndex: int,
         operationCount: int,
         typeCount: int,
         int32Count: int,
+        int64Count: int,
+        singleCount: int,
+        doubleCount: int,
+        stringCount: int,
         argumentCount: int,
         ambientLocalCount: int,
         methodCount: int,
@@ -156,10 +175,15 @@ public class ColumnarCodePlanCheckpoint {
         openFragmentIndices: int[]) {
         OwnerIdentity = ownerIdentity
         Generation = generation
+        SchemaVersion = schemaVersion
         BranchIndex = branchIndex
         OperationCount = operationCount
         TypeCount = typeCount
         Int32Count = int32Count
+        Int64Count = int64Count
+        SingleCount = singleCount
+        DoubleCount = doubleCount
+        StringCount = stringCount
         ArgumentCount = argumentCount
         AmbientLocalCount = ambientLocalCount
         MethodCount = methodCount
@@ -174,7 +198,8 @@ public class ColumnarCodePlanCheckpoint {
 }
 
 // Schema v2 is a callback-free flat payload. Recursive expression ownership is represented by
-// nested half-open operation intervals; execution never calls back into a legacy emitter.
+// nested half-open operation intervals; execution never calls back into a legacy emitter. Schema
+// v3 keeps that envelope and adds exact scalar-constant pools and operand contracts.
 public class ColumnarCodePlan {
     public SchemaVersion: int
     public Status: ColumnarFragmentPlanStatus
@@ -191,6 +216,14 @@ public class ColumnarCodePlan {
     public Types: Type[]
     public Int32Count: int
     public Int32Values: int[]
+    public Int64Count: int
+    public Int64Values: long[]
+    public SingleCount: int
+    public SingleValues: float[]
+    public DoubleCount: int
+    public DoubleValues: double[]
+    public StringCount: int
+    public StringValues: string[]
     public ArgumentCount: int
     public ArgumentOrdinals: int[]
     public ArgumentTypeIndices: int[]
@@ -242,6 +275,14 @@ public class ColumnarCodePlan {
         Types = new Type[](0)
         Int32Count = 0
         Int32Values = new int[](0)
+        Int64Count = 0
+        Int64Values = new long[](0)
+        SingleCount = 0
+        SingleValues = new float[](0)
+        DoubleCount = 0
+        DoubleValues = new double[](0)
+        StringCount = 0
+        StringValues = new string[](0)
         ArgumentCount = 0
         ArgumentOrdinals = new int[](0)
         ArgumentTypeIndices = new int[](0)
@@ -325,6 +366,20 @@ public class ColumnarCodePlan {
         EnsureBranchCapacity(4)
     }
 
+    public func PrepareV3() {
+        Reset()
+        SchemaVersion = ColumnarCodePlanContract.ScalarSchemaVersion()
+        Lifecycle = ColumnarCodePlanLifecycle.Building
+        EnsureOperationCapacity(4)
+        EnsureFragmentCapacity(4)
+        EnsureOpenFragmentCapacity(4)
+        EnsureBranchCapacity(4)
+        EnsureInt64Capacity(4)
+        EnsureSingleCapacity(4)
+        EnsureDoubleCapacity(4)
+        EnsureStringCapacity(4)
+    }
+
     public func AddType(value: Type): int {
         EnsureV2Building()
         if value == null {
@@ -343,6 +398,45 @@ public class ColumnarCodePlan {
         index := Int32Count
         Int32Values[index] = value
         Int32Count = Int32Count + 1
+        return index
+    }
+
+    public func AddInt64(value: long): int {
+        EnsureV3Building()
+        EnsureInt64Capacity(Int64Count + 1)
+        index := Int64Count
+        Int64Values[index] = value
+        Int64Count = Int64Count + 1
+        return index
+    }
+
+    public func AddSingle(value: float): int {
+        EnsureV3Building()
+        EnsureSingleCapacity(SingleCount + 1)
+        index := SingleCount
+        SingleValues[index] = value
+        SingleCount = SingleCount + 1
+        return index
+    }
+
+    public func AddDouble(value: double): int {
+        EnsureV3Building()
+        EnsureDoubleCapacity(DoubleCount + 1)
+        index := DoubleCount
+        DoubleValues[index] = value
+        DoubleCount = DoubleCount + 1
+        return index
+    }
+
+    public func AddString(value: string): int {
+        EnsureV3Building()
+        if value == null {
+            throw new ArgumentNullException("value")
+        }
+        EnsureStringCapacity(StringCount + 1)
+        index := StringCount
+        StringValues[index] = value
+        StringCount = StringCount + 1
         return index
     }
 
@@ -505,6 +599,62 @@ public class ColumnarCodePlan {
             int32Index)
     }
 
+    public func AppendInt64Instruction(opCodeValue: short, int64Index: int) {
+        EnsureV3Building()
+        if opCodeValue != ColumnarCodePlanContract.LdcI8()
+            || int64Index < 0
+            || int64Index >= Int64Count {
+            throw new InvalidOperationException("The opcode does not use this Int64 pool entry.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.EmitInstructionOperation(),
+            opCodeValue,
+            ColumnarCodePlanContract.Int64Operand(),
+            int64Index)
+    }
+
+    public func AppendSingleInstruction(opCodeValue: short, singleIndex: int) {
+        EnsureV3Building()
+        if opCodeValue != ColumnarCodePlanContract.LdcR4()
+            || singleIndex < 0
+            || singleIndex >= SingleCount {
+            throw new InvalidOperationException("The opcode does not use this Single pool entry.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.EmitInstructionOperation(),
+            opCodeValue,
+            ColumnarCodePlanContract.SingleOperand(),
+            singleIndex)
+    }
+
+    public func AppendDoubleInstruction(opCodeValue: short, doubleIndex: int) {
+        EnsureV3Building()
+        if opCodeValue != ColumnarCodePlanContract.LdcR8()
+            || doubleIndex < 0
+            || doubleIndex >= DoubleCount {
+            throw new InvalidOperationException("The opcode does not use this Double pool entry.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.EmitInstructionOperation(),
+            opCodeValue,
+            ColumnarCodePlanContract.DoubleOperand(),
+            doubleIndex)
+    }
+
+    public func AppendStringInstruction(opCodeValue: short, stringIndex: int) {
+        EnsureV3Building()
+        if opCodeValue != ColumnarCodePlanContract.Ldstr()
+            || stringIndex < 0
+            || stringIndex >= StringCount {
+            throw new InvalidOperationException("The opcode does not use this String pool entry.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.EmitInstructionOperation(),
+            opCodeValue,
+            ColumnarCodePlanContract.StringOperand(),
+            stringIndex)
+    }
+
     public func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
         if opCodeValue != ColumnarCodePlanContract.Ldelem()
@@ -643,10 +793,15 @@ public class ColumnarCodePlan {
         return new ColumnarCodePlanCheckpoint(
             Identity,
             Generation,
+            SchemaVersion,
             checkpointBranchIndex,
             OperationCount,
             TypeCount,
             Int32Count,
+            Int64Count,
+            SingleCount,
+            DoubleCount,
+            StringCount,
             ArgumentCount,
             AmbientLocalCount,
             MethodCount,
@@ -669,6 +824,9 @@ public class ColumnarCodePlan {
         }
         if checkpoint.Generation != Generation {
             throw new InvalidOperationException("The code-plan checkpoint is stale or belongs to another plan.")
+        }
+        if checkpoint.SchemaVersion != SchemaVersion {
+            throw new InvalidOperationException("The code-plan checkpoint belongs to another schema version.")
         }
         if !IsActiveCheckpointBranch(checkpoint.BranchIndex) {
             throw new InvalidOperationException("The code-plan checkpoint belongs to a discarded planning branch.")
@@ -693,6 +851,10 @@ public class ColumnarCodePlan {
         OperationCount = checkpoint.OperationCount
         TypeCount = checkpoint.TypeCount
         Int32Count = checkpoint.Int32Count
+        Int64Count = checkpoint.Int64Count
+        SingleCount = checkpoint.SingleCount
+        DoubleCount = checkpoint.DoubleCount
+        StringCount = checkpoint.StringCount
         ArgumentCount = checkpoint.ArgumentCount
         AmbientLocalCount = checkpoint.AmbientLocalCount
         MethodCount = checkpoint.MethodCount
@@ -752,6 +914,18 @@ public class ColumnarCodePlan {
         if checkpoint.Int32Count < 0 || checkpoint.Int32Count > Int32Count {
             return false
         }
+        if checkpoint.Int64Count < 0 || checkpoint.Int64Count > Int64Count {
+            return false
+        }
+        if checkpoint.SingleCount < 0 || checkpoint.SingleCount > SingleCount {
+            return false
+        }
+        if checkpoint.DoubleCount < 0 || checkpoint.DoubleCount > DoubleCount {
+            return false
+        }
+        if checkpoint.StringCount < 0 || checkpoint.StringCount > StringCount {
+            return false
+        }
         if checkpoint.ArgumentCount < 0 || checkpoint.ArgumentCount > ArgumentCount {
             return false
         }
@@ -805,6 +979,27 @@ public class ColumnarCodePlan {
         Lifecycle = ColumnarCodePlanLifecycle.Consumed
     }
 
+    public func CompleteV3(resultType: Type) {
+        EnsureV3Building()
+        if resultType == null || !IsV3Structure(false, resultType) {
+            throw new InvalidOperationException("Columnar code-plan schema v3 cannot seal an invalid payload.")
+        }
+        ResultType = resultType
+        Status = ColumnarFragmentPlanStatus.Planned
+        Lifecycle = ColumnarCodePlanLifecycle.Sealed
+    }
+
+    public func ConsumeV3() {
+        if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+            || Status != ColumnarFragmentPlanStatus.Planned
+            || Lifecycle != ColumnarCodePlanLifecycle.Sealed
+            || ResultType == null
+            || !IsV3Structure(true, ResultType) {
+            throw new InvalidOperationException("Columnar code-plan schema v3 is not ready for one-shot execution.")
+        }
+        Lifecycle = ColumnarCodePlanLifecycle.Consumed
+    }
+
     // This method is intentionally pure: it never repairs, grows, normalizes, or otherwise mutates
     // a payload. Executors can call it completely before the first Reflection.Emit operation.
     public func ValidateSealedStructure() {
@@ -819,6 +1014,11 @@ public class ColumnarCodePlan {
             && IsV2Structure(true, ResultType) {
             return
         }
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            && ResultType != null
+            && IsV3Structure(true, ResultType) {
+            return
+        }
         throw new InvalidOperationException("Columnar code-plan payload has an unknown or invalid schema.")
     }
 
@@ -830,6 +1030,10 @@ public class ColumnarCodePlan {
         ResultType = null
         TypeCount = 0
         Int32Count = 0
+        Int64Count = 0
+        SingleCount = 0
+        DoubleCount = 0
+        StringCount = 0
         ArgumentCount = 0
         AmbientLocalCount = 0
         MethodCount = 0
@@ -879,6 +1083,10 @@ public class ColumnarCodePlan {
     }
 
     func EnsureV2Building() {
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() {
+            EnsureV3Building()
+            return
+        }
         if SchemaVersion != ColumnarCodePlanContract.RecursiveSchemaVersion()
             || Status != ColumnarFragmentPlanStatus.NotOwned
             || Lifecycle != ColumnarCodePlanLifecycle.Building {
@@ -886,9 +1094,19 @@ public class ColumnarCodePlan {
         }
     }
 
+    func EnsureV3Building() {
+        if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+            || Status != ColumnarFragmentPlanStatus.NotOwned
+            || Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Columnar code-plan schema v3 is not open for mutation.")
+        }
+    }
+
     func HasNoV2State(): bool {
         return TypeCount == 0
             && Int32Count == 0
+            && HasNoV3State()
+            && HasValidV3Pools()
             && ArgumentCount == 0
             && AmbientLocalCount == 0
             && MethodCount == 0
@@ -898,6 +1116,13 @@ public class ColumnarCodePlan {
             && LabelCount == 0
             && FragmentCount == 0
             && OpenFragmentCount == 0
+    }
+
+    func HasNoV3State(): bool {
+        return Int64Count == 0
+            && SingleCount == 0
+            && DoubleCount == 0
+            && StringCount == 0
     }
 
     func IsV1Structure(sealedPayload: bool, expectedResultType: Type): bool {
@@ -935,6 +1160,8 @@ public class ColumnarCodePlan {
     func IsV2Structure(sealedPayload: bool, expectedResultType: Type): bool {
         if SchemaVersion != ColumnarCodePlanContract.RecursiveSchemaVersion()
             || expectedResultType == null
+            || !HasNoV3State()
+            || !HasValidV3Pools()
             || !HasValidV2ColumnsAndPools()
             || !HasValidV2Fragments(expectedResultType)
             || !HasValidV2Rows() {
@@ -950,6 +1177,50 @@ public class ColumnarCodePlan {
             && Lifecycle == ColumnarCodePlanLifecycle.Building
             && ResultType == null
             && OpenFragmentCount == 0
+    }
+
+    func IsV3Structure(sealedPayload: bool, expectedResultType: Type): bool {
+        if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+            || expectedResultType == null
+            || !HasValidV3Pools()
+            || !HasValidV2ColumnsAndPools()
+            || !HasValidV2Fragments(expectedResultType)
+            || !HasValidV2Rows() {
+            return false
+        }
+        if sealedPayload {
+            return Status == ColumnarFragmentPlanStatus.Planned
+                && Lifecycle == ColumnarCodePlanLifecycle.Sealed
+                && ResultType == expectedResultType
+                && OpenFragmentCount == 0
+        }
+        return Status == ColumnarFragmentPlanStatus.NotOwned
+            && Lifecycle == ColumnarCodePlanLifecycle.Building
+            && ResultType == null
+            && OpenFragmentCount == 0
+    }
+
+    func HasValidV3Pools(): bool {
+        if Int64Count < 0
+            || SingleCount < 0
+            || DoubleCount < 0
+            || StringCount < 0
+            || Int64Values == null
+            || Int64Values.Length < Int64Count
+            || SingleValues == null
+            || SingleValues.Length < SingleCount
+            || DoubleValues == null
+            || DoubleValues.Length < DoubleCount
+            || StringValues == null
+            || StringValues.Length < StringCount {
+            return false
+        }
+        i := 0
+        while i < StringCount {
+            if StringValues[i] == null { return false }
+            i += 1
+        }
+        return true
     }
 
     func HasValidV2ColumnsAndPools(): bool {
@@ -1184,6 +1455,30 @@ public class ColumnarCodePlan {
                 && operandIndex >= 0
                 && operandIndex < Int32Count
         }
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            && opCodeValue == ColumnarCodePlanContract.LdcI8() {
+            return operandKind == ColumnarCodePlanContract.Int64Operand()
+                && operandIndex >= 0
+                && operandIndex < Int64Count
+        }
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            && opCodeValue == ColumnarCodePlanContract.LdcR4() {
+            return operandKind == ColumnarCodePlanContract.SingleOperand()
+                && operandIndex >= 0
+                && operandIndex < SingleCount
+        }
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            && opCodeValue == ColumnarCodePlanContract.LdcR8() {
+            return operandKind == ColumnarCodePlanContract.DoubleOperand()
+                && operandIndex >= 0
+                && operandIndex < DoubleCount
+        }
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            && opCodeValue == ColumnarCodePlanContract.Ldstr() {
+            return operandKind == ColumnarCodePlanContract.StringOperand()
+                && operandIndex >= 0
+                && operandIndex < StringCount
+        }
         if opCodeValue == ColumnarCodePlanContract.Ldarg() {
             return operandKind == ColumnarCodePlanContract.ArgumentOperand()
                 && operandIndex >= 0
@@ -1270,6 +1565,38 @@ public class ColumnarCodePlan {
             Int32Values = GrowIntArray(
                 Int32Values,
                 NextCapacity(Int32Values == null ? 0 : Int32Values.Length, minimum))
+        }
+    }
+
+    func EnsureInt64Capacity(minimum: int) {
+        if Int64Values == null || Int64Values.Length < minimum {
+            Int64Values = GrowLongArray(
+                Int64Values,
+                NextCapacity(Int64Values == null ? 0 : Int64Values.Length, minimum))
+        }
+    }
+
+    func EnsureSingleCapacity(minimum: int) {
+        if SingleValues == null || SingleValues.Length < minimum {
+            SingleValues = GrowFloatArray(
+                SingleValues,
+                NextCapacity(SingleValues == null ? 0 : SingleValues.Length, minimum))
+        }
+    }
+
+    func EnsureDoubleCapacity(minimum: int) {
+        if DoubleValues == null || DoubleValues.Length < minimum {
+            DoubleValues = GrowDoubleArray(
+                DoubleValues,
+                NextCapacity(DoubleValues == null ? 0 : DoubleValues.Length, minimum))
+        }
+    }
+
+    func EnsureStringCapacity(minimum: int) {
+        if StringValues == null || StringValues.Length < minimum {
+            StringValues = GrowStringArray(
+                StringValues,
+                NextCapacity(StringValues == null ? 0 : StringValues.Length, minimum))
         }
     }
 
@@ -1394,6 +1721,58 @@ public class ColumnarCodePlan {
 
     static func GrowShortArray(values: short[], capacity: int): short[] {
         result := new short[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowLongArray(values: long[], capacity: int): long[] {
+        result := new long[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowFloatArray(values: float[], capacity: int): float[] {
+        result := new float[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowDoubleArray(values: double[], capacity: int): double[] {
+        result := new double[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowStringArray(values: string[], capacity: int): string[] {
+        result := new string[](capacity)
         if values != null {
             count := values.Length < capacity ? values.Length : capacity
             i := 0
