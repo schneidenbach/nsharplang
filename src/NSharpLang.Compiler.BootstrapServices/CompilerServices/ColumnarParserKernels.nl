@@ -458,8 +458,40 @@ class TypeReferenceTupleNameTable {
 // The one live expression-node-kind ledger. Parser producers and downstream N# owners consume
 // these named values instead of duplicating ordinals.
 public class ColumnarExpressionNodeKind {
+    public static func IntLiteralExpression(): int {
+        return 0
+    }
+
     public static func BoolLiteralExpression(): int {
         return 4
+    }
+
+    public static func IdentifierExpression(): int {
+        return 6
+    }
+
+    public static func ParenthesizedExpression(): int {
+        return 7
+    }
+
+    public static func MemberAccessExpression(): int {
+        return 8
+    }
+
+    public static func IndexAccessExpression(): int {
+        return 10
+    }
+
+    public static func UnaryExpression(): int {
+        return 11
+    }
+
+    public static func TernaryExpression(): int {
+        return 13
+    }
+
+    public static func RangeExpression(): int {
+        return 69
     }
 }
 
@@ -4125,7 +4157,16 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
     if kind == 1 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 0, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 2 {
         st.Pos = pos + 1
@@ -4165,7 +4206,16 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     }
     if kind == 0 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 6, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 49 {
         typeOfStart := tokenStart
@@ -4796,7 +4846,16 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.Pos = st.Pos + 1
         childRunStart := st.ChildCursor
         AppendExpressionChild(st, children, inner)
-        return EmitExpressionNode(st, nodes, 7, -1, 0, childRunStart, 1, parenStart, rightParenEnd - parenStart)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.ParenthesizedExpression(),
+            -1,
+            0,
+            childRunStart,
+            1,
+            parenStart,
+            rightParenEnd - parenStart)
     }
 
     return -1
@@ -4809,7 +4868,16 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         memberStart := tokens.Starts[st.Pos + 2]
         memberLength := tokens.ValueLengths[st.Pos + 2]
         memberEnd := memberStart + memberLength
-        expr = EmitExpressionNode(st, nodes, 6, memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+        expr = EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            memberStart,
+            memberLength,
+            -1,
+            0,
+            thisStart,
+            memberEnd - thisStart)
         st.Pos = st.Pos + 3
     } else {
         expr = ParsePrimaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -4829,7 +4897,16 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
-            expr = EmitExpressionNode(st, nodes, 8, memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+            expr = EmitExpressionNode(
+                st,
+                nodes,
+                ColumnarExpressionNodeKind.MemberAccessExpression(),
+                memberStart,
+                memberLength,
+                childRunStart,
+                1,
+                objSpanStart,
+                memberEnd - objSpanStart)
             st.Pos = pos + 2
         } else if pos < count && tokens.Kinds[pos] == 131 {
             objSpanStart := nodes.SpanStarts[expr]
@@ -4848,7 +4925,16 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
-            expr = EmitExpressionNode(st, nodes, 10, -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+            expr = EmitExpressionNode(
+                st,
+                nodes,
+                ColumnarExpressionNodeKind.IndexAccessExpression(),
+                -1,
+                0,
+                childRunStart,
+                2,
+                objSpanStart,
+                rightBracketEnd - objSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
             // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
             // a bare identifier or dotted member access and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
@@ -5146,7 +5232,16 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             operandSpanEnd := nodes.SpanStarts[operand] + nodes.SpanLengths[operand]
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, operand)
-            return EmitExpressionNode(st, nodes, 11, opStart, opLength, childRunStart, 1, opStart, operandSpanEnd - opStart)
+            return EmitExpressionNode(
+                st,
+                nodes,
+                ColumnarExpressionNodeKind.UnaryExpression(),
+                opStart,
+                opLength,
+                childRunStart,
+                1,
+                opStart,
+                operandSpanEnd - opStart)
         }
     }
 
@@ -5184,7 +5279,16 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             childCount = 1
         }
 
-        return EmitExpressionNode(st, nodes, 69, dotDotStart, dotDotLength, childRun, childCount, dotDotStart, rangeEnd - dotDotStart)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.RangeExpression(),
+            dotDotStart,
+            dotDotLength,
+            childRun,
+            childCount,
+            dotDotStart,
+            rangeEnd - dotDotStart)
     }
 
     startNode := ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -5216,7 +5320,16 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
         }
 
         rangeStart := nodes.SpanStarts[startNode]
-        return EmitExpressionNode(st, nodes, 69, dotDotStart, dotDotLength, childRun, childCount, rangeStart, rangeEnd - rangeStart)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.RangeExpression(),
+            dotDotStart,
+            dotDotLength,
+            childRun,
+            childCount,
+            rangeStart,
+            rangeEnd - rangeStart)
     }
 
     return startNode
@@ -5353,7 +5466,16 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         AppendExpressionChild(st, children, condition)
         AppendExpressionChild(st, children, thenNode)
         AppendExpressionChild(st, children, elseNode)
-        return EmitExpressionNode(st, nodes, 13, -1, 0, childRunStart, 3, conditionSpanStart, elseSpanEnd - conditionSpanStart)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.TernaryExpression(),
+            -1,
+            0,
+            childRunStart,
+            3,
+            conditionSpanStart,
+            elseSpanEnd - conditionSpanStart)
     }
 
     return condition
