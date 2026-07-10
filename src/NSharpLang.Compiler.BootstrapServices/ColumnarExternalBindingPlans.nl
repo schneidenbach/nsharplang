@@ -77,6 +77,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.Emit.ConstructorBuilder"
         } else if canonical == "ILGenerator" || canonical == "System.Reflection.Emit.ILGenerator" {
             runtimeTypeName = "System.Reflection.Emit.ILGenerator"
+        } else if canonical == "DynamicMethod" || canonical == "System.Reflection.Emit.DynamicMethod" {
+            runtimeTypeName = "System.Reflection.Emit.DynamicMethod"
         } else if canonical == "OpCode" || canonical == "System.Reflection.Emit.OpCode" {
             runtimeTypeName = "System.Reflection.Emit.OpCode"
         } else if canonical == "OpCodes" || canonical == "System.Reflection.Emit.OpCodes" {
@@ -120,6 +122,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.Emit.MethodBuilder"
             || name == "System.Reflection.Emit.ConstructorBuilder"
             || name == "System.Reflection.Emit.ILGenerator"
+            || name == "System.Reflection.Emit.DynamicMethod"
             || name == "System.Reflection.Emit.OpCode"
             || name == "System.Reflection.Emit.OpCodes"
             || name == "System.Reflection.Emit.Label"
@@ -340,6 +343,33 @@ public class ColumnarExternalBindingPlans {
             && count == 1
             && argumentTypeNames[0] == "System.Type[]" {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
+        }
+
+        if receiver == "System.Reflection.ConstructorInfo"
+            && memberName == "Invoke"
+            && count == 1
+            && argumentTypeNames[0] == "System.Object[]" {
+            return VirtualCall(receiver, memberName, One("System.Object[]"), "System.Object")
+        }
+
+        if receiver == "System.Reflection.Emit.DynamicMethod" {
+            if memberName == "GetILGenerator" && count == 0 {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.Emit.ILGenerator")
+            }
+            if memberName == "Invoke"
+                && count == 2
+                && argumentTypeNames[0] == "System.Object"
+                && argumentTypeNames[1] == "System.Object[]" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Two("System.Object", "System.Object[]"),
+                    "System.Object")
+            }
         }
 
         if receiver == "System.Reflection.MethodInfo" && count == 0 {

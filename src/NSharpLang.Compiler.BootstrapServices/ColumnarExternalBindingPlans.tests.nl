@@ -88,6 +88,7 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Range", "System.Range")
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
+    AssertRuntimeType("DynamicMethod", "System.Reflection.Emit.DynamicMethod")
 
     runtimeHelpersTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
@@ -102,6 +103,32 @@ test "range code plans own exact runtime type identities" {
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName("System.Array", out arrayTypeName)
     assert arrayTypeName == "System.Array, System.Private.CoreLib"
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Array")
+}
+
+test "scalar executor contracts own exact DynamicMethod reflection calls" {
+    objectArray := new string[](1)
+    objectArray[0] = "System.Object[]"
+    AssertVirtualCall(
+        "System.Reflection.ConstructorInfo",
+        "Invoke",
+        objectArray,
+        "System.Object")
+
+    noArguments := new string[](0)
+    AssertVirtualCall(
+        "System.Reflection.Emit.DynamicMethod",
+        "GetILGenerator",
+        noArguments,
+        "System.Reflection.Emit.ILGenerator")
+
+    invokeArguments := new string[](2)
+    invokeArguments[0] = "System.Object"
+    invokeArguments[1] = "System.Object[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.DynamicMethod",
+        "Invoke",
+        invokeArguments,
+        "System.Object")
 }
 
 test "range code plans own exact reflection handle calls" {
