@@ -23,11 +23,12 @@ Status meanings:
 - A detached-HEAD `dotnet test tests/Tests.csproj` run at `fb856ee46` completed with zero
   failures on 2026-07-09. The former 67-failure baseline and all stash/`comm` instructions are
   retired.
-- The fresh non-VS-Code product gate at `5e5d8c8ba` ran all 3,182 unit tests, 85 compiler-service
-  native contracts, and all 69 discovered product native N# tests green, then ended `FAILURES: 4`.
-  The ownership audit was 18/18 and range/index was 15/15 in the isolated copy. The concrete
-  product blockers are inventoried below. Unit/native green is not a substitute for the Track A
-  product gate.
+- The fresh non-VS-Code product gate at `347e5aa71` ran all 3,182 unit tests, 121 compiler-service
+  native contracts, and all 71 discovered product native N# tests green, then ended `FAILURES: 4`.
+  The ownership audit was 18/18, scalar plans were 2/2, and range/index was 15/15 in the isolated
+  copy. The concrete product blockers are unchanged and inventoried below: Web API base binding,
+  async generators, iterators, and the seven normalized IL findings. Unit/native green is not a
+  substitute for the Track A product gate.
 - Range/index value and read semantics are complete at `399008ea9`: all four range forms,
   array/string/reference-array slicing, typed and conditional `Index`/`Range`, byte/short/enum
   endpoints, parenthesized starts, and the existing Span integer-index path have persisted
@@ -238,12 +239,13 @@ owner, finish one commit-sized stage before switching.
    DocQuery/nullability/CLI ownership; F systems policy; G tooling/LSP; H tests/release. Never
    return to open-ended C# corpus widening.
 
-## Fresh product-gate blocker inventory (`5e5d8c8ba`)
+## Fresh product-gate blocker inventory (`347e5aa71`)
 
 Reproducer for the complete checkpoint: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`.
-The isolated run ended `FAILURES: 4` after 3,182/3,182 unit tests, 85/85 compiler-service native
-contracts, and 69/69 discovered product native tests passed. Ownership was 18/18 and range/index
-was 15/15; `RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed. Focused decline reproducers use
+The isolated run ended `FAILURES: 4` after 3,182/3,182 unit tests, 121/121 compiler-service native
+contracts, and 71/71 discovered product native tests passed. Ownership was 18/18, scalar plans
+were 2/2, and range/index was 15/15; `RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed.
+Focused decline reproducers use
 the fresh
 `src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll` plus
 `NSHARP_COLUMNAR_DECLINE_LOG=1`; IL rows were confirmed directly with `ilverify` and the same
@@ -270,7 +272,7 @@ member finding deduplicated by the gate).
 | Track / stage | Status | Evidence | Remaining binding work |
 |---|---|---|---|
 | A1 decline diagnostics | complete | `18df2415e`…`465856bef` | Preserve stable reason ids and spans. |
-| A2 product-path restoration | partial | 3,182 unit + 85 compiler-service native + 69 product native green/four-category product-gate inventory at `5e5d8c8ba`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
+| A2 product-path restoration | partial | 3,182 unit + 121 compiler-service native + 71 product native green/four-category product-gate inventory at `347e5aa71`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
 | B1 static kernel binding / Dogfood deletion | complete | `27bb97773`, `aa9ec5326`, `3c963eb5d` | Never recreate reflection binding or the deleted project. |
 | B2 JSON and CLI decisions | partial | unverified partial; live inventory required | Re-inventory live C# command policy; `OutputFormatter.cs` is not yet a tiny host. |
 | B3a DocQuery | partial candidate, not landed | `/tmp/nsharplang-b3a`: native 9/9, focused 8/8, unit 3,183/3,183, VS smoke 36/36; required gate still red in the four global buckets | Integrate after resolving the required checkpoint, then reload/reinstall and visually verify the IDE before commit. Keep only proved raw metadata/XML extraction/loading glue. |
@@ -288,7 +290,7 @@ member finding deduplicated by the gate).
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
 | G tooling / IDE | partial only for isolated prior work | `0d42981b0` deleted the XML-doc stub | Linter, formatter, code-intel, completion, handlers, and front-end re-host remain. |
 | H1 native runner host shrink | blocked on N# execution-plan ownership | A deletion probe proved the current reflection route runs the emitted synchronous Fact+Trait estate, but it cannot preserve the xUnit controller's whole-run timeout for a blocking void test; the probe was fully reverted with no commit | N# must own discovery rows, lifecycle/result policy, sync/Task/ValueTask invocation, and one whole-run deadline—including blocking void methods—before the xUnit controller and package can be deleted. Theory/InlineData, skip, async, failure JSON, and timeout successors must all be native N# tests. |
-| H2 initial native gate | partial | `5e5d8c8ba`: 85 compiler-service native contracts + 69 discovered product tests, including ownership 18/18; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
+| H2 initial native gate | partial | `347e5aa71`: 121 compiler-service native contracts + 71 discovered product tests, including ownership 18/18 and scalar plans 2/2; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
 | H3 CLI assertion migrations | blocked on A grammar + green product gate | — | Move CLI product assertions to N# process-boundary suites after the complete native route is trustworthy. |
 | H4–H8 release/endgame | blocked on named track exits | — | Playground, C# test closeout, deletion integration, docs, and final audit. |
 
