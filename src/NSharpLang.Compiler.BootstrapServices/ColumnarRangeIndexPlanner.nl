@@ -341,8 +341,13 @@ public class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression() {
-            planned = TryPlanFromEnd(
-                nodes, source, node, bindings, handles, plan, fragment, depth, out resultType)
+            planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(
+                nodes, source, node, plan, fragment, out resultType)
+            if !planned {
+                planned = TryPlanFromEnd(
+                    nodes, source, node, bindings, handles,
+                    plan, fragment, depth, out resultType)
+            }
         } else if kind == ColumnarExpressionNodeKind.RangeExpression() {
             planned = TryPlanRange(
                 nodes, source, node, bindings, handles, plan, fragment, depth, out resultType)
@@ -406,7 +411,9 @@ public class ColumnarRangeIndexPlanner {
             return false
         }
         name := nodes.Text(source, node)
-        if name.Length == 0 || bindings.IsBlocked(name) {
+        if name.Length == 0
+            || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node)
+            || bindings.IsBlocked(name) {
             return false
         }
 

@@ -48,6 +48,32 @@ func SliceAll<T>(values: T[]): T[] {
     return values[..]
 }
 
+class ExplicitThisRangeReader {
+    count: int
+
+    constructor(initialCount: int) {
+        this.count = initialCount
+    }
+
+    func ReadWithTriviaBeforeDot(values: int[], count: string): int {
+        if count == "" {
+            throw new ArgumentOutOfRangeException("count")
+        }
+        return values[^this .count]
+    }
+
+    func ReadWithTriviaAfterDot(values: int[], count: int): int {
+        if count < 0 {
+            throw new ArgumentOutOfRangeException("count")
+        }
+        return values[^this. count]
+    }
+
+    func SetWithCommentTrivia(count: int) {
+        this /* field, not the parameter */ . count = count
+    }
+}
+
 test "range-index reads arrays and strings from the end" {
     values := [10, 20, 30, 40, 50]
     text := "abcdef"
@@ -56,6 +82,17 @@ test "range-index reads arrays and strings from the end" {
     assert values[^3] == 30
     assert text[^1] == 'f'
     assert text[^3] == 'd'
+}
+
+test "explicit-this fields remain distinct from same-named parameters across trivia" {
+    values := [10, 20, 30, 40]
+    reader := new ExplicitThisRangeReader(1)
+
+    assert reader.ReadWithTriviaBeforeDot(values, "shadow") == 40
+    assert reader.ReadWithTriviaAfterDot(values, 2) == 40
+
+    reader.SetWithCommentTrivia(3)
+    assert reader.ReadWithTriviaBeforeDot(values, "still shadowed") == 20
 }
 
 test "range-index owns ordinary Int32 indexing beneath from-end roots" {
@@ -282,6 +319,9 @@ test "range-index rejects a negative from-end count at runtime" {
 
     assert throws ArgumentOutOfRangeException {
         ReadFromEnd(values, -1)
+    }
+    assert throws ArgumentOutOfRangeException {
+        _ignored := values[^-1]
     }
 }
 

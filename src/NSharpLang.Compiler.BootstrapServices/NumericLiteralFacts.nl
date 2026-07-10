@@ -138,8 +138,19 @@ public class NumericLiteralFacts {
     }
 
     public static func TryParseUnsignedIntegerMagnitude(text: string, out value: ulong): bool {
-        value = ParseUnsignedIntegerMagnitude(text)
-        return true
+        try {
+            value = ParseUnsignedIntegerMagnitude(text)
+            return true
+        } catch _format: FormatException {
+            value = 0UL
+            return false
+        } catch _overflow: OverflowException {
+            value = 0UL
+            return false
+        } catch _argument: ArgumentException {
+            value = 0UL
+            return false
+        }
     }
 
     public static func ParseUnsignedIntegerMagnitude(text: string): ulong {

@@ -282,6 +282,12 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ldc_I4_7)
         } else if opCodeValue == ColumnarCodePlanContract.LdcI4_8() {
             il.Emit(OpCodes.Ldc_I4_8)
+        } else if opCodeValue == ColumnarCodePlanContract.Neg() {
+            il.Emit(OpCodes.Neg)
+        } else if opCodeValue == ColumnarCodePlanContract.Not() {
+            il.Emit(OpCodes.Not)
+        } else if opCodeValue == ColumnarCodePlanContract.Ceq() {
+            il.Emit(OpCodes.Ceq)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             il.Emit(OpCodes.Conv_I4)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
@@ -1085,6 +1091,57 @@ public class ColumnarCodePlanExecutor {
                     schemaName
                         + " brfalse requires an exact Boolean condition or literal I4.")
             }
+        } else if opCodeValue == ColumnarCodePlanContract.Neg() {
+            value := state.Pop()
+            if value.IsAddress
+                || value.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+                || (value.ValueType != typeof(int)
+                    && value.ValueType != typeof(long)
+                    && value.ValueType != typeof(float)
+                    && value.ValueType != typeof(double)) {
+                throw new InvalidOperationException(
+                    schemaName + " neg requires an exact signed numeric scalar.")
+            }
+            state.Push(
+                value.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Not() {
+            value := state.Pop()
+            if value.IsAddress
+                || value.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+                || (value.ValueType != typeof(int)
+                    && value.ValueType != typeof(long)
+                    && value.ValueType != typeof(ulong)) {
+                throw new InvalidOperationException(
+                    schemaName + " not requires an exact integral scalar.")
+            }
+            state.Push(
+                value.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Ceq() {
+            right := state.Pop()
+            left := state.Pop()
+            if left.IsAddress || right.IsAddress
+                || left.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+                || left.ValueType != typeof(bool)
+                || right.ValueKind != ColumnarCodePlanStackValueKind.LiteralI4()
+                || !right.LiteralKnown
+                || right.LiteralValue != 0 {
+                throw new InvalidOperationException(
+                    schemaName + " ceq requires exact Boolean and literal zero operands.")
+            }
+            state.Push(
+                typeof(bool),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             value := state.Pop()
             if value.IsAddress

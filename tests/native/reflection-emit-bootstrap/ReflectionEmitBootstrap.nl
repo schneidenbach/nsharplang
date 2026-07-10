@@ -25,7 +25,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 11
+        return 12
     }
 
     public static func ParseInt32(text: string): int {
@@ -272,5 +272,8 @@ public class ReflectionEmitBootstrapProbe {
         il.Emit(OpCodes.Ldc_R4, (float)1.25)
         il.Emit(OpCodes.Ldc_R8, 2.5)
         il.Emit(OpCodes.Ldstr, "scalar")
+        il.Emit(OpCodes.Neg)
+        il.Emit(OpCodes.Not)
+        il.Emit(OpCodes.Ceq)
     }
 }

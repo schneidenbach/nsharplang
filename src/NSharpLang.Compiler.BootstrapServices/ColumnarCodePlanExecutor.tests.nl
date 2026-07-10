@@ -1281,3 +1281,65 @@ test "schema v3 executor emits every scalar constant through DynamicMethod" {
     assert ExecutorRunV3ScalarPlan(stringPlan, typeof(string)) == "emitted scalar"
     assert stringPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
 }
+
+test "schema v3 unary opcodes have exact identities and remain version isolated" {
+    assert ColumnarCodePlanContract.Neg() == 101
+    assert ColumnarCodePlanContract.Not() == 102
+    assert ColumnarCodePlanContract.Ceq() == -511
+
+    v2Builder := new ColumnarCodePlan()
+    v2Builder.PrepareV2()
+    v2Builder.BeginFragment(-1, 1120, 0)
+    assert throws InvalidOperationException {
+        v2Builder.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Neg())
+    }
+
+    smuggled := ExecutorConstantPlan(typeof(int))
+    smuggled.OpCodeValues[0] = ColumnarCodePlanContract.Neg()
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(smuggled) }
+}
+
+test "schema v3 executor rejects invalid unary stack categories before emission" {
+    badNeg := new ColumnarCodePlan()
+    badNeg.PrepareV3()
+    badNegRoot := badNeg.BeginFragment(-1, 1121, 0)
+    badNegChild := badNeg.BeginFragment(badNegRoot, 4, 1)
+    badNeg.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badNeg.CompleteFragment(badNegChild, typeof(bool))
+    badNeg.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Neg())
+    badNeg.CompleteFragment(badNegRoot, typeof(bool))
+    badNeg.CompleteV3(typeof(bool))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badNeg) }
+
+    badNot := new ColumnarCodePlan()
+    badNot.PrepareV3()
+    badNotRoot := badNot.BeginFragment(-1, 1122, 0)
+    badNotChild := badNot.BeginFragment(badNotRoot, 1, 1)
+    doubleIndex := badNot.AddDouble(1.0)
+    badNot.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), doubleIndex)
+    badNot.CompleteFragment(badNotChild, typeof(double))
+    badNot.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Not())
+    badNot.CompleteFragment(badNotRoot, typeof(double))
+    badNot.CompleteV3(typeof(double))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badNot) }
+
+    badEquality := new ColumnarCodePlan()
+    badEquality.PrepareV3()
+    badEqualityRoot := badEquality.BeginFragment(-1, 1123, 0)
+    badEqualityChild := badEquality.BeginFragment(badEqualityRoot, 4, 1)
+    badEquality.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badEquality.CompleteFragment(badEqualityChild, typeof(bool))
+    badEquality.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badEquality.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+    badEquality.CompleteFragment(badEqualityRoot, typeof(bool))
+    badEquality.CompleteV3(typeof(bool))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badEquality) }
+
+    underflow := new ColumnarCodePlan()
+    underflow.PrepareV3()
+    underflowRoot := underflow.BeginFragment(-1, 1124, 0)
+    underflow.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Neg())
+    underflow.CompleteFragment(underflowRoot, typeof(int))
+    underflow.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(underflow) }
+}

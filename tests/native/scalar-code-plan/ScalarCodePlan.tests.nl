@@ -20,6 +20,58 @@ func ReturnUnsignedLongLiteral(): ulong {
     return 18446744073709551615UL
 }
 
+func ReturnMinimumIntLiteral(): int {
+    return -2147483648
+}
+
+func ReturnSeparatedMinimumIntLiteral(): int {
+    return -2_147_483_648
+}
+
+func ReturnHexadecimalMinimumIntLiteral(): int {
+    return -0x80000000
+}
+
+func ReturnBinaryMinimumIntLiteral(): int {
+    return -0b10000000000000000000000000000000
+}
+
+func ReturnCheckedMinimumIntLiteral(): int {
+    return checked(-2147483648)
+}
+
+func ReturnNegativeLongLiteral(): long {
+    return -1L
+}
+
+func ReturnNegativeSingleLiteral(): float {
+    return -1.25f
+}
+
+func ReturnNegativeZeroSingleLiteral(): float {
+    return -0.0f
+}
+
+func ReturnNegativeDecimalLiteral(): decimal {
+    return -1.25m
+}
+
+func ReturnComplementIntLiteral(): int {
+    return ~0
+}
+
+func ReturnComplementUnsignedLiteral(): ulong {
+    return ~0UL
+}
+
+func ReturnComplementLongLiteral(): long {
+    return ~1L
+}
+
+func ReturnLogicalNotLiteral(): bool {
+    return !true
+}
+
 func ReturnDoubleLiteral(): double {
     return 1.25
 }
@@ -89,6 +141,21 @@ test "scalar code plans supply exact function return values" {
     assert ReturnHexLiteral() == 2147483647
     assert ReturnBinaryLiteral() == 165
     assert ReturnUnsignedLongLiteral() == 18446744073709551615LU
+    assert ReturnMinimumIntLiteral() == -2147483648
+    assert ReturnSeparatedMinimumIntLiteral() == -2147483648
+    assert ReturnHexadecimalMinimumIntLiteral() == -2147483648
+    assert ReturnBinaryMinimumIntLiteral() == -2147483648
+    assert ReturnCheckedMinimumIntLiteral() == -2147483648
+    assert ReturnNegativeLongLiteral() == -1L
+    assert ReturnNegativeSingleLiteral() == -1.25f
+    negativeZeroSingle := ReturnNegativeZeroSingleLiteral()
+    assert negativeZeroSingle == 0.0f
+    assert 1.0f / negativeZeroSingle < 0.0f
+    assert ReturnNegativeDecimalLiteral() == -1.25m
+    assert ReturnComplementIntLiteral() == -1
+    assert ReturnComplementUnsignedLiteral() == 18446744073709551615UL
+    assert ReturnComplementLongLiteral() == -2L
+    assert !ReturnLogicalNotLiteral()
     assert ReturnDoubleLiteral() == 1.25
     assert ReturnExplicitDoubleLiteral() == 125.0
     assert ReturnSingleLiteral() == 0.625f

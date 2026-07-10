@@ -6976,7 +6976,7 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(target) != 6)
                     return false;
                 var targetName = Text(target);
-                if (IsExplicitThisIdentifier(target))
+                if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, target))
                 {
                     if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody))
                         return false;
@@ -9774,6 +9774,8 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
             return true;
+        if (ColumnarUnaryLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
+            return true;
         if (ColumnarScalarLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
             return true;
         if (ColumnarNameOfPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
@@ -9801,7 +9803,7 @@ internal sealed class ColumnarIlEmitter
                     // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
             {
                 var name = Text(idx);
-                if (IsExplicitThisIdentifier(idx))
+                if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, idx))
                 {
                     if (_currentStruct == null)
                         return false;
@@ -9971,30 +9973,12 @@ internal sealed class ColumnarIlEmitter
             {
                 if (Text(idx) == "^")
                     return TryEmitSystemIndexExpression(idx, out type);
-                if (Text(idx) == "-" && _nodes.ChildCount(idx) == 1 && _nodes.Kind(Child(idx, 0)) == 0)
-                {
-                    var magnitudeText = Text(Child(idx, 0));
-                    if (magnitudeText == "2147483648")
-                    {
-                        _il.Emit(OpCodes.Ldc_I4, int.MinValue);
-                        type = typeof(int);
-                        return true;
-                    }
-                    if (magnitudeText == "9223372036854775808L" || magnitudeText == "9223372036854775808l")
-                    {
-                        _il.Emit(OpCodes.Ldc_I8, long.MinValue);
-                        type = typeof(long);
-                        return true;
-                    }
-                }
                 if (!EmitExpression(Child(idx, 0), out var operandType))
                     return false;
                 switch (Text(idx))
                 {
-                    case "-": // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. NOT valid on
-                              // ulong (N# forbids unary minus on an unsigned type) — decline it. On double/float, Neg
-                              // is the IEEE negate (-NaN stays NaN, -0.0 is distinct from 0.0), matching the N# backend path.
-                              // decimal negates via op_UnaryNegation (not an IL primitive).
+                    case "-": // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. N# forbids ulong.
+                              // IEEE double/float negation preserves signed zero; decimal uses op_UnaryNegation.
                         if (operandType == typeof(decimal))
                         {
                             _il.Emit(OpCodes.Call, typeof(decimal).GetMethod("op_UnaryNegation", new[] { typeof(decimal) })!);
@@ -16793,6 +16777,8 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
             return true;
+        if (ColumnarUnaryLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
+            return true;
         if (ColumnarScalarLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
             return true;
         if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
@@ -16849,12 +16835,13 @@ internal sealed class ColumnarIlEmitter
             case 6:
             {
                 var name = Text(node);
-                if (_locals.TryGetValue(name, out var local))
+                var isExplicitThis = ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node);
+                if (!isExplicitThis && _locals.TryGetValue(name, out var local))
                 {
                     type = local.LocalType;
                     return true;
                 }
-                if (_paramTypes.TryGetValue(name, out var paramType) && _paramOrdinals.ContainsKey(name))
+                if (!isExplicitThis && _paramTypes.TryGetValue(name, out var paramType) && _paramOrdinals.ContainsKey(name))
                 {
                     type = paramType;
                     return true;
@@ -21595,18 +21582,4 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private bool IsExplicitThisIdentifier(int idx)
-    {
-        if (_nodes.Kind(idx) != 6)
-            return false;
-        var valueStart = _nodes.ValueStart(idx);
-        if (valueStart < 0)
-            return false;
-        var spanStart = _nodes.SpanStart(idx);
-        const string prefix = "this.";
-        return spanStart >= 0
-               && valueStart - spanStart == prefix.Length
-               && spanStart + prefix.Length <= _source.Length
-               && string.Compare(_source, spanStart, prefix, 0, prefix.Length, StringComparison.Ordinal) == 0;
-    }
 }

@@ -74,6 +74,8 @@ public class ColumnarCodePlanContract {
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
+    public static func Neg(): short { return 101 }
+    public static func Not(): short { return 102 }
     public static func ConvI4(): short { return 105 }
     public static func Callvirt(): short { return 111 }
     public static func Ldstr(): short { return 114 }
@@ -89,6 +91,7 @@ public class ColumnarCodePlanContract {
     public static func LdelemR8(): short { return 153 }
     public static func LdelemRef(): short { return 154 }
     public static func Ldelem(): short { return 163 }
+    public static func Ceq(): short { return -511 }
 
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
     public static func Ldarg(): short { return -503 }
@@ -117,6 +120,12 @@ public class ColumnarCodePlanContract {
             || opCodeValue == LdelemR4()
             || opCodeValue == LdelemR8()
             || opCodeValue == LdelemRef()
+    }
+
+    public static func IsScalarNoOperandOpcode(opCodeValue: short): bool {
+        return opCodeValue == Neg()
+            || opCodeValue == Not()
+            || opCodeValue == Ceq()
     }
 
     public static func IsLocalOpcode(opCodeValue: short): bool {
@@ -575,7 +584,9 @@ public class ColumnarCodePlan {
 
     public func AppendInstructionWithoutOperand(opCodeValue: short) {
         EnsureV2Building()
-        if !ColumnarCodePlanContract.IsNoOperandOpcode(opCodeValue) {
+        if !ColumnarCodePlanContract.IsNoOperandOpcode(opCodeValue)
+            && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                || !ColumnarCodePlanContract.IsScalarNoOperandOpcode(opCodeValue)) {
             throw new InvalidOperationException("The opcode does not use an operand-free row.")
         }
         AppendV2Row(
@@ -1447,7 +1458,9 @@ public class ColumnarCodePlan {
     }
 
     func IsValidInstructionOperand(opCodeValue: short, operandKind: int, operandIndex: int): bool {
-        if ColumnarCodePlanContract.IsNoOperandOpcode(opCodeValue) {
+        if ColumnarCodePlanContract.IsNoOperandOpcode(opCodeValue)
+            || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+                && ColumnarCodePlanContract.IsScalarNoOperandOpcode(opCodeValue)) {
             return operandKind == ColumnarCodePlanContract.NoOperand() && operandIndex == -1
         }
         if opCodeValue == ColumnarCodePlanContract.LdcI4() {

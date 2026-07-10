@@ -688,6 +688,9 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert ColumnarCodePlanContract.LdcR4() == 34
     assert ColumnarCodePlanContract.LdcR8() == 35
     assert ColumnarCodePlanContract.Ldstr() == 114
+    assert ColumnarCodePlanContract.Neg() == 101
+    assert ColumnarCodePlanContract.Not() == 102
+    assert ColumnarCodePlanContract.Ceq() == -511
     assert ColumnarCodePlanContract.Int64Operand() == 10
     assert ColumnarCodePlanContract.SingleOperand() == 11
     assert ColumnarCodePlanContract.DoubleOperand() == 12
