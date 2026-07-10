@@ -91,6 +91,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.PropertyInfo"
         } else if canonical == "ConstructorInfo" || canonical == "System.Reflection.ConstructorInfo" {
             runtimeTypeName = "System.Reflection.ConstructorInfo"
+        } else if canonical == "ParameterInfo" || canonical == "System.Reflection.ParameterInfo" {
+            runtimeTypeName = "System.Reflection.ParameterInfo"
         } else if canonical == "Index" || canonical == "System.Index" {
             runtimeTypeName = "System.Index"
         } else if canonical == "Range" || canonical == "System.Range" {
@@ -121,6 +123,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.FieldInfo"
             || name == "System.Reflection.PropertyInfo"
             || name == "System.Reflection.ConstructorInfo"
+            || name == "System.Reflection.ParameterInfo"
             || name == "System.Index"
             || name == "System.Range"
     }
@@ -271,6 +274,23 @@ public class ColumnarExternalBindingPlans {
             if (memberName == "GetElementType" || memberName == "MakeArrayType") && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
+            if (memberName == "get_IsSZArray"
+                    || memberName == "get_IsValueType"
+                    || memberName == "get_IsEnum"
+                    || memberName == "get_IsByRef")
+                && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "IsAssignableFrom"
+                && count == 1
+                && argumentTypeNames[0] == "System.Type" {
+                return VirtualCall(receiver, memberName, One("System.Type"), "System.Boolean")
+            }
+        }
+
+        if receiver == "System.Reflection.Emit.LocalBuilder"
+            && memberName == "get_LocalType" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Type")
         }
 
         if receiver == "System.Reflection.PropertyInfo"
@@ -293,6 +313,44 @@ public class ColumnarExternalBindingPlans {
             && count == 1
             && argumentTypeNames[0] == "System.Type[]" {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
+        }
+
+        if receiver == "System.Reflection.MethodInfo" && count == 0 {
+            if memberName == "GetParameters" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Reflection.ParameterInfo[]")
+            }
+            if memberName == "get_ReturnType" || memberName == "get_DeclaringType" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
+            if memberName == "get_IsStatic" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+        }
+
+        if receiver == "System.Reflection.ConstructorInfo" && count == 0 {
+            if memberName == "GetParameters" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Reflection.ParameterInfo[]")
+            }
+            if memberName == "get_DeclaringType" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
+            if memberName == "get_IsStatic" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+        }
+
+        if receiver == "System.Reflection.FieldInfo" && count == 0 {
+            if memberName == "get_FieldType" || memberName == "get_DeclaringType" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
+            if memberName == "get_IsStatic" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+        }
+
+        if receiver == "System.Reflection.ParameterInfo"
+            && memberName == "get_ParameterType" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Type")
         }
 
         if receiver == "System.Diagnostics.Process" {

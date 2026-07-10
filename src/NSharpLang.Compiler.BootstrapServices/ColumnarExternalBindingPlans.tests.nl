@@ -82,6 +82,7 @@ test "range code plans own every required opcode field" {
 test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Index", "System.Index")
     AssertRuntimeType("Range", "System.Range")
+    AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
 
     runtimeHelpersTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
@@ -139,6 +140,84 @@ test "range code plans own exact reflection handle calls" {
         "MakeGenericMethod",
         oneTypeArray,
         "System.Reflection.MethodInfo")
+}
+
+test "recursive code plans own exact type and local facts" {
+    noArguments := new string[](0)
+    AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsEnum", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsByRef", noArguments, "System.Boolean")
+
+    oneType := new string[](1)
+    oneType[0] = "System.Type"
+    AssertVirtualCall("System.Type", "IsAssignableFrom", oneType, "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.Emit.LocalBuilder",
+        "get_LocalType",
+        noArguments,
+        "System.Type")
+}
+
+test "recursive executor owns exact reflection signature facts" {
+    noArguments := new string[](0)
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "GetParameters",
+        noArguments,
+        "System.Reflection.ParameterInfo[]")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_ReturnType",
+        noArguments,
+        "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_IsStatic",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_DeclaringType",
+        noArguments,
+        "System.Type")
+
+    AssertVirtualCall(
+        "System.Reflection.ConstructorInfo",
+        "GetParameters",
+        noArguments,
+        "System.Reflection.ParameterInfo[]")
+    AssertVirtualCall(
+        "System.Reflection.ConstructorInfo",
+        "get_IsStatic",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.ConstructorInfo",
+        "get_DeclaringType",
+        noArguments,
+        "System.Type")
+
+    AssertVirtualCall(
+        "System.Reflection.FieldInfo",
+        "get_FieldType",
+        noArguments,
+        "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.FieldInfo",
+        "get_IsStatic",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.FieldInfo",
+        "get_DeclaringType",
+        noArguments,
+        "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.ParameterInfo",
+        "get_ParameterType",
+        noArguments,
+        "System.Type")
 }
 
 test "range code plans own the short IL argument operand" {

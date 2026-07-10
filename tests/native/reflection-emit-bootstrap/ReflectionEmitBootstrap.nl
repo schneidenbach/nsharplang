@@ -5,6 +5,10 @@ import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
 
+enum ReflectionEmitProbeEnum {
+    Value
+}
+
 public class ReflectionEmitBootstrapProbe {
     public static func EmitVoidBody(il: ILGenerator) {
         done := il.DefineLabel()
@@ -20,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 2
+        return 3
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -78,7 +82,43 @@ public class ReflectionEmitBootstrapProbe {
         genericArgs := new Type[](1)
         genericArgs[0] = typeof(int)
         closedGetSubArray := getSubArray.MakeGenericMethod(genericArgs)
-        return closedGetSubArray != null
+        if closedGetSubArray == null {
+            return false
+        }
+
+        indexParameters := indexCtor.GetParameters()
+        offsetParameters := indexOffset.GetParameters()
+        rangeParameters := rangeCtor.GetParameters()
+        subArrayParameters := closedGetSubArray.GetParameters()
+        return typeof(int[]).get_IsSZArray()
+            && typeof(int).get_IsValueType()
+            && typeof(ReflectionEmitProbeEnum).get_IsEnum()
+            && typeof(object).IsAssignableFrom(typeof(string))
+            && indexCtor.get_DeclaringType() == typeof(Index)
+            && !indexCtor.get_IsStatic()
+            && indexParameters.Length == 2
+            && indexParameters[0].get_ParameterType() == typeof(int)
+            && !indexParameters[0].get_ParameterType().get_IsByRef()
+            && indexParameters[1].get_ParameterType() == typeof(bool)
+            && indexOffset.get_DeclaringType() == typeof(Index)
+            && !indexOffset.get_IsStatic()
+            && indexOffset.get_ReturnType() == typeof(int)
+            && offsetParameters.Length == 1
+            && offsetParameters[0].get_ParameterType() == typeof(int)
+            && rangeCtor.get_DeclaringType() == typeof(Range)
+            && !rangeCtor.get_IsStatic()
+            && rangeParameters.Length == 2
+            && rangeParameters[0].get_ParameterType() == typeof(Index)
+            && rangeParameters[1].get_ParameterType() == typeof(Index)
+            && tupleItem1.get_DeclaringType() == typeof(ValueTuple<int, int>)
+            && !tupleItem1.get_IsStatic()
+            && tupleItem1.get_FieldType() == typeof(int)
+            && tupleItem2.get_FieldType() == typeof(int)
+            && closedGetSubArray.get_IsStatic()
+            && closedGetSubArray.get_ReturnType() == typeof(int[])
+            && subArrayParameters.Length == 2
+            && subArrayParameters[0].get_ParameterType() == typeof(int[])
+            && subArrayParameters[1].get_ParameterType() == typeof(Range)
     }
 
     // Compile-time proof for every Reflection.Emit field/overload consumed by schema-v2 execution.
@@ -92,6 +132,8 @@ public class ReflectionEmitBootstrapProbe {
         ambientLocal: LocalBuilder) {
         label := il.DefineLabel()
         temporary := il.DeclareLocal(elementType)
+        ambientType := ambientLocal.get_LocalType()
+        ambientCopy := il.DeclareLocal(ambientType)
 
         il.Emit(OpCodes.Ldc_I4_M1)
         il.Emit(OpCodes.Ldc_I4_0)
@@ -105,6 +147,8 @@ public class ReflectionEmitBootstrapProbe {
         il.Emit(OpCodes.Ldc_I4_8)
         il.Emit(OpCodes.Ldc_I4, 9)
         il.Emit(OpCodes.Stloc, temporary)
+        il.Emit(OpCodes.Ldloc, ambientCopy)
+        il.Emit(OpCodes.Pop)
         il.Emit(OpCodes.Ldloc, ambientLocal)
         il.Emit(OpCodes.Ldloca, temporary)
         il.Emit(OpCodes.Ldarg, (short)0)
