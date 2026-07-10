@@ -248,6 +248,61 @@ public class ColumnarExternalBindingPlans {
         return NoStaticMember()
     }
 
+    public static func GetStaticCallPlan(
+        typeName: string,
+        memberName: string,
+        argumentTypeNames: string[]): ColumnarExternalCallPlan {
+        count := argumentTypeNames.Length
+
+        if typeName == "Int32" || typeName == "int" {
+            if memberName == "Parse"
+                && count == 1
+                && argumentTypeNames[0] == "System.String" {
+                return StaticCall(
+                    "System.Int32",
+                    memberName,
+                    One("System.String"),
+                    "System.Int32")
+            }
+            if memberName == "TryParse"
+                && count == 2
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Int32&" {
+                return StaticCall(
+                    "System.Int32",
+                    memberName,
+                    Two("System.String", "System.Int32&"),
+                    "System.Boolean")
+            }
+        }
+
+        if typeName == "Double" {
+            if memberName == "Parse"
+                && count == 2
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Globalization.CultureInfo" {
+                return StaticCall(
+                    "System.Double",
+                    memberName,
+                    Two("System.String", "System.IFormatProvider"),
+                    "System.Double")
+            }
+            if memberName == "TryParse"
+                && count == 3
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Globalization.CultureInfo"
+                && argumentTypeNames[2] == "System.Double&" {
+                return StaticCall(
+                    "System.Double",
+                    memberName,
+                    Three("System.String", "System.IFormatProvider", "System.Double&"),
+                    "System.Boolean")
+            }
+        }
+
+        return NoCall()
+    }
+
     public static func GetInstanceCallPlan(
         receiverTypeName: string?,
         memberName: string,
@@ -624,6 +679,27 @@ public class ColumnarExternalBindingPlans {
             ExactTypeIdentity(returnTypeName))
     }
 
+    static func StaticCall(
+        declaringTypeName: string,
+        memberName: string,
+        parameterTypeNames: string[],
+        returnTypeName: string): ColumnarExternalCallPlan {
+        exactParameterTypeNames := new string[](parameterTypeNames.Length)
+        i := 0
+        while i < parameterTypeNames.Length {
+            exactParameterTypeNames[i] = ExactTypeIdentity(parameterTypeNames[i])
+            i = i + 1
+        }
+
+        return new ColumnarExternalCallPlan(
+            true,
+            ColumnarExternalCallKind.Call,
+            ExactTypeIdentity(declaringTypeName),
+            memberName,
+            exactParameterTypeNames,
+            ExactTypeIdentity(returnTypeName))
+    }
+
     static func NoCall(): ColumnarExternalCallPlan {
         return new ColumnarExternalCallPlan(
             false,
@@ -648,6 +724,14 @@ public class ColumnarExternalBindingPlans {
         values := new string[](2)
         values[0] = first
         values[1] = second
+        return values
+    }
+
+    static func Three(first: string, second: string, third: string): string[] {
+        values := new string[](3)
+        values[0] = first
+        values[1] = second
+        values[2] = third
         return values
     }
 

@@ -14084,6 +14084,8 @@ internal sealed class ColumnarIlEmitter
         }
         if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
             return false;
+        if (TryEmitPlannedExternalCall(typeName, isStatic: true, member, callIdx, out type))
+            return true;
         if (typeName == "Console" && member is nameof(Console.Write) or nameof(Console.WriteLine) && argCount == 1)
         {
             var method = typeof(Console).GetMethod(member, new[] { typeof(string) });
@@ -14528,26 +14530,6 @@ internal sealed class ColumnarIlEmitter
                 return false;
             _il.Emit(OpCodes.Call, method);
             type = typeof(DateTime);
-            return true;
-        }
-        if ((typeName == "Int32" || typeName == "int") && member == nameof(Int32.Parse) && argCount == 1)
-        {
-            var method = typeof(int).GetMethod(nameof(int.Parse), new[] { typeof(string) });
-            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
-                return false;
-            _il.Emit(OpCodes.Call, method);
-            type = typeof(int);
-            return true;
-        }
-        if ((typeName == "Int32" || typeName == "int") && member == nameof(Int32.TryParse) && argCount == 2)
-        {
-            var method = typeof(int).GetMethod(nameof(int.TryParse), new[] { typeof(string), typeof(int).MakeByRefType() });
-            if (method == null
-                || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), allowLambdaLiteral: false)
-                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(int).MakeByRefType(), allowLambdaLiteral: false))
-                return false;
-            _il.Emit(OpCodes.Call, method);
-            type = typeof(bool);
             return true;
         }
         if (typeName == "Convert" && member == nameof(Convert.ToInt32) && argCount == 1)
@@ -17218,7 +17200,8 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryGetPlannedExternalCall(
-        Type receiverType,
+        string ownerTypeName,
+        bool isStatic,
         string member,
         int callIdx,
         out ColumnarExternalCallPlan plan,
@@ -17235,16 +17218,22 @@ internal sealed class ColumnarIlEmitter
         var argumentTypeNames = new string[argumentCount];
         for (var i = 0; i < argumentCount; i++)
         {
-            argumentTypeNames[i] = TryGetPreflightExpressionType(Child(callIdx, i + 1), out var argumentType)
+            var argumentNode = Child(callIdx, i + 1);
+            argumentTypeNames[i] = _nodes.Kind(argumentNode) == 54
+                                   && _nodes.ChildCount(argumentNode) == 1
+                                   && Text(argumentNode) is "ref" or "out"
+                                   && TryGetAddressableTargetType(Child(argumentNode, 0), out var byRefElementType)
+                ? byRefElementType.MakeByRefType().FullName ?? string.Empty
+                : TryGetPreflightExpressionType(argumentNode, out var argumentType)
                 ? argumentType.FullName ?? argumentType.Name
                 : string.Empty;
         }
 
-        plan = ColumnarExternalBindingPlans.GetInstanceCallPlan(
-            receiverType.FullName,
-            member,
-            argumentTypeNames);
+        plan = isStatic
+            ? ColumnarExternalBindingPlans.GetStaticCallPlan(ownerTypeName, member, argumentTypeNames)
+            : ColumnarExternalBindingPlans.GetInstanceCallPlan(ownerTypeName, member, argumentTypeNames);
         if (!plan.IsSupported
+            || plan.Kind != (isStatic ? ColumnarExternalCallKind.Call : ColumnarExternalCallKind.CallVirtual)
             || plan.ParameterTypeNames.Length != argumentCount
             || !TryResolveExactRuntimeType(plan.DeclaringTypeName, out var declaringType)
             || !TryResolveExactRuntimeType(plan.ReturnTypeName, out returnType))
@@ -17259,18 +17248,20 @@ internal sealed class ColumnarIlEmitter
         }
 
         method = declaringType.GetMethod(plan.MemberName, parameterTypes)!;
-        return method != null && method.ReturnType == returnType;
+        return method != null && method.IsStatic == isStatic && method.ReturnType == returnType;
     }
 
     private bool TryEmitPlannedExternalCall(
-        Type receiverType,
+        string ownerTypeName,
+        bool isStatic,
         string member,
         int callIdx,
         out Type type)
     {
         type = null!;
         if (!TryGetPlannedExternalCall(
-                receiverType,
+                ownerTypeName,
+                isStatic,
                 member,
                 callIdx,
                 out var plan,
@@ -17335,7 +17326,8 @@ internal sealed class ColumnarIlEmitter
         if (TryGetPreflightEnumerableExtensionCallType(receiverType, member, callIdx, out type))
             return true;
         if (TryGetPlannedExternalCall(
-                receiverType,
+                receiverType.FullName ?? receiverType.Name,
+                isStatic: false,
                 member,
                 callIdx,
                 out _,
@@ -18179,7 +18171,12 @@ internal sealed class ColumnarIlEmitter
     {
         type = null!;
 
-        if (TryEmitPlannedExternalCall(receiverType, member, callIdx, out type))
+        if (TryEmitPlannedExternalCall(
+                receiverType.FullName ?? receiverType.Name,
+                isStatic: false,
+                member,
+                callIdx,
+                out type))
             return true;
 
         if (TryEmitAspNetStaticFilesCall(callIdx, receiverType, member, argCount, out type))

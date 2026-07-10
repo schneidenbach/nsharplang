@@ -1,6 +1,7 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
 import System
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
@@ -24,7 +25,23 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 10
+        return 11
+    }
+
+    public static func ParseInt32(text: string): int {
+        return Int32.Parse(text)
+    }
+
+    public static func TryParseInt32(text: string, out value: int): bool {
+        return Int32.TryParse(text, out value)
+    }
+
+    public static func ParseDoubleInvariant(text: string): double {
+        return Double.Parse(text, CultureInfo.InvariantCulture)
+    }
+
+    public static func TryParseDoubleInvariant(text: string, out value: double): bool {
+        return Double.TryParse(text, CultureInfo.InvariantCulture, out value)
     }
 
     public static func HasRangeHandleSurface(): bool {

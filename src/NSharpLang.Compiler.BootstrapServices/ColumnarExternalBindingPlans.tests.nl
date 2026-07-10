@@ -35,6 +35,27 @@ func AssertVirtualCall(
     assert plan.ReturnTypeName == expectedReturnType + ", System.Private.CoreLib"
 }
 
+func AssertStaticCall(
+    typeName: string,
+    member: string,
+    selectionArguments: string[],
+    expectedParameters: string[],
+    expectedDeclaringType: string,
+    expectedReturnType: string) {
+    plan := ColumnarExternalBindingPlans.GetStaticCallPlan(typeName, member, selectionArguments)
+    assert plan.IsSupported
+    assert plan.Kind == ColumnarExternalCallKind.Call
+    assert plan.DeclaringTypeName == expectedDeclaringType + ", System.Private.CoreLib"
+    assert plan.MemberName == member
+    assert plan.ParameterTypeNames.Length == expectedParameters.Length
+    i := 0
+    while i < expectedParameters.Length {
+        assert plan.ParameterTypeNames[i] == expectedParameters[i] + ", System.Private.CoreLib"
+        i = i + 1
+    }
+    assert plan.ReturnTypeName == expectedReturnType + ", System.Private.CoreLib"
+}
+
 test "recursive code plans own every required opcode field" {
     names := new string[](36)
     names[0] = "Ldc_I4_M1"
@@ -317,4 +338,93 @@ test "range code plans own the short IL argument operand" {
         "Emit",
         arguments,
         "System.Void")
+}
+
+test "static parse plans own exact CLR overloads" {
+    stringArgument := new string[](1)
+    stringArgument[0] = "System.String"
+    AssertStaticCall("Int32", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
+    AssertStaticCall("int", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
+
+    intTryParseArguments := new string[](2)
+    intTryParseArguments[0] = "System.String"
+    intTryParseArguments[1] = "System.Int32&"
+    AssertStaticCall(
+        "Int32",
+        "TryParse",
+        intTryParseArguments,
+        intTryParseArguments,
+        "System.Int32",
+        "System.Boolean")
+    AssertStaticCall(
+        "int",
+        "TryParse",
+        intTryParseArguments,
+        intTryParseArguments,
+        "System.Int32",
+        "System.Boolean")
+
+    doubleParseSelection := new string[](2)
+    doubleParseSelection[0] = "System.String"
+    doubleParseSelection[1] = "System.Globalization.CultureInfo"
+    doubleParseParameters := new string[](2)
+    doubleParseParameters[0] = "System.String"
+    doubleParseParameters[1] = "System.IFormatProvider"
+    AssertStaticCall(
+        "Double",
+        "Parse",
+        doubleParseSelection,
+        doubleParseParameters,
+        "System.Double",
+        "System.Double")
+
+    doubleTryParseSelection := new string[](3)
+    doubleTryParseSelection[0] = "System.String"
+    doubleTryParseSelection[1] = "System.Globalization.CultureInfo"
+    doubleTryParseSelection[2] = "System.Double&"
+    doubleTryParseParameters := new string[](3)
+    doubleTryParseParameters[0] = "System.String"
+    doubleTryParseParameters[1] = "System.IFormatProvider"
+    doubleTryParseParameters[2] = "System.Double&"
+    AssertStaticCall(
+        "Double",
+        "TryParse",
+        doubleTryParseSelection,
+        doubleTryParseParameters,
+        "System.Double",
+        "System.Boolean")
+}
+
+test "static parse plans decline aliases signatures and arity outside the contract" {
+    stringArgument := new string[](1)
+    stringArgument[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Int32", "Parse", stringArgument).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("double", "Parse", stringArgument).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Double", "Parse", stringArgument).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("Int32", "parse", stringArgument).IsSupported
+
+    wrongIntTryParseArguments := new string[](2)
+    wrongIntTryParseArguments[0] = "System.String"
+    wrongIntTryParseArguments[1] = "System.Int32"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Int32",
+        "TryParse",
+        wrongIntTryParseArguments).IsSupported
+
+    wrongDoubleParseArguments := new string[](2)
+    wrongDoubleParseArguments[0] = "System.String"
+    wrongDoubleParseArguments[1] = "System.IFormatProvider"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Double",
+        "Parse",
+        wrongDoubleParseArguments).IsSupported
+
+    wrongDoubleTryParseArguments := new string[](3)
+    wrongDoubleTryParseArguments[0] = "System.String"
+    wrongDoubleTryParseArguments[1] = "System.Globalization.CultureInfo"
+    wrongDoubleTryParseArguments[2] = "System.Single&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Double",
+        "TryParse",
+        wrongDoubleTryParseArguments).IsSupported
 }
