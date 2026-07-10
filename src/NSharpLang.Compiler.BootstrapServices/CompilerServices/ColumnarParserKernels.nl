@@ -67,7 +67,8 @@ class LexerIndentStackTable {
 
 
 
-// Lifetime token support, mirroring the production lexer (Lexer.cs:325-328, 903-960). At an
+// Lifetime token support, mirroring Lexer.IsLifetimeStart, Lexer.IsLifetimeContext, and
+// Lexer.ReadLifetime in the live Lexer.nl. At an
 // apostrophe, the lexer emits a single Lifetime token (ordinal 142) -- instead of a char literal --
 // when the apostrophe begins an identifier (next char letter/'_', and the char after that is not a
 // closing quote, distinguishing `'a` from the char literal `'a'`) AND it appears in a lifetime
@@ -84,11 +85,11 @@ class LexerIndentStackTable {
 // Returns ((exclusive end offset) << 2) | kind, where kind is 1 = IntLiteral, 2 = FloatLiteral, and
 // 3 = Unknown (the malformed-number error token). The 1/2 values double as the
 // TokenType ordinals; callers map the sentinel 3 to Unknown (137). Each error branch returns the same
-// span consumed by the production lexer (so NumberValueLength, which counts non-'_' chars, reproduces token text):
+// raw source span consumed by the production lexer, including any '_' numeric separators:
 //   - 0x / 0b with no valid digit immediately after the prefix (a leading '_' counts as "no digit",
 //     matching the production lexer) -> Unknown ending right after the prefix;
-//   - a second decimal point (Lexer.cs:650-659) -> Unknown after consuming the remaining digits/dots;
-//   - an exponent e/E[+/-] with no digit after it (Lexer.cs:681-684) -> Unknown ending after the sign.
+//   - a second decimal point (Lexer.ReadNumber in Lexer.nl) -> Unknown after consuming the remaining digits/dots;
+//   - an exponent e/E[+/-] with no digit after it (Lexer.ReadNumber) -> Unknown ending after the sign.
 
 
 
@@ -97,14 +98,12 @@ class LexerIndentStackTable {
 
 
 
-// Character classification mirrors the production lexer's use of the BCL Unicode predicates
-// (Lexer.cs: char.IsLetter at 342/905, char.IsLetterOrDigit at 567/922/926/942, char.IsDigit at
-// 336/631/647/653/681/686/757, char.IsWhiteSpace at 912/1084).
+// Character classification mirrors the live Lexer.nl scanner's use of the BCL Unicode predicates
+// in Lexer.NextToken, Lexer.ReadIdentifier, Lexer.ReadNumber, and the lifetime helpers.
 
 
 
-// Hex digits are ASCII-only letters plus any Unicode decimal digit, matching production IsHexDigit
-// (Lexer.cs:757 = char.IsDigit(c) || a-f || A-F).
+// Hex digits are ASCII-only letters plus any Unicode decimal digit, matching Lexer.IsHexDigit.
 
 // ---- ParserTypeReferences.nl ----
 
@@ -462,8 +461,24 @@ public class ColumnarExpressionNodeKind {
         return 0
     }
 
+    public static func FloatLiteralExpression(): int {
+        return 1
+    }
+
+    public static func CharLiteralExpression(): int {
+        return 2
+    }
+
+    public static func StringLiteralExpression(): int {
+        return 3
+    }
+
     public static func BoolLiteralExpression(): int {
         return 4
+    }
+
+    public static func NullLiteralExpression(): int {
+        return 5
     }
 
     public static func IdentifierExpression(): int {
@@ -2258,7 +2273,9 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
 
             metadata.Kinds[count] = numberKind
             metadata.Starts[count] = start
-            metadata.ValueLengths[count] = NumberValueLength(source, start, nextPosition)
+            // ValueLengths is a source-span column. Preserve the complete raw spelling here;
+            // numeric value consumers normalize '_' separators when interpreting the text.
+            metadata.ValueLengths[count] = nextPosition - start
             metadata.Lines[count] = tokenLine
             metadata.Columns[count] = tokenColumn
             count = count + 1
@@ -2693,19 +2710,6 @@ func ScanNumberInfo(source: string, position: int, length: int): int {
     }
 
     return (ParserConsumeIntegerSuffix(source, position, length) << 2) | 1
-}
-
-func NumberValueLength(source: string, start: int, end: int): int {
-    position := start
-    valueLength := 0
-    while position < end {
-        if source[position] != '_' {
-            valueLength = valueLength + 1
-        }
-        position = position + 1
-    }
-
-    return valueLength
 }
 
 func ParserConsumeFloatSuffix(source: string, position: int, length: int): int {
@@ -4170,15 +4174,42 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     }
     if kind == 2 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 1, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.FloatLiteralExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 3 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 2, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.CharLiteralExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 4 || kind == 5 || kind == 6 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 3, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.StringLiteralExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 44 || kind == 45 {
         st.Pos = pos + 1
@@ -4195,7 +4226,16 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     }
     if kind == 46 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 5, -1, 0, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.NullLiteralExpression(),
+            -1,
+            0,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 131 {
         return ParseArrayLiteralExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -8069,12 +8109,19 @@ func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length:
     }
 
     value := 0
+    hasDigit := false
     while index < end {
         ch := source[index]
+        if ch == '_' {
+            index = index + 1
+            continue
+        }
+
         if ch < '0' || ch > '9' {
             return false
         }
 
+        hasDigit = true
         digit := ch - '0'
         if value > 214748364 {
             return false
@@ -8082,7 +8129,7 @@ func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length:
 
         if value == 214748364 {
             if negative {
-                if digit == 8 && index == end - 1 {
+                if digit == 8 && ParserDeclarationOnlyNumericSeparatorsRemain(source, index + 1, end) {
                     result.Values[resultIndex] = 0 - 2147483647 - 1
                     return true
                 }
@@ -8099,10 +8146,26 @@ func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length:
         index = index + 1
     }
 
+    if !hasDigit {
+        return false
+    }
+
     if negative {
         result.Values[resultIndex] = 0 - value
     } else {
         result.Values[resultIndex] = value
+    }
+
+    return true
+}
+
+func ParserDeclarationOnlyNumericSeparatorsRemain(source: string, start: int, end: int): bool {
+    index := start
+    while index < end {
+        if source[index] != '_' {
+            return false
+        }
+        index = index + 1
     }
 
     return true
@@ -11111,22 +11174,22 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
 
 func ColumnarPrimaryConstructorLiteralExpressionKind(tokenKind: int): int {
     if tokenKind == 1 {
-        return 0
+        return ColumnarExpressionNodeKind.IntLiteralExpression()
     }
     if tokenKind == 2 {
-        return 1
+        return ColumnarExpressionNodeKind.FloatLiteralExpression()
     }
     if tokenKind == 3 {
-        return 2
+        return ColumnarExpressionNodeKind.CharLiteralExpression()
     }
     if tokenKind == 4 {
-        return 3
+        return ColumnarExpressionNodeKind.StringLiteralExpression()
     }
     if tokenKind == 44 || tokenKind == 45 {
         return ColumnarExpressionNodeKind.BoolLiteralExpression()
     }
     if tokenKind == 46 {
-        return 5
+        return ColumnarExpressionNodeKind.NullLiteralExpression()
     }
 
     return -1
@@ -11452,7 +11515,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                         }
                     }
                 } else if ColumnarPrimaryConstructorTypeIsNullable(source, typeResult.Values[0], typeResult.Values[1]) {
-                    valueKind = 5
+                    valueKind = ColumnarExpressionNodeKind.NullLiteralExpression()
                 } else {
                     matchedParam := PrimaryConstructorParameterIndexOf(source, primaryParameters, paramCount, fieldNameStart, fieldNameLength)
                     if matchedParam >= 0 {
