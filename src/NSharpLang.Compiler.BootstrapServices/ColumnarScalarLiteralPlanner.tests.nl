@@ -175,7 +175,7 @@ test "scalar literal planner owns exact integer families and bit patterns" {
     ColumnarScalarPlannerAssertInt64(
         "9223372036854775807L", 9223372036854775807L, typeof(long))
     ColumnarScalarPlannerAssertInt64("7uL", 7L, typeof(ulong))
-    ColumnarScalarPlannerAssertInt64("9223372036854775808Lu", -9223372036854775808L, typeof(ulong))
+    ColumnarScalarPlannerAssertInt64("9223372036854775808Lu", long.MinValue, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("18446744073709551615UL", -1L, typeof(ulong))
 }
 

@@ -57,7 +57,7 @@ func AssertStaticCall(
 }
 
 test "recursive code plans own every required opcode field" {
-    names := new string[](39)
+    names := new string[](40)
     names[0] = "Ldc_I4_M1"
     names[1] = "Ldc_I4_0"
     names[2] = "Ldc_I4_1"
@@ -97,6 +97,7 @@ test "recursive code plans own every required opcode field" {
     names[36] = "Neg"
     names[37] = "Not"
     names[38] = "Ceq"
+    names[39] = "Ldsfld"
 
     i := 0
     while i < names.Length {
@@ -105,6 +106,7 @@ test "recursive code plans own every required opcode field" {
     }
 
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Unbox_Any").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldsflda").IsSupported
 }
 
 test "range code plans own exact runtime type identities" {
@@ -196,6 +198,25 @@ test "range code plans own exact reflection handle calls" {
         "GetGetMethod",
         new string[](0),
         "System.Reflection.MethodInfo")
+    AssertVirtualCall(
+        "System.Reflection.PropertyInfo",
+        "get_PropertyType",
+        new string[](0),
+        "System.Type")
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "PropertyInfo",
+        "get_PropertyType",
+        new string[](0)).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.PropertyInfo",
+        "PropertyType",
+        new string[](0)).IsSupported
+    oneObject := new string[](1)
+    oneObject[0] = "System.Object"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.PropertyInfo",
+        "get_PropertyType",
+        oneObject).IsSupported
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "MakeGenericMethod",

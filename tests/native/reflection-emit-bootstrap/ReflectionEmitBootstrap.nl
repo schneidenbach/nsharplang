@@ -25,7 +25,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 12
+        return 13
     }
 
     public static func ParseInt32(text: string): int {
@@ -275,5 +275,14 @@ public class ReflectionEmitBootstrapProbe {
         il.Emit(OpCodes.Neg)
         il.Emit(OpCodes.Not)
         il.Emit(OpCodes.Ceq)
+    }
+
+    // Compile-time proof for the field load and reflection fact consumed by static-member plans.
+    public static func EmitExternalStaticMemberPlanSurface(
+        il: ILGenerator,
+        field: FieldInfo,
+        property: PropertyInfo): Type {
+        il.Emit(OpCodes.Ldsfld, field)
+        return property.get_PropertyType()
     }
 }

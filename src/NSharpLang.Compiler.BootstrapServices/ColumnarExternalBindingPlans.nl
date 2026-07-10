@@ -404,6 +404,11 @@ public class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
         }
 
+        if receiver == "System.Reflection.PropertyInfo"
+            && memberName == "get_PropertyType" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Type")
+        }
+
         if receiver == "System.Reflection.MethodInfo"
             && memberName == "MakeGenericMethod"
             && count == 1
@@ -636,6 +641,7 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ceq"
             || memberName == "Conv_I4"
             || memberName == "Ldfld"
+            || memberName == "Ldsfld"
             || memberName == "Ldlen"
             || memberName == "Ldelem_U1"
             || memberName == "Ldelem_U2"
