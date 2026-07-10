@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `2e6e7f0b0` (2026-07-10). This file is the resume point. Current
+**Audited implementation base:** `97454855a` (2026-07-10). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `0206a1ed1` routes the persisted `399008ea9` range/index read surface
@@ -166,9 +166,8 @@ Status meanings:
   `548c211fe`; installed, local-feed, and global-cache SDK hashes all equal
   `424abfe553b11be25a537446b17c6d0c50e36e77bc2c21e7b619f036d1c0536d`, and the cached
   BootstrapServices DLL hash is `d55a85b3c02eb734aec5452aaef2dee8af28cf02769ae9e29199b8730e148cfc`.
-  Float/double remain on the old direct branch until the N# external static-call plan admits exact
-  invariant `Double.Parse`/`TryParse`; decimal, interpolation, contextual adoption, defaults, and
-  static initializers remain separately inventoried deletion debt rather than scalar-plan fallbacks.
+  Decimal, interpolation, contextual adoption, defaults, and static initializers remain separately
+  inventoried deletion debt rather than scalar-plan fallbacks.
 - Exact external static parse-call selection is N#-owned at `2e6e7f0b0`. The plan maps actual
   `CultureInfo` facts to exact `IFormatProvider` method signatures and owns CoreLib Int32/Double
   Parse/TryParse identities, including Int32&/Double& parameter types and bounded aliases. The
@@ -181,12 +180,30 @@ Status meanings:
   `2e6e7f0b0`; installed, local-feed, and global-cache SDK hashes all equal
   `c0c573cd540eadee80aa122478944ef905316ada180567221abc0a0c31193d01`, and the cached
   BootstrapServices DLL hash is `43f34ff586a1682ea1353e64a58c924e3edebe62c8d6bda64f3a5a0248a39abd`.
+- Floating-point literal ownership is N#-only at `e3ef2ef2b`. Parser-produced unsuffixed and
+  `d`/`D` doubles plus `f`/`F` singles now use the schema-v3 scalar planner with invariant
+  double parsing and exact double-then-float narrowing; `m`/`M` remains the isolated decimal
+  debt. The old direct emission and preflight decisions are deleted, shrinking the emitter by
+  17 lines. Native contracts pin suffixes, separators, exponent forms, overflow to infinity,
+  underflow, negative zero, double-rounding, opcode/pool identity, type preflight, and atomic
+  rollback. BootstrapServices is 130/130, Columnar is 102/102, scalar-code-plan is 2/2, and the
+  ownership audit is 18/18.
+- Syntactic `nameof` and constant range children are N#-only at `97454855a`. A schema-v3 N#
+  planner owns exact identifier/member final-name selection, root emission and preflight, and
+  recursive range consumption; the range planner also consumes the shared character and string
+  scalar owner. The old C# `nameof` emission, preflight, text helper, and a dead range predicate
+  are deleted, shrinking the emitter by another 27 lines. BootstrapServices is 130/130,
+  Columnar is 102/102, range-index is 16/16, `PrintNameofTypeof` builds/runs and passes ILVerify,
+  and an adversarial audit approved the boundary. A clean repin installed `97454855a`; the
+  installed, local-feed, and global-cache SDK hashes all equal
+  `772948e517e6094cd66a86c0cf70516fba28a86a1439ddae33fe18e3acc2c3b6`, and the cached
+  BootstrapServices DLL hash is `861d23adef17dd74bd5e391385b1baac968d8a633c17cf6f88e141653a360f91`.
 - The N#-only ownership-growth ratchet is committed at `5e5d8c8ba`. Its strict schema-v1 manifest
   covers 381 tracked paths: 364 closeout paths and 17 explicitly separate runtime/native-reference
   paths. N# derives every language/surface/scope classification, rejects new paths and metric or
   assertion growth, preserves removal tombstones, fingerprints binaries as raw bytes, and pins
   both immutable epoch facts and the reviewed current/state head. The path, epoch-fact, and head
-  fingerprints are `8a26e1529863444b`, `1b3090747e517fc1`, and `d1ce8b9415f1d087` respectively.
+  fingerprints are `8a26e1529863444b`, `1b3090747e517fc1`, and `ffbef88c68ba441a` respectively.
   Native tests pass 18/18 locally and in a `.git`-free archive; the executable audit and the fresh
   product gate's isolated discovery both pass. This is an E0 growth guard, not the final H8
   survivor allowlist or a claim that existing debt is acceptable.
@@ -296,7 +313,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; `cd711be2e`/`7dbee4304` exact scalar Reflection.Emit capabilities; `9957c0657` schema-v3 scalar constants; `f2440777f` raw numeric source spans; `548c211fe` production scalar literal plans and 64-line C# shrink; `2e6e7f0b0` exact static parse calls and three-line C# shrink; BootstrapServices 123/123; Columnar 102/102; scalar/range successors 2/2 and 15/15; ownership 18/18; clean repin hash `c0c573…3d01` | Route float/double literals through schema-v3 N# plans and delete their direct C# branch, then add the bounded nameof/constant child family before callback-free binding/member/call/control closure. Preserve the reviewed audit head with each shrink/removal. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; `9957c0657` schema-v3 scalar constants; `f2440777f` raw numeric spans; `548c211fe` integer/character/string production ownership; `2e6e7f0b0` exact static parse calls; `e3ef2ef2b` floating production ownership; `97454855a` `nameof` plus constant range children; emitter now 21,612 lines; BootstrapServices 130/130; Columnar 102/102; scalar/range successors 2/2 and 16/16; ownership 18/18 at reviewed head `ffbef88c68ba441a`; clean repin hash `772948…c3b6` | Close callback-free binding/member/call/control child families, then delete the complete remaining C# range/index owner introduced by `399008ea9`. Preserve the reviewed audit head with each shrink/removal. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
