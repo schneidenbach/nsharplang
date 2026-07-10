@@ -20,6 +20,50 @@ func ReturnUnsignedLongLiteral(): ulong {
     return 18446744073709551615UL
 }
 
+func ReturnDoubleLiteral(): double {
+    return 1.25
+}
+
+func ReturnExplicitDoubleLiteral(): double {
+    return 1_2.5_0e1D
+}
+
+func ReturnSingleLiteral(): float {
+    return 6.25e-1F
+}
+
+func ReturnNegativeDoubleLiteral(): double {
+    return -6.25E-1d
+}
+
+func ReturnNegativeZeroDoubleLiteral(): double {
+    return -0.0
+}
+
+func ReturnRoundedSingleLiteral(): float {
+    return 1.0000000596046448f
+}
+
+func ReturnMaximumFiniteDoubleLiteral(): double {
+    return 1.7976931348623157e308
+}
+
+func ReturnOverflowDoubleLiteral(): double {
+    return 1e9999
+}
+
+func ReturnNegativeOverflowDoubleLiteral(): double {
+    return -1e9999
+}
+
+func ReturnMaximumFiniteSingleLiteral(): float {
+    return 3.4028234e38f
+}
+
+func ReturnOverflowSingleLiteral(): float {
+    return 3.5e38f
+}
+
 func ReturnCharacterLiteral(): char {
     return '\n'
 }
@@ -45,6 +89,15 @@ test "scalar code plans supply exact function return values" {
     assert ReturnHexLiteral() == 2147483647
     assert ReturnBinaryLiteral() == 165
     assert ReturnUnsignedLongLiteral() == 18446744073709551615LU
+    assert ReturnDoubleLiteral() == 1.25
+    assert ReturnExplicitDoubleLiteral() == 125.0
+    assert ReturnSingleLiteral() == 0.625f
+    assert ReturnNegativeDoubleLiteral() == -0.625
+    assert 1.0 / ReturnNegativeZeroDoubleLiteral() < 0.0
+    assert ReturnRoundedSingleLiteral() == 1.0f
+    assert ReturnOverflowDoubleLiteral() > ReturnMaximumFiniteDoubleLiteral()
+    assert ReturnNegativeOverflowDoubleLiteral() < -ReturnMaximumFiniteDoubleLiteral()
+    assert ReturnOverflowSingleLiteral() > ReturnMaximumFiniteSingleLiteral()
     assert ReturnCharacterLiteral() == '\n'
     assert ReturnOrdinaryStringLiteral() == "line\nquote\"slash\\"
     assert ReturnTripleStringLiteral() == "\nslash\\n\n"

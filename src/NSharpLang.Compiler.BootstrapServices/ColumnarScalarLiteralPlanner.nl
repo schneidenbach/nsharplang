@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Globalization
 import System.Reflection.Emit
 import NSharpLang.Compiler
 
@@ -84,6 +85,9 @@ public class ColumnarScalarLiteralPlanner {
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
             return TryAppendInteger(text, plan, out resultType)
         }
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression() {
+            return TryAppendFloatingPoint(text, plan, out resultType)
+        }
         if kind == ColumnarExpressionNodeKind.CharLiteralExpression() {
             return TryAppendCharacter(text, plan, out resultType)
         }
@@ -133,6 +137,42 @@ public class ColumnarScalarLiteralPlanner {
         valueIndex := plan.AddInt64(bits)
         plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
         resultType = typeof(ulong)
+        return true
+    }
+
+    static func TryAppendFloatingPoint(
+        text: string,
+        plan: ColumnarCodePlan,
+        out resultType: Type): bool {
+        resultType = typeof(double)
+        if text.Length == 0 {
+            return false
+        }
+
+        last := text[text.Length - 1]
+        if last == 'm' || last == 'M' {
+            return false
+        }
+        isSingle := last == 'f' || last == 'F'
+        body := text
+        if isSingle || last == 'd' || last == 'D' {
+            body = body.Substring(0, body.Length - 1)
+        }
+        body = body.Trim().Replace("_", "")
+
+        value := 0.0
+        if !Double.TryParse(body, CultureInfo.InvariantCulture, out value) {
+            return false
+        }
+        if isSingle {
+            valueIndex := plan.AddSingle((float)value)
+            plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), valueIndex)
+            resultType = typeof(float)
+            return true
+        }
+
+        valueIndex := plan.AddDouble(value)
+        plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), valueIndex)
         return true
     }
 
@@ -287,6 +327,7 @@ public class ColumnarScalarLiteralPlanner {
 
     static func IsOwnedLiteralKind(kind: int): bool {
         return kind == ColumnarExpressionNodeKind.IntLiteralExpression()
+            || kind == ColumnarExpressionNodeKind.FloatLiteralExpression()
             || kind == ColumnarExpressionNodeKind.CharLiteralExpression()
             || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
     }

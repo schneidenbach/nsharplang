@@ -120,6 +120,30 @@ func ColumnarScalarPlannerAssertInt64(text: string, expected: long, resultType: 
     assert plan.Int64Values[plan.OperandIndices[0]] == expected
 }
 
+func ColumnarScalarPlannerAssertDouble(text: string, expected: double) {
+    tree := ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.FloatLiteralExpression(), text)
+    plan := ColumnarScalarPlannerPlan(tree)
+    assert plan.ResultType == typeof(double)
+    assert plan.OperationCount == 1
+    assert plan.FragmentCount == 1
+    assert plan.SingleCount == 0
+    assert plan.DoubleCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcR8()
+    assert plan.DoubleValues[plan.OperandIndices[0]] == expected
+}
+
+func ColumnarScalarPlannerAssertSingle(text: string, expected: float) {
+    tree := ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.FloatLiteralExpression(), text)
+    plan := ColumnarScalarPlannerPlan(tree)
+    assert plan.ResultType == typeof(float)
+    assert plan.OperationCount == 1
+    assert plan.FragmentCount == 1
+    assert plan.SingleCount == 1
+    assert plan.DoubleCount == 0
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcR4()
+    assert plan.SingleValues[plan.OperandIndices[0]] == expected
+}
+
 func ColumnarScalarPlannerDeclines(kind: int, text: string) {
     tree := ColumnarScalarPlannerTree(kind, text)
     plan := new ColumnarCodePlan()
@@ -153,6 +177,45 @@ test "scalar literal planner owns exact integer families and bit patterns" {
     ColumnarScalarPlannerAssertInt64("7uL", 7L, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("9223372036854775808Lu", -9223372036854775808L, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("18446744073709551615UL", -1L, typeof(ulong))
+}
+
+test "scalar literal planner owns invariant double and single families" {
+    ColumnarScalarPlannerAssertDouble("0.0", 0.0)
+    ColumnarScalarPlannerAssertDouble("1.25", 1.25)
+    ColumnarScalarPlannerAssertDouble("1.25d", 1.25)
+    ColumnarScalarPlannerAssertDouble("1.25D", 1.25)
+    ColumnarScalarPlannerAssertDouble("1_2.5_0", 12.5)
+    ColumnarScalarPlannerAssertDouble("6.25e-1", 0.625)
+    ColumnarScalarPlannerAssertDouble("6.25E+1", 62.5)
+    ColumnarScalarPlannerAssertDouble(" 1.25 ", 1.25)
+
+    ColumnarScalarPlannerAssertSingle("0.0f", 0.0f)
+    ColumnarScalarPlannerAssertSingle("1.25f", 1.25f)
+    ColumnarScalarPlannerAssertSingle("1.25F", 1.25f)
+    ColumnarScalarPlannerAssertSingle("1_2.5_0f", 12.5f)
+    ColumnarScalarPlannerAssertSingle("6.25e-1F", 0.625f)
+    ColumnarScalarPlannerAssertSingle("1.0000000596046448f", 1.0f)
+    ColumnarScalarPlannerAssertSingle("16777217.0f", 16777216.0f)
+}
+
+test "scalar literal planner preserves TryParse overflow and narrowing bounds" {
+    maxDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.7976931348623157e308"))
+    overflowDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e9999"))
+    assert overflowDouble.DoubleValues[0] > maxDouble.DoubleValues[0]
+
+    underflowDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e-5000"))
+    assert underflowDouble.DoubleValues[0] == 0.0
+    assert 1.0 / underflowDouble.DoubleValues[0] > 0.0
+
+    maxSingle := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "3.4028234e38f"))
+    overflowSingle := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "3.5e38f"))
+    assert overflowSingle.SingleValues[0] > maxSingle.SingleValues[0]
 }
 
 test "scalar literal planner decodes every admitted character escape" {
@@ -230,6 +293,32 @@ test "scalar literal planner facades report the sealed exact type" {
     assert plan.ResultType == typeof(long)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    floatingTree := ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25f")
+    floatingPlan := new ColumnarCodePlan()
+    resultType = typeof(int)
+    assert ColumnarScalarLiteralPlanner.TryGetType(
+        floatingTree.Nodes,
+        floatingTree.Source,
+        floatingTree.Root,
+        floatingPlan,
+        out resultType)
+    assert resultType == typeof(float)
+    assert floatingPlan.ResultType == typeof(float)
+
+    doubleTree := ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25d")
+    doublePlan := new ColumnarCodePlan()
+    resultType = typeof(int)
+    assert ColumnarScalarLiteralPlanner.TryGetType(
+        doubleTree.Nodes,
+        doubleTree.Source,
+        doubleTree.Root,
+        doublePlan,
+        out resultType)
+    assert resultType == typeof(double)
+    assert doublePlan.ResultType == typeof(double)
 }
 
 test "scalar literal planner rejects excluded and malformed literal families without mutation" {
@@ -280,8 +369,27 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     ColumnarScalarPlannerDeclines(
         ColumnarExpressionNodeKind.StringLiteralExpression(), triple + "short")
 
-    ColumnarScalarPlannerDeclines(ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25")
-    ColumnarScalarPlannerDeclines(ColumnarExpressionNodeKind.FloatLiteralExpression(), "1m")
+    invalidFloating := new string[](13)
+    invalidFloating[0] = ""
+    invalidFloating[1] = "f"
+    invalidFloating[2] = "d"
+    invalidFloating[3] = "1.25ff"
+    invalidFloating[4] = "1.25fd"
+    invalidFloating[5] = "1.25m"
+    invalidFloating[6] = "1.25M"
+    invalidFloating[7] = "1e"
+    invalidFloating[8] = "1e+"
+    invalidFloating[9] = "."
+    invalidFloating[10] = "_"
+    invalidFloating[11] = "not-a-number"
+    invalidFloating[12] = " 1.25D "
+    i = 0
+    while i < invalidFloating.Length {
+        ColumnarScalarPlannerDeclines(
+            ColumnarExpressionNodeKind.FloatLiteralExpression(), invalidFloating[i])
+        i = i + 1
+    }
+
     ColumnarScalarPlannerDeclines(ColumnarExpressionNodeKind.NullLiteralExpression(), "null")
     ColumnarScalarPlannerDeclines(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
 }
@@ -294,6 +402,16 @@ test "scalar literal planner rolls malformed table shapes back exactly" {
         childTree.Nodes, childTree.Source, childTree.Root, childPlan)
         == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(childPlan)
+
+    floatingChildTree := ColumnarScalarPlannerTreeWithChild(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25")
+    floatingChildPlan := new ColumnarCodePlan()
+    assert ColumnarScalarLiteralPlanner.Plan(
+        floatingChildTree.Nodes,
+        floatingChildTree.Source,
+        floatingChildTree.Root,
+        floatingChildPlan) == ColumnarFragmentPlanStatus.NotOwned
+    ColumnarScalarPlannerAssertEmpty(floatingChildPlan)
 
     badStart := ColumnarScalarPlannerTreeWithSpan(
         ColumnarExpressionNodeKind.IntLiteralExpression(), "7", -1, 1)
@@ -337,6 +455,19 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     assert atomic.OperationCount == 1
     assert atomic.Int32Count == 1
     assert atomic.Int32Values[0] == 99
+
+    malformedFloating := ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e+")
+    floatingAtomic := new ColumnarCodePlan()
+    floatingAtomic.PrepareV3()
+    floatingAtomic.BeginFragment(-1, ColumnarExpressionNodeKind.FloatLiteralExpression(), 0)
+    existingDouble := floatingAtomic.AddDouble(99.0)
+    floatingAtomic.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), existingDouble)
+    assert !ColumnarScalarPlannerTryAppend(malformedFloating, floatingAtomic)
+    assert floatingAtomic.OperationCount == 1
+    assert floatingAtomic.DoubleCount == 1
+    assert floatingAtomic.SingleCount == 0
+    assert floatingAtomic.DoubleValues[0] == 99.0
 
     v2 := new ColumnarCodePlan()
     v2.PrepareV2()

@@ -9909,29 +9909,13 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 1: // FloatLiteral — `3.5` / `3.5d` (double, r8 Ldc_R8) or `3.5f` (float, r4 Ldc_R4). An `m`/`M`
-            {       // (decimal) suffix is a different type -> decline. The value is parsed identically to the
-                    // path's ParseFloatLiteralValue (strip the type suffix, drop `_` separators, invariant parse),
-                    // then narrowed to float for an f-literal (matching `Ldc_R4, (float)ParseFloatLiteralValue`).
+            case 1: // Decimal literals remain on the contextual reflection-backed lowering path.
+            {
                 var raw = Text(idx);
                 var last = raw.Length > 0 ? raw[raw.Length - 1] : '\0';
                 if (last == 'm' || last == 'M')
                     return TryEmitDecimalLiteral(raw.Substring(0, raw.Length - 1), out type); // `2.5m`
-                var isFloatLiteral = last == 'f' || last == 'F';
-                var body = (isFloatLiteral || last == 'd' || last == 'D') ? raw.Substring(0, raw.Length - 1) : raw;
-                if (!TryParseFloatingLiteralBody(body, out var doubleValue))
-                    return false;
-                if (isFloatLiteral)
-                {
-                    _il.Emit(OpCodes.Ldc_R4, (float)doubleValue);
-                    type = typeof(float);
-                }
-                else
-                {
-                    _il.Emit(OpCodes.Ldc_R8, doubleValue);
-                    type = typeof(double);
-                }
-                return true;
+                return false;
             }
 
             case 3: // StringLiteral
@@ -16858,8 +16842,7 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(decimal);
                     return true;
                 }
-                type = last == 'f' || last == 'F' ? typeof(float) : typeof(double);
-                return true;
+                return false;
             }
             case 3:
             {
