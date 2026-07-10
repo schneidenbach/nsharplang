@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `1345ec9fc` (2026-07-09). This file is the resume point. Current
+**Audited implementation base:** `cc53a347e` (2026-07-09). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `399008ea9` proved range/index value/read behavior but introduced C#
@@ -96,6 +96,18 @@ Status meanings:
   worktree repin installed `1345ec9fc`; the installed and local-feed SDK package hashes are
   `6c54169c71160562da9c9ff921e984db865ac9e2df2c62af4a215ba5835956f9`. The production
   range/index route is the first non-null executor oracle and remains the next E0 boundary.
+- Recursive range/index plan construction is N#-owned at `cc53a347e` for the persisted
+  `399008ea9` corpus: all range forms, direct and from-end `Index`, exact narrow-integer and enum
+  conversions, conditional selectors, string reads, and concrete/reference/generic SZ-array
+  reads and slices. Exact CLR handle selection, raw binding/shadow facts, and transactional
+  rollback are native contracts; BootstrapServices remains 80/80. A clean repin installed
+  `cc53a347e`; installed and local-feed SDK hashes are
+  `33c447f76777e95581943f5846b6ae9f5312c974db7a631e16ad7636ebd21eaf`. Production deletion
+  is not yet safe: the old `399008ea9` path recursively accepted general expression receivers,
+  endpoints, and selectors (including binary expressions, nested ordinary indexing, calls,
+  members, array literals, current-instance/lifted facts, and richer conditions) that this first
+  bounded planner correctly declines. Port those accepted child families through N# plans before
+  routing and deleting the entire C# owner; a legacy fallback or callback is forbidden.
 - The H2 gate currently discovers direct `.tests.nl` projects under `examples/` and `tests/`.
   Template suites are not silently counted: `templates/nsharp-systems-cli` currently declines
   `BinaryPrimitives.ReadUInt32LittleEndian(ReadOnlySpan<byte>)` at
@@ -200,7 +212,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `d8ece513a` exact executor metadata facts; `6bfcc11ac` generic-definition/parameter discrimination; `99785ed8f` enum backing metadata; `acf6712fb`/`0ae1cf22b` callable safety metadata; `1345ec9fc` direct schema-v2 executor and latest clean repin; BootstrapServices 80/80; Columnar 102/102; range/index successor 14/14 gated | Commit the recursive N# range/index planner, route it directly, prove persisted execution/IL, delete `399008ea9` C# branches/assertions, then land the cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `d8ece513a` exact executor metadata facts; `6bfcc11ac` generic-definition/parameter discrimination; `99785ed8f` enum backing metadata; `acf6712fb`/`0ae1cf22b` callable safety metadata; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive range/index planner and latest clean repin; BootstrapServices 80/80; Columnar 102/102; range/index successor 14/14 gated | Port the legacy-accepted general child-expression families into composable N# plans; then route range/index, prove persisted execution/IL, delete `399008ea9` C# branches/assertions, and land the cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
