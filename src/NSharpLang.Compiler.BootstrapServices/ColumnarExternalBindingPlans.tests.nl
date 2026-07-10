@@ -155,6 +155,9 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "get_IsByRef", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsGenericParameter", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "GetEnumUnderlyingType", noArguments, "System.Type")
+    AssertVirtualCall("System.Type", "GetGenericTypeDefinition", noArguments, "System.Type")
+    AssertVirtualCall("System.Type", "get_IsGenericTypeDefinition", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
 
     oneType := new string[](1)
     oneType[0] = "System.Type"
@@ -198,6 +201,11 @@ test "recursive executor owns exact reflection signature facts" {
         "get_IsGenericMethodDefinition",
         noArguments,
         "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_CallingConvention",
+        noArguments,
+        "System.Reflection.CallingConventions")
 
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
@@ -214,6 +222,11 @@ test "recursive executor owns exact reflection signature facts" {
         "get_DeclaringType",
         noArguments,
         "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.ConstructorInfo",
+        "get_CallingConvention",
+        noArguments,
+        "System.Reflection.CallingConventions")
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_FieldType",

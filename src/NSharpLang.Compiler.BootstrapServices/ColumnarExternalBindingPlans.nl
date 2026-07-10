@@ -275,7 +275,8 @@ public class ColumnarExternalBindingPlans {
             }
             if (memberName == "GetElementType"
                     || memberName == "MakeArrayType"
-                    || memberName == "GetEnumUnderlyingType")
+                    || memberName == "GetEnumUnderlyingType"
+                    || memberName == "GetGenericTypeDefinition")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
@@ -283,7 +284,9 @@ public class ColumnarExternalBindingPlans {
                     || memberName == "get_IsValueType"
                     || memberName == "get_IsEnum"
                     || memberName == "get_IsByRef"
-                    || memberName == "get_IsGenericParameter")
+                    || memberName == "get_IsGenericParameter"
+                    || memberName == "get_IsGenericTypeDefinition"
+                    || memberName == "get_IsAbstract")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
@@ -334,6 +337,13 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_IsGenericMethodDefinition" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
+            if memberName == "get_CallingConvention" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.CallingConventions")
+            }
         }
 
         if receiver == "System.Reflection.ConstructorInfo" && count == 0 {
@@ -345,6 +355,13 @@ public class ColumnarExternalBindingPlans {
             }
             if memberName == "get_IsStatic" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "get_CallingConvention" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.CallingConventions")
             }
         }
 

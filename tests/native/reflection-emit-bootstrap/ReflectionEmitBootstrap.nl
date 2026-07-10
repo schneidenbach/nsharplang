@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 6
+        return 7
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -116,6 +116,9 @@ public class ReflectionEmitBootstrapProbe {
         if openConstructedGetSubArray == null {
             return false
         }
+        genericTupleDefinition := typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
+        // System.Reflection.CallingConventions.VarArgs has the stable CLR metadata value 2.
+        varArgsFlag := 2
         return typeof(int[]).get_IsSZArray()
             && typeof(int).get_IsValueType()
             && typeof(ReflectionEmitProbeEnum).get_IsEnum()
@@ -123,9 +126,16 @@ public class ReflectionEmitBootstrapProbe {
             && !typeof(int).get_IsGenericParameter()
             && openArrayElementType.get_IsGenericParameter()
             && otherGenericParameter.get_IsGenericParameter()
+            && genericTupleDefinition.get_IsGenericTypeDefinition()
+            && !typeof(ValueTuple<int, int>).get_IsGenericTypeDefinition()
+            && !openArrayElementType.get_IsGenericTypeDefinition()
+            && typeof(MethodInfo).get_IsAbstract()
+            && !typeof(Index).get_IsAbstract()
             && getSubArray.get_IsGenericMethodDefinition()
             && !getSubArray.get_IsAbstract()
             && abstractMethod.get_IsAbstract()
+            && (((int)getSubArray.get_CallingConvention()) & varArgsFlag) == 0
+            && (((int)indexCtor.get_CallingConvention()) & varArgsFlag) == 0
             && !openConstructedGetSubArray.get_IsGenericMethodDefinition()
             && !closedGetSubArray.get_IsGenericMethodDefinition()
             && typeof(object).IsAssignableFrom(typeof(string))
