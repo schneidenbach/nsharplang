@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `0206a1ed1` (2026-07-10). This file is the resume point. Current
+**Audited implementation base:** `6d8bc72db` (2026-07-10). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `0206a1ed1` routes the persisted `399008ea9` range/index read surface
@@ -104,9 +104,9 @@ Status meanings:
   `cc53a347e`; installed and local-feed SDK hashes are
   `33c447f76777e95581943f5846b6ae9f5312c974db7a631e16ad7636ebd21eaf`. Production deletion
   is not yet safe: the old `399008ea9` path recursively accepted general expression receivers,
-  endpoints, and selectors (including binary expressions, nested ordinary indexing, calls,
-  members, array literals, current-instance/lifted facts, and richer conditions) that this first
-  bounded planner correctly declines. Port those accepted child families through N# plans before
+  endpoints, and selectors (including binary expressions, calls, members, array literals,
+  current-instance/lifted facts, and richer conditions) that this bounded planner still declines.
+  Port those accepted child families through N# plans before
   routing and deleting the entire C# owner; a legacy fallback or callback is forbidden.
 - Constructed generic signature substitution is N#-owned at `f618b3bf3`/`0206a1ed1`.
   `MethodBuilderInstantiation` exposes definition-owned parameter/return wrappers for an unbaked
@@ -124,6 +124,14 @@ Status meanings:
   `bc726dddbc9edfa59637e8d72fe9436ff2d52b6ab37eaf4be0d53f5ecb0b2b91`. This does not close
   E0: general child-expression parity, complete C# branch deletion, and the ownership-growth audit
   remain required.
+- Recursive ordinary integer indexing beneath an N#-owned range/index root is production-owned at
+  `6d8bc72db`: array children use the exact `ldelem*` family, string children call `get_Chars`, and
+  direct ordinary-index roots remain outside this planner. Native contracts pin successful nested
+  planning, direct-root exclusion after a nested child succeeds, and atomic rollback; persisted
+  execution covers `values[^counts[0]]`, `matrix[0][^1]`, and the string-character child path. The
+  range suite is 15/15 and BootstrapServices is green. A clean worktree repin installed
+  `6d8bc72db`; the `~/.nsharp`, local-feed, and global-cache SDK hashes all equal
+  `38acbfd98b6b6954fb288d36b8ee4c4908cff7a25f4a7b922ab710116fab446e`.
 - The H2 gate currently discovers direct `.tests.nl` projects under `examples/` and `tests/`.
   Template suites are not silently counted: `templates/nsharp-systems-cli` currently declines
   `BinaryPrimitives.ReadUInt32LittleEndian(ReadOnlySpan<byte>)` at
@@ -227,7 +235,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; BootstrapServices green; Columnar 102/102; range successor 14/14; four assemblies ILVerify; clean repin hash `bc726d…b2b91` | Port every legacy-accepted general child-expression family into composable N# plans, delete all remaining `399008ea9` C# decision branches, and land the cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; BootstrapServices green; Columnar 102/102; range successor 15/15; four assemblies ILVerify; clean repin hash `38acbf…446e` | Port every remaining legacy-accepted general child-expression family into composable N# plans, delete all remaining `399008ea9` C# decision branches, and land the cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
