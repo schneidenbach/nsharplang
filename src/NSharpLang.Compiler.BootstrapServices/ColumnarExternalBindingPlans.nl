@@ -91,6 +91,13 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.PropertyInfo"
         } else if canonical == "ConstructorInfo" || canonical == "System.Reflection.ConstructorInfo" {
             runtimeTypeName = "System.Reflection.ConstructorInfo"
+        } else if canonical == "Index" || canonical == "System.Index" {
+            runtimeTypeName = "System.Index"
+        } else if canonical == "Range" || canonical == "System.Range" {
+            runtimeTypeName = "System.Range"
+        } else if canonical == "RuntimeHelpers"
+            || canonical == "System.Runtime.CompilerServices.RuntimeHelpers" {
+            runtimeTypeName = "System.Runtime.CompilerServices.RuntimeHelpers"
         } else {
             return false
         }
@@ -114,6 +121,8 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.FieldInfo"
             || name == "System.Reflection.PropertyInfo"
             || name == "System.Reflection.ConstructorInfo"
+            || name == "System.Index"
+            || name == "System.Range"
     }
 
     public static func GetStaticMemberPlan(typeName: string, memberName: string): ColumnarExternalStaticMemberPlan {
@@ -242,6 +251,26 @@ public class ColumnarExternalBindingPlans {
             if memberName == "GetField" {
                 return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.FieldInfo")
             }
+            if memberName == "GetMethod" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
+            }
+        }
+
+        if receiver == "System.Type" {
+            if memberName == "GetConstructor"
+                && count == 1
+                && argumentTypeNames[0] == "System.Type[]" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.ConstructorInfo")
+            }
+            if memberName == "GetMethod"
+                && count == 2
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Type[]" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
+            }
+            if (memberName == "GetElementType" || memberName == "MakeArrayType") && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
         }
 
         if receiver == "System.Reflection.PropertyInfo"
@@ -252,6 +281,18 @@ public class ColumnarExternalBindingPlans {
         if receiver == "System.Reflection.FieldInfo"
             && memberName == "GetValue" && count == 1 {
             return VirtualCall(receiver, memberName, One("System.Object"), "System.Object")
+        }
+
+        if receiver == "System.Reflection.PropertyInfo"
+            && memberName == "GetGetMethod" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
+        }
+
+        if receiver == "System.Reflection.MethodInfo"
+            && memberName == "MakeGenericMethod"
+            && count == 1
+            && argumentTypeNames[0] == "System.Type[]" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
         }
 
         if receiver == "System.Diagnostics.Process" {
@@ -345,6 +386,7 @@ public class ColumnarExternalBindingPlans {
 
     static func IsSupportedEmitOperand(typeName: string): bool {
         return typeName == "System.Int32"
+            || typeName == "System.Int16"
             || typeName == "System.Int64"
             || typeName == "System.Single"
             || typeName == "System.Double"
@@ -360,12 +402,38 @@ public class ColumnarExternalBindingPlans {
 
     static func IsSupportedOpCodeMemberName(memberName: string): bool {
         return memberName == "Nop"
+            || memberName == "Ldc_I4_M1"
             || memberName == "Ldc_I4_0"
             || memberName == "Ldc_I4_1"
+            || memberName == "Ldc_I4_2"
+            || memberName == "Ldc_I4_3"
+            || memberName == "Ldc_I4_4"
+            || memberName == "Ldc_I4_5"
+            || memberName == "Ldc_I4_6"
+            || memberName == "Ldc_I4_7"
+            || memberName == "Ldc_I4_8"
             || memberName == "Ldc_I4"
             || memberName == "Stloc"
             || memberName == "Ldloc"
+            || memberName == "Ldloca"
+            || memberName == "Ldarg"
             || memberName == "Br"
+            || memberName == "Brfalse"
+            || memberName == "Call"
+            || memberName == "Callvirt"
+            || memberName == "Newobj"
+            || memberName == "Conv_I4"
+            || memberName == "Ldfld"
+            || memberName == "Ldlen"
+            || memberName == "Ldelem_U1"
+            || memberName == "Ldelem_U2"
+            || memberName == "Ldelem_I4"
+            || memberName == "Ldelem_U4"
+            || memberName == "Ldelem_I8"
+            || memberName == "Ldelem_R4"
+            || memberName == "Ldelem_R8"
+            || memberName == "Ldelem_Ref"
+            || memberName == "Ldelem"
             || memberName == "Pop"
             || memberName == "Ret"
     }
