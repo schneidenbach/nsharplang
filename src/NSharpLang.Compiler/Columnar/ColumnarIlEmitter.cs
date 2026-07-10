@@ -9777,6 +9777,8 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
             return true;
+        if (ColumnarScalarLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
+            return true;
         if (ColumnarRangeIndexPlanner.TryEmitFromFacts(
                 _nodes,
                 _source,
@@ -9899,50 +9901,11 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 0: // IntLiteral — decimal `int`, a signed `long` (L/l), or a `ulong` (a u/U AND an l/L suffix in
-            {       // any order: UL/LU/ul/...). The lexer keeps the suffix in the token text. A BARE u/U (uint) is
-                    // not in the supported set. Strip the trailing [uUlL] run and classify by which letters appear.
+            case 0: // Decimal literals remain on the contextual reflection-backed lowering path.
+            {
                 var text = Text(idx);
                 if (text.Length > 0 && text[^1] is 'm' or 'M')
                     return TryEmitDecimalLiteral(text.Substring(0, text.Length - 1), out type); // `5m`
-                var end = text.Length;
-                var sawU = false;
-                var sawL = false;
-                while (end > 0 && (text[end - 1] is 'u' or 'U' or 'l' or 'L'))
-                {
-                    if (text[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
-                    end--;
-                }
-                var digits = text.Substring(0, end);
-                if (sawU && sawL) // ulong (u8): load the bit pattern via Ldc_I8.
-                {
-                    if (ulong.TryParse(digits, out var ulongValue))
-                    {
-                        _il.Emit(OpCodes.Ldc_I8, unchecked((long)ulongValue));
-                        type = typeof(ulong);
-                        return true;
-                    }
-                    return false;
-                }
-                if (sawU) // bare uint, not modelled.
-                    return false;
-                if (sawL) // signed long.
-                {
-                    if (long.TryParse(digits, out var longValue))
-                    {
-                        _il.Emit(OpCodes.Ldc_I8, longValue);
-                        type = typeof(long);
-                        return true;
-                    }
-                    return false;
-                }
-                if (int.TryParse(text, out var value))
-                {
-                    _il.Emit(OpCodes.Ldc_I4, value);
-                    type = typeof(int);
-                    return true;
-                }
-
                 return false;
             }
 
@@ -9971,26 +9934,12 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 2: // CharLiteral — `'x'` (or an escape like `'\n'`) -> ldc.i4 of the code point (type char).
-            {
-                var raw = Text(idx);
-                if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
-                    raw = raw.Substring(1, raw.Length - 2);
-                if (!NSharpLang.Compiler.StringLiteralDecoder.TryDecodeBody(raw, out var charValue) || charValue.Length != 1)
-                    return false;
-                _il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
-                type = typeof(char);
-                return true;
-            }
-
             case 3: // StringLiteral
             {
                 var stringText = Text(idx);
                 if (stringText.Length > 0 && stringText[0] == '$')
                     return TryEmitInterpolatedString(stringText, out type);
-                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(stringText));
-                type = typeof(string);
-                return true;
+                return false;
             }
 
             case 7: // Parenthesized — emit the inner expression, propagating its type.
@@ -16888,6 +16837,8 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
             return true;
+        if (ColumnarScalarLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
+            return true;
         if (ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
                 _nodes,
                 _source,
@@ -16907,7 +16858,15 @@ internal sealed class ColumnarIlEmitter
         switch (_nodes.Kind(node))
         {
             case 0:
-                return TryGetIntLiteralType(Text(node), out type);
+            {
+                var text = Text(node);
+                if (text.Length > 0 && text[^1] is 'm' or 'M')
+                {
+                    type = typeof(decimal);
+                    return true;
+                }
+                return false;
+            }
             case 1:
             {
                 var raw = Text(node);
@@ -16920,12 +16879,16 @@ internal sealed class ColumnarIlEmitter
                 type = last == 'f' || last == 'F' ? typeof(float) : typeof(double);
                 return true;
             }
-            case 2:
-                type = typeof(char);
-                return true;
             case 3:
-                type = typeof(string);
-                return true;
+            {
+                var text = Text(node);
+                if (text.Length > 0 && text[0] == '$')
+                {
+                    type = typeof(string);
+                    return true;
+                }
+                return false;
+            }
             case 6:
             {
                 var name = Text(node);
@@ -17739,33 +17702,6 @@ internal sealed class ColumnarIlEmitter
             return text.Length > 0;
         }
         return false;
-    }
-
-    private static bool TryGetIntLiteralType(string text, out Type type)
-    {
-        type = null!;
-        if (text.Length > 0 && text[^1] is 'm' or 'M')
-        {
-            type = typeof(decimal);
-            return true;
-        }
-        var end = text.Length;
-        var sawU = false;
-        var sawL = false;
-        while (end > 0 && (text[end - 1] is 'u' or 'U' or 'l' or 'L'))
-        {
-            if (text[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
-            end--;
-        }
-        if (sawU && sawL)
-        {
-            type = typeof(ulong);
-            return true;
-        }
-        if (sawU)
-            return false;
-        type = sawL ? typeof(long) : typeof(int);
-        return true;
     }
 
     private bool CanAdoptIntLiteralAsType(int node, Type target)

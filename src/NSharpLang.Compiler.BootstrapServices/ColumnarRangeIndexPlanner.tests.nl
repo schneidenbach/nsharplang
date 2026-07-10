@@ -365,10 +365,15 @@ func ColumnarRangePlannerPlan(
 func ColumnarRangePlannerAssertEmptyRollback(plan: ColumnarCodePlan) {
     assert plan.Status == ColumnarFragmentPlanStatus.NotOwned
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Building
+    assert plan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
     assert plan.OperationCount == 0
     assert plan.FragmentCount == 0
     assert plan.TypeCount == 0
     assert plan.Int32Count == 0
+    assert plan.Int64Count == 0
+    assert plan.SingleCount == 0
+    assert plan.DoubleCount == 0
+    assert plan.StringCount == 0
     assert plan.ArgumentCount == 0
     assert plan.AmbientLocalCount == 0
     assert plan.MethodCount == 0
@@ -411,7 +416,7 @@ test "range planner owns from-end literals with transparent parentheses" {
     tree := ColumnarRangePlannerFromEndLiteral("2", 2)
     plan := ColumnarRangePlannerPlan(tree, ColumnarRangePlannerEmptyBindings())
 
-    assert plan.SchemaVersion == ColumnarCodePlanContract.RecursiveSchemaVersion()
+    assert plan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
     assert plan.ResultType == typeof(Index)
     assert plan.OperationCount == 3
     assert plan.FragmentCount == 2
@@ -426,6 +431,18 @@ test "range planner owns from-end literals with transparent parentheses" {
     assert plan.OperationOwnerFragmentIndices[0] == 1
     assert plan.OperationOwnerFragmentIndices[1] == 0
     assert plan.OperationOwnerFragmentIndices[2] == 0
+}
+
+test "range planner recursively delegates underscored scalar literals" {
+    tree := ColumnarRangePlannerFromEndLiteral("1_0", 0)
+    plan := ColumnarRangePlannerPlan(tree, ColumnarRangePlannerEmptyBindings())
+
+    assert plan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+    assert plan.ResultType == typeof(Index)
+    assert plan.OperationCount == 3
+    assert plan.FragmentCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.Int32Values[plan.OperandIndices[0]] == 10
 }
 
 test "range planner emits each open and closed range form exactly" {

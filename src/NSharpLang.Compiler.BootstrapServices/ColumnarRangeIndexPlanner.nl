@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.Reflection.Emit
 
 // Callback-free owner for System.Index/System.Range construction and Index/Range reads over
-// strings and SZ arrays. Every accepted child is represented by its own schema-v2 fragment;
+// strings and SZ arrays. Every accepted child is represented by its own schema-v3 fragment;
 // failure rolls the complete candidate back to an empty, NotOwned plan.
 public class ColumnarRangeIndexPlanner {
     // Production-facing seam: the mechanical host passes only its existing live fact collections.
@@ -29,7 +29,7 @@ public class ColumnarRangeIndexPlanner {
         ValidateFacadeRootInputs(nodes, source, node, plan)
         resultType = typeof(int)
         if !FacadeRootMayBeOwned(nodes, source, node, parameterTypes, locals) {
-            plan.PrepareV2()
+            plan.PrepareV3()
             return false
         }
 
@@ -65,7 +65,7 @@ public class ColumnarRangeIndexPlanner {
         ValidateFacadeRootInputs(nodes, source, node, plan)
         resultType = typeof(int)
         if !FacadeRootMayBeOwned(nodes, source, node, parameterTypes, locals) {
-            plan.PrepareV2()
+            plan.PrepareV3()
             return false
         }
 
@@ -135,7 +135,7 @@ public class ColumnarRangeIndexPlanner {
             throw new InvalidOperationException("Range/index planning received an invalid root node index.")
         }
 
-        plan.PrepareV2()
+        plan.PrepareV3()
         candidate := UnwrapParentheses(nodes, node)
         if candidate < 0 || !IsRootCandidate(nodes, source, candidate) {
             return plan.Status
@@ -149,7 +149,7 @@ public class ColumnarRangeIndexPlanner {
             return plan.Status
         }
 
-        plan.CompleteV2(resultType)
+        plan.CompleteV3(resultType)
         return plan.Status
     }
 
@@ -327,7 +327,8 @@ public class ColumnarRangeIndexPlanner {
         planned := false
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
-            planned = TryPlanIntLiteral(nodes, source, node, plan, out resultType)
+            planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(
+                nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
@@ -363,25 +364,6 @@ public class ColumnarRangeIndexPlanner {
         }
 
         plan.CompleteFragment(fragment, resultType)
-        return true
-    }
-
-    static func TryPlanIntLiteral(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
-        resultType = typeof(int)
-        if nodes.ChildCount(node) != 0 {
-            return false
-        }
-        value := 0
-        if !TryParseInt32Literal(nodes.Text(source, node), out value) {
-            return false
-        }
-        valueIndex := plan.AddInt32(value)
-        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
         return true
     }
 
@@ -961,29 +943,6 @@ public class ColumnarRangeIndexPlanner {
             depth = depth + 1
         }
         return node
-    }
-
-    static func TryParseInt32Literal(text: string, out value: int): bool {
-        value = 0
-        if text.Length == 0 {
-            return false
-        }
-        parsed := 0
-        index := 0
-        while index < text.Length {
-            ch := text[index]
-            if ch < '0' || ch > '9' {
-                return false
-            }
-            digit := ch - '0'
-            if parsed > 214748364 || (parsed == 214748364 && digit > 7) {
-                return false
-            }
-            parsed = parsed * 10 + digit
-            index = index + 1
-        }
-        value = parsed
-        return true
     }
 
     static func RequiredResultType(plan: ColumnarCodePlan): Type {

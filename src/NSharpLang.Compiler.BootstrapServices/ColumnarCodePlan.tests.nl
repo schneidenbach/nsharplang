@@ -143,7 +143,7 @@ test "boolean planner consumes the live parser node-kind ledger" {
         == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_0()
 
-    otherNodes := SingleNodeTable(0, 1)
+    otherNodes := SingleNodeTable(ColumnarExpressionNodeKind.IntLiteralExpression(), 1)
     assert ColumnarBooleanLiteralPlanner.Plan(otherNodes, "1", 0, plan)
         == ColumnarFragmentPlanStatus.NotOwned
 }

@@ -116,6 +116,19 @@ public class StringLiteralDecoder {
         return true
     }
 
+    // No-out scalar seam for columnar expression planners. -1 means the body does not decode to
+    // exactly one character; every admitted escape remains owned by TryDecodeBody above.
+    public static func DecodeCharacterBody(body: string): int {
+        decoded := ""
+        if !TryDecodeBody(body, out decoded) {
+            return -1
+        }
+        if decoded.Length != 1 {
+            return -1
+        }
+        return (int)decoded[0]
+    }
+
     public static func DecodeBody(body: string): string {
         if body.IndexOf('\\') < 0 {
             return body
