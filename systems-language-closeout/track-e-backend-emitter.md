@@ -1,12 +1,14 @@
 # Track E — N# lowering, binding, metadata policy, and mechanical emit host
 
-**Live status (amended at `d8ece513a`, 2026-07-09):** E0's first versioned N# code plan is now
-production-routed and directly executed by N# for boolean literals; the replaced C# emit/type
-branches are deleted. `399008ea9` range/index C# decisions and assertions remain the immediate
-migration debt. Their recursive child-expression sequencing must move into N# before deletion;
-a C# callback or replayer is not an allowed shortcut. No new or expanded C# is permitted: every
-older instruction below that names a C# replayer, test, seed, whitelist, callback, adapter, or
-differential harness is superseded by an N# owner and native `.tests.nl` evidence.
+**Live status (amended at `c726c5893`, 2026-07-10):** E0's direct schema-v2 executor, persisted
+range/index production route, canonical native successor, nested ordinary array/string child
+ownership, and 381-path N# growth ratchet are committed. The former 130-line C# range assertion is
+deleted. The remaining `399008ea9` constructor/consumption branches still recurse through the
+general legacy expression emitter. Their child-expression sequencing must move into callback-free
+N# value, binding, member, call, control, and effect plans before deletion; a C# callback or
+replayer is not an allowed shortcut. No new or expanded C# is permitted: every older instruction
+below that names a C# replayer, test, seed, whitelist, callback, adapter, or differential harness
+is superseded by an N# owner and native `.tests.nl` evidence.
 
 The bounded range interop prerequisite is complete at `f74284e99`/`777fea831`: the N# binding
 owner exposes only the exact runtime identities, reflection calls, signed opcode fields, and
@@ -120,10 +122,15 @@ results before caching. The full checkpoint still has the separately inventoried
 buckets, so E0 is not complete. Item 5 is next and must first solve recursive child-fragment
 sequencing in N#; item 6 remains.
 
-Beyond the exact range/index migration debt named by E0, general member, index, and call families
-do not belong in this foundation slice. Any handle capability range/index needs is implemented
-and proved in N# without broadening the accept set. Prior commits showed that a Span claim did not
-cover persisted ReadOnlySpan byref-return handles; do not generalize from it.
+The live endpoint reachability inventory at `c726c5893` supersedes the older claim that general
+member, index, and call families are outside E0. `TryEmitSystemIndexExpression` delegates every
+present endpoint to the general legacy expression emitter, so qualifying results can come from
+members, calls, collection/span reads, casts, checked arithmetic, nullable control, captures,
+postfix effects, awaits, ternaries, and match expressions. Those E2–E4 dependencies are required
+before the constructor branches can be deleted; routing only an easy subset is not an E0 exit.
+Port only behavior reachable through the preserved endpoint contract, and keep every capability
+callback-free and N#-decided. Prior commits showed that a Span claim did not cover persisted
+ReadOnlySpan byref-return handles; do not generalize from it.
 
 ### E1 — Reflection.Emit and persisted-handle capability matrix
 
