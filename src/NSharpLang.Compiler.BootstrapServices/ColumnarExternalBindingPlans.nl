@@ -95,6 +95,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.PropertyInfo"
         } else if canonical == "ConstructorInfo" || canonical == "System.Reflection.ConstructorInfo" {
             runtimeTypeName = "System.Reflection.ConstructorInfo"
+        } else if canonical == "AssemblyName" || canonical == "System.Reflection.AssemblyName" {
+            runtimeTypeName = "System.Reflection.AssemblyName"
         } else if canonical == "ParameterInfo" || canonical == "System.Reflection.ParameterInfo" {
             runtimeTypeName = "System.Reflection.ParameterInfo"
         } else if canonical == "Index" || canonical == "System.Index" {
@@ -131,6 +133,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.FieldInfo"
             || name == "System.Reflection.PropertyInfo"
             || name == "System.Reflection.ConstructorInfo"
+            || name == "System.Reflection.AssemblyName"
             || name == "System.Reflection.ParameterInfo"
             || name == "System.Index"
             || name == "System.Range"
@@ -265,6 +268,30 @@ public class ColumnarExternalBindingPlans {
                 "System.Reflection.Assembly")
         }
 
+        if typeName == "AssemblyName" || typeName == "System.Reflection.AssemblyName" {
+            if memberName == "GetAssemblyName"
+                && count == 1
+                && argumentTypeNames[0] == "System.String" {
+                return StaticCall(
+                    "System.Reflection.AssemblyName",
+                    memberName,
+                    One("System.String"),
+                    "System.Reflection.AssemblyName")
+            }
+            if memberName == "ReferenceMatchesDefinition"
+                && count == 2
+                && argumentTypeNames[0] == "System.Reflection.AssemblyName"
+                && argumentTypeNames[1] == "System.Reflection.AssemblyName" {
+                return StaticCall(
+                    "System.Reflection.AssemblyName",
+                    memberName,
+                    Two(
+                        "System.Reflection.AssemblyName",
+                        "System.Reflection.AssemblyName"),
+                    "System.Boolean")
+            }
+        }
+
         if typeName == "Type"
             && memberName == "GetType"
             && count == 1
@@ -387,6 +414,9 @@ public class ColumnarExternalBindingPlans {
             }
             if memberName == "get_DeclaringMethod" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodBase")
+            }
+            if memberName == "get_AssemblyQualifiedName" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.String")
             }
             if memberName == "IsAssignableFrom"
                 && count == 1
@@ -512,6 +542,13 @@ public class ColumnarExternalBindingPlans {
         }
 
         if receiver == "System.Reflection.Assembly" {
+            if memberName == "GetName" && count == 0 {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.AssemblyName")
+            }
             if memberName == "GetType"
                 && count == 1
                 && argumentTypeNames[0] == "System.String" {

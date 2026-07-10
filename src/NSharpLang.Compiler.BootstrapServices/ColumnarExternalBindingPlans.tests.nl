@@ -114,6 +114,7 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Range", "System.Range")
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
+    AssertRuntimeType("AssemblyName", "System.Reflection.AssemblyName")
     AssertRuntimeType("DynamicMethod", "System.Reflection.Emit.DynamicMethod")
 
     runtimeHelpersTypeName := ""
@@ -380,6 +381,24 @@ test "static call plans own exact CLR overloads" {
         "System.Reflection.Assembly",
         "System.Reflection.Assembly")
     AssertStaticCall("Type", "GetType", stringArgument, stringArgument, "System.Type", "System.Type")
+
+    assemblyNameArguments := new string[](2)
+    assemblyNameArguments[0] = "System.Reflection.AssemblyName"
+    assemblyNameArguments[1] = "System.Reflection.AssemblyName"
+    AssertStaticCall(
+        "AssemblyName",
+        "GetAssemblyName",
+        stringArgument,
+        stringArgument,
+        "System.Reflection.AssemblyName",
+        "System.Reflection.AssemblyName")
+    AssertStaticCall(
+        "AssemblyName",
+        "ReferenceMatchesDefinition",
+        assemblyNameArguments,
+        assemblyNameArguments,
+        "System.Reflection.AssemblyName",
+        "System.Boolean")
     AssertStaticCall("Int32", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
     AssertStaticCall("int", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
 
@@ -437,6 +456,11 @@ test "external binding scopes own exact assembly type discovery calls" {
     stringArgument[0] = "System.String"
     AssertVirtualCall(
         "System.Reflection.Assembly",
+        "GetName",
+        new string[](0),
+        "System.Reflection.AssemblyName")
+    AssertVirtualCall(
+        "System.Reflection.Assembly",
         "GetType",
         stringArgument,
         "System.Type")
@@ -445,6 +469,11 @@ test "external binding scopes own exact assembly type discovery calls" {
         "GetExportedTypes",
         new string[](0),
         "System.Type[]")
+    AssertVirtualCall(
+        "System.Type",
+        "get_AssemblyQualifiedName",
+        new string[](0),
+        "System.String")
 }
 
 test "static call plans decline aliases signatures and arity outside the contract" {
@@ -456,6 +485,15 @@ test "static call plans decline aliases signatures and arity outside the contrac
         "Type", "getType", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "Type", "GetType", new string[](0)).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "AssemblyName", "GetAssemblyName", new string[](0)).IsSupported
+    wrongAssemblyNames := new string[](2)
+    wrongAssemblyNames[0] = "System.Reflection.AssemblyName"
+    wrongAssemblyNames[1] = "System.Type"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "AssemblyName",
+        "ReferenceMatchesDefinition",
+        wrongAssemblyNames).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Int32", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("double", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Double", "Parse", stringArgument).IsSupported
