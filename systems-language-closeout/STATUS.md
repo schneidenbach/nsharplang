@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `99785ed8f` (2026-07-09). This file is the resume point. Current
+**Audited implementation base:** `0ae1cf22b` (2026-07-09). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `399008ea9` proved range/index value/read behavior but introduced C#
@@ -81,6 +81,12 @@ Status meanings:
   public-plan `Type` came from an N# declaration. The latest clean repin installed that commit;
   the installed and local-feed SDK package hashes are
   `7d9eaa74096b93f91306cb64e36d962ac5598f2ed03628dc5297ae727c32bf94`.
+- Callable safety metadata is exact and N#-owned at `acf6712fb`/`0ae1cf22b`: abstract methods and
+  declaring types, raw generic type definitions, and varargs calling conventions are visible to
+  the executor without reflection-name guesses or a C# bridge. The runtime contract distinguishes
+  constructed-open from raw generic definitions and abstract/concrete metadata. The latest clean
+  repin installed `0ae1cf22b`; installed and local-feed SDK package hashes are
+  `6b63b8d59b016f9ab6c6a7111d190975371fcfce9223d7cebd712c46627c59ad`.
 - The H2 gate currently discovers direct `.tests.nl` projects under `examples/` and `tests/`.
   Template suites are not silently counted: `templates/nsharp-systems-cli` currently declines
   `BinaryPrimitives.ReadUInt32LittleEndian(ReadOnlySpan<byte>)` at
@@ -185,7 +191,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `d8ece513a` exact executor metadata facts; `6bfcc11ac` generic-definition/parameter discrimination; `99785ed8f` exact enum backing metadata and latest clean repin; BootstrapServices 30/30; Columnar 102/102; range/index successor 13/13 gated | Land direct schema-v2 execution, recursively plan range/index, delete `399008ea9` C# branches/assertions, then land the cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `d8ece513a` exact executor metadata facts; `6bfcc11ac` generic-definition/parameter discrimination; `99785ed8f` enum backing metadata; `acf6712fb`/`0ae1cf22b` exact callable safety metadata and latest clean repin; BootstrapServices 30/30; Columnar 102/102; range/index successor 13/13 gated | Land direct schema-v2 execution, recursively plan range/index, delete `399008ea9` C# branches/assertions, then land the cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
