@@ -185,6 +185,11 @@ test "recursive executor owns exact reflection signature facts" {
         "System.Boolean")
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
+        "get_IsAbstract",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
         "get_DeclaringType",
         noArguments,
         "System.Type")

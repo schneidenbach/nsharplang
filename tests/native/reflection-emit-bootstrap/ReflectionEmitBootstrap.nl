@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 5
+        return 6
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -59,6 +59,10 @@ public class ReflectionEmitBootstrapProbe {
         }
 
         noTypes := new Type[](0)
+        abstractMethod := typeof(MethodInfo).GetMethod("GetBaseDefinition", noTypes)
+        if abstractMethod == null {
+            return false
+        }
         stringLength := typeof(string).GetMethod("get_Length", noTypes)
         stringChars := typeof(string).GetMethod("get_Chars", indexOffsetArgs)
         substringArgs := new Type[](2)
@@ -120,6 +124,8 @@ public class ReflectionEmitBootstrapProbe {
             && openArrayElementType.get_IsGenericParameter()
             && otherGenericParameter.get_IsGenericParameter()
             && getSubArray.get_IsGenericMethodDefinition()
+            && !getSubArray.get_IsAbstract()
+            && abstractMethod.get_IsAbstract()
             && !openConstructedGetSubArray.get_IsGenericMethodDefinition()
             && !closedGetSubArray.get_IsGenericMethodDefinition()
             && typeof(object).IsAssignableFrom(typeof(string))

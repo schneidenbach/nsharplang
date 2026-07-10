@@ -328,7 +328,7 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_ReturnType" || memberName == "get_DeclaringType" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
-            if memberName == "get_IsStatic" {
+            if memberName == "get_IsStatic" || memberName == "get_IsAbstract" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
             if memberName == "get_IsGenericMethodDefinition" {
