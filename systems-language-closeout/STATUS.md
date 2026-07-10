@@ -133,6 +133,16 @@ Status meanings:
   range suite is 15/15 and BootstrapServices is green. A clean worktree repin installed
   `6d8bc72db`; the `~/.nsharp`, local-feed, and global-cache SDK hashes all equal
   `38acbfd98b6b6954fb288d36b8ee4c4908cff7a25f4a7b922ab710116fab446e`.
+- Schema-v3 scalar-constant execution is N#-owned at `9957c0657`, after the exact opcode and
+  DynamicMethod binding prerequisites `cd711be2e`/`7dbee4304`. The callback-free plan carries
+  Int64, Single, Double, and String pools with closed opcode/operand pairings, exact-use validation,
+  transactional rollback, version isolation, one-shot consumption, and an I8 stack category that
+  refines only to `long` or `ulong`. Native compiler-service contracts pass 102/102, including real
+  DynamicMethod execution of long, high-bit ulong, float, double, and string constants; the
+  Reflection.Emit bootstrap contract passes 1/1. Two adversarial reviews approved the final
+  malformed-payload, stack-merge, and validation-before-emission behavior. A clean committed
+  worktree repin installed `9957c0657`; the installed, local-feed, and global-cache SDK package
+  hashes all equal `cba9c47bed7e2d8ceb99746c97a6142693dd6b9f2ebf427e0beabb36668a2155`.
 - The N#-only ownership-growth ratchet is committed at `5e5d8c8ba`. Its strict schema-v1 manifest
   covers 381 tracked paths: 364 closeout paths and 17 explicitly separate runtime/native-reference
   paths. N# derives every language/surface/scope classification, rejects new paths and metric or
@@ -247,12 +257,12 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; BootstrapServices 85/85; Columnar 102/102; range successor 15/15; ownership 18/18; clean repin hash `38acbf…446e` | Build the callback-free general value/binding prerequisites required by the live endpoint matrix, delete every remaining `399008ea9` C# decision branch, and preserve the reviewed audit head with each shrink/removal. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; `cd711be2e`/`7dbee4304` exact scalar Reflection.Emit capabilities; `9957c0657` schema-v3 scalar constants; BootstrapServices 102/102; Columnar 102/102; range successor 15/15; ownership 18/18; clean repin hash `cba9c4…a2155` | Route integer/char/string literal plans into production, repair numeric-separator source spans, then continue callback-free binding/member/call/control prerequisites and delete every remaining `399008ea9` C# decision branch. Preserve the reviewed audit head with each shrink/removal. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
 | G tooling / IDE | partial only for isolated prior work | `0d42981b0` deleted the XML-doc stub | Linter, formatter, code-intel, completion, handlers, and front-end re-host remain. |
-| H1 native runner host shrink | ready | runner model/JSON/test-policy ports are partial | Delete xUnit-controller policy and finish N# discovery/lifecycle/result ownership. |
+| H1 native runner host shrink | blocked on N# execution-plan ownership | A deletion probe proved the current reflection route runs the emitted synchronous Fact+Trait estate, but it cannot preserve the xUnit controller's whole-run timeout for a blocking void test; the probe was fully reverted with no commit | N# must own discovery rows, lifecycle/result policy, sync/Task/ValueTask invocation, and one whole-run deadline—including blocking void methods—before the xUnit controller and package can be deleted. Theory/InlineData, skip, async, failure JSON, and timeout successors must all be native N# tests. |
 | H2 initial native gate | partial | `5e5d8c8ba`: 85 compiler-service native contracts + 69 discovered product tests, including ownership 18/18; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
 | H3 CLI assertion migrations | blocked on A grammar + green product gate | — | Move CLI product assertions to N# process-boundary suites after the complete native route is trustworthy. |
 | H4–H8 release/endgame | blocked on named track exits | — | Playground, C# test closeout, deletion integration, docs, and final audit. |
