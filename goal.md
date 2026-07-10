@@ -27,10 +27,11 @@ Definition of done:
   fresh VS Code-enabled product gate plus required visual IDE verification is green.
 
 Execution contract:
-1. Start from current code and recent git history. Read
-   `systems-language-closeout/README.md` and its live status ledger; the July 2 inventories in
-   individual track files are reference material, not executable truth.
-2. Execute the dependency graph and live priority queue, not filename or track-letter order.
+1. Start from current code and recent git history. Read `tasks/README.md`, then the numbered task
+   at the cursor in `systems-language-closeout/STATUS.md`. The retired track notebooks are not an
+   execution source.
+2. Execute exactly one numbered vertical slice at a time in queue order. Iterative tasks 015–020
+   execute one concrete recorded sub-slice per goal turn rather than attempting a whole owner.
    Never redo a stage already proved by a recorded commit. Parallelize dependency-ready,
    non-contending tracks when separate owners/worktrees are available; otherwise finish the
    active commit-sized stage before switching.
@@ -44,7 +45,7 @@ Execution contract:
 5. Coverage gaps do not waive the ratchet. Parser, semantic, binding, and lowering decisions for
    newly supported constructs go into N#; C# may only replay already-decided plans or adapt an
    external API.
-6. Revalidate the named symbols and contracts before each stage. Update the live ledger after
+6. Revalidate the named symbols and contracts before each slice. Update the live ledger after
    every completed stage with its commit, focused evidence, remaining exit criteria, and next
    prerequisite. If a stop gate fails, record it and continue another independent eligible
    stage; do not claim completion.

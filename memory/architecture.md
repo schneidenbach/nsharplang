@@ -76,9 +76,10 @@ IO, PE/Reflection.Emit replay, metadata loading, ALC loading, NuGet/Zip/HTTP mec
 UI wiring. Classification is path-specific: a file does not qualify merely because it uses one
 of those APIs or is small.
 
-`systems-language-closeout/STATUS.md` is the temporary execution ledger. The final campaign
-stage replaces this paragraph with the exact reviewed allowlist and enforces it with a committed
-ownership-audit script.
+`tasks/README.md` is the ordered vertical ownership queue and
+`systems-language-closeout/STATUS.md` is its temporary cursor/evidence ledger. The final queue task
+replaces this paragraph with the exact reviewed allowlist and enforces it with the committed
+ownership audit.
 
 ## Build And Test Commands
 
