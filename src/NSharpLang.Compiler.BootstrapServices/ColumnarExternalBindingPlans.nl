@@ -328,6 +328,9 @@ public class ColumnarExternalBindingPlans {
             if memberName == "GetParameters" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Reflection.ParameterInfo[]")
             }
+            if memberName == "GetGenericArguments" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
+            }
             if memberName == "get_ReturnType" || memberName == "get_DeclaringType" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }

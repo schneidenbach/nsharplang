@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 7
+        return 8
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -117,6 +117,8 @@ public class ReflectionEmitBootstrapProbe {
             return false
         }
         genericTupleDefinition := typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
+        closedGenericArguments := closedGetSubArray.GetGenericArguments()
+        openConstructedGenericArguments := openConstructedGetSubArray.GetGenericArguments()
         // System.Reflection.CallingConventions.VarArgs has the stable CLR metadata value 2.
         varArgsFlag := 2
         return typeof(int[]).get_IsSZArray()
@@ -138,6 +140,10 @@ public class ReflectionEmitBootstrapProbe {
             && (((int)indexCtor.get_CallingConvention()) & varArgsFlag) == 0
             && !openConstructedGetSubArray.get_IsGenericMethodDefinition()
             && !closedGetSubArray.get_IsGenericMethodDefinition()
+            && closedGenericArguments.Length == 1
+            && closedGenericArguments[0] == typeof(int)
+            && openConstructedGenericArguments.Length == 1
+            && openConstructedGenericArguments[0] == otherGenericParameter
             && typeof(object).IsAssignableFrom(typeof(string))
             && indexCtor.get_DeclaringType() == typeof(Index)
             && !indexCtor.get_IsStatic()
