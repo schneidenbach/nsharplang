@@ -1,6 +1,6 @@
 # Track E — N# lowering, binding, metadata policy, and mechanical emit host
 
-**Live status (amended at `777fea831`, 2026-07-09):** E0's first versioned N# code plan is now
+**Live status (amended at `d8ece513a`, 2026-07-09):** E0's first versioned N# code plan is now
 production-routed and directly executed by N# for boolean literals; the replaced C# emit/type
 branches are deleted. `399008ea9` range/index C# decisions and assertions remain the immediate
 migration debt. Their recursive child-expression sequencing must move into N# before deletion;
@@ -11,8 +11,12 @@ differential harness is superseded by an N# owner and native `.tests.nl` evidenc
 The bounded range interop prerequisite is complete at `f74284e99`/`777fea831`: the N# binding
 owner exposes only the exact runtime identities, reflection calls, signed opcode fields, and
 operand overloads needed by a flat range plan; a native N# probe executes handle acquisition and
-compiles the full `ILGenerator` surface. The installed compiler is repinned to that owner. Flat
-schema v2 and its direct N# executor are next; range production routing is not yet claimed.
+compiles the full `ILGenerator` surface. Callback-free recursive schema v2 is committed at
+`c3a17419b`, including linear pure validation, branch-safe rollback, fragment provenance, and
+one-shot consumption. Exact reflection signature/type facts are committed and clean-repinned at
+`d8ece513a`; the native v3 probe executes them (with `LocalBuilder.LocalType` compile-proved until
+the direct executor supplies a live local). The direct N# schema-v2 executor is next; range
+production routing/deletion is not yet claimed.
 
 ## Mission
 
