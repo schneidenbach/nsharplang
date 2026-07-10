@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `5e5d8c8ba` (2026-07-10). This file is the resume point. Current
+**Audited implementation base:** `f2440777f` (2026-07-10). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `0206a1ed1` routes the persisted `399008ea9` range/index read surface
@@ -143,6 +143,16 @@ Status meanings:
   malformed-payload, stack-merge, and validation-before-emission behavior. A clean committed
   worktree repin installed `9957c0657`; the installed, local-feed, and global-cache SDK package
   hashes all equal `cba9c47bed7e2d8ceb99746c97a6142693dd6b9f2ebf427e0beabb36668a2155`.
+- The columnar numeric source-span ABI is repaired in N# at `f2440777f`. Numeric token metadata
+  now preserves the complete raw decimal/hex/binary/float spelling (including separators and
+  suffixes), all primary literal ordinals have named N# identities, and the enum value consumer
+  normalizes separators with exact signed-bound checks. The scanner intentionally gained no
+  octal branch. Ten focused contracts and the full 112-test BootstrapServices estate pass, as
+  does `./scripts/dev.sh BootstrapServices`. A clean committed-worktree repin installed that
+  commit; the installed, local-feed, and global-cache SDK hashes all equal
+  `971cf58f1bf16b70720558c8e506d6c037d35f7d5a8aee2c85c7ddd934ed8182`. Existing C#
+  contextual/default/static-initializer integer consumers remain separator-hostile deletion debt;
+  they must be retired through N# ownership rather than patched in C#.
 - The N#-only ownership-growth ratchet is committed at `5e5d8c8ba`. Its strict schema-v1 manifest
   covers 381 tracked paths: 364 closeout paths and 17 explicitly separate runtime/native-reference
   paths. N# derives every language/surface/scope classification, rejects new paths and metric or
@@ -257,7 +267,7 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; `cd711be2e`/`7dbee4304` exact scalar Reflection.Emit capabilities; `9957c0657` schema-v3 scalar constants; BootstrapServices 102/102; Columnar 102/102; range successor 15/15; ownership 18/18; clean repin hash `cba9c4…a2155` | Route integer/char/string literal plans into production, repair numeric-separator source spans, then continue callback-free binding/member/call/control prerequisites and delete every remaining `399008ea9` C# decision branch. Preserve the reviewed audit head with each shrink/removal. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; `cd711be2e`/`7dbee4304` exact scalar Reflection.Emit capabilities; `9957c0657` schema-v3 scalar constants; `f2440777f` raw numeric source spans and named literal identities; BootstrapServices 112/112; Columnar 102/102; range successor 15/15; ownership 18/18; clean repin hash `971cf5…8182` | Route integer/char/string literal plans into production, then continue callback-free binding/member/call/control prerequisites and delete every remaining `399008ea9` C# decision branch. Preserve the reviewed audit head with each shrink/removal. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
