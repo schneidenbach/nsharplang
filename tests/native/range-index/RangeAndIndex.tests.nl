@@ -20,6 +20,18 @@ func SliceString(value: string, start: int, end: int): string {
     return value[start..end]
 }
 
+func ReadAt(values: int[], at: Index): int {
+    return values[at]
+}
+
+func SliceAt(values: int[], window: Range): int[] {
+    return values[window]
+}
+
+func ReadLast<T>(values: T[]): T {
+    return values[^1]
+}
+
 test "range-index reads arrays and strings from the end" {
     values := [10, 20, 30, 40, 50]
     text := "abcdef"
@@ -57,6 +69,11 @@ test "range-index slices arrays with every endpoint shape" {
     assert fromEnd.Length == 3
     assert fromEnd[0] == 20
     assert fromEnd[^1] == 40
+
+    explicitEnd := values[1..^0]
+    assert explicitEnd.Length == 4
+    assert explicitEnd[0] == 20
+    assert explicitEnd[^1] == 50
 }
 
 test "range-index array slices are independent copies" {
@@ -87,6 +104,7 @@ test "range-index slices reference arrays" {
     assert middle.Length == 2
     assert middle[0] == "one"
     assert middle[1] == "two"
+    assert words[^1] == "three"
 }
 
 test "range-index supports typed Index and Range values" {
@@ -103,6 +121,41 @@ test "range-index supports typed Index and Range values" {
     assert windowValues[0] == 20
     assert windowValues[^1] == 40
     assert text[window] == "bcde"
+    assert ReadAt(values, last) == 40
+    viaParameter := SliceAt(values, window)
+    assert viaParameter.Length == 3
+    assert viaParameter[0] == 20
+    assert viaParameter[^1] == 40
+}
+
+test "range-index loads every primitive and generic array element family" {
+    bools: bool[] = [false, true]
+    chars: char[] = ['a', 'z']
+    uints: uint[] = [1, 9]
+    longs: long[] = [2, 10]
+    ulongs: ulong[] = [3, 11]
+    floats: float[] = [(float)1.5, (float)2.5]
+    doubles: double[] = [3.5, 4.5]
+    bytes: byte[] = [4, 12]
+    sbytes: sbyte[] = [5, 13]
+    shorts: short[] = [6, 14]
+    ushorts: ushort[] = [7, 15]
+    words: string[] = ["first", "last"]
+
+    assert bools[^1]
+    assert chars[^1] == 'z'
+    assert uints[^1] == (uint)9
+    assert longs[^1] == 10
+    assert ulongs[^1] == (ulong)11
+    assert floats[^1] == (float)2.5
+    assert doubles[^1] == 4.5
+    assert bytes[^1] == 12
+    assert sbytes[^1] == 13
+    assert shorts[^1] == 14
+    assert ushorts[^1] == 15
+    assert words[^1] == "last"
+    assert ReadLast(words) == "last"
+    assert ReadLast(uints) == (uint)9
 }
 
 test "range-index widens small integer endpoints and preserves parentheses" {
