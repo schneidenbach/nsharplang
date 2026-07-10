@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 4
+        return 5
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -115,6 +115,7 @@ public class ReflectionEmitBootstrapProbe {
         return typeof(int[]).get_IsSZArray()
             && typeof(int).get_IsValueType()
             && typeof(ReflectionEmitProbeEnum).get_IsEnum()
+            && typeof(ReflectionEmitProbeEnum).GetEnumUnderlyingType() == typeof(int)
             && !typeof(int).get_IsGenericParameter()
             && openArrayElementType.get_IsGenericParameter()
             && otherGenericParameter.get_IsGenericParameter()

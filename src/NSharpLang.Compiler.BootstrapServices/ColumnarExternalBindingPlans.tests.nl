@@ -154,6 +154,7 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "get_IsEnum", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsByRef", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsGenericParameter", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "GetEnumUnderlyingType", noArguments, "System.Type")
 
     oneType := new string[](1)
     oneType[0] = "System.Type"

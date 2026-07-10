@@ -273,7 +273,10 @@ public class ColumnarExternalBindingPlans {
                 && argumentTypeNames[1] == "System.Type[]" {
                 return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.MethodInfo")
             }
-            if (memberName == "GetElementType" || memberName == "MakeArrayType") && count == 0 {
+            if (memberName == "GetElementType"
+                    || memberName == "MakeArrayType"
+                    || memberName == "GetEnumUnderlyingType")
+                && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
             if (memberName == "get_IsSZArray"
