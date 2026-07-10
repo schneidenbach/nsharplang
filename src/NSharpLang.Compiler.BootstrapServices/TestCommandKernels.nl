@@ -280,7 +280,7 @@ public class TestCommandKernels {
     public static func SummarizeNativeTestRun(testRun: NativeTestRun): NativeTestSummary {
         outcomeSummary := SummarizeOutcomeRanks(testRun.OutcomeRanks, testRun.OutcomeCount)
         return new NativeTestSummary(
-            outcomeSummary.Ok,
+            outcomeSummary.Ok && testRun.OutcomeCount > 0,
             testRun.OutcomeCount,
             outcomeSummary.Passed,
             outcomeSummary.Failed,

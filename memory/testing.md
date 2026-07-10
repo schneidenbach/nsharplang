@@ -364,11 +364,15 @@ that cache for development feedback. Integration and release evidence uses
 
 The full isolated run:
 1. Runs all unit tests (`dotnet test`)
-2. Rebuilds the compiler and SDK
-3. Installs the latest SDK to local NuGet feed
-4. Tests `dotnet new` template creation
-5. Builds ALL example projects with `dotnet build`
-6. Validates everything works end-to-end
+2. Runs compiler-service `.tests.nl` contracts plus every `.tests.nl` project under
+   `examples/` and `tests/`; template-native suites join this gate with their N# lowering owners.
+   The gate requires a positive executed-test count and reconciles every native JSON outcome
+   before it may cache the step, so empty or internally inconsistent runs are failures.
+3. Rebuilds the compiler and SDK
+4. Installs the latest SDK to local NuGet feed
+5. Tests `dotnet new` template creation
+6. Builds ALL example projects with `dotnet build`
+7. Validates everything works end-to-end
 
 Do not use a cached gate result as integration-checkpoint evidence.
 

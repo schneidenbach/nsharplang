@@ -1,4 +1,9 @@
 <Project Sdk="NSharpLang.Sdk" InitialTargets="GenerateBootstrapProjectConfig">
+  <!-- The generated props file does not exist during a clean project's first evaluation. Keep
+       test sources out of that first production build as well; the native gate opts them in. -->
+  <PropertyGroup>
+    <NSharpExcludeTests>true</NSharpExcludeTests>
+  </PropertyGroup>
   <Target
     Name="GenerateBootstrapProjectConfig"
     Condition="!Exists('$(MSBuildProjectDirectory)/obj/project.g.props')">
@@ -6,6 +11,6 @@
     <WriteLinesToFile
       File="$(MSBuildProjectDirectory)/obj/project.g.props"
       Overwrite="true"
-      Lines="&lt;Project xmlns=&quot;http://schemas.microsoft.com/developer/msbuild/2003&quot;&gt;&#x0A;  &lt;PropertyGroup&gt;&#x0A;    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;&#x0A;    &lt;OutputType&gt;Library&lt;/OutputType&gt;&#x0A;    &lt;_NSharpOriginalOutputType&gt;Library&lt;/_NSharpOriginalOutputType&gt;&#x0A;    &lt;AssemblyName&gt;NSharpLang.Compiler.BootstrapServices&lt;/AssemblyName&gt;&#x0A;    &lt;NSharpCompilationBackend&gt;il&lt;/NSharpCompilationBackend&gt;&#x0A;    &lt;NSharpTestFramework&gt;xunit&lt;/NSharpTestFramework&gt;&#x0A;    &lt;NSharpEmitValidateWithLegacyAnalysis&gt;false&lt;/NSharpEmitValidateWithLegacyAnalysis&gt;&#x0A;    &lt;_NSharpBaseSdk&gt;Microsoft.NET.Sdk&lt;/_NSharpBaseSdk&gt;&#x0A;  &lt;/PropertyGroup&gt;&#x0A;&lt;/Project&gt;" />
+      Lines="&lt;Project xmlns=&quot;http://schemas.microsoft.com/developer/msbuild/2003&quot;&gt;&#x0A;  &lt;PropertyGroup&gt;&#x0A;    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;&#x0A;    &lt;OutputType&gt;Library&lt;/OutputType&gt;&#x0A;    &lt;_NSharpOriginalOutputType&gt;Library&lt;/_NSharpOriginalOutputType&gt;&#x0A;    &lt;AssemblyName&gt;NSharpLang.Compiler.BootstrapServices&lt;/AssemblyName&gt;&#x0A;    &lt;NSharpCompilationBackend&gt;il&lt;/NSharpCompilationBackend&gt;&#x0A;    &lt;NSharpTestFramework&gt;xunit&lt;/NSharpTestFramework&gt;&#x0A;    &lt;NSharpExcludeTests&gt;true&lt;/NSharpExcludeTests&gt;&#x0A;    &lt;NSharpEmitValidateWithLegacyAnalysis&gt;false&lt;/NSharpEmitValidateWithLegacyAnalysis&gt;&#x0A;    &lt;_NSharpBaseSdk&gt;Microsoft.NET.Sdk&lt;/_NSharpBaseSdk&gt;&#x0A;  &lt;/PropertyGroup&gt;&#x0A;&lt;/Project&gt;" />
   </Target>
 </Project>

@@ -184,6 +184,7 @@ internal sealed class ColumnarIlEmitter
     // integral +, -, and * opcodes to their overflow-checking variants; nested unchecked restores wrapping behavior.
     private bool _overflowCheckingEnabled;
     private readonly ILGenerator _il;
+    private readonly ColumnarCodePlan _codePlan = new();
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
     // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
     // a MethodBuilder whose body is not yet emitted — the token is baked at CreateType/Save. Includes this
@@ -9774,6 +9775,8 @@ internal sealed class ColumnarIlEmitter
     private bool EmitExpressionCore(int idx, out Type type)
     {
         type = null!;
+        if (ColumnarBooleanLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
+            return true;
         switch (_nodes.Kind(idx))
         {
             case 6: // Identifier — a `:=` local (ldloc, type = LocalType) or a parameter (ldarg, type from the
@@ -9950,14 +9953,6 @@ internal sealed class ColumnarIlEmitter
                 }
                 return true;
             }
-
-            case 4: // BoolLiteral — true/false (i4 1/0).
-                switch (Text(idx))
-                {
-                    case "true": _il.Emit(OpCodes.Ldc_I4_1); type = typeof(bool); return true;
-                    case "false": _il.Emit(OpCodes.Ldc_I4_0); type = typeof(bool); return true;
-                    default: return false;
-                }
 
             case 2: // CharLiteral — `'x'` (or an escape like `'\n'`) -> ldc.i4 of the code point (type char).
             {
@@ -16874,6 +16869,8 @@ internal sealed class ColumnarIlEmitter
     {
         node = UnwrapParenthesizedNode(node);
         type = null!;
+        if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
+            return true;
         switch (_nodes.Kind(node))
         {
             case 0:
@@ -16895,9 +16892,6 @@ internal sealed class ColumnarIlEmitter
                 return true;
             case 3:
                 type = typeof(string);
-                return true;
-            case 4:
-                type = typeof(bool);
                 return true;
             case 6:
             {

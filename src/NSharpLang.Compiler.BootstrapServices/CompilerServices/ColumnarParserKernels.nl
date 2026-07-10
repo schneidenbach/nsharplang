@@ -455,6 +455,14 @@ class TypeReferenceTupleNameTable {
 // TripleQuoteStringLiteral 5, InterpolatedRawStringLiteral 6, True 44, False 45, Null 46, LeftParen 127,
 // RightParen 128, Dot 124, LeftBracket 131, RightBracket 132.
 
+// The one live expression-node-kind ledger. Parser producers and downstream N# owners consume
+// these named values instead of duplicating ordinals.
+public class ColumnarExpressionNodeKind {
+    public static func BoolLiteralExpression(): int {
+        return 4
+    }
+}
+
 class ParserExpressionNodeTable {
     Kinds: int[]
     ValueStarts: int[]
@@ -4133,7 +4141,16 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     }
     if kind == 44 || kind == 45 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, 4, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(
+            st,
+            nodes,
+            ColumnarExpressionNodeKind.BoolLiteralExpression(),
+            tokenStart,
+            tokenLength,
+            -1,
+            0,
+            tokenStart,
+            tokenLength)
     }
     if kind == 46 {
         st.Pos = pos + 1
@@ -10984,7 +11001,7 @@ func ColumnarPrimaryConstructorLiteralExpressionKind(tokenKind: int): int {
         return 3
     }
     if tokenKind == 44 || tokenKind == 45 {
-        return 4
+        return ColumnarExpressionNodeKind.BoolLiteralExpression()
     }
     if tokenKind == 46 {
         return 5

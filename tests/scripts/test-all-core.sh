@@ -355,6 +355,112 @@ else
     rm -f "$TEST_OUTPUT"
 fi
 
+section "Step 3a: Run Native N# Tests"
+if step_cache_hit "native-nsharp-tests" "$UNIT_INPUTS_HASH"; then
+    step_skip_banner "native-nsharp-tests" "$UNIT_INPUTS_HASH"
+    handle_success "Native N# tests (validated step cache)"
+else
+    echo "Running the gated compiler-service and product .tests.nl estate..."
+    NATIVE_STEP_OK=1
+    BOOTSTRAP_TEST_PROJECT="src/NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj"
+    BOOTSTRAP_TEST_OUTPUT=$(mktemp)
+    if dotnet restore $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
+            -p:NSharpExcludeTests=false --force-evaluate -v q \
+        && dotnet test $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
+            -p:NSharpExcludeTests=false --no-restore -v q --nologo \
+            > "$BOOTSTRAP_TEST_OUTPUT" 2>&1 \
+        && grep -Eq 'Passed:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT" \
+        && grep -Eq 'Failed:[[:space:]]*0([^0-9]|$)' "$BOOTSTRAP_TEST_OUTPUT" \
+        && grep -Eq 'Total:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT"; then
+        grep -E "Passed!|Failed!" "$BOOTSTRAP_TEST_OUTPUT" || true
+        handle_success "Native N# tests: compiler-service contracts"
+    else
+        cat "$BOOTSTRAP_TEST_OUTPUT"
+        handle_error "Native N# tests: compiler-service contracts"
+        NATIVE_STEP_OK=0
+    fi
+    rm -f "$BOOTSTRAP_TEST_OUTPUT"
+
+    NATIVE_PROJECTS=$(
+        while IFS= read -r native_project; do
+            native_dir=$(dirname "$native_project")
+            if find "$native_dir" -maxdepth 1 -name "*.tests.nl" -type f -print -quit | grep -q .; then
+                printf '%s\n' "$native_project"
+            fi
+        done < <(find examples tests -name "project.yml" -type f 2>/dev/null | sort)
+    )
+    if [ -z "$NATIVE_PROJECTS" ]; then
+        handle_error "Native N# tests (no projects found)"
+        NATIVE_STEP_OK=0
+    else
+        while IFS= read -r native_project; do
+            [ -n "$native_project" ] || continue
+            native_dir=$(dirname "$native_project")
+            echo
+            echo "Testing native project: $native_dir"
+            NATIVE_OUTPUT=$(mktemp)
+            if dotnet "$CLI_DLL" test --project "$native_dir" --no-cache --json \
+                    > "$NATIVE_OUTPUT" 2>&1 \
+                && python3 - "$NATIVE_OUTPUT" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    payload = json.load(stream)
+
+summary = payload.get("summary", {})
+results = payload.get("results", [])
+total = summary.get("total")
+passed = summary.get("passed")
+failed = summary.get("failed")
+skipped = summary.get("skipped")
+
+outcome_counts = {"passed": 0, "failed": 0, "skipped": 0}
+results_are_valid = True
+for result in (results if isinstance(results, list) else []):
+    if not isinstance(result, dict) or result.get("outcome") not in outcome_counts:
+        results_are_valid = False
+        break
+    outcome_counts[result["outcome"]] += 1
+
+valid = (
+    payload.get("schemaVersion") == 1
+    and payload.get("command") == "test"
+    and payload.get("ok") is True
+    and type(total) is int
+    and total > 0
+    and isinstance(results, list)
+    and len(results) == total
+    and all(type(value) is int and value >= 0 for value in (passed, failed, skipped))
+    and passed > 0
+    and failed == 0
+    and passed + failed + skipped == total
+    and results_are_valid
+    and outcome_counts["passed"] == passed
+    and outcome_counts["failed"] == failed
+    and outcome_counts["skipped"] == skipped
+)
+if not valid:
+    raise SystemExit("native N# test JSON did not prove a nonempty successful run")
+
+print(f"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {total}")
+PY
+            then
+                handle_success "Native N# tests: $native_dir"
+            else
+                cat "$NATIVE_OUTPUT"
+                handle_error "Native N# tests: $native_dir"
+                NATIVE_STEP_OK=0
+            fi
+            rm -f "$NATIVE_OUTPUT"
+        done <<< "$NATIVE_PROJECTS"
+    fi
+
+    if [ "$NATIVE_STEP_OK" = "1" ]; then
+        step_cache_store "native-nsharp-tests" "$UNIT_INPUTS_HASH"
+    fi
+fi
+
 section "Step 3b: VS Code Integration Tests"
 # Determine whether to run full VS Code tests or the bounded smoke suite.
 # The full suite is intentionally opt-in: it is exhaustive, can exceed launch
