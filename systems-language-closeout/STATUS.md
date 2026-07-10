@@ -1,8 +1,7 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `49c0105c8` (2026-07-09), 253 commits after the original
-`9538ab66` planning snapshot. This file is the resume point. Current code and git history outrank
-it; update it whenever they disagree.
+**Audited implementation base:** `1bb109831` (2026-07-09). This file is the resume point. Current
+code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `399008ea9` proved range/index value/read behavior but introduced C#
 emitter decisions and C# assertions that the no-new-C# closeout rule requires E0 to replace with
@@ -24,9 +23,9 @@ Status meanings:
 - A detached-HEAD `dotnet test tests/Tests.csproj` run at `fb856ee46` completed with zero
   failures on 2026-07-09. The former 67-failure baseline and all stash/`comm` instructions are
   retired.
-- The fresh non-VS-Code product gate at `49c0105c8` ran all 3,183 unit tests green, then ended
-  `FAILURES: 4`. The concrete product blockers are inventoried below. Unit green is not a
-  substitute for the Track A product gate.
+- The fresh non-VS-Code product gate at `1bb109831` ran all 3,183 unit tests and all 58 currently
+  gated native N# tests green, then ended `FAILURES: 4`. The concrete product blockers are
+  inventoried below. Unit/native green is not a substitute for the Track A product gate.
 - Range/index value and read semantics are complete at `399008ea9`: all four range forms,
   array/string/reference-array slicing, typed and conditional `Index`/`Range`, byte/short/enum
   endpoints, parenthesized starts, and the existing Span integer-index path have persisted
@@ -48,13 +47,27 @@ Status meanings:
   correctly declined construction of an unmodeled external compiler-service type. C/D/H must
   remove the validation discrepancy; E0 successor tests exercise plans through their production
   route instead of retaining either probe as a fallback.
-- E0's direct Reflection.Emit prerequisite is now production-routed through
-  `ColumnarExternalBindingPlans.nl` at `da2304315`: N# selects exact assembly-qualified types, static members,
-  opcode fields, call forms, and signatures; the existing emitter only materializes that payload
-  and is 132 lines smaller. The native `reflection-emit-bootstrap` project compiles real
-  `ILGenerator` local/label/opcode overloads, its one test passes, and the focused Columnar suite
-  remains 102/102 green. This is the interop prerequisite, not E0 completion: N# plan execution,
-  a production lowering family, and old lowering-branch deletion remain next.
+- E0's direct Reflection.Emit prerequisite is production-routed through
+  `ColumnarExternalBindingPlans.nl` at `da2304315`: N# selects exact assembly-qualified types,
+  static members, opcode fields, call forms, and signatures; the existing emitter only
+  materializes that payload and is 132 lines smaller.
+- E0's first production plan vertical is committed at `1bb109831`: schema v1 records the actual
+  signed `OpCode.Value`, N# constructs, validates, and executes the plan, the production route
+  calls it before legacy dispatch, and the old boolean emit/type branches are deleted. Seven N#
+  schema/planner contracts, five persisted boolean tests, and the 102-test Columnar slice pass.
+  The native gate now rejects empty or internally inconsistent results before caching and ran
+  58/58 tests; a clean first BootstrapServices build excludes `.tests.nl` declarations. E0 is
+  not complete: range/index ownership from `399008ea9` and the cross-language audit remain.
+- The H2 gate currently discovers direct `.tests.nl` projects under `examples/` and `tests/`.
+  Template suites are not silently counted: `templates/nsharp-systems-cli` currently declines
+  `BinaryPrimitives.ReadUInt32LittleEndian(ReadOnlySpan<byte>)` at
+  `emit.call.static-member-unmodeled`. That N# external static-call owner must land before
+  templates join the same structurally validated gate.
+- A B3a DocQuery candidate is preserved, uncommitted, in `/tmp/nsharplang-b3a` on
+  `codex/b3a-docquery` (base `d002be14b`): N# native tests are 9/9 and the DocQuery focused slice
+  is 8/8. Its fresh VS Code-enabled checkpoint passed 3,183 unit tests and 36 smoke tests, then
+  hit the same four product-gate buckets below. It still requires integration, a green required
+  gate, extension reload, and visual IDE verification before commit.
 
 ## Ownership trend that changed the priority
 
@@ -79,14 +92,13 @@ coverage work.
 Execute dependency-ready lanes in parallel only when their file domains do not contend. With one
 owner, finish one commit-sized stage before switching.
 
-1. **E0 — land the N#-only ownership ratchet foundation and discharge `399008ea9`.** Finish the
-   N# code-plan model, implement plan execution in N#, route production directly to it, and port
-   reflection-free scalar/procedural lowering end to end without a new C# replayer, seed,
-   whitelist, callback, or test. Replace the range/index C# assertions with gated `.tests.nl`
-   successors, move their lowering decisions into the N# owner, then delete the corresponding C#
-   branches and assertions. Member/index/call capability gaps are N# language/interop
-   prerequisites, not permission for a C# bridge. No force-old flag may survive. Add an N#-owned
-   ownership guard whose shell/build entrypoint is mechanical only.
+1. **E0 — discharge `399008ea9` and finish the N#-only ownership ratchet.** The first N# plan,
+   direct executor, production handoff, and boolean branch deletion are done at `1bb109831`.
+   Replace the range/index C# assertions with their already-gated `.tests.nl` successors, move
+   their recursive lowering decisions into the N# owner, then delete the corresponding C#
+   branches and assertions. No callback/replayer loophole is allowed: add any recursive fragment
+   capability in N# first. Then land the N#-owned cross-language ownership guard whose shell/build
+   entrypoint is mechanical only.
 2. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
    family, add native N# ordered full-tuple successor tests over invalid, clean, and recovery
    corpora, then delete the superseded C# assertions. Resolve the current duplicate-lex/collector
@@ -107,10 +119,11 @@ owner, finish one commit-sized stage before switching.
    DocQuery/nullability/CLI ownership; F systems policy; G tooling/LSP; H tests/release. Never
    return to open-ended C# corpus widening.
 
-## Fresh product-gate blocker inventory (`49c0105c8`)
+## Fresh product-gate blocker inventory (`1bb109831`)
 
 Reproducer for the complete checkpoint: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`.
-The isolated run ended `FAILURES: 4` after 3,183/3,183 unit tests passed.
+The isolated run ended `FAILURES: 4` after 3,183/3,183 unit tests and 58/58 gated native N# tests
+passed. The native step comprised 9 compiler-service contracts and 49 product tests.
 `RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed. Focused decline reproducers use the fresh
 `src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll` plus
 `NSHARP_COLUMNAR_DECLINE_LOG=1`; IL rows were confirmed directly with `ilverify` and the same
@@ -137,10 +150,10 @@ member finding deduplicated by the gate).
 | Track / stage | Status | Evidence | Remaining binding work |
 |---|---|---|---|
 | A1 decline diagnostics | complete | `18df2415e`…`465856bef` | Preserve stable reason ids and spans. |
-| A2 product-path restoration | partial | 3,183-unit green/four-category product-gate inventory at `49c0105c8`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
+| A2 product-path restoration | partial | 3,183-unit + 58-native green/four-category product-gate inventory at `1bb109831`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
 | B1 static kernel binding / Dogfood deletion | complete | `27bb97773`, `aa9ec5326`, `3c963eb5d` | Never recreate reflection binding or the deleted project. |
 | B2 JSON and CLI decisions | partial | unverified partial; live inventory required | Re-inventory live C# command policy; `OutputFormatter.cs` is not yet a tiny host. |
-| B3a DocQuery | ready | partial N# owner exists; live inventory required | Independent lane now: delete remaining decision bodies; keep only proved raw metadata/XML extraction/loading glue. |
+| B3a DocQuery | partial candidate, not landed | `/tmp/nsharplang-b3a`: native 9/9, focused 8/8, unit 3,183/3,183, VS smoke 36/36; required gate still red in the four global buckets | Integrate after resolving the required checkpoint, then reload/reinstall and visually verify the IDE before commit. Keep only proved raw metadata/XML extraction/loading glue. |
 | B3b nullability | partial, blocked on D caller seam | partial N# owner exists; live inventory required | Remove `typeOverride` callbacks with D's canonical type/call bridge; keep only proved raw NullabilityInfo extraction glue. |
 | C1 per-file pipeline/provenance | complete | `dd494cd29`…`6382af774` | Preserve file identity; no merged-source route. |
 | C2 syntax diagnostics | partial | foundation `760cf0203` plus family ports | Direct differential harness first; integrate with the real columnar parse; then finish families. |
@@ -149,13 +162,14 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `da2304315` direct N# Reflection.Emit bootstrap; native probe 1/1 and Columnar 102/102 green; `bc16cac51` range/index native successors (13/13 direct, not gated yet) | N# plan execution, production route, range/index and first scalar/procedural C# branch deletion, native gate wiring, N#-owned cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 N# plan/executor + boolean branch deletion; `da2304315` direct Reflection.Emit bootstrap; Columnar 102/102; range/index successor 13/13 now gated | Move recursive range/index decisions into N# and delete `399008ea9` C# branches/assertions; then land the N#-owned cross-language guard. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
 | G tooling / IDE | partial only for isolated prior work | `0d42981b0` deleted the XML-doc stub | Linter, formatter, code-intel, completion, handlers, and front-end re-host remain. |
 | H1 native runner host shrink | ready | runner model/JSON/test-policy ports are partial | Delete xUnit-controller policy and finish N# discovery/lifecycle/result ownership. |
-| H2–H3 native estate/CLI migrations | blocked on A grammar + green product gate | — | Gate the complete native-test route before deleting predecessor suites. |
+| H2 initial native gate | partial | `1bb109831`: 9 compiler-service + 49 product tests; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
+| H3 CLI assertion migrations | blocked on A grammar + green product gate | — | Move CLI product assertions to N# process-boundary suites after the complete native route is trustworthy. |
 | H4–H8 release/endgame | blocked on named track exits | — | Playground, C# test closeout, deletion integration, docs, and final audit. |
 
 ## Corrections that override the track notebooks

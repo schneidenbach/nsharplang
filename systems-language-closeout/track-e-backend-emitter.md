@@ -1,11 +1,12 @@
 # Track E — N# lowering, binding, metadata policy, and mechanical emit host
 
-**Live status (amended 2026-07-09):** E0 is the highest-priority ownership lane. A pre-existing
-untracked `ColumnarCodePlan.nl` candidate compiles, but it is not production-routed or proved.
-`399008ea9` range/index C# decisions and assertions are migration debt to replace and delete in
-E0. No new or expanded C# is permitted: every older instruction below that names a C# replayer,
-test, seed, whitelist, callback, adapter, or differential harness is superseded by an N# owner and
-native `.tests.nl` evidence.
+**Live status (amended at `1bb109831`, 2026-07-09):** E0's first versioned N# code plan is now
+production-routed and directly executed by N# for boolean literals; the replaced C# emit/type
+branches are deleted. `399008ea9` range/index C# decisions and assertions remain the immediate
+migration debt. Their recursive child-expression sequencing must move into N# before deletion;
+a C# callback or replayer is not an allowed shortcut. No new or expanded C# is permitted: every
+older instruction below that names a C# replayer, test, seed, whitelist, callback, adapter, or
+differential harness is superseded by an N# owner and native `.tests.nl` evidence.
 
 ## Mission
 
@@ -20,10 +21,12 @@ Replace the handwritten C# emitter as a product-decision owner. N# must select:
 Only a pre-existing, non-growing C# host may survive when it:
 
 - stores external Reflection.Emit/PE handles N# cannot represent;
-- replays an already-decided plan and throws on unknown operations;
 - invokes already-selected reflection members/builders;
 - serializes/saves PE metadata and performs already-planned byte patches;
 - passes data already available at an ecosystem boundary without selecting or classifying it.
+
+Code-plan construction, validation, and execution are N# responsibilities. A surviving C# host
+does not replay plan rows or provide callbacks into legacy lowering.
 
 The host contains no name/type/kind/arity/overload/opcode/schema/tie-breaking decision. It is
 listed path-by-path in `memory/architecture.md#non-nsharp-survivors` at closeout.
@@ -47,9 +50,9 @@ listed path-by-path in `memory/architecture.md#non-nsharp-survivors` at closeout
 
 - Focused: `./scripts/dev.sh Columnar`, CompilationBackend, the exact new kernel suite, and
   `./scripts/dev.sh --since` for shared changes.
-- Differential: before deleting a family, force candidate/old routes in test-only code over the
-  same inputs and compare compile result, diagnostics, persisted metadata, execution stdout,
-  exit code, and returned values. Delete the force-old hook before commit.
+- Successor proof: before deleting a family, run native N# contracts and production-path persisted
+  execution over the same behavior and edge-value inventory, then inspect emitted IL/metadata as
+  applicable. No force-old route, C# differential harness, or callback may be introduced.
 - Persisted reload is mandatory for Reflection.Emit handles, byref returns, generic constructed
   members, and metadata changes. A runtime-only in-memory call does not prove persistence.
 - Run IL verification whenever instruction/metadata/save mechanics change.
@@ -61,12 +64,15 @@ listed path-by-path in `memory/architecture.md#non-nsharp-survivors` at closeout
 
 ## Plan contract
 
-`ColumnarCodePlan.nl` is an N# SoA model. It includes:
+`ColumnarCodePlan.nl` is a versioned N# SoA model. Schema v1 deliberately admits exactly one
+operand-free boolean constant instruction and uses the actual signed `OpCode.Value`; it does not
+advertise future rows or pools. Later schema versions must grow construction, validation,
+execution, and invalid-row tests atomically to include, as their owning slices require:
 
 - instruction rows keyed by ECMA opcode value;
 - explicit operand kinds for scalar constants, strings, args, locals, labels, switch tables,
   selected types/methods/fields/constructors, and declaration/metadata operations;
-- N#-selected handle pools (or stable host-seed ids where N# cannot store a handle);
+- N#-selected handle pools carried through the existing product interop path;
 - local and label declarations;
 - explicit exception-region operations (`BeginException`, catch/finally/fault/filter as supported,
   `EndException`) with a documented ILGenerator auto-leave contract;
@@ -97,8 +103,17 @@ Start immediately after the recorded Track A handoff; do not wait for binder/reg
 6. Add an N#-owned ownership-ratchet audit/allowlist covering all product-adjacent languages. A
    shell/build entrypoint may invoke it mechanically but may not own classifications.
 
-Member, index, and call families do not belong in E0. Prior commits showed that a Span claim did
-not cover persisted ReadOnlySpan byref-return handles; run E1/E2 first.
+Progress at `1bb109831`: the deliberately narrow boolean portions of items 1–4 are implemented
+and focused-proven. Seven schema/planner contracts and five persisted production tests pass; the
+old boolean branches are gone. The native gate runs 58 tests and rejects empty/inconsistent
+results before caching. The full checkpoint still has the separately inventoried four blocker
+buckets, so E0 is not complete. Item 5 is next and must first solve recursive child-fragment
+sequencing in N#; item 6 remains.
+
+Beyond the exact range/index migration debt named by E0, general member, index, and call families
+do not belong in this foundation slice. Any handle capability range/index needs is implemented
+and proved in N# without broadening the accept set. Prior commits showed that a Span claim did not
+cover persisted ReadOnlySpan byref-return handles; do not generalize from it.
 
 ### E1 — Reflection.Emit and persisted-handle capability matrix
 

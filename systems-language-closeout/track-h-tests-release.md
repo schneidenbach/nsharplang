@@ -1,16 +1,21 @@
 # Track H — Test estate & release integration
 
-> **LIVE STATUS (audited at `fb856ee46`):** runner DTO/JSON/test-policy ports are partial; the
-> xUnit path, native-test gate and estate, playground, C# test closeout, front-end integration,
-> docs, and final audit remain. No product suite may be deferred at campaign close. TypeScript
+> **LIVE STATUS (audited at `1bb109831`):** runner DTO/JSON/test-policy ports are partial. The
+> first native gate now executes 9 compiler-service contracts and 49 product `.tests.nl` cases,
+> structurally rejects empty/inconsistent results before caching, and excludes test declarations
+> from clean product builds. BootstrapServices still uses an explicit test-enabled MSBuild route
+> because fresh `nlc test` activates obsolete legacy validation; that discrepancy, the xUnit path,
+> complete native estate, playground, C# test closeout, front-end integration, docs, and final
+> audit remain. No product suite may be deferred at campaign close. TypeScript
 > owns UI/adapter integration only; canonical language/LSP semantics also require N# coverage.
 > H must mechanically retarget a named live consumer only when the producing track explicitly
 > hands it off; it never deletes a live facade by assumption. A `query ast` schema change is a
 > separate approved versioned contract, not incidental cleanup. See [STATUS.md](STATUS.md).
 
 **Owner model.** One senior owner, staffed in two bursts. H1 runner-host shrink may start now.
-H2/H3 native-estate and CLI migration wait for Track A's complete native-test grammar and fresh
-green product gate. The ENDGAME waits on the named C/D/E/F/G exits (playground, front-end
+H2's initial gate boundary has landed; its full estate conversion and H3 CLI migration still wait
+for Track A's complete native-test grammar and fresh green product gate. The ENDGAME waits on the
+named C/D/E/F/G exits (playground, front-end
 deletion, estate close-out, docs, final audit). The Track H owner is
 the **release integrator**: they know which suites assert what through which harness — exactly the
 knowledge the endgame deletion runs on. This owner executes the front-end deletion but does not
@@ -344,23 +349,26 @@ Cli carried runner 2.9.2) loses its third leg here; the SDK's injection keeps se
 
 ### H2 — First N#-owned test estate + the `nlc test` gate step
 
-1. **Probe the route; stop the MSBuild leak; land one seed test** (commit): write ONE seed
-   `ParserTokenFacts.tests.nl` (same namespace as the kernel); probe `nlc test --project
-   src/NSharpLang.Compiler.BootstrapServices --json` with the fresh Cli — this makes the tip
-   columnar backend compile the ENTIRE kernel corpus in one merged program with tests, a
-   never-gated shape; if the corpus declines for non-test reasons, STOP and route to Track A/E
-   (decline diagnosability owns the bisect). Fix the SDK leak: emit
-   `<NSharpExcludeTests>true</NSharpExcludeTests>` from the generated `obj/project.g.props`
-   (delete the stale generated file — it only writes when missing); verify no xunit in
-   `obj/project.assets.json`, no test types in the product assembly.
-2. **Add the gate step BEFORE deleting anything** (commit): new "Step 3c: N# native tests" in
-   `tests/scripts/test-all-core.sh` after Step 3, following the Step 2b accumulating pattern,
-   cache-keyed on the existing `UNIT_INPUTS_HASH` (a strict superset of this step's inputs — no
-   SETS change, guards pass untouched; a new SETS entry must keep the exact `"NAME": COMMON +
-   (...)` form). Body: fresh `$CLI_DLL` over BootstrapServices, `tests/fixtures/issue-tracker`,
-   `examples/12-multi-file-projects/TestExample`, accumulating exit codes. Prove in a fresh
-   `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` that the step EXECUTED. Update
-   `memory/testing.md`. **Binding: no C# test file dies before this gate run is green.**
+**Landed boundary (`1bb109831`):** Step 3a now runs the compiler-service contracts plus every
+direct `.tests.nl` project under `examples/` and `tests/`, cache-keyed by the existing unit-input
+hash. The run was 58/58 green in the fresh checkpoint. Each `nlc test --json` result must have a
+positive passed count, zero failures, exact schema/outcome values, and reconciled summary/result
+counts; the compiler-service `dotnet test` route likewise requires positive passed/total counts.
+This is a partial H2 boundary, not completion: template suites need their missing N# lowering,
+BootstrapServices must move from its test-enabled MSBuild route to the fresh CLI after legacy
+validation is removed, and predecessor C# suites remain until their N# successors are gated.
+
+1. **Stop the MSBuild leak and prove seed contracts** (landed at `1bb109831`): the bootstrap
+   project excludes `.tests.nl` on its clean first evaluation and in generated props; the gate
+   opts tests in explicitly. Nine N# compiler-service contracts cover the first code-plan and
+   native-run summary owners. A clean product build proves their display names are absent. Fresh
+   `nlc test` over the whole corpus remains blocked by obsolete legacy validation and must replace
+   the temporary explicit MSBuild test route when that owner is removed.
+2. **Add the gate step before deleting anything** (landed at `1bb109831`): Step 3a is cache-keyed
+   on `UNIT_INPUTS_HASH`, discovers every direct `.tests.nl` project under `examples/` and
+   `tests/`, and accumulates failures. Its stable JSON is validated structurally and reconciled
+   before a cache marker can be stored. The fresh checkpoint proved 58/58 native cases and updated
+   `memory/testing.md`. **Binding: no C# test file dies before its N# successor runs green here.**
 3. **Convert in four batches, deleting each batch's C# in the same commit** (4 commits):
    Batch A parser family (569 LOC C#); B analyzer family (198); C columnar family (343, incl. the
    6 behavioral rewrites); D sequence/perf family (343). Rules: one `.tests.nl` sibling per
