@@ -6,7 +6,7 @@ import System.Runtime.CompilerServices
 
 // The exact CLR member owner for range/index plans. Callers receive already-selected handles;
 // no C# seed, reflection-order lookup, or overload scoring participates in planning.
-public class ColumnarRangeIndexHandles {
+class ColumnarRangeIndexHandles {
     public IndexConstructor: ConstructorInfo
     public IndexGetOffset: MethodInfo
     public RangeConstructor: ConstructorInfo
@@ -29,6 +29,13 @@ public class ColumnarRangeIndexHandles {
         stringSubstring: MethodInfo,
         tupleItem1: FieldInfo,
         tupleItem2: FieldInfo) {
+        if indexConstructor == null || indexGetOffset == null || rangeConstructor == null
+            || rangeGetOffsetAndLength == null || getSubArrayDefinition == null
+            || stringLengthGetter == null || stringCharsGetter == null
+            || stringSubstring == null || tupleItem1 == null || tupleItem2 == null {
+            throw new InvalidOperationException("Range/index CLR handles cannot be null.")
+        }
+
         IndexConstructor = indexConstructor
         IndexGetOffset = indexGetOffset
         RangeConstructor = rangeConstructor
@@ -39,6 +46,7 @@ public class ColumnarRangeIndexHandles {
         StringSubstring = stringSubstring
         TupleItem1 = tupleItem1
         TupleItem2 = tupleItem2
+        ValidateGetSubArrayDefinition(GetSubArrayDefinition)
     }
 
     public static func Resolve(): ColumnarRangeIndexHandles {
@@ -69,16 +77,7 @@ public class ColumnarRangeIndexHandles {
         tupleItem1 := RequiredField(typeof(ValueTuple<int, int>), "Item1")
         tupleItem2 := RequiredField(typeof(ValueTuple<int, int>), "Item2")
 
-        getSubArrayDefinition := typeof(RuntimeHelpers).GetMethod("GetSubArray")
-        if getSubArrayDefinition == null {
-            throw new InvalidOperationException(
-                "Required CLR method RuntimeHelpers.GetSubArray<T>(T[],Range) was not found.")
-        }
-
-        // Closing the method proves that the selected name denotes the expected generic definition.
-        probeTypeArguments := new Type[](1)
-        probeTypeArguments[0] = typeof(int)
-        getSubArrayDefinition.MakeGenericMethod(probeTypeArguments)
+        getSubArrayDefinition := RequiredGetSubArrayDefinition()
 
         return new ColumnarRangeIndexHandles(
             indexConstructor,
@@ -97,9 +96,87 @@ public class ColumnarRangeIndexHandles {
         if elementType == null {
             throw new InvalidOperationException("GetSubArray element type cannot be null.")
         }
+        ValidateGetSubArrayDefinition(GetSubArrayDefinition)
         typeArguments := new Type[](1)
         typeArguments[0] = elementType
-        return GetSubArrayDefinition.MakeGenericMethod(typeArguments)
+        closed := GetSubArrayDefinition.MakeGenericMethod(typeArguments)
+        ValidateClosedGetSubArray(closed, elementType)
+        return closed
+    }
+
+    static func RequiredGetSubArrayDefinition(): MethodInfo {
+        definition := typeof(RuntimeHelpers).GetMethod("GetSubArray")
+        if definition == null {
+            throw new InvalidOperationException(
+                "Required CLR method RuntimeHelpers.GetSubArray<T>(T[],Range) was not found uniquely.")
+        }
+        ValidateGetSubArrayDefinition(definition)
+        return definition
+    }
+
+    static func ValidateGetSubArrayDefinition(definition: MethodInfo) {
+        if definition.get_DeclaringType() != typeof(RuntimeHelpers) {
+            throw new InvalidOperationException(
+                "GetSubArray definition must be declared by RuntimeHelpers.")
+        }
+        if !definition.get_IsStatic() {
+            throw new InvalidOperationException("GetSubArray definition must be static.")
+        }
+        if !definition.get_IsGenericMethodDefinition() {
+            throw new InvalidOperationException("GetSubArray handle must be a generic method definition.")
+        }
+
+        returnType := definition.get_ReturnType()
+        parameters := definition.GetParameters()
+        if !returnType.get_IsSZArray() {
+            throw new InvalidOperationException("GetSubArray definition must return an SZ array.")
+        }
+        if parameters.Length != 2 {
+            throw new InvalidOperationException("GetSubArray definition must have exactly two parameters.")
+        }
+        if !parameters[0].get_ParameterType().get_IsSZArray() {
+            throw new InvalidOperationException("GetSubArray first parameter must be an SZ array.")
+        }
+        if parameters[1].get_ParameterType() != typeof(Range) {
+            throw new InvalidOperationException(
+                "GetSubArray second parameter must be System.Range.")
+        }
+
+        returnElement := returnType.GetElementType()
+        parameterElement := parameters[0].get_ParameterType().GetElementType()
+        if returnElement == null || parameterElement == null {
+            throw new InvalidOperationException("GetSubArray array element metadata is missing.")
+        }
+        if !returnElement.get_IsGenericParameter() {
+            throw new InvalidOperationException("GetSubArray return element must be a generic parameter.")
+        }
+        if parameterElement != returnElement {
+            throw new InvalidOperationException(
+                "RuntimeHelpers.GetSubArray definition does not preserve its generic array element.")
+        }
+    }
+
+    static func ValidateClosedGetSubArray(method: MethodInfo, elementType: Type) {
+        expectedArrayType := elementType.MakeArrayType()
+        parameters := method.GetParameters()
+        if method.get_DeclaringType() != typeof(RuntimeHelpers) {
+            throw new InvalidOperationException("Constructed GetSubArray owner changed.")
+        }
+        if !method.get_IsStatic() || method.get_IsGenericMethodDefinition() {
+            throw new InvalidOperationException("Constructed GetSubArray method state is invalid.")
+        }
+        if method.get_ReturnType() != expectedArrayType {
+            throw new InvalidOperationException("Constructed GetSubArray return type is invalid.")
+        }
+        if parameters.Length != 2 {
+            throw new InvalidOperationException("Constructed GetSubArray parameter count is invalid.")
+        }
+        if parameters[0].get_ParameterType() != expectedArrayType {
+            throw new InvalidOperationException("Constructed GetSubArray array parameter is invalid.")
+        }
+        if parameters[1].get_ParameterType() != typeof(Range) {
+            throw new InvalidOperationException("Constructed GetSubArray range parameter is invalid.")
+        }
     }
 
     static func RequiredConstructor(owner: Type, parameters: Type[], display: string): ConstructorInfo {

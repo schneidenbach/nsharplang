@@ -6,13 +6,16 @@ import System.Reflection.Emit
 
 // Live raw facts for recursive N# fragment planning. The legacy emitter may pass these existing
 // maps mechanically; N# alone decides lookup order, shadowing, and which bindings E0 can own.
-public class ColumnarFragmentBindings {
+class ColumnarFragmentBindings {
     public ParameterOrdinals: Dictionary<string, int>
     public ParameterTypes: Dictionary<string, Type>
     public Locals: Dictionary<string, LocalBuilder>
     public Enums: Dictionary<string, ColumnarEnumDef>
-    blockedNames: HashSet<string>
-    callableNames: HashSet<string>
+    liftedNames: IEnumerable<string>
+    boxedNames: IEnumerable<string>
+    enclosingNames: IEnumerable<string>
+    declaredCallableNames: IEnumerable<string>
+    visibleLocalCallableNames: IEnumerable<string>
 
     constructor(
         parameterOrdinals: Dictionary<string, int>,
@@ -22,10 +25,11 @@ public class ColumnarFragmentBindings {
         liftedNames: IEnumerable<string>,
         boxedNames: IEnumerable<string>,
         enclosingNames: IEnumerable<string>,
-        callableBindingNames: IEnumerable<string>) {
+        declaredCallableNames: IEnumerable<string>,
+        visibleLocalCallableNames: IEnumerable<string>) {
         if parameterOrdinals == null || parameterTypes == null || locals == null || enums == null
             || liftedNames == null || boxedNames == null || enclosingNames == null
-            || callableBindingNames == null {
+            || declaredCallableNames == null || visibleLocalCallableNames == null {
             throw new InvalidOperationException("Columnar fragment binding facts cannot be null.")
         }
 
@@ -33,31 +37,37 @@ public class ColumnarFragmentBindings {
         ParameterTypes = parameterTypes
         Locals = locals
         Enums = enums
-        blockedNames = new HashSet<string>(StringComparer.Ordinal)
-        callableNames = new HashSet<string>(StringComparer.Ordinal)
-        AddNames(blockedNames, liftedNames)
-        AddNames(blockedNames, boxedNames)
-        AddNames(blockedNames, enclosingNames)
-        AddNames(callableNames, callableBindingNames)
+        this.liftedNames = liftedNames
+        this.boxedNames = boxedNames
+        this.enclosingNames = enclosingNames
+        this.declaredCallableNames = declaredCallableNames
+        this.visibleLocalCallableNames = visibleLocalCallableNames
     }
 
     public func IsBlocked(name: string): bool {
-        return blockedNames.Contains(name)
+        return ContainsName(liftedNames, name)
+            || ContainsName(boxedNames, name)
+            || ContainsName(enclosingNames, name)
     }
 
     public func IsCallable(name: string): bool {
-        return callableNames.Contains(name)
+        return ContainsName(declaredCallableNames, name)
+            || ContainsName(visibleLocalCallableNames, name)
     }
 
     public func IsValueBinding(name: string): bool {
         return Locals.ContainsKey(name)
             || ParameterOrdinals.ContainsKey(name)
+            || ParameterTypes.ContainsKey(name)
             || IsBlocked(name)
     }
 
-    static func AddNames(target: HashSet<string>, values: IEnumerable<string>) {
+    static func ContainsName(values: IEnumerable<string>, name: string): bool {
         for value in values {
-            target.Add(value)
+            if String.Equals(value, name, StringComparison.Ordinal) {
+                return true
+            }
         }
+        return false
     }
 }
