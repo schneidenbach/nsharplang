@@ -268,6 +268,17 @@ public class ColumnarExternalBindingPlans {
                 "System.Reflection.Assembly")
         }
 
+        if (typeName == "Assembly" || typeName == "System.Reflection.Assembly")
+            && memberName == "Load"
+            && count == 1
+            && argumentTypeNames[0] == "System.String" {
+            return StaticCall(
+                "System.Reflection.Assembly",
+                memberName,
+                One("System.String"),
+                "System.Reflection.Assembly")
+        }
+
         if typeName == "AssemblyName" || typeName == "System.Reflection.AssemblyName" {
             if memberName == "GetAssemblyName"
                 && count == 1
@@ -557,6 +568,11 @@ public class ColumnarExternalBindingPlans {
             if memberName == "GetExportedTypes" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
             }
+        }
+
+        if receiver == "System.Reflection.AssemblyName"
+            && memberName == "get_FullName" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.String")
         }
 
         if receiver == "System.Reflection.ParameterInfo"

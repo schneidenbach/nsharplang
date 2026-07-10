@@ -380,6 +380,13 @@ test "static call plans own exact CLR overloads" {
         stringArgument,
         "System.Reflection.Assembly",
         "System.Reflection.Assembly")
+    AssertStaticCall(
+        "Assembly",
+        "Load",
+        stringArgument,
+        stringArgument,
+        "System.Reflection.Assembly",
+        "System.Reflection.Assembly")
     AssertStaticCall("Type", "GetType", stringArgument, stringArgument, "System.Type", "System.Type")
 
     assemblyNameArguments := new string[](2)
@@ -474,6 +481,11 @@ test "external binding scopes own exact assembly type discovery calls" {
         "get_AssemblyQualifiedName",
         new string[](0),
         "System.String")
+    AssertVirtualCall(
+        "System.Reflection.AssemblyName",
+        "get_FullName",
+        new string[](0),
+        "System.String")
 }
 
 test "static call plans decline aliases signatures and arity outside the contract" {
@@ -487,6 +499,8 @@ test "static call plans decline aliases signatures and arity outside the contrac
         "Type", "GetType", new string[](0)).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "AssemblyName", "GetAssemblyName", new string[](0)).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Assembly", "Load", new string[](0)).IsSupported
     wrongAssemblyNames := new string[](2)
     wrongAssemblyNames[0] = "System.Reflection.AssemblyName"
     wrongAssemblyNames[1] = "System.Type"
