@@ -83,6 +83,7 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Index", "System.Index")
     AssertRuntimeType("Range", "System.Range")
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
+    AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
 
     runtimeHelpersTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
@@ -156,12 +157,23 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "get_IsGenericParameter", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "GetEnumUnderlyingType", noArguments, "System.Type")
     AssertVirtualCall("System.Type", "GetGenericTypeDefinition", noArguments, "System.Type")
+    AssertVirtualCall("System.Type", "GetGenericArguments", noArguments, "System.Type[]")
     AssertVirtualCall("System.Type", "get_IsGenericTypeDefinition", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsGenericType", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_GenericParameterPosition", noArguments, "System.Int32")
+    AssertVirtualCall(
+        "System.Type",
+        "get_DeclaringMethod",
+        noArguments,
+        "System.Reflection.MethodBase")
 
     oneType := new string[](1)
     oneType[0] = "System.Type"
     AssertVirtualCall("System.Type", "IsAssignableFrom", oneType, "System.Boolean")
+    oneTypeArray := new string[](1)
+    oneTypeArray[0] = "System.Type[]"
+    AssertVirtualCall("System.Type", "MakeGenericType", oneTypeArray, "System.Type")
     AssertVirtualCall(
         "System.Reflection.Emit.LocalBuilder",
         "get_LocalType",
@@ -183,6 +195,11 @@ test "recursive executor owns exact reflection signature facts" {
         "System.Type[]")
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
+        "GetGenericMethodDefinition",
+        noArguments,
+        "System.Reflection.MethodInfo")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
         "get_ReturnType",
         noArguments,
         "System.Type")
@@ -201,6 +218,11 @@ test "recursive executor owns exact reflection signature facts" {
         "get_DeclaringType",
         noArguments,
         "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_IsGenericMethod",
+        noArguments,
+        "System.Boolean")
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsGenericMethodDefinition",

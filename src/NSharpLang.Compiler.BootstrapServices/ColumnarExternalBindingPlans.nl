@@ -85,6 +85,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.Emit.Label"
         } else if canonical == "MethodInfo" || canonical == "System.Reflection.MethodInfo" {
             runtimeTypeName = "System.Reflection.MethodInfo"
+        } else if canonical == "MethodBase" || canonical == "System.Reflection.MethodBase" {
+            runtimeTypeName = "System.Reflection.MethodBase"
         } else if canonical == "FieldInfo" || canonical == "System.Reflection.FieldInfo" {
             runtimeTypeName = "System.Reflection.FieldInfo"
         } else if canonical == "PropertyInfo" || canonical == "System.Reflection.PropertyInfo" {
@@ -122,6 +124,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.Emit.OpCodes"
             || name == "System.Reflection.Emit.Label"
             || name == "System.Reflection.MethodInfo"
+            || name == "System.Reflection.MethodBase"
             || name == "System.Reflection.FieldInfo"
             || name == "System.Reflection.PropertyInfo"
             || name == "System.Reflection.ConstructorInfo"
@@ -280,15 +283,30 @@ public class ColumnarExternalBindingPlans {
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
+            if memberName == "MakeGenericType"
+                && count == 1
+                && argumentTypeNames[0] == "System.Type[]" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Type")
+            }
+            if memberName == "GetGenericArguments" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
+            }
             if (memberName == "get_IsSZArray"
                     || memberName == "get_IsValueType"
                     || memberName == "get_IsEnum"
                     || memberName == "get_IsByRef"
                     || memberName == "get_IsGenericParameter"
+                    || memberName == "get_IsGenericType"
                     || memberName == "get_IsGenericTypeDefinition"
                     || memberName == "get_IsAbstract")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "get_GenericParameterPosition" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Int32")
+            }
+            if memberName == "get_DeclaringMethod" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodBase")
             }
             if memberName == "IsAssignableFrom"
                 && count == 1
@@ -331,13 +349,17 @@ public class ColumnarExternalBindingPlans {
             if memberName == "GetGenericArguments" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
             }
+            if memberName == "GetGenericMethodDefinition" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
+            }
             if memberName == "get_ReturnType" || memberName == "get_DeclaringType" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
             if memberName == "get_IsStatic" || memberName == "get_IsAbstract" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
-            if memberName == "get_IsGenericMethodDefinition" {
+            if memberName == "get_IsGenericMethod"
+                || memberName == "get_IsGenericMethodDefinition" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
             if memberName == "get_CallingConvention" {

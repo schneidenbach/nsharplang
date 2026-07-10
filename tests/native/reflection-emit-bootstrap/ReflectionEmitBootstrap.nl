@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 8
+        return 9
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -117,8 +117,20 @@ public class ReflectionEmitBootstrapProbe {
             return false
         }
         genericTupleDefinition := typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
+        tupleTypeArguments := new Type[](2)
+        tupleTypeArguments[0] = typeof(string)
+        tupleTypeArguments[1] = typeof(int)
+        constructedTuple := genericTupleDefinition.MakeGenericType(tupleTypeArguments)
+        constructedTupleArguments := constructedTuple.GetGenericArguments()
         closedGenericArguments := closedGetSubArray.GetGenericArguments()
         openConstructedGenericArguments := openConstructedGetSubArray.GetGenericArguments()
+        roundTripDefinition := openConstructedGetSubArray.GetGenericMethodDefinition()
+        roundTripGenericArguments := roundTripDefinition.GetGenericArguments()
+        openConstructedArrayElement := openConstructedGetSubArray
+            .GetParameters()[0].get_ParameterType().GetElementType()
+        if openConstructedArrayElement == null {
+            return false
+        }
         // System.Reflection.CallingConventions.VarArgs has the stable CLR metadata value 2.
         varArgsFlag := 2
         return typeof(int[]).get_IsSZArray()
@@ -128,11 +140,17 @@ public class ReflectionEmitBootstrapProbe {
             && !typeof(int).get_IsGenericParameter()
             && openArrayElementType.get_IsGenericParameter()
             && otherGenericParameter.get_IsGenericParameter()
+            && typeof(ValueTuple<int, int>).get_IsGenericType()
             && genericTupleDefinition.get_IsGenericTypeDefinition()
             && !typeof(ValueTuple<int, int>).get_IsGenericTypeDefinition()
             && !openArrayElementType.get_IsGenericTypeDefinition()
+            && constructedTuple == typeof(ValueTuple<string, int>)
+            && constructedTupleArguments.Length == 2
+            && constructedTupleArguments[0] == typeof(string)
+            && constructedTupleArguments[1] == typeof(int)
             && typeof(MethodInfo).get_IsAbstract()
             && !typeof(Index).get_IsAbstract()
+            && getSubArray.get_IsGenericMethod()
             && getSubArray.get_IsGenericMethodDefinition()
             && !getSubArray.get_IsAbstract()
             && abstractMethod.get_IsAbstract()
@@ -140,10 +158,18 @@ public class ReflectionEmitBootstrapProbe {
             && (((int)indexCtor.get_CallingConvention()) & varArgsFlag) == 0
             && !openConstructedGetSubArray.get_IsGenericMethodDefinition()
             && !closedGetSubArray.get_IsGenericMethodDefinition()
+            && openConstructedGetSubArray.get_IsGenericMethod()
+            && roundTripDefinition.get_IsGenericMethodDefinition()
+            && roundTripGenericArguments.Length == 1
+            && roundTripGenericArguments[0].get_IsGenericParameter()
             && closedGenericArguments.Length == 1
             && closedGenericArguments[0] == typeof(int)
             && openConstructedGenericArguments.Length == 1
             && openConstructedGenericArguments[0] == otherGenericParameter
+            && otherGenericParameter.get_GenericParameterPosition()
+                == openConstructedArrayElement.get_GenericParameterPosition()
+            && otherGenericParameter.get_DeclaringMethod() != null
+            && openConstructedArrayElement.get_DeclaringMethod() != null
             && typeof(object).IsAssignableFrom(typeof(string))
             && indexCtor.get_DeclaringType() == typeof(Index)
             && !indexCtor.get_IsStatic()
