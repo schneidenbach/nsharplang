@@ -12,6 +12,18 @@ func ReadFromEnd(values: int[], count: int): int {
     return values[^count]
 }
 
+func ReadFromEndByIndexedCount(values: int[], counts: int[]): int {
+    return values[^counts[0]]
+}
+
+func ReadFromEndByStringCount(values: int[], counts: string): int {
+    return values[^counts[0]]
+}
+
+func ReadFromEndOfFirstRow(matrix: int[][]): int {
+    return matrix[0][^1]
+}
+
 func SliceArray(values: int[], start: int, end: int): int[] {
     return values[start..end]
 }
@@ -44,6 +56,22 @@ test "range-index reads arrays and strings from the end" {
     assert values[^3] == 30
     assert text[^1] == 'f'
     assert text[^3] == 'd'
+}
+
+test "range-index owns ordinary Int32 indexing beneath from-end roots" {
+    values := [10, 20, 30, 40, 50]
+    counts := [2]
+    first := [10, 20, 30]
+    second := [40, 50]
+    matrix: int[][] = [first, second]
+    stringCounts := new string((char)2, 1)
+
+    assert values[^counts[0]] == 40
+    assert values[^stringCounts[0]] == 40
+    assert matrix[0][^1] == 30
+    assert ReadFromEndByIndexedCount(values, counts) == 40
+    assert ReadFromEndByStringCount(values, stringCounts) == 40
+    assert ReadFromEndOfFirstRow(matrix) == 30
 }
 
 test "range-index slices arrays with every endpoint shape" {

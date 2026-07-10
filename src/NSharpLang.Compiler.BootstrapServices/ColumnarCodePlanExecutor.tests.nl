@@ -14,7 +14,6 @@ public class ColumnarExecutorProbeMethods {
     public static func IdentityByte(value: byte): byte { return value }
     public static func IdentityInt(value: int): int { return value }
     public static func IdentityLong(value: long): long { return value }
-    public static func GenericSecond<A, B>(_first: A, second: B): B { return second }
     public static func Nothing() {}
 }
 
@@ -55,7 +54,7 @@ func ExecutorOpenGenericParameter(): Type {
 }
 
 func ExecutorForeignMethodGenericParameter(): Type {
-    definition := typeof(ColumnarExecutorProbeMethods).GetMethod("GenericSecond")
+    definition := typeof(System.Array).GetMethod("ConvertAll")
     if definition == null {
         throw new InvalidOperationException("Required foreign generic parameter probe was not found.")
     }

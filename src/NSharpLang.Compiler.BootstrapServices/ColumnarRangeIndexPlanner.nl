@@ -345,7 +345,16 @@ public class ColumnarRangeIndexPlanner {
                 nodes, source, node, bindings, handles, plan, fragment, depth, out resultType)
         } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             planned = TryPlanIndexAccess(
-                nodes, source, node, bindings, handles, plan, fragment, depth, out resultType)
+                nodes,
+                source,
+                node,
+                bindings,
+                handles,
+                plan,
+                fragment,
+                depth,
+                parentFragment >= 0,
+                out resultType)
         }
 
         if !planned {
@@ -674,6 +683,7 @@ public class ColumnarRangeIndexPlanner {
         plan: ColumnarCodePlan,
         fragment: int,
         depth: int,
+        allowOrdinaryIntIndex: bool,
         out resultType: Type): bool {
         resultType = typeof(int)
         if nodes.ChildCount(node) != 2 {
@@ -697,6 +707,15 @@ public class ColumnarRangeIndexPlanner {
             plan, fragment, depth + 1, out accessType) {
             return false
         }
+        if accessType == typeof(int) {
+            if !allowOrdinaryIntIndex {
+                return false
+            }
+            if isString {
+                return PlanStringOrdinaryIndex(plan, handles, out resultType)
+            }
+            return PlanArrayOrdinaryIndex(plan, indexedType, out resultType)
+        }
         if accessType != typeof(Index) && accessType != typeof(Range) {
             return false
         }
@@ -711,6 +730,30 @@ public class ColumnarRangeIndexPlanner {
             return PlanArrayIndex(plan, handles, indexedType, out resultType)
         }
         return PlanArrayRange(plan, handles, indexedType, out resultType)
+    }
+
+    static func PlanStringOrdinaryIndex(
+        plan: ColumnarCodePlan,
+        handles: ColumnarRangeIndexHandles,
+        out resultType: Type): bool {
+        charsGetter := plan.AddMethod(handles.StringCharsGetter)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), charsGetter)
+        resultType = typeof(char)
+        return true
+    }
+
+    static func PlanArrayOrdinaryIndex(
+        plan: ColumnarCodePlan,
+        arrayType: Type,
+        out resultType: Type): bool {
+        elementType := arrayType.GetElementType()
+        if elementType == null {
+            resultType = typeof(int)
+            return false
+        }
+        AppendArrayElementLoad(plan, elementType)
+        resultType = elementType
+        return true
     }
 
     static func PlanStringIndex(
