@@ -57,7 +57,7 @@ func AssertStaticCall(
 }
 
 test "recursive code plans own every required opcode field" {
-    names := new string[](36)
+    names := new string[](39)
     names[0] = "Ldc_I4_M1"
     names[1] = "Ldc_I4_0"
     names[2] = "Ldc_I4_1"
@@ -94,6 +94,9 @@ test "recursive code plans own every required opcode field" {
     names[33] = "Ldc_R4"
     names[34] = "Ldc_R8"
     names[35] = "Ldstr"
+    names[36] = "Neg"
+    names[37] = "Not"
+    names[38] = "Ceq"
 
     i := 0
     while i < names.Length {
@@ -340,9 +343,10 @@ test "range code plans own the short IL argument operand" {
         "System.Void")
 }
 
-test "static parse plans own exact CLR overloads" {
+test "static call plans own exact CLR overloads" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
+    AssertStaticCall("Type", "GetType", stringArgument, stringArgument, "System.Type", "System.Type")
     AssertStaticCall("Int32", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
     AssertStaticCall("int", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
 
@@ -395,9 +399,15 @@ test "static parse plans own exact CLR overloads" {
         "System.Boolean")
 }
 
-test "static parse plans decline aliases signatures and arity outside the contract" {
+test "static call plans decline aliases signatures and arity outside the contract" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "System.Type", "GetType", stringArgument).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Type", "getType", stringArgument).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Type", "GetType", new string[](0)).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Int32", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("double", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Double", "Parse", stringArgument).IsSupported

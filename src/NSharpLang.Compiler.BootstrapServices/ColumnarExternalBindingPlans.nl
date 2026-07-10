@@ -254,6 +254,17 @@ public class ColumnarExternalBindingPlans {
         argumentTypeNames: string[]): ColumnarExternalCallPlan {
         count := argumentTypeNames.Length
 
+        if typeName == "Type"
+            && memberName == "GetType"
+            && count == 1
+            && argumentTypeNames[0] == "System.String" {
+            return StaticCall(
+                "System.Type",
+                memberName,
+                One("System.String"),
+                "System.Type")
+        }
+
         if typeName == "Int32" || typeName == "int" {
             if memberName == "Parse"
                 && count == 1
@@ -620,6 +631,9 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Call"
             || memberName == "Callvirt"
             || memberName == "Newobj"
+            || memberName == "Neg"
+            || memberName == "Not"
+            || memberName == "Ceq"
             || memberName == "Conv_I4"
             || memberName == "Ldfld"
             || memberName == "Ldlen"
