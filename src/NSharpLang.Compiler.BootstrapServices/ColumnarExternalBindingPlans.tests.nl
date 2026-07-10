@@ -35,8 +35,8 @@ func AssertVirtualCall(
     assert plan.ReturnTypeName == expectedReturnType + ", System.Private.CoreLib"
 }
 
-test "range code plans own every required opcode field" {
-    names := new string[](32)
+test "recursive code plans own every required opcode field" {
+    names := new string[](36)
     names[0] = "Ldc_I4_M1"
     names[1] = "Ldc_I4_0"
     names[2] = "Ldc_I4_1"
@@ -69,6 +69,10 @@ test "range code plans own every required opcode field" {
     names[29] = "Ldelem_R8"
     names[30] = "Ldelem_Ref"
     names[31] = "Ldelem"
+    names[32] = "Ldc_I8"
+    names[33] = "Ldc_R4"
+    names[34] = "Ldc_R8"
+    names[35] = "Ldstr"
 
     i := 0
     while i < names.Length {
