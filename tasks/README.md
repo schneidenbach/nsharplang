@@ -21,7 +21,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 
 ## Ordered tasks
 
-- [ ] [001 — External static fields and properties](001-external-static-fields-and-properties.md)
+- [x] [001 — External static fields and properties](001-external-static-fields-and-properties.md)
 - [ ] [002 — Bound identifier reads](002-bound-identifier-reads.md)
 - [ ] [003 — Instance fields and properties](003-instance-fields-and-properties.md)
 - [ ] [004 — Fixed-arity direct calls](004-fixed-arity-direct-calls.md)

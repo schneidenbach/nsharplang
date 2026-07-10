@@ -4,27 +4,28 @@ Last updated: 2026-07-10
 
 ## Cursor
 
-- Current task: `tasks/001-external-static-fields-and-properties.md`
+- Current task: `tasks/002-bound-identifier-reads.md`
 - Current iteration: one terminal slice
-- Active sub-slice: finish and recut the existing dirty external-static field/property work
-- Last accepted prerequisite commit: `b839bd1ee` (`Admit metadata-only assembly inspection`)
+- Active sub-slice: move parameter, local, lifted-local, and current-instance reads into N# plans
+- Last accepted ownership commit: `6110bbbcf` (`Own external static members in N#`)
 - Queue: `tasks/README.md`
 
 ## Current evidence
 
-- BootstrapServices native contracts: 162/162 green after the latest scope-fact fixes.
-- The focused Columnar run was interrupted before a final result and must be rerun.
-- Current uncommitted C# delta: four additions, 82 deletions; net minus 78 lines.
-- Current uncommitted N# delta: 3,306 additions, 42 deletions. Task 001 must remove duplication and
-  land a canonical reusable owner rather than preserving a static-member-specific mini-analyzer.
-- The latest semantic review says the slice is not commit-safe: file-import suffix/base-directory
-  behavior, fully qualified owner lookup, external base/interface handling, declaration
-  accessibility and package precedence, and global-versus-namespaced ambiguity still diverge from
-  production semantics. A derived-class primary-parameter non-inheritance test is also missing.
-- Product-route fixtures should cover a ref/lib package plus MSBuild reference-only input and a
-  project-relative DLL while the test process runs from another working directory.
-- Required before task 001 completion: product-route fixtures, ownership audit update, focused
-  suites, fresh non-VS-Code product gate, coherent commit, clean repin, and clean worktree.
+- Task 001 is accepted at `6110bbbcf`. N# now owns reusable binding-scope facts, deterministic
+  assembly/type discovery, exact static field/property selection, schema-v3 planning, validation,
+  and execution; the emitter-side reflection/preload owner and hard-coded enum, primitive, pool,
+  field, property, and preflight branches were deleted.
+- Focused evidence: 3,182/3,182 unit tests, 178/178 BootstrapServices contracts, 18/18 ownership
+  audit, both external-static fixtures 1/1, and both issue-tracker routes 6/6.
+- The fresh non-VS-Code product gate passed units, native discovery, formatting, package/ref/DLL
+  fixtures, project examples, and every `nlc check`. Its four remaining groups are assigned to
+  later queue owners: Web API external base resolution (009), synchronous iterators (013), async
+  iterators (014), and seven record/init/method-access IL findings (011-012 and 015 as applicable).
+- Clean repin: `nlc 0.1.0+6110bbbcf`, doctor status `ok`; installed, local-feed, and global-cache SDK
+  hashes all equal `5f83e6ede55076f3c9019878e4b1cd189432b62edfd6b88c71f7154131b3b626`.
+  The cached BootstrapServices DLL hash is
+  `d38482c6e3bbf105ba0977df95ba2ebc8c78cb736bf7f94a72ea934bc4263612`.
 
 ## Iterative-task targets
 
@@ -39,7 +40,20 @@ These are populated only when their task becomes current.
 
 ## Completion ledger
 
-No numbered task is complete yet. After each accepted slice, record only:
+Completed slices:
+
+- Task 001 — external static fields and properties; commit `6110bbbcf`.
+  - Deleted C# owners: `TryUsePlannedExternalStaticMember`,
+    `PreloadSupportedExternalReferenceAssemblies`, `TryGetStringComparisonValue`,
+    `TryEmitPrimitiveStaticConstant`, and the matching enum/primitive/pool/static-member emission
+    and preflight branches. `ColumnarIlEmitter.cs` fell from 21,515 to 21,361 lines.
+  - Added N# owners: `ColumnarBindingScopeFacts`, `ColumnarExternalStaticMemberPlanner`,
+    `ExternalAssemblyScan`, `ExternalQualifiedTypeResolver`, schema-v3 field handles/`ldsfld`, and
+    their native contracts plus package and relative-DLL product fixtures.
+  - Evidence: 3,182 units; 178 BootstrapServices contracts; 18 ownership tests; package,
+    outside-CWD DLL, issue-tracker, exact-reference, persisted execution, and clean repin proofs.
+
+After each accepted slice, record only:
 
 - task and concrete sub-slice;
 - commit hash;
