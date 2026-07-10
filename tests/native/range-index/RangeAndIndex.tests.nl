@@ -74,6 +74,23 @@ test "range-index owns ordinary Int32 indexing beneath from-end roots" {
     assert ReadFromEndOfFirstRow(matrix) == 30
 }
 
+test "range-index owns constant and nameof receivers and character endpoints" {
+    values := [10, 20, 30]
+
+    assert "values"[^1] == 's'
+    assert "values"[1..^1] == "alue"
+    assert nameof(values) == "values"
+    assert nameof(values.Length) == "Length"
+    assert nameof(values)[^1] == 's'
+    assert nameof(values.Length)[^1] == 'h'
+
+    text := new string('x', 68)
+    assert text[^'A'] == 'x'
+    characterWindow := text['A'..'C']
+    assert characterWindow.Length == 2
+    assert characterWindow == "xx"
+}
+
 test "range-index slices arrays with every endpoint shape" {
     values := [10, 20, 30, 40, 50]
 

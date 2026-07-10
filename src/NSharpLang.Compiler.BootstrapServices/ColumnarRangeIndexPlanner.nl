@@ -326,8 +326,13 @@ public class ColumnarRangeIndexPlanner {
         fragment := plan.BeginFragment(parentFragment, kind, node)
         planned := false
 
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression()
+            || kind == ColumnarExpressionNodeKind.CharLiteralExpression()
+            || kind == ColumnarExpressionNodeKind.StringLiteralExpression() {
             planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(
+                nodes, source, node, plan, out resultType)
+        } else if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+            planned = ColumnarNameOfPlanner.TryAppendNameOf(
                 nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)

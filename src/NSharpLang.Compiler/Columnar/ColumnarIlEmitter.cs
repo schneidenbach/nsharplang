@@ -9520,9 +9520,6 @@ internal sealed class ColumnarIlEmitter
         return _nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && Text(node) == "^";
     }
 
-    private bool IsRangeExpression(int node)
-        => _nodes.Kind(UnwrapParenthesizedNode(node)) == 69;
-
     private void EmitSystemIndexCtor(bool fromEnd)
     {
         _il.Emit(fromEnd ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
@@ -9779,6 +9776,8 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (ColumnarScalarLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
             return true;
+        if (ColumnarNameOfPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
+            return true;
         if (ColumnarRangeIndexPlanner.TryEmitFromFacts(
                 _nodes,
                 _source,
@@ -9948,15 +9947,6 @@ internal sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Ldtoken, typeOfTarget);
                 _il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), new[] { typeof(RuntimeTypeHandle) })!);
                 type = typeof(Type);
-                return true;
-            }
-
-            case 62: // NameOfExpression [target] — `nameof(identifierOrMember)` lowers to a string literal.
-            {
-                if (!TryGetNameofText(idx, out var nameOfText))
-                    return false;
-                _il.Emit(OpCodes.Ldstr, nameOfText);
-                type = typeof(string);
                 return true;
             }
 
@@ -16805,6 +16795,8 @@ internal sealed class ColumnarIlEmitter
             return true;
         if (ColumnarScalarLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
             return true;
+        if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
+            return true;
         if (ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
                 _nodes,
                 _source,
@@ -16941,11 +16933,6 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(Type);
                 return true;
             }
-            case 62:
-                if (!TryGetNameofText(node, out _))
-                    return false;
-                type = typeof(string);
-                return true;
             case 9:
             {
                 // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
@@ -17661,20 +17648,6 @@ internal sealed class ColumnarIlEmitter
                 return false;
             type = elementType.MakeArrayType();
             return true;
-        }
-        return false;
-    }
-
-    private bool TryGetNameofText(int node, out string text)
-    {
-        text = string.Empty;
-        if (_nodes.Kind(node) != 62 || _nodes.ChildCount(node) != 1)
-            return false;
-        var target = UnwrapParenthesizedNode(Child(node, 0));
-        if (_nodes.Kind(target) == 6 || _nodes.Kind(target) == 8)
-        {
-            text = Text(target);
-            return text.Length > 0;
         }
         return false;
     }
