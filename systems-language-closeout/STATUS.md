@@ -1,6 +1,6 @@
 # Systems-language closeout — live execution ledger
 
-**Audited implementation base:** `6d8bc72db` (2026-07-10). This file is the resume point. Current
+**Audited implementation base:** `5e5d8c8ba` (2026-07-10). This file is the resume point. Current
 code and git history outrank it; update it whenever they disagree.
 
 **Emitter handoff debt:** `0206a1ed1` routes the persisted `399008ea9` range/index read surface
@@ -23,9 +23,11 @@ Status meanings:
 - A detached-HEAD `dotnet test tests/Tests.csproj` run at `fb856ee46` completed with zero
   failures on 2026-07-09. The former 67-failure baseline and all stash/`comm` instructions are
   retired.
-- The fresh non-VS-Code product gate at `1bb109831` ran all 3,183 unit tests and all 58 currently
-  gated native N# tests green, then ended `FAILURES: 4`. The concrete product blockers are
-  inventoried below. Unit/native green is not a substitute for the Track A product gate.
+- The fresh non-VS-Code product gate at `5e5d8c8ba` ran all 3,182 unit tests, 85 compiler-service
+  native contracts, and all 69 discovered product native N# tests green, then ended `FAILURES: 4`.
+  The ownership audit was 18/18 and range/index was 15/15 in the isolated copy. The concrete
+  product blockers are inventoried below. Unit/native green is not a substitute for the Track A
+  product gate.
 - Range/index value and read semantics are complete at `399008ea9`: all four range forms,
   array/string/reference-array slicing, typed and conditional `Index`/`Range`, byte/short/enum
   endpoints, parenthesized starts, and the existing Span integer-index path have persisted
@@ -122,8 +124,7 @@ Status meanings:
   their four assemblies pass ILVerify. A clean worktree repin installed `0206a1ed1`; the
   `~/.nsharp`, local-feed, and global-cache SDK hashes all equal
   `bc726dddbc9edfa59637e8d72fe9436ff2d52b6ab37eaf4be0d53f5ecb0b2b91`. This does not close
-  E0: general child-expression parity, complete C# branch deletion, and the ownership-growth audit
-  remain required.
+  E0: general child-expression parity and complete C# branch deletion remain required.
 - Recursive ordinary integer indexing beneath an N#-owned range/index root is production-owned at
   `6d8bc72db`: array children use the exact `ldelem*` family, string children call `get_Chars`, and
   direct ordinary-index roots remain outside this planner. Native contracts pin successful nested
@@ -132,6 +133,15 @@ Status meanings:
   range suite is 15/15 and BootstrapServices is green. A clean worktree repin installed
   `6d8bc72db`; the `~/.nsharp`, local-feed, and global-cache SDK hashes all equal
   `38acbfd98b6b6954fb288d36b8ee4c4908cff7a25f4a7b922ab710116fab446e`.
+- The N#-only ownership-growth ratchet is committed at `5e5d8c8ba`. Its strict schema-v1 manifest
+  covers 381 tracked paths: 364 closeout paths and 17 explicitly separate runtime/native-reference
+  paths. N# derives every language/surface/scope classification, rejects new paths and metric or
+  assertion growth, preserves removal tombstones, fingerprints binaries as raw bytes, and pins
+  both immutable epoch facts and the reviewed current/state head. The path, epoch-fact, and head
+  fingerprints are `8a26e1529863444b`, `1b3090747e517fc1`, and `53f2d3a7dade31e1` respectively.
+  Native tests pass 18/18 locally and in a `.git`-free archive; the executable audit and the fresh
+  product gate's isolated discovery both pass. This is an E0 growth guard, not the final H8
+  survivor allowlist or a claim that existing debt is acceptable.
 - The H2 gate currently discovers direct `.tests.nl` projects under `examples/` and `tests/`.
   Template suites are not silently counted: `templates/nsharp-systems-cli` currently declines
   `BinaryPrimitives.ReadUInt32LittleEndian(ReadOnlySpan<byte>)` at
@@ -166,12 +176,13 @@ coverage work.
 Execute dependency-ready lanes in parallel only when their file domains do not contend. With one
 owner, finish one commit-sized stage before switching.
 
-1. **E0 — finish range/index branch deletion and the N#-only ownership ratchet.** Direct schema-v2
-   execution, the persisted production handoff, and the canonical assertion migration are done at
-   `1345ec9fc`/`0206a1ed1`. Port every still-accepted general receiver/endpoint/selector family
-   through composable N# plans, then delete the corresponding C# range/index branches rather than
-   retaining the current transition fallback. In parallel, land the N#-owned cross-language
-   ownership-growth audit; shell/build wiring may only invoke it mechanically.
+1. **E0 — finish range/index branch deletion under the N# ownership ratchet.** Direct schema-v2
+   execution, the persisted production handoff, canonical assertion migration, and cross-language
+   growth guard are done at `1345ec9fc`/`0206a1ed1`/`5e5d8c8ba`. Port every still-accepted general
+   receiver/endpoint/selector family through callback-free N# plans, then delete the corresponding
+   C# range/index branches rather than retaining the current transition fallback. The live
+   endpoint inventory proves that call/member/binding/control prerequisites cross E2–E4; the old
+   E0 note excluding those recursive dependencies is stale and must not justify a partial route.
 2. **C2a — prove the existing syntax-diagnostic candidate.** Before adding another diagnostic
    family, add native N# ordered full-tuple successor tests over invalid, clean, and recovery
    corpora, then delete the superseded C# assertions. Resolve the current duplicate-lex/collector
@@ -192,12 +203,13 @@ owner, finish one commit-sized stage before switching.
    DocQuery/nullability/CLI ownership; F systems policy; G tooling/LSP; H tests/release. Never
    return to open-ended C# corpus widening.
 
-## Fresh product-gate blocker inventory (`1bb109831`)
+## Fresh product-gate blocker inventory (`5e5d8c8ba`)
 
 Reproducer for the complete checkpoint: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`.
-The isolated run ended `FAILURES: 4` after 3,183/3,183 unit tests and 58/58 gated native N# tests
-passed. The native step comprised 9 compiler-service contracts and 49 product tests.
-`RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed. Focused decline reproducers use the fresh
+The isolated run ended `FAILURES: 4` after 3,182/3,182 unit tests, 85/85 compiler-service native
+contracts, and 69/69 discovered product native tests passed. Ownership was 18/18 and range/index
+was 15/15; `RangeAndIndex.nl` and `OpenEndedRanges.nl` both passed. Focused decline reproducers use
+the fresh
 `src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll` plus
 `NSHARP_COLUMNAR_DECLINE_LOG=1`; IL rows were confirmed directly with `ilverify` and the same
 framework-reference set as `scripts/ilverify.sh`.
@@ -223,7 +235,7 @@ member finding deduplicated by the gate).
 | Track / stage | Status | Evidence | Remaining binding work |
 |---|---|---|---|
 | A1 decline diagnostics | complete | `18df2415e`…`465856bef` | Preserve stable reason ids and spans. |
-| A2 product-path restoration | partial | 3,183-unit + 58-native green/four-category product-gate inventory at `1bb109831`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
+| A2 product-path restoration | partial | 3,182 unit + 85 compiler-service native + 69 product native green/four-category product-gate inventory at `5e5d8c8ba`; range/index A0 at `399008ea9`; plain tests in `d34e7e6e7`; asserts in `9996d4525` | Fix the inventoried template, iterator/async-iterator, and IL blockers; full test grammar; dynamic corpus sweep; fresh green product gate. All remaining coverage is N# plan-first. |
 | B1 static kernel binding / Dogfood deletion | complete | `27bb97773`, `aa9ec5326`, `3c963eb5d` | Never recreate reflection binding or the deleted project. |
 | B2 JSON and CLI decisions | partial | unverified partial; live inventory required | Re-inventory live C# command policy; `OutputFormatter.cs` is not yet a tiny host. |
 | B3a DocQuery | partial candidate, not landed | `/tmp/nsharplang-b3a`: native 9/9, focused 8/8, unit 3,183/3,183, VS smoke 36/36; required gate still red in the four global buckets | Integrate after resolving the required checkpoint, then reload/reinstall and visually verify the IDE before commit. Keep only proved raw metadata/XML extraction/loading glue. |
@@ -235,13 +247,13 @@ member finding deduplicated by the gate).
 | D1 AST model | ready | — | Atomic N# move and C# record deletion. |
 | D2–D10 semantic ownership | ready after D1 by dependencies | — | Port vertical families, canonical ids, shared package policy, and retarget non-LSP consumers. |
 | D/G facade cleanup | blocked on D API + G re-host | — | G retargets the final IDE consumer and deletes the then-zero-consumer facade; H only verifies. |
-| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; BootstrapServices green; Columnar 102/102; range successor 15/15; four assemblies ILVerify; clean repin hash `38acbf…446e` | Port every remaining legacy-accepted general child-expression family into composable N# plans, delete all remaining `399008ea9` C# decision branches, and land the cross-language guard. |
+| E0 N# lowering-plan ratchet + range/index debt | in progress and highest priority | `1bb109831` schema-v1 plan/boolean deletion; `c3a17419b` recursive schema v2; `1345ec9fc` direct schema-v2 executor; `cc53a347e` recursive planner; `f618b3bf3` generic signature facts; `0206a1ed1` persisted production route and C# assertion deletion; `6d8bc72db` nested ordinary array/string child ownership; `5e5d8c8ba` 381-path N# growth ratchet; BootstrapServices 85/85; Columnar 102/102; range successor 15/15; ownership 18/18; clean repin hash `38acbf…446e` | Build the callback-free general value/binding prerequisites required by the live endpoint matrix, delete every remaining `399008ea9` C# decision branch, and preserve the reviewed audit head with each shrink/removal. |
 | E1–E6 emitter ownership | pending after E0 as applicable | — | N# binder/resolver/passes/plans; typeref policy in N#; Cecil deletion; mechanical PE host only. |
 | F1 systems input columns | ready after current parser writer releases the file | — | Attribute/modifier/alloc facts only; no F-specific semantic identity. |
 | F2–F4 systems policy | blocked on C/D canonical identity contract | — | Stable caller node and resolved declaration/function ids, N# walker, mechanical fact flatten, C# owner deletion. |
 | G tooling / IDE | partial only for isolated prior work | `0d42981b0` deleted the XML-doc stub | Linter, formatter, code-intel, completion, handlers, and front-end re-host remain. |
 | H1 native runner host shrink | ready | runner model/JSON/test-policy ports are partial | Delete xUnit-controller policy and finish N# discovery/lifecycle/result ownership. |
-| H2 initial native gate | partial | `1bb109831`: 9 compiler-service + 49 product tests; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
+| H2 initial native gate | partial | `5e5d8c8ba`: 85 compiler-service native contracts + 69 discovered product tests, including ownership 18/18; nonempty/reconciled cache guard; clean product test exclusion | Remove the legacy-validation discrepancy so BootstrapServices runs through fresh `nlc test`; add templates and the complete estate before deleting predecessor suites. |
 | H3 CLI assertion migrations | blocked on A grammar + green product gate | — | Move CLI product assertions to N# process-boundary suites after the complete native route is trustworthy. |
 | H4–H8 release/endgame | blocked on named track exits | — | Playground, C# test closeout, deletion integration, docs, and final audit. |
 
