@@ -97,6 +97,15 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.ConstructorInfo"
         } else if canonical == "AssemblyName" || canonical == "System.Reflection.AssemblyName" {
             runtimeTypeName = "System.Reflection.AssemblyName"
+        } else if canonical == "MetadataLoadContext"
+            || canonical == "System.Reflection.MetadataLoadContext" {
+            runtimeTypeName = "System.Reflection.MetadataLoadContext"
+        } else if canonical == "PathAssemblyResolver"
+            || canonical == "System.Reflection.PathAssemblyResolver" {
+            runtimeTypeName = "System.Reflection.PathAssemblyResolver"
+        } else if canonical == "MetadataAssemblyResolver"
+            || canonical == "System.Reflection.MetadataAssemblyResolver" {
+            runtimeTypeName = "System.Reflection.MetadataAssemblyResolver"
         } else if canonical == "ParameterInfo" || canonical == "System.Reflection.ParameterInfo" {
             runtimeTypeName = "System.Reflection.ParameterInfo"
         } else if canonical == "Index" || canonical == "System.Index" {
@@ -134,6 +143,9 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.PropertyInfo"
             || name == "System.Reflection.ConstructorInfo"
             || name == "System.Reflection.AssemblyName"
+            || name == "System.Reflection.MetadataLoadContext"
+            || name == "System.Reflection.PathAssemblyResolver"
+            || name == "System.Reflection.MetadataAssemblyResolver"
             || name == "System.Reflection.ParameterInfo"
             || name == "System.Index"
             || name == "System.Range"
@@ -429,6 +441,13 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_AssemblyQualifiedName" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.String")
             }
+            if memberName == "get_Assembly" && count == 0 {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.Assembly")
+            }
             if memberName == "IsAssignableFrom"
                 && count == 1
                 && argumentTypeNames[0] == "System.Type" {
@@ -560,6 +579,9 @@ public class ColumnarExternalBindingPlans {
                     Empty(),
                     "System.Reflection.AssemblyName")
             }
+            if memberName == "get_Location" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.String")
+            }
             if memberName == "GetType"
                 && count == 1
                 && argumentTypeNames[0] == "System.String" {
@@ -573,6 +595,22 @@ public class ColumnarExternalBindingPlans {
         if receiver == "System.Reflection.AssemblyName"
             && memberName == "get_FullName" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.String")
+        }
+
+        if receiver == "System.Reflection.MetadataLoadContext" {
+            if (memberName == "LoadFromAssemblyPath"
+                    || memberName == "LoadFromAssemblyName")
+                && count == 1
+                && argumentTypeNames[0] == "System.String" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    One("System.String"),
+                    "System.Reflection.Assembly")
+            }
+            if memberName == "Dispose" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Void")
+            }
         }
 
         if receiver == "System.Reflection.ParameterInfo"
@@ -831,6 +869,11 @@ public class ColumnarExternalBindingPlans {
     }
 
     static func ExactTypeIdentity(fullName: string): string {
+        if fullName == "System.Reflection.MetadataLoadContext"
+            || fullName == "System.Reflection.PathAssemblyResolver"
+            || fullName == "System.Reflection.MetadataAssemblyResolver" {
+            return fullName + ", System.Reflection.MetadataLoadContext"
+        }
         if fullName.StartsWith("YamlDotNet.", StringComparison.Ordinal) {
             return fullName + ", YamlDotNet"
         }

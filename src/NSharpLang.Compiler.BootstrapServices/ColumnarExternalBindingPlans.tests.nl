@@ -24,7 +24,11 @@ func AssertVirtualCall(
     plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(receiver, member, arguments)
     assert plan.IsSupported
     assert plan.Kind == ColumnarExternalCallKind.CallVirtual
-    assert plan.DeclaringTypeName == receiver + ", System.Private.CoreLib"
+    declaringIdentity := receiver + ", System.Private.CoreLib"
+    if receiver == "System.Reflection.MetadataLoadContext" {
+        declaringIdentity = receiver + ", System.Reflection.MetadataLoadContext"
+    }
+    assert plan.DeclaringTypeName == declaringIdentity
     assert plan.MemberName == member
     assert plan.ParameterTypeNames.Length == arguments.Length
     i := 0
@@ -116,6 +120,21 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
     AssertRuntimeType("AssemblyName", "System.Reflection.AssemblyName")
     AssertRuntimeType("DynamicMethod", "System.Reflection.Emit.DynamicMethod")
+
+    metadataLoadContext := ""
+    assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
+        "MetadataLoadContext", out metadataLoadContext)
+    assert metadataLoadContext
+        == "System.Reflection.MetadataLoadContext, System.Reflection.MetadataLoadContext"
+    pathResolver := ""
+    assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
+        "PathAssemblyResolver", out pathResolver)
+    assert pathResolver
+        == "System.Reflection.PathAssemblyResolver, System.Reflection.MetadataLoadContext"
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Reflection.MetadataLoadContext")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Reflection.PathAssemblyResolver")
 
     runtimeHelpersTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
@@ -482,10 +501,36 @@ test "external binding scopes own exact assembly type discovery calls" {
         new string[](0),
         "System.String")
     AssertVirtualCall(
+        "System.Type",
+        "get_Assembly",
+        new string[](0),
+        "System.Reflection.Assembly")
+    AssertVirtualCall(
+        "System.Reflection.Assembly",
+        "get_Location",
+        new string[](0),
+        "System.String")
+    AssertVirtualCall(
         "System.Reflection.AssemblyName",
         "get_FullName",
         new string[](0),
         "System.String")
+
+    AssertVirtualCall(
+        "System.Reflection.MetadataLoadContext",
+        "LoadFromAssemblyPath",
+        stringArgument,
+        "System.Reflection.Assembly")
+    AssertVirtualCall(
+        "System.Reflection.MetadataLoadContext",
+        "LoadFromAssemblyName",
+        stringArgument,
+        "System.Reflection.Assembly")
+    AssertVirtualCall(
+        "System.Reflection.MetadataLoadContext",
+        "Dispose",
+        new string[](0),
+        "System.Void")
 }
 
 test "static call plans decline aliases signatures and arity outside the contract" {
