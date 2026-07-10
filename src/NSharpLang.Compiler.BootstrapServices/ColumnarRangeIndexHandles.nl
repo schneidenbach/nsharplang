@@ -157,21 +157,36 @@ class ColumnarRangeIndexHandles {
     }
 
     static func ValidateClosedGetSubArray(method: MethodInfo, elementType: Type) {
-        expectedArrayType := elementType.MakeArrayType()
+        returnType := method.get_ReturnType()
         parameters := method.GetParameters()
+        genericArguments := method.GetGenericArguments()
         if method.get_DeclaringType() != typeof(RuntimeHelpers) {
             throw new InvalidOperationException("Constructed GetSubArray owner changed.")
         }
         if !method.get_IsStatic() || method.get_IsGenericMethodDefinition() {
             throw new InvalidOperationException("Constructed GetSubArray method state is invalid.")
         }
-        if method.get_ReturnType() != expectedArrayType {
+        if genericArguments.Length != 1 || genericArguments[0] != elementType {
+            throw new InvalidOperationException("Constructed GetSubArray generic argument is invalid.")
+        }
+        returnElement := returnType.GetElementType()
+        if !returnType.get_IsSZArray()
+            || returnElement == null
+            || (elementType.get_IsGenericParameter()
+                ? !returnElement.get_IsGenericParameter()
+                : returnElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray return type is invalid.")
         }
         if parameters.Length != 2 {
             throw new InvalidOperationException("Constructed GetSubArray parameter count is invalid.")
         }
-        if parameters[0].get_ParameterType() != expectedArrayType {
+        arrayParameterType := parameters[0].get_ParameterType()
+        parameterElement := arrayParameterType.GetElementType()
+        if !arrayParameterType.get_IsSZArray()
+            || parameterElement == null
+            || (elementType.get_IsGenericParameter()
+                ? !parameterElement.get_IsGenericParameter()
+                : parameterElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray array parameter is invalid.")
         }
         if parameters[1].get_ParameterType() != typeof(Range) {

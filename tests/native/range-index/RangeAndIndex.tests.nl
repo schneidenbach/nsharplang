@@ -32,6 +32,10 @@ func ReadLast<T>(values: T[]): T {
     return values[^1]
 }
 
+func SliceAll<T>(values: T[]): T[] {
+    return values[..]
+}
+
 test "range-index reads arrays and strings from the end" {
     values := [10, 20, 30, 40, 50]
     text := "abcdef"
@@ -100,11 +104,18 @@ test "range-index slices reference arrays" {
     words := ["zero", "one", "two", "three"]
 
     middle := words[1..^1]
+    genericCopy := SliceAll(words)
 
     assert middle.Length == 2
     assert middle[0] == "one"
     assert middle[1] == "two"
     assert words[^1] == "three"
+
+    middle[0] = "changed"
+    genericCopy[1] = "changed"
+
+    assert words[1] == "one"
+    assert genericCopy[^1] == "three"
 }
 
 test "range-index supports typed Index and Range values" {

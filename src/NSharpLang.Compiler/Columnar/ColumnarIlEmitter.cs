@@ -147,7 +147,7 @@ internal sealed class ColumnarIlEmitter
     private ColumnarNodeTable _nodes;
     private string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
-    private readonly IReadOnlyDictionary<string, Type> _paramTypes;
+    private readonly Dictionary<string, Type> _paramTypes;
     private readonly Type _returnType;
     // Tuple ELEMENT NAMES per tuple-typed variable (`t.x` -> ItemN): seeded from named param annotations,
     // grown at `:=`/typed-local declarations whose initializers/annotations carry names. The CLR erases
@@ -197,7 +197,7 @@ internal sealed class ColumnarIlEmitter
     // User-defined enums in this program, by name -> (finalized enum Type, member->value). Lets member access
     // `Enum.Member` and enum match patterns resolve their underlying-int constant, and types resolve `Color` to a
     // baked type that can close runtime generics.
-    private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
+    private readonly Dictionary<string, ColumnarEnumDef> _enumRegistry;
     // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
     // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarStructDef> _structRegistry;
@@ -332,10 +332,10 @@ internal sealed class ColumnarIlEmitter
 
     private ColumnarIlEmitter(
         ColumnarNodeTable nodes, string source,
-        Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
+        Dictionary<string, int> paramOrdinals, Dictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
         IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings,
-        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
+        Dictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
         IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
@@ -9777,6 +9777,23 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out type))
             return true;
+        if (ColumnarRangeIndexPlanner.TryEmitFromFacts(
+                _nodes,
+                _source,
+                idx,
+                _paramOrdinals,
+                _paramTypes,
+                _locals,
+                _enumRegistry,
+                _liftedLocals.Keys,
+                _boxedCaptures?.Keys,
+                _enclosingBindingNames,
+                _siblings.Keys,
+                _visibleLocalFuncs,
+                _codePlan,
+                _il,
+                out type))
+            return true;
         switch (_nodes.Kind(idx))
         {
             case 6: // Identifier — a `:=` local (ldloc, type = LocalType) or a parameter (ldarg, type from the
@@ -16870,6 +16887,22 @@ internal sealed class ColumnarIlEmitter
         node = UnwrapParenthesizedNode(node);
         type = null!;
         if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out type))
+            return true;
+        if (ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
+                _nodes,
+                _source,
+                node,
+                _paramOrdinals,
+                _paramTypes,
+                _locals,
+                _enumRegistry,
+                _liftedLocals.Keys,
+                _boxedCaptures?.Keys,
+                _enclosingBindingNames,
+                _siblings.Keys,
+                _visibleLocalFuncs,
+                _codePlan,
+                out type))
             return true;
         switch (_nodes.Kind(node))
         {

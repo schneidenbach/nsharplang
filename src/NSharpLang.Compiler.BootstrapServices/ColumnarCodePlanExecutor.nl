@@ -468,16 +468,23 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException("Schema-v2 method handles cannot use the VarArgs calling convention.")
         }
         declaringType := method.get_DeclaringType()
-        returnType := method.get_ReturnType()
         if declaringType == null {
             throw new InvalidOperationException("Schema-v2 methods must have an exact declaring type.")
         }
         ValidateStorableType(declaringType, "method receiver")
+        signatureMethod := GetMethodSignatureDefinition(method)
+        genericArguments := method.GetGenericArguments()
+        returnType := ResolveMethodSignatureType(
+            signatureMethod.get_ReturnType(),
+            genericArguments)
         ValidateStorableType(returnType, "method return")
-        parameters := method.GetParameters()
+        parameters := signatureMethod.GetParameters()
         i := 0
         while i < parameters.Length {
-            ValidateStorableType(parameters[i].get_ParameterType(), "method argument")
+            parameterType := ResolveMethodSignatureType(
+                parameters[i].get_ParameterType(),
+                genericArguments)
+            ValidateStorableType(parameterType, "method argument")
             i += 1
         }
     }
@@ -771,7 +778,7 @@ public class ColumnarCodePlanExecutor {
         if left.IsAddress {
             if left.ValueKind != ColumnarCodePlanStackValueKind.Exact()
                 || right.ValueKind != ColumnarCodePlanStackValueKind.Exact()
-                || left.ValueType != right.ValueType {
+                || !ExactTypeShapeMatches(left.ValueType, right.ValueType) {
                 throw new InvalidOperationException("Schema-v2 control-flow address types do not merge.")
             }
             return new ColumnarCodePlanStackNode(
@@ -793,7 +800,7 @@ public class ColumnarCodePlanExecutor {
                     0,
                     null)
             }
-            if left.ValueType != right.ValueType {
+            if !ExactTypeShapeMatches(left.ValueType, right.ValueType) {
                 throw new InvalidOperationException("Schema-v2 control-flow stack categories do not merge.")
             }
             literalKnown := left.LiteralKnown
@@ -841,7 +848,7 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func MergeExactStackType(left: Type, right: Type): Type {
-        if left == right {
+        if ExactTypeShapeMatches(left, right) {
             return left
         }
         if !left.get_IsValueType() && !right.get_IsValueType() {
@@ -1020,11 +1027,15 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException("Schema-v2 call cannot target an abstract method.")
         }
 
-        parameters := method.GetParameters()
+        signatureMethod := GetMethodSignatureDefinition(method)
+        genericArguments := method.GetGenericArguments()
+        parameters := signatureMethod.GetParameters()
         parameterIndex := parameters.Length - 1
         while parameterIndex >= 0 {
             value := state.Pop()
-            parameterType := parameters[parameterIndex].get_ParameterType()
+            parameterType := ResolveMethodSignatureType(
+                parameters[parameterIndex].get_ParameterType(),
+                genericArguments)
             if value.IsAddress
                 || !IsStackCompatible(
                     parameterType,
@@ -1046,11 +1057,75 @@ public class ColumnarCodePlanExecutor {
                 receiver.ValueKind)
         }
         state.Push(
-            method.get_ReturnType(),
+            ResolveMethodSignatureType(
+                signatureMethod.get_ReturnType(),
+                genericArguments),
             false,
             ColumnarCodePlanStackValueKind.Exact(),
             false,
             0)
+    }
+
+    static func GetMethodSignatureDefinition(method: MethodInfo): MethodInfo {
+        if !method.get_IsGenericMethod() {
+            return method
+        }
+        definition := method.GetGenericMethodDefinition()
+        definitionArguments := definition.GetGenericArguments()
+        constructedArguments := method.GetGenericArguments()
+        if !definition.get_IsGenericMethodDefinition()
+            || definitionArguments.Length != constructedArguments.Length {
+            throw new InvalidOperationException("Schema-v2 constructed generic method identity is invalid.")
+        }
+        return definition
+    }
+
+    // MethodBuilderInstantiation intentionally exposes its generic definition's raw
+    // parameter and return shapes when an argument is an unbaked TypeBuilder parameter.
+    // Rebuild the signature from that definition and the constructed handle's exact
+    // arguments so stack validation never depends on Reflection.Emit wrapper identity.
+    static func ResolveMethodSignatureType(
+        signatureType: Type,
+        methodArguments: Type[]): Type {
+        if signatureType.get_IsGenericParameter() {
+            if signatureType.get_DeclaringMethod() == null {
+                return signatureType
+            }
+            position := signatureType.get_GenericParameterPosition()
+            if position < 0 || position >= methodArguments.Length {
+                throw new InvalidOperationException("Schema-v2 method generic parameter position is invalid.")
+            }
+            return methodArguments[position]
+        }
+        if signatureType.get_IsSZArray() {
+            elementType := signatureType.GetElementType()
+            if elementType == null {
+                throw new InvalidOperationException("Schema-v2 method array signature has no element type.")
+            }
+            return ResolveMethodSignatureType(elementType, methodArguments).MakeArrayType()
+        }
+        if signatureType.get_IsGenericType()
+            && !signatureType.get_IsGenericTypeDefinition() {
+            definition := signatureType.GetGenericTypeDefinition()
+            signatureArguments := signatureType.GetGenericArguments()
+            resolvedArguments := new Type[](signatureArguments.Length)
+            i := 0
+            while i < signatureArguments.Length {
+                resolvedArguments[i] = ResolveMethodSignatureType(
+                    signatureArguments[i],
+                    methodArguments)
+                i += 1
+            }
+            return definition.MakeGenericType(resolvedArguments)
+        }
+        compoundElement := signatureType.GetElementType()
+        if compoundElement != null {
+            resolvedElement := ResolveMethodSignatureType(compoundElement, methodArguments)
+            if !ExactTypeShapeMatches(compoundElement, resolvedElement) {
+                throw new InvalidOperationException("Schema-v2 cannot substitute this compound method signature shape.")
+            }
+        }
+        return signatureType
     }
 
     static func ApplyConstructor(
@@ -1112,7 +1187,7 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException("Schema-v2 receivers must have an exact semantic type.")
         }
         if expectedType.get_IsValueType() {
-            if !isAddress || expectedType != actualType {
+            if !isAddress || !ExactTypeShapeMatches(expectedType, actualType) {
                 throw new InvalidOperationException("Schema-v2 value-type receivers require an exact managed address.")
             }
         } else if isAddress
@@ -1139,7 +1214,7 @@ public class ColumnarCodePlanExecutor {
         elementType := RequireSzArray(arrayType, arrayValue.IsAddress)
 
         if opCodeValue == ColumnarCodePlanContract.Ldelem() {
-            if !hasRequestedType || requestedType != elementType {
+            if !hasRequestedType || !ExactTypeShapeMatches(requestedType, elementType) {
                 throw new InvalidOperationException("Schema-v2 ldelem type operands must exactly match the array element type.")
             }
         } else if !TypedElementOpcodeMatches(opCodeValue, elementType) {
@@ -1209,12 +1284,48 @@ public class ColumnarCodePlanExecutor {
         if actualKind != ColumnarCodePlanStackValueKind.Exact() {
             return false
         }
-        if expectedType == actualType {
+        if ExactTypeShapeMatches(expectedType, actualType) {
             return true
         }
         return !expectedType.get_IsValueType()
             && !actualType.get_IsValueType()
             && expectedType.IsAssignableFrom(actualType)
+    }
+
+    // Reflection.Emit creates fresh SymbolType and TypeBuilderInstantiation wrappers
+    // around the same unbaked generic arguments. Wrapper shells compare structurally;
+    // ordinary types and the generic arguments themselves retain exact identity.
+    static func ExactTypeShapeMatches(left: Type, right: Type): bool {
+        if left == right {
+            return true
+        }
+        if left.get_IsSZArray() && right.get_IsSZArray() {
+            leftElement := left.GetElementType()
+            rightElement := right.GetElementType()
+            return leftElement != null
+                && rightElement != null
+                && ExactTypeShapeMatches(leftElement, rightElement)
+        }
+        if !left.get_IsGenericType()
+            || !right.get_IsGenericType()
+            || left.get_IsGenericTypeDefinition()
+            || right.get_IsGenericTypeDefinition()
+            || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
+            return false
+        }
+        leftArguments := left.GetGenericArguments()
+        rightArguments := right.GetGenericArguments()
+        if leftArguments.Length != rightArguments.Length {
+            return false
+        }
+        i := 0
+        while i < leftArguments.Length {
+            if !ExactTypeShapeMatches(leftArguments[i], rightArguments[i]) {
+                return false
+            }
+            i += 1
+        }
+        return true
     }
 
     static func IsArrayIndex(valueType: Type, valueKind: int, literalKnown: bool): bool {

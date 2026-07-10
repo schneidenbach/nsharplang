@@ -14,6 +14,7 @@ public class ColumnarExecutorProbeMethods {
     public static func IdentityByte(value: byte): byte { return value }
     public static func IdentityInt(value: int): int { return value }
     public static func IdentityLong(value: long): long { return value }
+    public static func GenericSecond<A, B>(_first: A, second: B): B { return second }
     public static func Nothing() {}
 }
 
@@ -51,6 +52,18 @@ func ExecutorOpenGenericParameter(): Type {
         throw new InvalidOperationException("Required generic parameter type was not found.")
     }
     return parameterType
+}
+
+func ExecutorForeignMethodGenericParameter(): Type {
+    definition := typeof(ColumnarExecutorProbeMethods).GetMethod("GenericSecond")
+    if definition == null {
+        throw new InvalidOperationException("Required foreign generic parameter probe was not found.")
+    }
+    parameters := definition.GetGenericArguments()
+    if parameters.Length != 2 || parameters[1].get_GenericParameterPosition() != 1 {
+        throw new InvalidOperationException("Required foreign generic parameter shape changed.")
+    }
+    return parameters[1]
 }
 
 func ExecutorConstantPlan(resultType: Type): ColumnarCodePlan {
@@ -846,7 +859,7 @@ test "schema v2 executor rejects void and by-reference reflection signatures" {
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(byRefPlan) }
 }
 
-test "schema v2 executor rejects method definitions but retains constructed open handles" {
+test "schema v2 executor rejects definitions and substitutes foreign open arguments by target position" {
     definition := typeof(RuntimeHelpers).GetMethod("GetSubArray")
     if definition == null {
         throw new InvalidOperationException("Required GetSubArray definition was not found.")
@@ -872,7 +885,7 @@ test "schema v2 executor rejects method definitions but retains constructed open
     rawDefinition.CompleteV2(rawResultType)
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(rawDefinition) }
 
-    genericParameter := ExecutorOpenGenericParameter()
+    genericParameter := ExecutorForeignMethodGenericParameter()
     typeArguments := new Type[](1)
     typeArguments[0] = genericParameter
     constructed := definition.MakeGenericMethod(typeArguments)
@@ -880,9 +893,9 @@ test "schema v2 executor rejects method definitions but retains constructed open
     if parameters.Length != 2 {
         throw new InvalidOperationException("Constructed GetSubArray signature is incomplete.")
     }
-    arrayTypeValue := parameters[0].get_ParameterType()
+    arrayTypeValue := genericParameter.MakeArrayType()
     rangeTypeValue := parameters[1].get_ParameterType()
-    resultType := constructed.get_ReturnType()
+    resultType := genericParameter.MakeArrayType()
 
     valid := new ColumnarCodePlan()
     valid.PrepareV2()
@@ -941,6 +954,47 @@ test "schema v2 executor requires typed ldelem for generic parameters" {
     typed.CompleteFragment(typedRoot, genericParameter)
     typed.CompleteV2(genericParameter)
     ColumnarCodePlanExecutor.Validate(typed)
+}
+
+test "schema v2 executor matches fresh SZ-array wrappers over one generic parameter" {
+    genericParameter := ExecutorOpenGenericParameter()
+    firstArrayShape := genericParameter.MakeArrayType()
+    secondArrayShape := genericParameter.MakeArrayType()
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 1097, 0)
+    argumentType := plan.AddType(firstArrayShape)
+    argument := plan.AddArgument(0, argumentType)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.CompleteFragment(root, secondArrayShape)
+    plan.CompleteV2(secondArrayShape)
+
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "schema v2 executor matches fresh constructed wrappers over one generic parameter" {
+    genericParameter := ExecutorOpenGenericParameter()
+    genericDefinition := typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
+    firstArguments := new Type[](2)
+    firstArguments[0] = genericParameter
+    firstArguments[1] = typeof(int)
+    secondArguments := new Type[](2)
+    secondArguments[0] = genericParameter
+    secondArguments[1] = typeof(int)
+    firstShape := genericDefinition.MakeGenericType(firstArguments)
+    secondShape := genericDefinition.MakeGenericType(secondArguments)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 1098, 0)
+    argumentType := plan.AddType(firstShape)
+    argument := plan.AddArgument(0, argumentType)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.CompleteFragment(root, secondShape)
+    plan.CompleteV2(secondShape)
+
+    ColumnarCodePlanExecutor.Validate(plan)
 }
 
 test "schema v2 executor rejects every remaining unused pool and label declaration" {
