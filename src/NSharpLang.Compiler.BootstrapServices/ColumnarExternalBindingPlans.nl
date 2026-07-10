@@ -100,6 +100,8 @@ public class ColumnarExternalBindingPlans {
         } else if canonical == "RuntimeHelpers"
             || canonical == "System.Runtime.CompilerServices.RuntimeHelpers" {
             runtimeTypeName = "System.Runtime.CompilerServices.RuntimeHelpers"
+        } else if canonical == "Array" || canonical == "System.Array" {
+            runtimeTypeName = "System.Array"
         } else {
             return false
         }
@@ -277,7 +279,8 @@ public class ColumnarExternalBindingPlans {
             if (memberName == "get_IsSZArray"
                     || memberName == "get_IsValueType"
                     || memberName == "get_IsEnum"
-                    || memberName == "get_IsByRef")
+                    || memberName == "get_IsByRef"
+                    || memberName == "get_IsGenericParameter")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
@@ -323,6 +326,9 @@ public class ColumnarExternalBindingPlans {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
             if memberName == "get_IsStatic" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "get_IsGenericMethodDefinition" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
         }

@@ -92,6 +92,11 @@ test "range code plans own exact runtime type identities" {
         == "System.Runtime.CompilerServices.RuntimeHelpers, System.Private.CoreLib"
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
         "System.Runtime.CompilerServices.RuntimeHelpers")
+
+    arrayTypeName := ""
+    assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName("System.Array", out arrayTypeName)
+    assert arrayTypeName == "System.Array, System.Private.CoreLib"
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Array")
 }
 
 test "range code plans own exact reflection handle calls" {
@@ -148,6 +153,7 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsEnum", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsByRef", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsGenericParameter", noArguments, "System.Boolean")
 
     oneType := new string[](1)
     oneType[0] = "System.Type"
@@ -181,6 +187,11 @@ test "recursive executor owns exact reflection signature facts" {
         "get_DeclaringType",
         noArguments,
         "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_IsGenericMethodDefinition",
+        noArguments,
+        "System.Boolean")
 
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
@@ -197,7 +208,6 @@ test "recursive executor owns exact reflection signature facts" {
         "get_DeclaringType",
         noArguments,
         "System.Type")
-
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_FieldType",

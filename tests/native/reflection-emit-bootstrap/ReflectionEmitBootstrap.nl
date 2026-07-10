@@ -24,7 +24,7 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 3
+        return 4
     }
 
     public static func HasRangeHandleSurface(): bool {
@@ -89,10 +89,38 @@ public class ReflectionEmitBootstrapProbe {
         indexParameters := indexCtor.GetParameters()
         offsetParameters := indexOffset.GetParameters()
         rangeParameters := rangeCtor.GetParameters()
+        openSubArrayParameters := getSubArray.GetParameters()
         subArrayParameters := closedGetSubArray.GetParameters()
+        if openSubArrayParameters.Length != 2 {
+            return false
+        }
+        openArrayElementType := openSubArrayParameters[0].get_ParameterType().GetElementType()
+        if openArrayElementType == null {
+            return false
+        }
+        otherGenericDefinition := typeof(System.Array).GetMethod("Empty")
+        if otherGenericDefinition == null {
+            return false
+        }
+        otherGenericParameter := otherGenericDefinition.get_ReturnType().GetElementType()
+        if otherGenericParameter == null {
+            return false
+        }
+        openTypeArgs := new Type[](1)
+        openTypeArgs[0] = otherGenericParameter
+        openConstructedGetSubArray := getSubArray.MakeGenericMethod(openTypeArgs)
+        if openConstructedGetSubArray == null {
+            return false
+        }
         return typeof(int[]).get_IsSZArray()
             && typeof(int).get_IsValueType()
             && typeof(ReflectionEmitProbeEnum).get_IsEnum()
+            && !typeof(int).get_IsGenericParameter()
+            && openArrayElementType.get_IsGenericParameter()
+            && otherGenericParameter.get_IsGenericParameter()
+            && getSubArray.get_IsGenericMethodDefinition()
+            && !openConstructedGetSubArray.get_IsGenericMethodDefinition()
+            && !closedGetSubArray.get_IsGenericMethodDefinition()
             && typeof(object).IsAssignableFrom(typeof(string))
             && indexCtor.get_DeclaringType() == typeof(Index)
             && !indexCtor.get_IsStatic()
