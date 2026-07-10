@@ -342,6 +342,11 @@ test "recursive executor owns exact reflection signature facts" {
         "System.Boolean")
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
+        "get_IsLiteral",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.FieldInfo",
         "get_DeclaringType",
         noArguments,
         "System.Type")
@@ -367,6 +372,13 @@ test "range code plans own the short IL argument operand" {
 test "static call plans own exact CLR overloads" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
+    AssertStaticCall(
+        "Assembly",
+        "LoadFrom",
+        stringArgument,
+        stringArgument,
+        "System.Reflection.Assembly",
+        "System.Reflection.Assembly")
     AssertStaticCall("Type", "GetType", stringArgument, stringArgument, "System.Type", "System.Type")
     AssertStaticCall("Int32", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
     AssertStaticCall("int", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
@@ -418,6 +430,21 @@ test "static call plans own exact CLR overloads" {
         doubleTryParseParameters,
         "System.Double",
         "System.Boolean")
+}
+
+test "external binding scopes own exact assembly type discovery calls" {
+    stringArgument := new string[](1)
+    stringArgument[0] = "System.String"
+    AssertVirtualCall(
+        "System.Reflection.Assembly",
+        "GetType",
+        stringArgument,
+        "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.Assembly",
+        "GetExportedTypes",
+        new string[](0),
+        "System.Type[]")
 }
 
 test "static call plans decline aliases signatures and arity outside the contract" {
