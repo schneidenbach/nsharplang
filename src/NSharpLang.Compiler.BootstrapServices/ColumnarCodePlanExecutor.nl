@@ -249,7 +249,11 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.ConstructorOperand() {
             il.Emit(OpCodes.Newobj, plan.Constructors[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.FieldOperand() {
-            il.Emit(OpCodes.Ldfld, plan.Fields[operandIndex])
+            if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
+                il.Emit(OpCodes.Ldsfld, plan.Fields[operandIndex])
+            } else {
+                il.Emit(OpCodes.Ldfld, plan.Fields[operandIndex])
+            }
         } else if operandKind == ColumnarCodePlanContract.LabelOperand() {
             if opCodeValue == ColumnarCodePlanContract.Br() {
                 il.Emit(OpCodes.Br, labels[operandIndex])
@@ -592,11 +596,15 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func ValidateField(field: FieldInfo, schemaName: string) {
+        if field.get_IsLiteral() {
+            throw new InvalidOperationException(
+                schemaName + " field handles cannot name literal fields without storage.")
+        }
         declaringType := field.get_DeclaringType()
-        if declaringType == null || field.get_IsStatic() {
+        if declaringType == null {
             throw new InvalidOperationException(
                 schemaName
-                    + " ldfld handles must name instance fields with an exact declaring type.")
+                    + " field handles must have an exact declaring type.")
         }
         ValidateStorableType(declaringType, "field receiver", schemaName)
         ValidateStorableType(field.get_FieldType(), "field result", schemaName)
@@ -1077,6 +1085,8 @@ public class ColumnarCodePlanExecutor {
             ApplyConstructor(plan.Constructors[operandIndex], state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldfld() {
             ApplyField(plan.Fields[operandIndex], state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
+            ApplyStaticField(plan.Fields[operandIndex], state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
@@ -1429,6 +1439,10 @@ public class ColumnarCodePlanExecutor {
         field: FieldInfo,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
+        if field.get_IsStatic() {
+            throw new InvalidOperationException(
+                schemaName + " ldfld handles must name instance fields.")
+        }
         receiver := state.Pop()
         declaringType := field.get_DeclaringType()
         if declaringType == null {
@@ -1440,6 +1454,22 @@ public class ColumnarCodePlanExecutor {
             receiver.IsAddress,
             receiver.ValueKind,
             schemaName)
+        state.Push(
+            field.get_FieldType(),
+            false,
+            ColumnarCodePlanStackValueKind.Exact(),
+            false,
+            0)
+    }
+
+    static func ApplyStaticField(
+        field: FieldInfo,
+        state: ColumnarCodePlanStackState,
+        schemaName: string) {
+        if !field.get_IsStatic() || field.get_IsLiteral() {
+            throw new InvalidOperationException(
+                schemaName + " ldsfld handles must name non-literal static fields.")
+        }
         state.Push(
             field.get_FieldType(),
             false,
@@ -1661,7 +1691,8 @@ public class ColumnarCodePlanExecutor {
             return true
         }
         if valueType.get_IsEnum() {
-            return valueType.GetEnumUnderlyingType() == typeof(int)
+            return IsLiteralI4Destination(
+                valueType.GetEnumUnderlyingType(), literalKnown, literalValue)
         }
         if !literalKnown {
             return false

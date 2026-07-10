@@ -515,20 +515,12 @@ public class MultiFileCompiler
 
         var isExecutable = ColumnarEmissionPlanner.IsExecutableOutput(_config?.OutputType);
         ColumnarDeclineTrace.Reset();
-        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, out var program))
+        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out var program))
             return false;
         // Stamp the numeric CLR version derived from the project's (possibly SemVer)
         // version string, matching the AssemblyVersion the MSBuild SDK advertises.
         var assemblyVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(_config?.Version);
-        var referenceAssemblyPaths = new List<string>();
-        if (_config?.Dependencies != null)
-        {
-            foreach (var dependency in _config.Dependencies)
-            {
-                if (dependency.Type == ReferenceType.Dll && !string.IsNullOrWhiteSpace(dependency.Dll))
-                    referenceAssemblyPaths.Add(dependency.Dll!);
-            }
-        }
+        var referenceAssemblyPaths = ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, _config?.Dependencies);
         if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out var assembly, assemblyVersion, referenceAssemblyPaths))
             return false;
         File.WriteAllBytes(outputPath, assembly);

@@ -146,7 +146,7 @@ internal static class ColumnarProgramInputBuilder
 
     internal static bool TryBuildMultiFile(
         IReadOnlyList<string> sources,
-        IReadOnlyList<string> fileNames,
+        IReadOnlyList<string> fileNames, string projectRoot,
         out ColumnarProgramInput program)
     {
         program = null!;
@@ -169,7 +169,7 @@ internal static class ColumnarProgramInputBuilder
             }
         }
 
-        program = ColumnarProgramInput.MergeSourceFiles(sourceFiles, programs);
+        program = ColumnarProgramInput.MergeSourceFilesAtProjectRoot(sourceFiles, programs, projectRoot);
         return true;
     }
 

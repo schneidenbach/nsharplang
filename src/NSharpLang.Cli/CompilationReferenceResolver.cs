@@ -41,7 +41,7 @@ internal static class CompilationReferenceResolver
         ResolutionContext context)
     {
         projectRoot = CompilationReferenceResolverKernels.GetProjectRoot(projectRoot);
-        var result = new ReferenceResolutionResult();
+        var result = ReferenceResolutionResult.Create(projectRoot, config.Dependencies);
 
         AddImplicitTestDependencies(projectRoot, config, options);
         AddImplicitNSharpRuntimeAsset(result);

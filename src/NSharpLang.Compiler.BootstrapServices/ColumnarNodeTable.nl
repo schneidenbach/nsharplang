@@ -9,9 +9,16 @@ public class ColumnarNodeTable {
     childIndices: int[]
     spanStarts: int[]?
     spanLengths: int[]?
+    bindingScope: ColumnarBindingScopeFacts?
+    enclosingTypeName: string
+    visibleTypeParameterNames: string[]
+    additionalRootBindingNames: string[]
 
     Kinds: int[] => kinds
     ValueLengths: int[] => valueLengths
+    BindingScope: ColumnarBindingScopeFacts? => bindingScope
+    EnclosingTypeName: string => enclosingTypeName
+    VisibleTypeParameterNames: string[] => visibleTypeParameterNames
 
     constructor(
         kindsValue: int[],
@@ -30,6 +37,54 @@ public class ColumnarNodeTable {
         this.childIndices = childIndicesValue
         this.spanStarts = spanStartsValue
         this.spanLengths = spanLengthsValue
+        this.bindingScope = null
+        this.enclosingTypeName = ""
+        this.visibleTypeParameterNames = new string[](0)
+        this.additionalRootBindingNames = new string[](0)
+    }
+
+    public func SetBindingContext(
+        scope: ColumnarBindingScopeFacts,
+        enclosingType: string,
+        typeParameterNames: string[],
+        additionalRootBindingNames: string[]?) {
+        if scope == null || enclosingType == null || typeParameterNames == null {
+            throw new System.InvalidOperationException(
+                "Columnar binding context cannot contain null values.")
+        }
+        bindingScope = scope
+        enclosingTypeName = enclosingType
+        visibleTypeParameterNames = typeParameterNames
+        this.additionalRootBindingNames = additionalRootBindingNames
+            ?? new string[](0)
+    }
+
+    // Expression fragments reparsed from a body (currently interpolation holes) retain the
+    // immutable lexical context of that body. The host only routes the two node tables through
+    // this N# operation; it never interprets or reconstructs the binding facts.
+    public static func InheritBindingContext(
+        target: ColumnarNodeTable,
+        source: ColumnarNodeTable): ColumnarNodeTable {
+        if target == null || source == null {
+            throw new System.InvalidOperationException(
+                "Columnar binding context inheritance requires two node tables.")
+        }
+        target.bindingScope = source.bindingScope
+        target.enclosingTypeName = source.enclosingTypeName
+        target.visibleTypeParameterNames = source.visibleTypeParameterNames
+        target.additionalRootBindingNames = source.additionalRootBindingNames
+        return target
+    }
+
+    public func HasAdditionalRootBinding(name: string): bool {
+        index := 0
+        while index < additionalRootBindingNames.Length {
+            if additionalRootBindingNames[index] == name {
+                return true
+            }
+            index = index + 1
+        }
+        return false
     }
 
     public func Kind(index: int): int => kinds[index]

@@ -872,6 +872,53 @@ test "schema v2 executor rejects non-address value receivers and static fields" 
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(staticField) }
 }
 
+test "schema v3 executor admits exact static fields only through ldsfld" {
+    emptyField := ExecutorRequiredField(typeof(string), "Empty")
+    staticField := new ColumnarCodePlan()
+    staticField.PrepareV3()
+    fieldRoot := staticField.BeginFragment(-1, 1082, 0)
+    fieldIndex := staticField.AddField(emptyField)
+    staticField.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+    staticField.CompleteFragment(fieldRoot, typeof(string))
+    staticField.CompleteV3(typeof(string))
+    ColumnarCodePlanExecutor.Validate(staticField)
+    assert ExecutorRunV3ScalarPlan(staticField, typeof(string)) == ""
+
+    tupleField := ExecutorRequiredField(typeof(ValueTuple<int, int>), "Item1")
+    instanceField := new ColumnarCodePlan()
+    instanceField.PrepareV3()
+    instanceRoot := instanceField.BeginFragment(-1, 1083, 0)
+    instanceFieldIndex := instanceField.AddField(tupleField)
+    instanceField.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldsfld(),
+        instanceFieldIndex)
+    instanceField.CompleteFragment(instanceRoot, typeof(int))
+    instanceField.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(instanceField) }
+
+    literalHandle := ExecutorRequiredField(typeof(int), "MaxValue")
+    assert literalHandle.get_IsStatic()
+    assert literalHandle.get_IsLiteral()
+    literalField := new ColumnarCodePlan()
+    literalField.PrepareV3()
+    literalRoot := literalField.BeginFragment(-1, 1084, 0)
+    literalFieldIndex := literalField.AddField(literalHandle)
+    literalField.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldsfld(),
+        literalFieldIndex)
+    literalField.CompleteFragment(literalRoot, typeof(int))
+    literalField.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(literalField) }
+
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    _schemaV2Root := schemaV2.BeginFragment(-1, 1085, 0)
+    schemaV2Field := schemaV2.AddField(emptyField)
+    assert throws InvalidOperationException {
+        schemaV2.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), schemaV2Field)
+    }
+}
+
 test "schema v2 executor requires straight-line plan-local assignment" {
     plan := new ColumnarCodePlan()
     plan.PrepareV2()
@@ -1235,7 +1282,7 @@ test "schema v3 executor rejects every unused scalar pool entry" {
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(unusedString) }
 }
 
-test "schema v1 and v2 executor validation rejects scalar operand smuggling" {
+test "schema v1 and v2 executor validation rejects newer-schema smuggling" {
     v1 := ValidBooleanCodePlan()
     v1.Int64Count = 1
     v1.Int64Values = new long[](1)
@@ -1251,6 +1298,20 @@ test "schema v1 and v2 executor validation rejects scalar operand smuggling" {
     v2.OpCodeValues[0] = ColumnarCodePlanContract.LdcI8()
     v2.OperandIndices[0] = 0
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(v2) }
+
+    v2FieldSmuggling := new ColumnarCodePlan()
+    v2FieldSmuggling.PrepareV3()
+    fieldRoot := v2FieldSmuggling.BeginFragment(-1, 1119, 0)
+    emptyField := ExecutorRequiredField(typeof(string), "Empty")
+    fieldIndex := v2FieldSmuggling.AddField(emptyField)
+    v2FieldSmuggling.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+    v2FieldSmuggling.CompleteFragment(fieldRoot, typeof(string))
+    v2FieldSmuggling.CompleteV3(typeof(string))
+    v2FieldSmuggling.SchemaVersion = ColumnarCodePlanContract.RecursiveSchemaVersion()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(v2FieldSmuggling)
+    }
 }
 
 test "schema v3 executor validates before null IL and does not consume" {

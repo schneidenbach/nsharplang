@@ -198,7 +198,7 @@ func ValidNestedV2CodePlan(): ColumnarCodePlan {
     return plan
 }
 
-test "schema v2 pins only the callable Reflection Emit opcode wire values" {
+test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.LdcI4_M1() == 21
     assert ColumnarCodePlanContract.LdcI4_0() == 22
     assert ColumnarCodePlanContract.LdcI4_8() == 30
@@ -214,6 +214,7 @@ test "schema v2 pins only the callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.Callvirt() == 111
     assert ColumnarCodePlanContract.Newobj() == 115
     assert ColumnarCodePlanContract.Ldfld() == 123
+    assert ColumnarCodePlanContract.Ldsfld() == 126
     assert ColumnarCodePlanContract.Ldlen() == 142
     assert ColumnarCodePlanContract.LdelemU1() == 145
     assert ColumnarCodePlanContract.LdelemU2() == 147

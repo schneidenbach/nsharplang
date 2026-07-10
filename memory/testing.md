@@ -96,7 +96,8 @@ Rules of the scope:
 - Keep every `Type`/`MethodInfo`/delegate obtained from `loadScope.Assembly` inside the `using` scope.
 - `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
-  assemblies through `ExternalAssemblyScan.Loaded()` (src/NSharpLang.Compiler/ExternalAssemblyScan.cs),
+  assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
+  (`src/NSharpLang.Compiler.BootstrapServices/ExternalAssemblyScan.nl`),
   which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
@@ -150,10 +151,10 @@ VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
 
 The full gate avoids one known duplicate-work trap: Step 8/9 build the
-example/fixture surface, then Step 10b passes those fresh output directories to
-`scripts/ilverify.sh --built-dirs-file` so IL verification does not rebuild the
-same surface. Standalone `scripts/ilverify.sh` and CI keep the default behavior
-of building the surface themselves before verification.
+example/fixture surface, then Step 10b passes the exact emitted assemblies to
+`scripts/ilverify.sh --built-dirs-file`. Copied package and DLL runtime assets
+remain verifier references rather than being mistaken for N# outputs. Standalone
+`scripts/ilverify.sh` and CI build the surface themselves before verification.
 
 ## Test Categories
 

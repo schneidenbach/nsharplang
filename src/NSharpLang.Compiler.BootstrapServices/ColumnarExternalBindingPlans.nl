@@ -152,6 +152,86 @@ public class ColumnarExternalBindingPlans {
     }
 
     public static func GetStaticMemberPlan(typeName: string, memberName: string): ColumnarExternalStaticMemberPlan {
+        if (typeName == "ArrayPool" || typeName == "ByteArrayPool"
+                || typeName == "System.Buffers.ArrayPool")
+            && memberName == "Shared" {
+            poolType := ClosedByteGenericType(
+                "System.Buffers.ArrayPool`1, System.Private.CoreLib")
+            return StaticMemberFromTypes(
+                ColumnarExternalStaticMemberKind.Property,
+                poolType,
+                memberName,
+                poolType)
+        }
+
+        if (typeName == "MemoryPool" || typeName == "ByteMemoryPool"
+                || typeName == "System.Buffers.MemoryPool")
+            && memberName == "Shared" {
+            poolType := ClosedByteGenericType(
+                "System.Buffers.MemoryPool`1, System.Memory")
+            return StaticMemberFromTypes(
+                ColumnarExternalStaticMemberKind.Property,
+                poolType,
+                memberName,
+                poolType)
+        }
+
+        if MatchesOwner(typeName, "StringComparison", "System.StringComparison") {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.StringComparison",
+                memberName,
+                "System.StringComparison")
+        }
+
+        if MatchesOwner(typeName, "JsonValueKind", "System.Text.Json.JsonValueKind") {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Text.Json.JsonValueKind",
+                memberName,
+                "System.Text.Json.JsonValueKind")
+        }
+
+        if MatchesOwner(typeName, "SearchOption", "System.IO.SearchOption")
+            && memberName == "TopDirectoryOnly" {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.IO.SearchOption",
+                memberName,
+                "System.IO.SearchOption")
+        }
+
+        if MatchesOwner(typeName, "NumberStyles", "System.Globalization.NumberStyles")
+            && memberName == "HexNumber" {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Globalization.NumberStyles",
+                memberName,
+                "System.Globalization.NumberStyles")
+        }
+
+        if MatchesOwner(
+                typeName,
+                "Environment.SpecialFolder",
+                "System.Environment.SpecialFolder")
+            && memberName == "UserProfile" {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Environment+SpecialFolder",
+                memberName,
+                "System.Environment+SpecialFolder")
+        }
+
+        primitiveTypeName := PrimitiveLimitTypeName(typeName)
+        if primitiveTypeName.Length > 0
+            && (memberName == "MinValue" || memberName == "MaxValue") {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                primitiveTypeName,
+                memberName,
+                primitiveTypeName)
+        }
+
         if (typeName == "OpCodes" || typeName == "System.Reflection.Emit.OpCodes")
             && IsSupportedOpCodeMemberName(memberName) {
             return StaticMember(
@@ -161,7 +241,7 @@ public class ColumnarExternalBindingPlans {
                 "System.Reflection.Emit.OpCode")
         }
 
-        if typeName == "StringComparer"
+        if MatchesOwner(typeName, "StringComparer", "System.StringComparer")
             && (memberName == "Ordinal" || memberName == "OrdinalIgnoreCase") {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
@@ -170,7 +250,11 @@ public class ColumnarExternalBindingPlans {
                 "System.StringComparer")
         }
 
-        if typeName == "JsonNamingPolicy" && memberName == "CamelCase" {
+        if MatchesOwner(
+                typeName,
+                "JsonNamingPolicy",
+                "System.Text.Json.JsonNamingPolicy")
+            && memberName == "CamelCase" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.Text.Json.JsonNamingPolicy",
@@ -178,7 +262,11 @@ public class ColumnarExternalBindingPlans {
                 "System.Text.Json.JsonNamingPolicy")
         }
 
-        if typeName == "CamelCaseNamingConvention" && memberName == "Instance" {
+        if MatchesOwner(
+                typeName,
+                "CamelCaseNamingConvention",
+                "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention")
+            && memberName == "Instance" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Field,
                 "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention",
@@ -186,7 +274,7 @@ public class ColumnarExternalBindingPlans {
                 "YamlDotNet.Serialization.INamingConvention")
         }
 
-        if typeName == "Environment"
+        if MatchesOwner(typeName, "Environment", "System.Environment")
             && (memberName == "NewLine" || memberName == "CurrentDirectory") {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
@@ -195,7 +283,8 @@ public class ColumnarExternalBindingPlans {
                 "System.String")
         }
 
-        if typeName == "AppContext" && memberName == "BaseDirectory" {
+        if MatchesOwner(typeName, "AppContext", "System.AppContext")
+            && memberName == "BaseDirectory" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.AppContext",
@@ -203,7 +292,11 @@ public class ColumnarExternalBindingPlans {
                 "System.String")
         }
 
-        if typeName == "CultureInfo" && memberName == "InvariantCulture" {
+        if MatchesOwner(
+                typeName,
+                "CultureInfo",
+                "System.Globalization.CultureInfo")
+            && memberName == "InvariantCulture" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.Globalization.CultureInfo",
@@ -211,7 +304,8 @@ public class ColumnarExternalBindingPlans {
                 "System.Globalization.CultureInfo")
         }
 
-        if typeName == "AppDomain" && memberName == "CurrentDomain" {
+        if MatchesOwner(typeName, "AppDomain", "System.AppDomain")
+            && memberName == "CurrentDomain" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.AppDomain",
@@ -219,7 +313,8 @@ public class ColumnarExternalBindingPlans {
                 "System.AppDomain")
         }
 
-        if typeName == "Console" && memberName == "Error" {
+        if MatchesOwner(typeName, "Console", "System.Console")
+            && memberName == "Error" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.Console",
@@ -227,7 +322,8 @@ public class ColumnarExternalBindingPlans {
                 "System.IO.TextWriter")
         }
 
-        if typeName == "Task" && memberName == "CompletedTask" {
+        if MatchesOwner(typeName, "Task", "System.Threading.Tasks.Task")
+            && memberName == "CompletedTask" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.Threading.Tasks.Task",
@@ -235,7 +331,8 @@ public class ColumnarExternalBindingPlans {
                 "System.Threading.Tasks.Task")
         }
 
-        if typeName == "Random" && memberName == "Shared" {
+        if MatchesOwner(typeName, "Random", "System.Random")
+            && memberName == "Shared" {
             return StaticMember(
                 ColumnarExternalStaticMemberKind.Property,
                 "System.Random",
@@ -243,7 +340,7 @@ public class ColumnarExternalBindingPlans {
                 "System.Random")
         }
 
-        if typeName == "DateTime" {
+        if MatchesOwner(typeName, "DateTime", "System.DateTime") {
             if memberName == "Now" || memberName == "UtcNow" || memberName == "Today" {
                 return StaticMember(
                     ColumnarExternalStaticMemberKind.Property,
@@ -261,6 +358,25 @@ public class ColumnarExternalBindingPlans {
         }
 
         return NoStaticMember()
+    }
+
+    static func PrimitiveLimitTypeName(typeName: string): string {
+        if typeName == "int" || typeName == "Int32" || typeName == "System.Int32" { return "System.Int32" }
+        if typeName == "long" || typeName == "Int64" || typeName == "System.Int64" { return "System.Int64" }
+        if typeName == "uint" || typeName == "UInt32" || typeName == "System.UInt32" { return "System.UInt32" }
+        if typeName == "ulong" || typeName == "UInt64" || typeName == "System.UInt64" { return "System.UInt64" }
+        if typeName == "short" || typeName == "Int16" || typeName == "System.Int16" { return "System.Int16" }
+        if typeName == "ushort" || typeName == "UInt16" || typeName == "System.UInt16" { return "System.UInt16" }
+        if typeName == "byte" || typeName == "Byte" || typeName == "System.Byte" { return "System.Byte" }
+        if typeName == "sbyte" || typeName == "SByte" || typeName == "System.SByte" { return "System.SByte" }
+        return ""
+    }
+
+    static func MatchesOwner(
+        value: string,
+        shortName: string,
+        fullName: string): bool {
+        return value == shortName || value == fullName
     }
 
     public static func GetStaticCallPlan(
@@ -780,6 +896,35 @@ public class ColumnarExternalBindingPlans {
             ExactTypeIdentity(declaringTypeName),
             memberName,
             ExactTypeIdentity(valueTypeName))
+    }
+
+    static func StaticMemberFromTypes(
+        kind: ColumnarExternalStaticMemberKind,
+        declaringType: Type,
+        memberName: string,
+        valueType: Type): ColumnarExternalStaticMemberPlan {
+        declaringIdentity := declaringType.get_AssemblyQualifiedName() ?? ""
+        valueIdentity := valueType.get_AssemblyQualifiedName() ?? ""
+        if declaringIdentity.Length == 0 || valueIdentity.Length == 0 {
+            return NoStaticMember()
+        }
+        return new ColumnarExternalStaticMemberPlan(
+            true,
+            kind,
+            declaringIdentity,
+            memberName,
+            valueIdentity)
+    }
+
+    static func ClosedByteGenericType(fullName: string): Type {
+        definition := Type.GetType(fullName)
+        if definition == null {
+            throw new InvalidOperationException(
+                "Required runtime generic type '" + fullName + "' was not found.")
+        }
+        arguments := new Type[](1)
+        arguments[0] = typeof(byte)
+        return definition.MakeGenericType(arguments)
     }
 
     static func NoStaticMember(): ColumnarExternalStaticMemberPlan {

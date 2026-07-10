@@ -4108,7 +4108,7 @@ internal sealed class ColumnarIlEmitter
             assemblyIdentity.Version = assemblyVersion;
         var builder = new PersistedAssemblyBuilder(assemblyIdentity, typeof(object).Assembly);
         var module = builder.DefineDynamicModule(assemblyName);
-        PreloadSupportedExternalReferenceAssemblies(referenceAssemblyPaths);
+        program.PrepareExternalTypeBindings(referenceAssemblyPaths);
 
         // PASS 0: define every user enum as a module-level i4-underlying enum type, BEFORE the Program type and the
         // function signatures (pass 1) so a function can use an enum as a param/return/local type and resolve its
@@ -9250,29 +9250,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private static void PreloadSupportedExternalReferenceAssemblies(IReadOnlyList<string>? referenceAssemblyPaths)
-    {
-        if (referenceAssemblyPaths == null)
-            return;
-
-        foreach (var referencePath in referenceAssemblyPaths)
-        {
-            var fileName = Path.GetFileNameWithoutExtension(referencePath);
-            if (!fileName.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)
-                && !fileName.StartsWith("Microsoft.Extensions.Hosting", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            try
-            {
-                _ = Assembly.LoadFrom(referencePath);
-            }
-            catch
-            {
-                // Signature resolution falls back to explicit reference lookups at use sites.
-            }
-        }
-    }
-
     private static bool TryResolveBclExceptionType(string name, out Type type)
     {
         type = name switch
@@ -9714,44 +9691,6 @@ internal sealed class ColumnarIlEmitter
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
-    private bool TryUsePlannedExternalStaticMember(
-        string typeName,
-        string memberName,
-        bool emit,
-        out Type type)
-    {
-        type = null!;
-        var plan = ColumnarExternalBindingPlans.GetStaticMemberPlan(typeName, memberName);
-        if (!plan.IsSupported
-            || !TryResolveExactRuntimeType(plan.DeclaringTypeName, out var declaringType)
-            || !TryResolveExactRuntimeType(plan.ValueTypeName, out var valueType))
-            return false;
-
-        if (plan.Kind == ColumnarExternalStaticMemberKind.Field)
-        {
-            var field = declaringType.GetField(plan.MemberName, BindingFlags.Public | BindingFlags.Static);
-            if (field == null || field.FieldType != valueType)
-                return false;
-            if (emit)
-                _il.Emit(OpCodes.Ldsfld, field);
-        }
-        else if (plan.Kind == ColumnarExternalStaticMemberKind.Property)
-        {
-            var property = declaringType.GetProperty(plan.MemberName, BindingFlags.Public | BindingFlags.Static);
-            if (property?.GetMethod == null || property.PropertyType != valueType)
-                return false;
-            if (emit)
-                _il.Emit(OpCodes.Call, property.GetMethod);
-        }
-        else
-        {
-            return false;
-        }
-
-        type = valueType;
-        return true;
-    }
-
     private bool EmitExpression(int idx, out Type type)
         => EmitExpressionCore(idx, out type);
 
@@ -10481,20 +10420,7 @@ internal sealed class ColumnarIlEmitter
 
             case 8: // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
             {       // an array/string/StringBuilder (-> int). The member name is the value span.
-                // An enum constant: a bare-identifier receiver naming the enum TYPE (not a value) + a member that
-                // is one of its named constants -> load the constant's underlying int (an enum is its underlying
-                // value on the stack). Only StringComparison is modelled (the corpus' only enum).
                 var memberAccessReceiver = Child(idx, 0);
-                if (_nodes.Kind(memberAccessReceiver) == 8
-                    && Text(memberAccessReceiver) == nameof(Environment.SpecialFolder)
-                    && _nodes.Kind(Child(memberAccessReceiver, 0)) == 6
-                    && Text(Child(memberAccessReceiver, 0)) == nameof(Environment)
-                    && Text(idx) == nameof(Environment.SpecialFolder.UserProfile))
-                {
-                    _il.Emit(OpCodes.Ldc_I4, (int)Environment.SpecialFolder.UserProfile);
-                    type = typeof(Environment.SpecialFolder);
-                    return true;
-                }
                 if (TryGetDottedMemberAccessName(memberAccessReceiver, out var enumReceiverName, out var enumReceiverRoot)
                     && _enumRegistry.TryGetValue(enumReceiverName, out var dottedUserEnum)
                     && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot))
@@ -10516,69 +10442,6 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(memberAccessReceiver) == 6)
                 {
                     var receiverIdent = Text(memberAccessReceiver);
-                    var receiverIsUnshadowed = !_locals.ContainsKey(receiverIdent)
-                        && !_liftedLocals.ContainsKey(receiverIdent)
-                        && !_paramOrdinals.ContainsKey(receiverIdent)
-                        && !_siblings.ContainsKey(receiverIdent);
-                    if (receiverIsUnshadowed
-                        && TryUsePlannedExternalStaticMember(receiverIdent, Text(idx), emit: true, out type))
-                        return true;
-                    if (receiverIdent == "StringComparison"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
-                    {
-                        if (!TryGetStringComparisonValue(Text(idx), out var enumValue))
-                            return false;
-                        _il.Emit(OpCodes.Ldc_I4, enumValue);
-                        type = typeof(StringComparison);
-                        return true;
-                    }
-                    if (receiverIdent == "SearchOption"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(SearchOption.TopDirectoryOnly))
-                    {
-                        _il.Emit(OpCodes.Ldc_I4, (int)SearchOption.TopDirectoryOnly);
-                        type = typeof(SearchOption);
-                        return true;
-                    }
-                    if (receiverIdent == "NumberStyles"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == nameof(System.Globalization.NumberStyles.HexNumber))
-                    {
-                        _il.Emit(OpCodes.Ldc_I4, (int)System.Globalization.NumberStyles.HexNumber);
-                        type = typeof(System.Globalization.NumberStyles);
-                        return true;
-                    }
-                    if (receiverIdent == "JsonValueKind"
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Enum.TryParse<JsonValueKind>(Text(idx), out var jsonValueKind))
-                    {
-                        _il.Emit(OpCodes.Ldc_I4, (int)jsonValueKind);
-                        type = typeof(JsonValueKind);
-                        return true;
-                    }
-                    if (!_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && TryEmitPrimitiveStaticConstant(receiverIdent, Text(idx), out type))
-                    {
-                        return true;
-                    }
-                    if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool")
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == "Shared")
-                    {
-                        var arrayPoolType = typeof(System.Buffers.ArrayPool<byte>);
-                        _il.Emit(OpCodes.Call, arrayPoolType.GetProperty("Shared")!.GetGetMethod()!);
-                        type = arrayPoolType;
-                        return true;
-                    }
-                    if ((receiverIdent == "MemoryPool" || receiverIdent == "ByteMemoryPool")
-                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
-                        && Text(idx) == "Shared")
-                    {
-                        var memoryPoolType = typeof(System.Buffers.MemoryPool<byte>);
-                        _il.Emit(OpCodes.Call, memoryPoolType.GetProperty("Shared")!.GetGetMethod()!);
-                        type = memoryPoolType;
-                        return true;
-                    }
                     // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
                     // local/param/sibling) and the member is one of its constants -> load the underlying int. The
                     // reported type is the same finalized enum Type used for params/returns and collection elements.
@@ -13573,23 +13436,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
-    // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
-    private static bool TryGetStringComparisonValue(string name, out int value)
-    {
-        value = name switch
-        {
-            nameof(StringComparison.CurrentCulture) => 0,
-            nameof(StringComparison.CurrentCultureIgnoreCase) => 1,
-            nameof(StringComparison.InvariantCulture) => 2,
-            nameof(StringComparison.InvariantCultureIgnoreCase) => 3,
-            nameof(StringComparison.Ordinal) => 4,
-            nameof(StringComparison.OrdinalIgnoreCase) => 5,
-            _ => -1,
-        };
-        return value >= 0;
-    }
-
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
     // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
     // `isFloat` (double) uses the ORDERED Clt/Cgt for `<`/`>` (a NaN operand yields false), but `<=`/`>=` must
@@ -15149,59 +14995,6 @@ internal sealed class ColumnarIlEmitter
             }
             case 7:
                 return _nodes.ChildCount(idx) == 1 && CanProveStringExpression(Child(idx, 0));
-            default:
-                return false;
-        }
-    }
-
-    private bool TryEmitPrimitiveStaticConstant(string receiverIdent, string member, out Type type)
-    {
-        type = null!;
-        if (member != "MaxValue" && member != "MinValue")
-            return false;
-
-        switch (receiverIdent)
-        {
-            case "int":
-            case "Int32":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? int.MaxValue : int.MinValue);
-                type = typeof(int);
-                return true;
-            case "long":
-            case "Int64":
-                _il.Emit(OpCodes.Ldc_I8, member == "MaxValue" ? long.MaxValue : long.MinValue);
-                type = typeof(long);
-                return true;
-            case "uint":
-            case "UInt32":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? unchecked((int)uint.MaxValue) : 0);
-                type = typeof(uint);
-                return true;
-            case "ulong":
-            case "UInt64":
-                _il.Emit(OpCodes.Ldc_I8, member == "MaxValue" ? unchecked((long)ulong.MaxValue) : 0L);
-                type = typeof(ulong);
-                return true;
-            case "short":
-            case "Int16":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? short.MaxValue : short.MinValue);
-                type = typeof(short);
-                return true;
-            case "ushort":
-            case "UInt16":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? ushort.MaxValue : 0);
-                type = typeof(ushort);
-                return true;
-            case "byte":
-            case "Byte":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? byte.MaxValue : 0);
-                type = typeof(byte);
-                return true;
-            case "sbyte":
-            case "SByte":
-                _il.Emit(OpCodes.Ldc_I4, member == "MaxValue" ? sbyte.MaxValue : sbyte.MinValue);
-                type = typeof(sbyte);
-                return true;
             default:
                 return false;
         }
@@ -17546,23 +17339,6 @@ internal sealed class ColumnarIlEmitter
                 && !_siblings.ContainsKey(receiverIdent);
             if (!isUnshadowedTypeName)
                 return false;
-            if (TryUsePlannedExternalStaticMember(receiverIdent, Text(node), emit: false, out type))
-                return true;
-            if (receiverIdent == "StringComparison")
-            {
-                type = typeof(StringComparison);
-                return true;
-            }
-            if ((receiverIdent == "ArrayPool" || receiverIdent == "ByteArrayPool") && Text(node) == "Shared")
-            {
-                type = typeof(System.Buffers.ArrayPool<byte>);
-                return true;
-            }
-            if ((receiverIdent == "MemoryPool" || receiverIdent == "ByteMemoryPool") && Text(node) == "Shared")
-            {
-                type = typeof(System.Buffers.MemoryPool<byte>);
-                return true;
-            }
             if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
                 && ((userEnum.StringConstants != null && userEnum.StringConstants.ContainsKey(Text(node)))
                     || userEnum.Constants.ContainsKey(Text(node))))
@@ -21003,7 +20779,7 @@ internal sealed class ColumnarIlEmitter
     {
         var previousNodes = _nodes;
         var previousSource = _source;
-        _nodes = nodes;
+        _nodes = ColumnarNodeTable.InheritBindingContext(nodes, previousNodes);
         _source = source;
         try
         {
@@ -21021,7 +20797,7 @@ internal sealed class ColumnarIlEmitter
     {
         var previousNodes = _nodes;
         var previousSource = _source;
-        _nodes = nodes;
+        _nodes = ColumnarNodeTable.InheritBindingContext(nodes, previousNodes);
         _source = source;
         try
         {

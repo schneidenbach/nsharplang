@@ -48,6 +48,37 @@ func SliceAll<T>(values: T[]): T[] {
     return values[..]
 }
 
+func ReturnEnvironmentNewLine(): string {
+    return Environment.NewLine
+}
+
+func ReturnInterpolatedEnvironmentNewLine(): string {
+    return $"{Environment.NewLine}"
+}
+
+func ReturnUnixEpochYear(): int {
+    return DateTime.UnixEpoch.Year
+}
+
+func ReadEnvironmentNewLineLast(): char {
+    return Environment.NewLine[^1]
+}
+
+func SliceCurrentDirectoryPrefix(): string {
+    return Environment.CurrentDirectory[0..1]
+}
+
+func ReadEnvironmentArrayFirst(): string {
+    values := [Environment.NewLine]
+    return values[0]
+}
+
+class ExternalStaticMemberReader {
+    func ReadNewLine(): string {
+        return Environment.NewLine
+    }
+}
+
 class ExplicitThisRangeReader {
     count: int
 
@@ -82,6 +113,23 @@ test "range-index reads arrays and strings from the end" {
     assert values[^3] == 30
     assert text[^1] == 'f'
     assert text[^3] == 'd'
+}
+
+test "external static fields and properties execute through N sharp plans" {
+    newLine := ReturnEnvironmentNewLine()
+    currentDirectory := Environment.CurrentDirectory
+    reader := new ExternalStaticMemberReader()
+
+    assert newLine.Length > 0
+    assert newLine == Environment.NewLine
+    assert ReturnInterpolatedEnvironmentNewLine() == newLine
+    assert reader.ReadNewLine() == newLine
+    assert ReadEnvironmentArrayFirst() == newLine
+    assert ReturnUnixEpochYear() == 1970
+    assert ReadEnvironmentNewLineLast() == '\n'
+    assert currentDirectory.Length > 0
+    assert SliceCurrentDirectoryPrefix().Length == 1
+    assert SliceCurrentDirectoryPrefix()[0] == currentDirectory[0]
 }
 
 test "explicit-this fields remain distinct from same-named parameters across trivia" {

@@ -322,6 +322,8 @@ public class ColumnarTestInput {
 }
 
 public class ColumnarProgramInput {
+    bindingScope: ColumnarBindingScopeFacts
+    ProjectRoot: string
     Source: string
     Sources: ColumnarSourceFile[]
     Functions: IReadOnlyList<ColumnarFunctionInput>
@@ -347,7 +349,8 @@ public class ColumnarProgramInput {
             unions,
             interfaces,
             BuildSingleSourceFiles(source),
-            tests)
+            tests,
+            null)
     }
 
     public static func CreateFromSourceFiles(
@@ -366,12 +369,20 @@ public class ColumnarProgramInput {
             unions,
             interfaces,
             sourceFiles,
-            tests)
+            tests,
+            null)
     }
 
     public static func MergeSourceFiles(
         sourceFiles: ColumnarSourceFile[],
         programs: ColumnarProgramInput[]): ColumnarProgramInput {
+        return MergeSourceFilesAtProjectRoot(sourceFiles, programs, "")
+    }
+
+    public static func MergeSourceFilesAtProjectRoot(
+        sourceFiles: ColumnarSourceFile[],
+        programs: ColumnarProgramInput[],
+        projectRoot: string): ColumnarProgramInput {
         functions := new List<ColumnarFunctionInput>()
         enums := new List<ColumnarEnumInput>()
         structs := new List<ColumnarStructInput>()
@@ -393,7 +404,16 @@ public class ColumnarProgramInput {
             index = index + 1
         }
 
-        return CreateFromSourceFiles(sourceFiles, functions, enums, structs, unions, interfaces, tests)
+        return new ColumnarProgramInput(
+            GetFirstSource(sourceFiles),
+            functions,
+            enums,
+            structs,
+            unions,
+            interfaces,
+            sourceFiles,
+            tests,
+            projectRoot)
     }
 
     public static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
@@ -420,15 +440,25 @@ public class ColumnarProgramInput {
         unions: IReadOnlyList<ColumnarUnionInput>,
         interfaces: IReadOnlyList<ColumnarInterfaceInput>,
         sourceFiles: ColumnarSourceFile[]? = null,
-        tests: IReadOnlyList<ColumnarTestInput>? = null) {
+        tests: IReadOnlyList<ColumnarTestInput>? = null,
+        projectRoot: string? = null) {
         Source = source
         Sources = sourceFiles ?? BuildSingleSourceFiles(source)
+        ProjectRoot = projectRoot ?? ""
         Functions = functions
         Enums = enums
         Structs = structs
         Unions = unions
         Interfaces = interfaces
         Tests = tests
+        bindingScope = ColumnarBindingScopeFacts.Create(
+            Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
+        StampBindingContexts(bindingScope)
+    }
+
+    public func PrepareExternalTypeBindings(
+        referenceAssemblyPaths: IReadOnlyList<string>?) {
+        bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths)
     }
 
     public func GetSourceForFileId(fileId: int): string {
@@ -445,6 +475,149 @@ public class ColumnarProgramInput {
         sources[0] = source
         fileNames[0] = ""
         return ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames)
+    }
+
+    func StampBindingContexts(scope: ColumnarBindingScopeFacts) {
+        noTypeParameters := new string[](0)
+        functionIndex := 0
+        while functionIndex < Functions.Count {
+            StampFunctionBindingContext(
+                Functions[functionIndex], scope, "", noTypeParameters, null)
+            functionIndex = functionIndex + 1
+        }
+
+        structIndex := 0
+        while structIndex < Structs.Count {
+            structInput := Structs[structIndex]
+            methodIndex := 0
+            while methodIndex < structInput.Methods.Count {
+                StampFunctionBindingContext(
+                    structInput.Methods[methodIndex],
+                    scope,
+                    scope.ExactTypeNameForFile(
+                        structInput.Name, structInput.SourceFileId),
+                    structInput.TypeParamNames,
+                    null)
+                methodIndex = methodIndex + 1
+            }
+            constructorIndex := 0
+            while constructorIndex < structInput.Constructors.Count {
+                StampFunctionBindingContext(
+                    structInput.Constructors[constructorIndex].Body,
+                    scope,
+                    scope.ExactTypeNameForFile(
+                        structInput.Name, structInput.SourceFileId),
+                    structInput.TypeParamNames,
+                    null)
+                constructorIndex = constructorIndex + 1
+            }
+            propertyIndex := 0
+            while propertyIndex < structInput.Properties.Count {
+                propertyInput := structInput.Properties[propertyIndex]
+                StampFunctionBindingContext(
+                    propertyInput.Getter,
+                    scope,
+                    scope.ExactTypeNameForFile(
+                        structInput.Name, structInput.SourceFileId),
+                    structInput.TypeParamNames,
+                    null)
+                if propertyInput.Setter != null {
+                    StampFunctionBindingContext(
+                        propertyInput.Setter,
+                        scope,
+                        scope.ExactTypeNameForFile(
+                            structInput.Name, structInput.SourceFileId),
+                        structInput.TypeParamNames,
+                        null)
+                }
+                propertyIndex = propertyIndex + 1
+            }
+            structIndex = structIndex + 1
+        }
+
+        interfaceIndex := 0
+        while interfaceIndex < Interfaces.Count {
+            interfaceInput := Interfaces[interfaceIndex]
+            if interfaceInput.MethodNames.Length
+                != interfaceInput.MethodBodies.Length {
+                throw new InvalidOperationException(
+                    "Columnar interface method names and bodies must have identical lengths.")
+            }
+            visibleInterfaceMethodNames := new List<string>()
+            methodIndex := 0
+            while methodIndex < interfaceInput.MethodBodies.Length {
+                // The analyzer has no implicit `this` in an interface and analyzes methods
+                // sequentially. The current method declares itself before its body; later and
+                // base-interface methods are not lexical bindings in this body.
+                visibleInterfaceMethodNames.Add(
+                    interfaceInput.MethodNames[methodIndex])
+                body := interfaceInput.MethodBodies[methodIndex]
+                if body != null {
+                    StampFunctionBindingContext(
+                        body,
+                        scope,
+                        "",
+                        interfaceInput.TypeParamNames,
+                        visibleInterfaceMethodNames.ToArray())
+                }
+                methodIndex = methodIndex + 1
+            }
+            interfaceIndex = interfaceIndex + 1
+        }
+
+        if Tests != null {
+            testIndex := 0
+            while testIndex < Tests.Count {
+                StampFunctionBindingContext(
+                    Tests[testIndex].Body, scope, "", noTypeParameters, null)
+                testIndex = testIndex + 1
+            }
+        }
+    }
+
+    static func StampFunctionBindingContext(
+        function: ColumnarFunctionInput,
+        scope: ColumnarBindingScopeFacts,
+        enclosingTypeName: string,
+        inheritedTypeParameterNames: string[],
+        additionalRootBindingNames: string[]?) {
+        visibleTypeParameters := MergeNames(
+            inheritedTypeParameterNames,
+            function.TypeParamNames)
+        function.BodyNodes.SetBindingContext(
+            scope.ForSourceFile(function.SourceFileId),
+            enclosingTypeName,
+            visibleTypeParameters,
+            additionalRootBindingNames)
+        localFunctions := function.LocalFunctions
+        if localFunctions != null {
+            localIndex := 0
+            while localIndex < localFunctions.Count {
+                StampFunctionBindingContext(
+                    localFunctions[localIndex].Function,
+                    scope,
+                    enclosingTypeName,
+                    visibleTypeParameters,
+                    additionalRootBindingNames)
+                localIndex = localIndex + 1
+            }
+        }
+    }
+
+    static func MergeNames(first: string[], second: string[]): string[] {
+        result := new string[](first.Length + second.Length)
+        index := 0
+        while index < first.Length {
+            result[index] = first[index]
+            index = index + 1
+        }
+        secondIndex := 0
+        while secondIndex < second.Length {
+            result[index] = second[secondIndex]
+            index = index + 1
+            secondIndex = secondIndex + 1
+        }
+        return result
     }
 
     static func AssignFunctionSourceFileId(function: ColumnarFunctionInput, sourceFileId: int) {

@@ -23,8 +23,8 @@
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
 #
 # The full local product gate already builds the example/fixture surface before
-# invoking this script. It may pass `--built-dirs-file <file>` to verify those
-# freshly-built output directories without rebuilding the same projects again.
+# invoking this script. It passes exact emitted assemblies through
+# `--built-dirs-file <file>` without rebuilding the same projects again.
 #
 set -euo pipefail
 
@@ -164,6 +164,7 @@ fi
 # behavior. Verification then resolves refs from the framework dirs AND from
 # the output dir itself.
 BUILT_DIRS=()
+BUILT_TARGETS=()
 
 build_project() {
     local project_yml="$1"
@@ -196,28 +197,30 @@ BUILD_FAILED=0
 
 if [ -n "$BUILT_DIRS_FILE" ]; then
     if [ ! -f "$BUILT_DIRS_FILE" ]; then
-        fail "Built output directory manifest not found: $BUILT_DIRS_FILE"
+        fail "Built output manifest not found: $BUILT_DIRS_FILE"
         exit 2
     fi
 
     info "Using existing example/template/fixture build outputs"
-    while IFS= read -r built_dir; do
-        [ -z "$built_dir" ] && continue
-        if [ -d "$built_dir" ]; then
-            BUILT_DIRS+=("$built_dir")
+    while IFS= read -r built_output; do
+        [ -z "$built_output" ] && continue
+        if [ -f "$built_output" ]; then
+            BUILT_TARGETS+=("$built_output")
+        elif [ -d "$built_output" ]; then
+            BUILT_DIRS+=("$built_output")
         else
-            fail "Built output directory not found: $built_dir"
+            fail "Built output not found: $built_output"
             BUILD_FAILED=1
         fi
     done < "$BUILT_DIRS_FILE"
 
-    if [ "${#BUILT_DIRS[@]}" -eq 0 ]; then
-        fail "Built output directory manifest was empty: $BUILT_DIRS_FILE"
+    if [ "$((${#BUILT_TARGETS[@]} + ${#BUILT_DIRS[@]}))" -eq 0 ]; then
+        fail "Built output manifest was empty: $BUILT_DIRS_FILE"
         exit 2
     fi
 
     if [ "$BUILD_FAILED" = "1" ]; then
-        fail "One or more expected build output directories were missing; cannot run IL verification."
+        fail "One or more expected build outputs were missing; cannot run IL verification."
         exit 1
     fi
 else
@@ -259,17 +262,8 @@ echo
 # --------------------------------------------------------------------------
 # Collect every emitted assembly
 # --------------------------------------------------------------------------
-# Verify only the assemblies N# itself produced. We must NOT verify copied
-# framework/runtime reference DLLs (those are inputs, not N# output, and would
-# add unrelated BCL noise). Each project/single-file build above wrote into a
-# freshly-cleaned bin/, and `nlc build` emits exactly its own output assembly
-# there (exe -> sibling .runtimeconfig.json; lib -> bare .dll) without copying
-# framework reference DLLs. We therefore verify every .dll under those bins,
-# but defensively skip any DLL whose name matches a framework reference
-# assembly in case a future example ever copies runtime assets.
-# NOTE: macOS ships bash 3.2 (no associative arrays), and this script must run
-# locally there as well as on CI's bash 4+. We therefore use newline-delimited
-# strings for membership/dedupe instead of `declare -A`.
+# The product gate supplies exact `Output:` assemblies so copied runtime assets remain references,
+# never targets. Directory discovery remains only for standalone/backward-compatible invocation.
 TARGETS=()
 SEEN=$'\n'     # newline-delimited absolute paths already collected
 FRAMEWORK_NAMES=$'\n'  # newline-delimited basenames of framework assemblies
@@ -277,8 +271,14 @@ for dll in "$NETCORE_DIR"/*.dll; do FRAMEWORK_NAMES+="$(basename "$dll")"$'\n'; 
 if [ -n "$ASPNET_DIR" ]; then
     for dll in "$ASPNET_DIR"/*.dll; do FRAMEWORK_NAMES+="$(basename "$dll")"$'\n'; done
 fi
+if [ "${#BUILT_TARGETS[@]}" -gt 0 ]; then for built_target in "${BUILT_TARGETS[@]}"; do
+    name="$(basename "$built_target")"
+    real="$(cd "$(dirname "$built_target")" && pwd)/$name"
+    SEEN+="$real"$'\n'
+    TARGETS+=("$real")
+done; fi
 
-for bin_dir in "${BUILT_DIRS[@]}"; do
+if [ "${#BUILT_DIRS[@]}" -gt 0 ]; then for bin_dir in "${BUILT_DIRS[@]}"; do
     [ -d "$bin_dir" ] || continue
     while IFS= read -r dll; do
         name="$(basename "$dll")"
@@ -293,7 +293,7 @@ for bin_dir in "${BUILT_DIRS[@]}"; do
         SEEN+="$real"$'\n'
         TARGETS+=("$real")
     done < <(find "$bin_dir" -name '*.dll' -type f 2>/dev/null)
-done
+done; fi
 
 if [ "${#TARGETS[@]}" -eq 0 ]; then
     fail "No N# output assemblies found to verify."

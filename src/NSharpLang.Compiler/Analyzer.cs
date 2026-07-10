@@ -8022,7 +8022,6 @@ public class Analyzer : IDisposable
         {
             var aliasName = identifier.Name;
 
-            // Check file import aliases
             if (_importedSymbolsByAlias.TryGetValue(aliasName, out var symbols))
             {
                 if (symbols.TryGetValue(member.MemberName, out var symbolType))
@@ -8047,12 +8046,9 @@ public class Analyzer : IDisposable
                     Math.Max(1, member.MemberName.Length));
                 return BuiltInTypes.Unknown;
             }
-
-            // Check namespace import aliases (handled by existing TryResolveExternalType)
         }
 
-        var objectType = AnalyzeExpression(member.Object);
-
+        var objectType = TryResolveQualifiedExternalType(member.Object, out var typeReceiver) ? typeReceiver : AnalyzeExpression(member.Object);
         if (TryResolveNullableMemberAccess(member, objectType, out var nullableMemberType))
         {
             return nullableMemberType;
@@ -8092,7 +8088,6 @@ public class Analyzer : IDisposable
         ValidateDeclaredMemberVisibility(receiverType, member);
         TryRecordMemberBinding(receiverType, member);
 
-        // Resolve member on type
         var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
         var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers);
         if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
@@ -8540,7 +8535,6 @@ public class Analyzer : IDisposable
     private bool TryResolveTypeValuedMemberAccess(Expression expression, out TypeInfo type)
     {
         type = BuiltInTypes.Unknown;
-
         switch (expression)
         {
             case ParenthesizedExpression parenthesized:
@@ -8549,34 +8543,39 @@ public class Analyzer : IDisposable
             case IdentifierExpression identifier:
                 if (LookupSymbol(identifier.Name) != null)
                     return false;
-
                 type = ResolveTypeAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
                 if (!BuiltInTypes.IsUnknown(type))
                     return true;
-
-                if (TryResolveBuiltInTypeKeyword(identifier.Name) is { } builtInType)
-                {
-                    type = new ReflectionTypeInfo(builtInType);
-                    return true;
-                }
-
-                if (TryResolveExternalType(identifier.Name) is { } externalType)
-                {
-                    type = externalType;
-                    return true;
-                }
-
-                return false;
+                type = TryResolveBuiltInTypeKeyword(identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : TryResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
+                return !BuiltInTypes.IsUnknown(type);
 
             case MemberAccessExpression memberAccess:
-                if (!TryResolveTypeValuedMemberAccess(memberAccess.Object, out var ownerType))
-                    return false;
-
-                return TryResolveNestedTypeOnOwner(ownerType, memberAccess.MemberName, out type);
+                if (TryResolveQualifiedExternalType(memberAccess, out type))
+                    return true;
+                return TryResolveTypeValuedMemberAccess(memberAccess.Object, out var ownerType) && TryResolveNestedTypeOnOwner(ownerType, memberAccess.MemberName, out type);
 
             default:
                 return false;
         }
+    }
+
+    private bool TryResolveQualifiedExternalType(Expression expression, out TypeInfo type)
+    {
+        type = BuiltInTypes.Unknown;
+        if (expression is not MemberAccessExpression || !TryGetQualifiedExpressionTreeName(expression, out var qualifiedName))
+            return false;
+        var rootName = ExternalQualifiedTypeResolver.RootName(qualifiedName);
+        var currentType = GetCurrentTypeScope();
+        var separator = qualifiedName.LastIndexOf('.');
+        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+            if (TryResolveProjectTypeInNamespace(rootName, visibleNamespace, out _, out _)) return false;
+        if (LookupSymbol(rootName) != null || LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
+            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(ResolveMember(currentType, rootName)))
+            || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], out _, out _))
+            || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
+            return false;
+        type = new ReflectionTypeInfo(runtimeType);
+        return true;
     }
 
     private bool TryResolveNestedTypeOnOwner(TypeInfo ownerType, string memberName, out TypeInfo nestedType)
@@ -18974,7 +18973,6 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        // Check built-in types
         TypeInfo? builtInType = name switch
         {
             "int" => BuiltInTypes.Int,
@@ -18999,12 +18997,9 @@ public class Analyzer : IDisposable
         if (builtInType != null)
             return builtInType;
 
-        // Check local type declarations
         var localType = LookupType(name);
         if (localType != null)
         {
-            // Record a binding for this type reference so FindReferences works
-            // across files (e.g., imported types used in annotations).
             if (line > 0)
             {
                 TryRecordTypeBinding(name, line, column);
@@ -19028,7 +19023,6 @@ public class Analyzer : IDisposable
             return projectType;
         }
 
-        // Check using aliases
         if (_usingAliases.TryGetValue(name, out var fullName))
         {
             var aliasedType = TryResolveExternalType(fullName);
@@ -19036,7 +19030,6 @@ public class Analyzer : IDisposable
                 return aliasedType;
         }
 
-        // Try to resolve as external type
         var externalType = TryResolveExternalType(name);
         if (externalType != null)
             return externalType;

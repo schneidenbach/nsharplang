@@ -33,7 +33,7 @@ public class ColumnarRangeIndexPlanner {
             return false
         }
 
-        bindings := BindFromRawFacts(
+        bindings := ColumnarFragmentBindings.FromRawFacts(
             parameterOrdinals,
             parameterTypes,
             locals,
@@ -43,6 +43,10 @@ public class ColumnarRangeIndexPlanner {
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
+            return ColumnarExternalStaticMemberPlanner.TryEmit(
+                nodes, source, node, bindings, plan, il, out resultType)
+        }
         handles := ColumnarRangeIndexHandles.Resolve()
         return TryEmit(nodes, source, node, bindings, handles, plan, il, out resultType)
     }
@@ -69,7 +73,7 @@ public class ColumnarRangeIndexPlanner {
             return false
         }
 
-        bindings := BindFromRawFacts(
+        bindings := ColumnarFragmentBindings.FromRawFacts(
             parameterOrdinals,
             parameterTypes,
             locals,
@@ -79,6 +83,10 @@ public class ColumnarRangeIndexPlanner {
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
+            return ColumnarExternalStaticMemberPlanner.TryGetType(
+                nodes, source, node, bindings, plan, out resultType)
+        }
         handles := ColumnarRangeIndexHandles.Resolve()
         return TryGetType(nodes, source, node, bindings, handles, plan, out resultType)
     }
@@ -166,32 +174,6 @@ public class ColumnarRangeIndexPlanner {
         }
     }
 
-    static func BindFromRawFacts(
-        parameterOrdinals: Dictionary<string, int>,
-        parameterTypes: Dictionary<string, Type>,
-        locals: Dictionary<string, LocalBuilder>,
-        enums: Dictionary<string, ColumnarEnumDef>,
-        liftedNames: IEnumerable<string>,
-        boxedNames: IEnumerable<string>?,
-        enclosingNames: IEnumerable<string>,
-        siblingNames: IEnumerable<string>,
-        visibleLocalFunctionNames: IEnumerable<string>): ColumnarFragmentBindings {
-        normalizedBoxedNames: IEnumerable<string> = new string[](0)
-        if boxedNames != null {
-            normalizedBoxedNames = boxedNames
-        }
-        return new ColumnarFragmentBindings(
-            parameterOrdinals,
-            parameterTypes,
-            locals,
-            enums,
-            liftedNames,
-            normalizedBoxedNames,
-            enclosingNames,
-            siblingNames,
-            visibleLocalFunctionNames)
-    }
-
     static func FacadeRootMayBeOwned(
         nodes: ColumnarNodeTable,
         source: string,
@@ -208,6 +190,9 @@ public class ColumnarRangeIndexPlanner {
         }
         if kind == ColumnarExpressionNodeKind.UnaryExpression() {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
+        }
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return true
         }
         if kind != ColumnarExpressionNodeKind.IndexAccessExpression()
             || nodes.ChildCount(node) != 2 {
@@ -340,6 +325,10 @@ public class ColumnarRangeIndexPlanner {
             planned = TryPlanIdentifier(nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)
+            if !planned {
+                planned = ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(
+                    nodes, source, node, bindings, plan, out resultType)
+            }
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression() {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(
                 nodes, source, node, plan, fragment, out resultType)

@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler
 
 public class ReferenceResolutionOptions {
     configurationValue: string
@@ -58,6 +59,19 @@ public class ReferenceResolutionResult {
 
     RuntimeAssets: IReadOnlyList<string> => BuildRuntimeAssets()
 
+    public static func Create(projectRoot: string, dependencies: IReadOnlyList<Reference>?): ReferenceResolutionResult {
+        result := new ReferenceResolutionResult()
+        paths := ExternalAssemblyScan.ResolveRuntimeAssetPaths(projectRoot, dependencies)
+
+        index := 0
+        while index < paths.Count {
+            result.AddRuntimeAsset(paths[index])
+            index = index + 1
+        }
+
+        return result
+    }
+
     public func AddRuntimeAsset(path: string) {
         if !string.IsNullOrWhiteSpace(path) && File.Exists(path) {
             RuntimeAssetSet.Add(Path.GetFullPath(path))
@@ -71,9 +85,25 @@ public class ReferenceResolutionResult {
     }
 
     public func CopyRuntimeAssets(outputDirectory: string) {
+        assets := RuntimeAssets
+        destinations := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        foreach asset in assets {
+            fileName := Path.GetFileName(asset)
+            existing := ""
+            if destinations.TryGetValue(fileName, out existing) {
+                if !string.Equals(existing, asset, StringComparison.OrdinalIgnoreCase) {
+                    throw new InvalidOperationException("Runtime asset filename collision for '" + fileName + "': '" + existing + "' and '" + asset + "'.")
+                }
+
+                continue
+            }
+
+            destinations.Add(fileName, asset)
+        }
+
         Directory.CreateDirectory(outputDirectory)
 
-        foreach asset in RuntimeAssets {
+        foreach asset in assets {
             destination := Path.Combine(outputDirectory, Path.GetFileName(asset))
             if string.Equals(Path.GetFullPath(asset), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase) {
                 continue

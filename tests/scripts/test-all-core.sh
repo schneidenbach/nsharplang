@@ -6,13 +6,11 @@ echo "N# Comprehensive Test Suite"
 echo "========================================="
 echo
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Track failures
 FAILURES=0
 TIMING_PRINTED=0
 TOTAL_START_TIME=$(date +%s)
@@ -70,7 +68,6 @@ if is_enabled "$NLC_MSBUILD_SINGLE_NODE"; then
     unset MSBUILDNOINPROCNODE
 fi
 
-# Parse arguments
 CLEAN_BUILD=0
 for arg in "$@"; do
     case "$arg" in
@@ -78,7 +75,6 @@ for arg in "$@"; do
     esac
 done
 
-# Function to print section headers
 section() {
     record_section_duration
     CURRENT_SECTION_NAME="$1"
@@ -130,18 +126,15 @@ print_timing_summary() {
 
 trap print_timing_summary EXIT
 
-# Function to handle errors
 handle_error() {
     echo -e "${RED}✗ FAILED: $1${NC}"
     FAILURES=$((FAILURES + 1))
 }
 
-# Function to handle success
 handle_success() {
     echo -e "${GREEN}✓ PASSED: $1${NC}"
 }
 
-# Change to repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../.."
 REPO_ROOT=$(pwd)
@@ -154,8 +147,7 @@ NUGET_PACKAGE_CACHE="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 # set that previously PASSED that step on this toolchain/platform (markers are
 # written only on success, keyed by content hash). This is what lets docs- or
 # tests-only commits stop paying for identical-input example steps.
-# Wiring comes from tests/scripts/test-all.sh; --release/--fresh/--no-cache/
-# --clean turn skipping off. Direct core invocations (no cache root) never skip.
+# The wrapper and explicit fresh/clean flags control skipping; direct core invocations never skip.
 STEP_CACHE_ROOT="${NSHARP_TEST_STEP_CACHE_ROOT:-}"
 
 step_cache_enabled() {
@@ -646,7 +638,6 @@ rm -rf "$TEMP_DIR"
 section "Step 8: Build Example Projects (via nlc build)"
 echo "Using up to $MAX_JOBS parallel workers for project verification..."
 
-# Find all example projects and test fixture projects with project.yml
 EXAMPLE_PROJECTS=$(find examples tests/fixtures -name "project.yml" -type f 2>/dev/null | sort)
 
 if [ -z "$EXAMPLE_PROJECTS" ]; then
@@ -683,7 +674,12 @@ else
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
 
         if (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
-            printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
+            output_path=$(sed -n "s/^Output: //p" "$log_file" | tail -1)
+            if [ -f "$output_path" ]; then
+                printf "OK|%s|%s|%s\n" "$project_name" "$project_dir" "$output_path" > "$result_file"
+            else
+                printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
+            fi
         else
             printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
         fi
@@ -694,6 +690,7 @@ else
         status=$(cut -d'|' -f1 "$result_file")
         project_name=$(cut -d'|' -f2 "$result_file")
         project_dir=$(cut -d'|' -f3 "$result_file")
+        output_path=$(cut -d'|' -f4 "$result_file")
 
         echo
         echo "Building example: $project_name"
@@ -701,7 +698,7 @@ else
 
         if [ "$status" = "OK" ]; then
             handle_success "Example: $project_name"
-            printf '%s\n' "$REPO_ROOT/$project_dir/bin" >> "$ILVERIFY_BUILT_DIRS_FILE"
+            printf '%s\n' "$output_path" >> "$ILVERIFY_BUILT_DIRS_FILE"
         else
             handle_error "Example: $project_name"
             echo "  Run manually: cd $project_dir && dotnet \"$CLI_DLL\" build"
@@ -713,10 +710,7 @@ fi
 
 section "Step 9: Build Single-File Examples (CLI-based)"
 
-# Find single .nl files outside of project.yml directories.
-# Do not allowlist failures here: examples are product surface, and unexpected
-# failures must fail this gate instead of being hidden in release evidence.
-# Skip files inside project-based directories (they're tested in Step 8).
+# Single files outside project directories are product surface; no failure allowlist.
 LEGACY_EXAMPLES=""
 while IFS= read -r nl_file; do
     dir=$(dirname "$nl_file")
@@ -759,7 +753,12 @@ else
             mkdir -p "$output_dir"
 
             if dotnet "$cli_dll" build "$nl_file" --output "$output_dir" > "$log_file" 2>&1; then
-                printf "OK|%s|%s|%s\n" "$example_name" "$nl_file" "$output_dir" > "$result_file"
+                output_path=$(sed -n "s/^Output: //p" "$log_file" | tail -1)
+                if [ -f "$output_path" ]; then
+                    printf "OK|%s|%s|%s|%s\n" "$example_name" "$nl_file" "$output_dir" "$output_path" > "$result_file"
+                else
+                    printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
+                fi
             else
                 printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
             fi
@@ -772,6 +771,7 @@ else
             example_name=$(cut -d'|' -f2 "$result_file")
             example_path=$(cut -d'|' -f3 "$result_file")
             output_dir=$(cut -d'|' -f4 "$result_file")
+            output_path=$(cut -d'|' -f5 "$result_file")
 
             echo
             echo "Building single-file example: $example_name"
@@ -779,7 +779,7 @@ else
 
             if [ "$status" = "OK" ]; then
                 handle_success "Single-file example: $example_name"
-                printf '%s\n' "$output_dir" >> "$ILVERIFY_BUILT_DIRS_FILE"
+                printf '%s\n' "$output_path" >> "$ILVERIFY_BUILT_DIRS_FILE"
             else
                 handle_error "Single-file example: $example_name"
                 echo "  Run manually: dotnet \"$CLI_DLL\" build \"$example_path\""

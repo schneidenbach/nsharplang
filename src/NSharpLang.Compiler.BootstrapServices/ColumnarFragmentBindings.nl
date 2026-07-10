@@ -44,6 +44,32 @@ class ColumnarFragmentBindings {
         this.visibleLocalCallableNames = visibleLocalCallableNames
     }
 
+    public static func FromRawFacts(
+        parameterOrdinals: Dictionary<string, int>,
+        parameterTypes: Dictionary<string, Type>,
+        locals: Dictionary<string, LocalBuilder>,
+        enums: Dictionary<string, ColumnarEnumDef>,
+        liftedNames: IEnumerable<string>,
+        boxedNames: IEnumerable<string>?,
+        enclosingNames: IEnumerable<string>,
+        declaredCallableNames: IEnumerable<string>,
+        visibleLocalCallableNames: IEnumerable<string>): ColumnarFragmentBindings {
+        normalizedBoxedNames: IEnumerable<string> = new string[](0)
+        if boxedNames != null {
+            normalizedBoxedNames = boxedNames
+        }
+        return new ColumnarFragmentBindings(
+            parameterOrdinals,
+            parameterTypes,
+            locals,
+            enums,
+            liftedNames,
+            normalizedBoxedNames,
+            enclosingNames,
+            declaredCallableNames,
+            visibleLocalCallableNames)
+    }
+
     public func IsBlocked(name: string): bool {
         return ContainsName(liftedNames, name)
             || ContainsName(boxedNames, name)

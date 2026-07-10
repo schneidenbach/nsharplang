@@ -81,6 +81,7 @@ public class ColumnarCodePlanContract {
     public static func Ldstr(): short { return 114 }
     public static func Newobj(): short { return 115 }
     public static func Ldfld(): short { return 123 }
+    public static func Ldsfld(): short { return 126 }
     public static func Ldlen(): short { return 142 }
     public static func LdelemU1(): short { return 145 }
     public static func LdelemU2(): short { return 147 }
@@ -739,7 +740,9 @@ public class ColumnarCodePlan {
 
     public func AppendFieldInstruction(opCodeValue: short, fieldIndex: int) {
         EnsureV2Building()
-        if opCodeValue != ColumnarCodePlanContract.Ldfld()
+        if (opCodeValue != ColumnarCodePlanContract.Ldfld()
+                && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                    || opCodeValue != ColumnarCodePlanContract.Ldsfld()))
             || fieldIndex < 0
             || fieldIndex >= FieldCount {
             throw new InvalidOperationException("The opcode does not use this field pool entry.")
@@ -1516,7 +1519,9 @@ public class ColumnarCodePlan {
                 && operandIndex >= 0
                 && operandIndex < ConstructorCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldfld() {
+        if opCodeValue == ColumnarCodePlanContract.Ldfld()
+            || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+                && opCodeValue == ColumnarCodePlanContract.Ldsfld()) {
             return operandKind == ColumnarCodePlanContract.FieldOperand()
                 && operandIndex >= 0
                 && operandIndex < FieldCount

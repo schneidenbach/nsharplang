@@ -113,6 +113,25 @@ test "recursive code plans own every required opcode field" {
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldsflda").IsSupported
 }
 
+test "external static selections accept short and fully qualified owner names" {
+    qualifiedOpcode := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.Emit.OpCodes", "Ldsfld")
+    assert qualifiedOpcode.IsSupported
+    assert qualifiedOpcode.Kind == ColumnarExternalStaticMemberKind.Field
+    assert qualifiedOpcode.DeclaringTypeName
+        == "System.Reflection.Emit.OpCodes, System.Private.CoreLib"
+
+    shortProperty := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "Environment", "NewLine")
+    qualifiedProperty := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Environment", "NewLine")
+    assert shortProperty.IsSupported
+    assert qualifiedProperty.IsSupported
+    assert shortProperty.DeclaringTypeName == qualifiedProperty.DeclaringTypeName
+    assert shortProperty.ValueTypeName == qualifiedProperty.ValueTypeName
+
+}
+
 test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Index", "System.Index")
     AssertRuntimeType("Range", "System.Range")

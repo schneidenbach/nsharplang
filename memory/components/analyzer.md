@@ -63,23 +63,26 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 
 ## External Type Resolution
 
-The Analyzer tracks `using` statements and resolves external types via .NET reflection.
+The Analyzer tracks imports and mechanically routes external type-valued receivers to canonical
+N# resolution. Static field/property selection and emitted-plan validation are N#-owned.
 
 ### Process
-1. Parse `using System.Collections.Generic`
-2. Store namespace in `_usingStatements`
-3. When encountering unresolved identifier like `List`:
-   - Try `System.Collections.Generic.List`
-   - Use `Type.GetType()` to load via reflection
-   - Wrap in `ReflectionTypeInfo`
-4. Member access on external types:
-   - Use reflection to get properties, fields, methods
-   - Wrap in appropriate `TypeInfo` subclass
+1. `ExternalAssemblyScan.nl` builds the deterministic assembly catalog, preserving exact assembly
+   identities and pairing reference assets with runtime implementations.
+2. `ColumnarBindingScopeFacts.nl` exports reusable source/import/type facts and applies lexical
+   shadowing, accessibility, package precedence, and ordered namespace lookup for short owners.
+3. `ExternalQualifiedTypeResolver.nl` resolves complete dotted CLR type receivers, including nested
+   types; `Analyzer.cs` only supplies its existing scope barriers and wraps the resolved `Type`.
+4. `ColumnarExternalStaticMemberPlanner.nl` validates the exact field/property handle and builds a
+   persisted schema-v3 plan. `ColumnarCodePlanExecutor.nl` validates and emits that plan directly.
+
+Do not add emitter-side static-member whitelists, reflection scans, preload policy, or parallel
+scope analyzers. Extend the N# catalog, binding facts, and planner instead.
 
 ### MetadataLoadContext Host Verdict
 
 Track D Sub-arc 0 probe (2026-07-03): BootstrapServices can carry the
-`System.Reflection.MetadataLoadContext` 9.0.0 dependency, but the N# columnar backend declines a
+`System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N# columnar backend declines a
 minimal external abstract override probe:
 
 `AnalyzerMetadataResolverProbe: MetadataAssemblyResolver` with
