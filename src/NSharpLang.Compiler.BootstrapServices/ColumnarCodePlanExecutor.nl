@@ -28,29 +28,6 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(
                 "Unsupported columnar code-plan schema version " + plan.SchemaVersion.ToString() + ".")
         }
-        if plan.Status != ColumnarFragmentPlanStatus.Planned
-            || plan.ResultType == null
-            || plan.ResultType != typeof(bool) {
-            throw new InvalidOperationException("Columnar code plan is not a sealed boolean payload.")
-        }
-        if plan.OperationCount != 1 {
-            throw new InvalidOperationException(
-                "Columnar boolean code-plan schema v1 requires exactly one operation.")
-        }
-        if plan.OperationKinds == null
-            || plan.OpCodeValues == null
-            || plan.OperandKinds == null
-            || plan.OperationKinds.Length < 1
-            || plan.OpCodeValues.Length < 1
-            || plan.OperandKinds.Length < 1 {
-            throw new InvalidOperationException("Columnar code-plan operation columns are inconsistent.")
-        }
-        if !ColumnarCodePlanContract.IsBooleanInstructionRow(
-            plan.OperationKinds[0],
-            plan.OpCodeValues[0],
-            plan.OperandKinds[0]) {
-            throw new InvalidOperationException(
-                "Columnar boolean code-plan schema v1 contains an unknown instruction row.")
-        }
+        plan.ValidateSealedStructure()
     }
 }
