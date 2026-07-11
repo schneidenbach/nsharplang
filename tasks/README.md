@@ -23,7 +23,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 
 - [x] [001 — External static fields and properties](001-external-static-fields-and-properties.md)
 - [x] [002 — Bound identifier reads](002-bound-identifier-reads.md)
-- [ ] [003 — Instance fields and properties](003-instance-fields-and-properties.md)
+- [x] [003 — Instance fields and properties](003-instance-fields-and-properties.md)
 - [ ] [004 — Fixed-arity direct calls](004-fixed-arity-direct-calls.md)
 - [ ] [005 — Construction and array literals](005-construction-and-array-literals.md)
 - [ ] [006 — Primitive binary expressions](006-primitive-binary-expressions.md)
