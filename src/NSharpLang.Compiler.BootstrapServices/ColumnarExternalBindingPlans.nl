@@ -392,6 +392,18 @@ public class ColumnarExternalBindingPlans {
         argumentTypeNames: string[]): ColumnarExternalCallPlan {
         count := argumentTypeNames.Length
 
+        if MatchesOwner(typeName, "Object", "System.Object")
+            && memberName == "ReferenceEquals"
+            && count == 2
+            && IsReferenceIdentityArgumentType(argumentTypeNames[0])
+            && IsReferenceIdentityArgumentType(argumentTypeNames[1]) {
+            return StaticCall(
+                "System.Object",
+                memberName,
+                Two("System.Object", "System.Object"),
+                "System.Boolean")
+        }
+
         if (typeName == "Assembly" || typeName == "System.Reflection.Assembly")
             && memberName == "LoadFrom"
             && count == 1
@@ -532,6 +544,11 @@ public class ColumnarExternalBindingPlans {
         }
 
         return NoCall()
+    }
+
+    static func IsReferenceIdentityArgumentType(typeName: string): bool {
+        return typeName == "System.Object"
+            || typeName == "System.Reflection.MethodInfo"
     }
 
     public static func GetInstanceCallPlan(

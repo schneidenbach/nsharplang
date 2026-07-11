@@ -25,7 +25,22 @@ public class ReflectionEmitBootstrapProbe {
     }
 
     public static func ContractVersion(): int {
-        return 13
+        return 14
+    }
+
+    public static func HasReferenceIdentitySurface(): bool {
+        noTypes := new Type[](0)
+        method := typeof(string).GetMethod("ToString", noTypes)
+        differentMethod := typeof(object).GetMethod("ToString", noTypes)
+        if method == null || differentMethod == null {
+            return false
+        }
+
+        sameMethod: MethodInfo = method
+        return Object.ReferenceEquals(method, sameMethod)
+            && System.Object.ReferenceEquals(method, sameMethod)
+            && !Object.ReferenceEquals(method, differentMethod)
+            && !System.Object.ReferenceEquals(method, differentMethod)
     }
 
     public static func ParseInt32(text: string): int {

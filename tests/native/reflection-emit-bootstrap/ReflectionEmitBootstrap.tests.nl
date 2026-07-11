@@ -1,8 +1,9 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
 test "N# owns the direct Reflection.Emit bootstrap surface" {
-    assert ReflectionEmitBootstrapProbe.ContractVersion() == 13
+    assert ReflectionEmitBootstrapProbe.ContractVersion() == 14
     assert ReflectionEmitBootstrapProbe.HasRangeHandleSurface()
+    assert ReflectionEmitBootstrapProbe.HasReferenceIdentitySurface()
 }
 
 test "N# owns exact static parse calls and by-reference results" {
