@@ -1764,7 +1764,12 @@ public class ColumnarCodePlanExecutor {
                         value.LiteralKnown,
                         value.LiteralValue) {
                     throw new InvalidOperationException(
-                        schemaName + " call argument does not match its exact parameter type.")
+                        schemaName
+                            + " call argument "
+                            + parameterIndex.ToString()
+                            + " for '"
+                            + method.get_Name()
+                            + "' does not match its exact parameter type.")
                 }
                 parameterIndex -= 1
             }
@@ -1776,6 +1781,7 @@ public class ColumnarCodePlanExecutor {
                     receiver.ValueType,
                     receiver.IsAddress,
                     receiver.ValueKind,
+                    method.get_Name(),
                     schemaName)
             }
             declaredReturnType := plan.MethodReturnTypes[methodIndex]
@@ -1804,7 +1810,12 @@ public class ColumnarCodePlanExecutor {
                     value.LiteralKnown,
                     value.LiteralValue) {
                 throw new InvalidOperationException(
-                    schemaName + " call argument does not match its exact parameter type.")
+                    schemaName
+                        + " call argument "
+                        + parameterIndex.ToString()
+                        + " for '"
+                        + method.get_Name()
+                        + "' does not match its exact parameter type.")
             }
             parameterIndex -= 1
         }
@@ -1816,6 +1827,7 @@ public class ColumnarCodePlanExecutor {
                 receiver.ValueType,
                 receiver.IsAddress,
                 receiver.ValueKind,
+                method.get_Name(),
                 schemaName)
         }
         returnType := ResolveMemberSignatureType(
@@ -2023,6 +2035,7 @@ public class ColumnarCodePlanExecutor {
             receiver.ValueType,
             receiver.IsAddress,
             receiver.ValueKind,
+            "field",
             schemaName)
         state.Push(
             usesDeclaredSignature
@@ -2063,23 +2076,33 @@ public class ColumnarCodePlanExecutor {
         actualType: Type,
         isAddress: bool,
         actualKind: int,
+        memberName: string,
         schemaName: string) {
         if actualKind != ColumnarCodePlanStackValueKind.Exact()
             && actualKind != ColumnarCodePlanStackValueKind.BoxedExact() {
             throw new InvalidOperationException(
-                schemaName + " receivers must have an exact semantic type.")
+                schemaName
+                    + " receiver for '"
+                    + memberName
+                    + "' must have an exact semantic type.")
         }
         if expectedType.get_IsValueType() {
             if actualKind != ColumnarCodePlanStackValueKind.Exact()
                 || !isAddress
                 || !ExactTypeShapeMatches(expectedType, actualType) {
                 throw new InvalidOperationException(
-                    schemaName + " value-type receivers require an exact managed address.")
+                    schemaName
+                        + " value-type receiver for '"
+                        + memberName
+                        + "' requires an exact managed address.")
             }
         } else if isAddress
             || !IsStackCompatible(expectedType, actualType, actualKind, false, 0) {
             throw new InvalidOperationException(
-                schemaName + " reference receiver does not match its declaring type.")
+                schemaName
+                    + " reference receiver for '"
+                    + memberName
+                    + "' does not match its declaring type.")
         }
     }
 
@@ -2215,36 +2238,7 @@ public class ColumnarCodePlanExecutor {
     // around the same unbaked generic arguments. Wrapper shells compare structurally;
     // ordinary types and the generic arguments themselves retain exact identity.
     static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        if left == right {
-            return true
-        }
-        if left.get_IsSZArray() && right.get_IsSZArray() {
-            leftElement := left.GetElementType()
-            rightElement := right.GetElementType()
-            return leftElement != null
-                && rightElement != null
-                && ExactTypeShapeMatches(leftElement, rightElement)
-        }
-        if !left.get_IsGenericType()
-            || !right.get_IsGenericType()
-            || left.get_IsGenericTypeDefinition()
-            || right.get_IsGenericTypeDefinition()
-            || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
-            return false
-        }
-        leftArguments := left.GetGenericArguments()
-        rightArguments := right.GetGenericArguments()
-        if leftArguments.Length != rightArguments.Length {
-            return false
-        }
-        i := 0
-        while i < leftArguments.Length {
-            if !ExactTypeShapeMatches(leftArguments[i], rightArguments[i]) {
-                return false
-            }
-            i += 1
-        }
-        return true
+        return ColumnarReferenceConversionFacts.ExactTypeShapeMatches(left, right)
     }
 
     static func ReferenceAssignableFrom(expectedType: Type, actualType: Type): bool {
@@ -2252,29 +2246,9 @@ public class ColumnarCodePlanExecutor {
             return true
         }
 
-        // Reflection.Emit's BCL-headed generic wrappers do not implement IsAssignableFrom.
-        // Instance Count plans deliberately call the IReadOnlyCollection<T> getter on an
-        // IReadOnlyList<T>/IReadOnlySet<T> receiver, so validate that exact interface edge
-        // structurally before consulting ordinary runtime reflection.
-        if expectedType.get_IsGenericType()
-            && actualType.get_IsGenericType()
-            && !expectedType.get_IsGenericTypeDefinition()
-            && !actualType.get_IsGenericTypeDefinition() {
-            expectedDefinition := expectedType.GetGenericTypeDefinition()
-            actualDefinition := actualType.GetGenericTypeDefinition()
-            if expectedDefinition
-                    == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
-                && (actualDefinition
-                        == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
-                    || actualDefinition
-                        == typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) {
-                expectedArguments := expectedType.GetGenericArguments()
-                actualArguments := actualType.GetGenericArguments()
-                return expectedArguments.Length == 1
-                    && actualArguments.Length == 1
-                    && ExactTypeShapeMatches(
-                        expectedArguments[0], actualArguments[0])
-            }
+        if ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+            actualType, expectedType) {
+            return true
         }
 
         try {

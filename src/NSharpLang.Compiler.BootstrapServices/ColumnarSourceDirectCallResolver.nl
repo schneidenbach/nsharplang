@@ -1039,7 +1039,8 @@ class ColumnarSourceDirectCallResolver {
             return 4
         }
 
-        return IsLegacyStructuralReferenceUpcast(actualType, expectedType) ? 4 : -1
+        return ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+            actualType, expectedType) ? 4 : -1
     }
 
     static func IsImplicitNumericFlow(actualType: Type, expectedType: Type): bool {
@@ -1062,45 +1063,6 @@ class ColumnarSourceDirectCallResolver {
         } catch ex: NotImplementedException {
             return false
         }
-    }
-
-    // Reflection.Emit's closed BCL wrappers do not implement IsAssignableFrom when a generic
-    // argument is still a TypeBuilder. Preserve the legacy emitter's exact safe interface edges
-    // structurally so List<Source> can flow to IReadOnlyList<Source> without broadening variance
-    // or guessing arbitrary interface implementations.
-    static func IsLegacyStructuralReferenceUpcast(sourceType: Type, targetType: Type): bool {
-        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && sourceType.get_IsSZArray() {
-            sourceElement := sourceType.GetElementType()
-            targetArguments := targetType.GetGenericArguments()
-            if sourceElement == null || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceElement, targetArguments[0]) {
-                return false
-            }
-
-            targetDefinition := targetType.GetGenericTypeDefinition()
-            return targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
-        }
-
-        if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
-            return false
-        }
-
-        sourceArguments := sourceType.GetGenericArguments()
-        targetArguments := targetType.GetGenericArguments()
-        if sourceArguments.Length < 1 || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) {
-            return false
-        }
-
-        sourceDefinition := sourceType.GetGenericTypeDefinition()
-        targetDefinition := targetType.GetGenericTypeDefinition()
-        if sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() {
-            return targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
-        }
-
-        if sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() {
-            return targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
-        }
-
-        return sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
     }
 
     static func ResolveParameterTypes(parameterTypes: Type[], receiverType: Type, closed: bool): Type[] {
@@ -1165,40 +1127,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        if left == right {
-            return true
-        }
-
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
-                return false
-            }
-
-            leftElement := left.GetElementType()
-            rightElement := right.GetElementType()
-            return leftElement != null && rightElement != null && ExactTypeShapeMatches(leftElement, rightElement)
-        }
-
-        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
-            return false
-        }
-
-        leftArguments := left.GetGenericArguments()
-        rightArguments := right.GetGenericArguments()
-        if leftArguments.Length != rightArguments.Length {
-            return false
-        }
-
-        index := 0
-        while index < leftArguments.Length {
-            if !ExactTypeShapeMatches(leftArguments[index], rightArguments[index]) {
-                return false
-            }
-
-            index += 1
-        }
-
-        return true
+        return ColumnarReferenceConversionFacts.ExactTypeShapeMatches(left, right)
     }
 
     static func ValidateInstanceMethodFact(owner: ColumnarStructDef, memberName: string, definition: ColumnarInstanceMethodDef) {

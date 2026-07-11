@@ -557,6 +557,50 @@ test "schema v2 executor executes an exact declared method signature" {
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
 }
 
+test "schema v3 executor validates a declared List of source values upcast to IReadOnlyList" {
+    element := SourceCallDefinition("ExecutorSourceListElement", true)
+    owner := SourceCallDefinition("ExecutorSourceListOwner", true)
+    elementType: Type = element.Builder
+    typeArguments := new Type[](1)
+    typeArguments[0] = elementType
+    listType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+    readOnlyListType := typeof(IReadOnlyList<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = readOnlyListType
+    methodDefinition := SourceCallPublicStatic(
+        owner, "Consume", parameterTypes, typeof(int))
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 10079, 0)
+    listTypeIndex := plan.AddType(listType)
+    argument := plan.AddArgument(0, listTypeIndex)
+    method := plan.AddMethodWithSignature(
+        methodDefinition.Builder,
+        owner.Builder,
+        parameterTypes,
+        typeof(int),
+        true,
+        false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), method)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    stringArguments := new Type[](1)
+    stringArguments[0] = typeof(string)
+    plan.Types[listTypeIndex] = typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(stringArguments)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
 test "schema v2 argument address facts admit exact value receivers" {
     oneInt := new Type[](1)
     oneInt[0] = typeof(int)

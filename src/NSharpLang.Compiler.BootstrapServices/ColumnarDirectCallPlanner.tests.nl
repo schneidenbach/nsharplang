@@ -247,6 +247,46 @@ test "direct-call planner owns qualified and bare source static calls with exact
     assert barePlan.Methods[barePlan.OperandIndices[1]].get_Name() == "Pick"
 }
 
+test "direct-call planner validates List of source values flowing to IReadOnlyList" {
+    element := SourceCallDefinition("DirectCallSourceListElement", true)
+    owner := SourceCallDefinition("DirectCallSourceListOwner", true)
+    elementType: Type = element.Builder
+    typeArguments := new Type[](1)
+    typeArguments[0] = elementType
+    listType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+    readOnlyListType := typeof(IReadOnlyList<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = readOnlyListType
+    _consume := SourceCallPublicStatic(
+        owner, "Consume", parameterTypes, typeof(int))
+
+    bindings := DirectCallSingleDefinitionBindings(owner)
+    ColumnarRangePlannerAddParameter(bindings, "items", 0, listType)
+    tree := DirectCallQualifiedTree(
+        "DirectCallSourceListOwner",
+        "Consume",
+        DirectCallOneText("items"),
+        DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    argumentIndex := plan.OperandIndices[0]
+    actualType := plan.Types[plan.ArgumentTypeIndices[argumentIndex]]
+    methodIndex := plan.OperandIndices[1]
+    assert plan.MethodUsesDeclaredSignature[methodIndex]
+    assert plan.Methods[methodIndex].get_Name() == "Consume"
+    assert plan.MethodParameterTypes[methodIndex].Length == 1
+    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+        actualType, listType)
+    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+        plan.MethodParameterTypes[methodIndex][0], readOnlyListType)
+}
+
 test "direct-call planner owns scoped runtime static calls with exact handles" {
     tree := DirectCallQualifiedTree("Type", "GetType", DirectCallOneText("\"System.String\""), DirectCallOneKind(ColumnarExpressionNodeKind.StringLiteralExpression()))
 
@@ -337,6 +377,33 @@ test "direct-call planner owns explicit and bare source reference receivers with
     assert barePlan.ArgumentOrdinals[barePlan.OperandIndices[0]] == 0
     assert barePlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
     assert barePlan.Methods[barePlan.OperandIndices[2]].get_Name() == "Measure"
+}
+
+test "direct-call planner reuses the implicit receiver slot across nested calls" {
+    owner := SourceCallDefinition("DirectCallNestedImplicitOwner", true)
+    noParameters := new Type[](0)
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    _inner := SourceCallPublicInstance(owner, "Inner", noParameters, typeof(int))
+    _outer := SourceCallPublicInstance(owner, "Outer", oneInt, typeof(int))
+
+    bindings := DirectCallSingleDefinitionBindings(owner)
+    bindings.CurrentInstance = ColumnarCurrentInstanceFacts.FromSourceDefinition(owner)
+    tree := DirectCallParsedTree("Outer(Inner())")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.ArgumentCount == 1
+    assert plan.ArgumentOrdinals[0] == 0
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OperandIndices[0] == plan.OperandIndices[1]
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
+    assert plan.Methods[plan.OperandIndices[2]].get_Name() == "Inner"
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Callvirt()
+    assert plan.Methods[plan.OperandIndices[3]].get_Name() == "Outer"
 }
 
 test "direct-call planner declines synthetic contextual lambda instance frames atomically" {

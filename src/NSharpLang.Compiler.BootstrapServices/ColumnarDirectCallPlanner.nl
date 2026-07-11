@@ -566,8 +566,11 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendImplicitReceiver(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {
-        typeIndex := plan.AddType(selection.ReceiverType)
-        argumentIndex := plan.AddArgument(0, typeIndex, !selection.ReceiverIsReference)
+        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(
+            plan,
+            0,
+            selection.ReceiverType,
+            !selection.ReceiverIsReference)
 
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
     }
