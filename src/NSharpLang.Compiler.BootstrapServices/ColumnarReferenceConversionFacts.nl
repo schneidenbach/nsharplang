@@ -53,6 +53,16 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+            && (sourceDefinition
+                    == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+                || sourceDefinition
+                    == typeof(IReadOnlySet<int>).GetGenericTypeDefinition()
+                || sourceDefinition
+                    == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()) {
+            return true
+        }
+
         if sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() {
             return targetDefinition
                     == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
@@ -72,7 +82,10 @@ class ColumnarReferenceConversionFacts {
         }
 
         return sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition()
-            && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+            && (targetDefinition
+                    == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+                || targetDefinition
+                    == typeof(IEnumerable<int>).GetGenericTypeDefinition())
     }
 
     static func ExactTypeShapeMatches(left: Type, right: Type): bool {

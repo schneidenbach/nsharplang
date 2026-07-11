@@ -45,6 +45,14 @@ test "structural reference facts admit every exact TypeBuilder-backed BCL interf
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
         readOnlySetType, readOnlyCollectionType)
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        readOnlyListType, enumerableType)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        readOnlySetType, enumerableType)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        readOnlyCollectionType, enumerableType)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        stackType, readOnlyCollectionType)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
         stackType, enumerableType)
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
         arrayType, readOnlyListType)
