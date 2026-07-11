@@ -150,6 +150,32 @@ test "external static selections accept short and fully qualified owner names" {
     assert shortProperty.DeclaringTypeName == qualifiedProperty.DeclaringTypeName
     assert shortProperty.ValueTypeName == qualifiedProperty.ValueTypeName
 
+    methodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "MethodAttributes", "Public")
+    qualifiedMethodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.MethodAttributes", "Public")
+    assert methodAttributes.IsSupported
+    assert qualifiedMethodAttributes.IsSupported
+    assert methodAttributes.DeclaringTypeName
+        == qualifiedMethodAttributes.DeclaringTypeName
+    assert methodAttributes.ValueTypeName
+        == qualifiedMethodAttributes.ValueTypeName
+
+    callingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "CallingConventions", "Standard")
+    qualifiedCallingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.CallingConventions", "Standard")
+    assert callingConvention.IsSupported
+    assert qualifiedCallingConvention.IsSupported
+    assert callingConvention.DeclaringTypeName
+        == qualifiedCallingConvention.DeclaringTypeName
+    assert callingConvention.ValueTypeName
+        == qualifiedCallingConvention.ValueTypeName
+
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "MethodAttributes", "Private").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "CallingConventions", "VarArgs").IsSupported
 }
 
 test "range code plans own exact runtime type identities" {

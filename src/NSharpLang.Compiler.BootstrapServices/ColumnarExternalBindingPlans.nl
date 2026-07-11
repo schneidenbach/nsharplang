@@ -223,6 +223,30 @@ public class ColumnarExternalBindingPlans {
 
         if MatchesOwner(
                 typeName,
+                "MethodAttributes",
+                "System.Reflection.MethodAttributes")
+            && memberName == "Public" {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Reflection.MethodAttributes",
+                memberName,
+                "System.Reflection.MethodAttributes")
+        }
+
+        if MatchesOwner(
+                typeName,
+                "CallingConventions",
+                "System.Reflection.CallingConventions")
+            && memberName == "Standard" {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Reflection.CallingConventions",
+                memberName,
+                "System.Reflection.CallingConventions")
+        }
+
+        if MatchesOwner(
+                typeName,
                 "Environment.SpecialFolder",
                 "System.Environment.SpecialFolder")
             && memberName == "UserProfile" {
