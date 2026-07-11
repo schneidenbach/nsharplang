@@ -954,6 +954,8 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Conv_R4"
             || memberName == "Conv_R8"
             || memberName == "Box"
+            || memberName == "Ldnull"
+            || memberName == "Initobj"
             || memberName == "Ldfld"
             || memberName == "Ldsfld"
             || memberName == "Ldlen"
