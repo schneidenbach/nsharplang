@@ -4,32 +4,39 @@ Last updated: 2026-07-11
 
 ## Cursor
 
-- Current task: `tasks/004-fixed-arity-direct-calls.md`
+- Current task: `tasks/005-construction-and-array-literals.md`
 - Current iteration: one terminal slice
-- Active sub-slice: move fixed-arity non-generic direct calls into N# plans
-- Last accepted ownership commit: `ad51692d4` (`Own instance field and property reads in N#`)
+- Active sub-slice: move ordinary construction, sized arrays, and inferred array literals into N# plans
+- Last accepted ownership commit: `5ad756e1d` (`Own fixed-arity direct calls in N#`)
 - Queue: `tasks/README.md`
 
 ## Current evidence
 
-- Task 003 is accepted at `ad51692d4`. N# now owns ordinary one-receiver source and runtime
-  field/property selection, receiver lowering, exact reflection identity, result type, validation,
-  and execution, including inherited, closed-generic, value/reference/byref, persisted, recursive
-  range/index, `typeof`, and zero-hole interpolation receiver forms. The C# direct read chain is
-  narrowed to excluded nested receivers; matching direct runtime-property, `typeof`, interpolation,
-  and preflight branches are deleted, while nested chains, calls, indexers, writes, and ref/out stay
-  on their existing owners.
-- Focused evidence: 3,182/3,182 unit tests, 238/238 BootstrapServices contracts, 41/41 range-index
-  product contracts, and 18/18 ownership-audit contracts.
-- The fresh non-VS-Code product gate passed units, native discovery, formatting, package/ref/DLL
-  fixtures, project examples, and every `nlc check`. Its four remaining groups are assigned to
-  later queue owners: Web API external base resolution (009), synchronous iterators (013), async
-  iterators (014), and seven record/init/method-access IL findings (011-012 and 015 as applicable).
-- Clean repin: `nlc 0.1.0+ad51692d4f8d5a75db87ebb9e9fd9fb128d4c0fd`, doctor status `ok`;
+- Task 004 is accepted at `5ad756e1d` (stage-0 prerequisites `d6d551ea1`, `d24ec7bb4`,
+  `8ce4d49e2`, `fcbcf4ef6`, `0cd216a44`, `0e1d02ed1`, `507742abc`, `1e747dd97`,
+  `469408917`, `1b63b9a82`, and `0035d82ae`). N# now owns exact fixed-arity,
+  non-generic source and runtime static/instance calls: receiver and argument planning, overload and
+  signature selection, admitted conversions, `call` versus `callvirt`, result type, rollback, and
+  stack validation. Exact source-owner scope, import/type-alias subtree boundaries, addressable
+  value receivers, and synthesized record calls are covered by native and product contracts.
+- The C# emitter's synthesized-record `Equals`/`GetHashCode` preflight and emission branches and
+  direct `TextWriter.WriteLine(string)` arm are deleted. Retained call paths are fenced to excluded
+  generic, extension, params, ref/out, contextual-lambda, method-group, or whole-subtree forms.
+  `ColumnarIlEmitter.cs` fell from 21,164 to 21,097 lines.
+- Evidence: 3,181/3,182 units in the fresh gate (only Task 009), 382/382 BootstrapServices
+  contracts, 14/14 direct-call product contracts, 2/2 interface-parameter contracts, 18/18
+  ownership-audit contracts, 4/4 decline-diagnostic contracts, 2/2 reflection-bootstrap contracts,
+  and exact direct-call IL verification. The two gate-only scope regressions were fixed and their
+  exact unit tests pass 2/2.
+- The fresh non-VS-Code product gate has exactly ten remaining failure groups, all assigned to later
+  queue owners: issue-tracker/Web API external base resolution (009), record-with value lowering
+  (011), readonly initialization (012), synchronous iterators (013), async iterators (014), and
+  remaining method-access/IL decisions (015).
+- Clean repin: `nlc 0.1.0+5ad756e1dfa68d6849fd7cc689ff5e7f8865e10c`, doctor status `ok`;
   installed, local-feed, and global-cache SDK hashes all equal
-  `2ee6d03d6baeae9a25bb98f2d01bf16408e33fc62d481f9f7a24817ccabbbe6c`.
+  `878804310b6b8a6c4a7f5a819487a75a7e5cd4fb254009f48ad8b66313251d88`.
   The cached BootstrapServices DLL hash is
-  `c701e8ebaae83501dff465ddb019f3ee16368df7ebecbd88f3ea0112ccb2ae4b`.
+  `2a56c9f0d6cbb592ad34b6a47e4d71a443f3dea4c275462d45cd1a6fd184773a`.
 
 ## Iterative-task targets
 
@@ -83,6 +90,22 @@ Completed slices:
   - Evidence: 3,182 units; 238 BootstrapServices contracts; 41 range-index product contracts;
     18 ownership tests; three adversarial audits; fresh non-VS-Code product-gate task surfaces;
     clean SDK repin.
+
+- Task 004 — fixed-arity direct calls; commit `5ad756e1d` (stage-0 prerequisites `d6d551ea1`,
+  `d24ec7bb4`, `8ce4d49e2`, `fcbcf4ef6`, `0cd216a44`, `0e1d02ed1`, `507742abc`,
+  `1e747dd97`, `469408917`, `1b63b9a82`, and `0035d82ae`).
+  - Deleted C# owners: synthesized-record `Equals(object)` and `GetHashCode()` call preflight and
+    emission, the direct `TextWriter.WriteLine(string)` arm, and unrestricted re-entry into ordinary
+    source/runtime fixed-call paths. Retained C# routes are mechanically fenced to excluded call
+    families. `ColumnarIlEmitter.cs` fell from 21,164 to 21,097 lines.
+  - Added N# owners: `ColumnarDirectCallPlanner`, exact source/runtime resolvers, contextual
+    conversion and nullable lowering, source-static scope resolution, exact method/constructor facts,
+    address-preserving value receivers, synthesized record call facts, and schema/executor stack
+    validation, with native overload, accessibility, malformed-handle, rollback, recursive,
+    persisted, alias/shadowing, and IL-shape contracts.
+  - Evidence: 3,181/3,182 fresh-gate units with only Task 009 remaining; 382 BootstrapServices
+    contracts; 14 direct-call, 2 interface-parameter, 18 ownership, 4 decline-diagnostic, and 2
+    reflection-bootstrap contracts; exact ILVerify; three adversarial audits; clean SDK repin.
 
 After each accepted slice, record only:
 
