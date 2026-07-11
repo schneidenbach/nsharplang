@@ -620,6 +620,13 @@ class ColumnarTypeOfPlanner {
         else if canonical == "StringComparer" { result = typeof(StringComparer) }
         else if canonical == "SearchOption" { result = typeof(SearchOption) }
         else if canonical == "IList" { result = typeof(IList) }
+        else if canonical == "IComparable" {
+            comparable := Type.GetType("System.IComparable")
+            if comparable == null {
+                return false
+            }
+            result = comparable
+        }
         else if canonical == "Type" { result = typeof(Type) }
         else if canonical == "Version" { result = typeof(Version) }
         else if canonical == "TimeSpan" { result = typeof(TimeSpan) }
