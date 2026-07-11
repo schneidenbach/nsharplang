@@ -539,6 +539,9 @@ public class ColumnarExternalBindingPlans {
         }
 
         if receiver == "System.Type" {
+            if memberName == "GetType" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
             if memberName == "GetConstructor"
                 && count == 1
                 && argumentTypeNames[0] == "System.Type[]" {
@@ -553,7 +556,8 @@ public class ColumnarExternalBindingPlans {
             if (memberName == "GetElementType"
                     || memberName == "MakeArrayType"
                     || memberName == "GetEnumUnderlyingType"
-                    || memberName == "GetGenericTypeDefinition")
+                    || memberName == "GetGenericTypeDefinition"
+                    || memberName == "get_BaseType")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
@@ -573,7 +577,8 @@ public class ColumnarExternalBindingPlans {
                     || memberName == "get_IsGenericType"
                     || memberName == "get_IsGenericTypeDefinition"
                     || memberName == "get_HasElementType"
-                    || memberName == "get_IsAbstract")
+                    || memberName == "get_IsAbstract"
+                    || memberName == "get_IsByRefLike")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
@@ -686,7 +691,8 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_ReturnType" || memberName == "get_DeclaringType" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
-            if memberName == "get_IsStatic" || memberName == "get_IsAbstract" {
+            if memberName == "get_IsStatic" || memberName == "get_IsAbstract"
+                || memberName == "get_IsPublic" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
             if memberName == "get_IsGenericMethod"
@@ -725,7 +731,8 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_FieldType" || memberName == "get_DeclaringType" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
-            if memberName == "get_IsStatic" || memberName == "get_IsLiteral" {
+            if memberName == "get_IsStatic" || memberName == "get_IsLiteral"
+                || memberName == "get_IsPublic" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
         }
@@ -904,6 +911,8 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ldloc"
             || memberName == "Ldloca"
             || memberName == "Ldarg"
+            || memberName == "Ldarga"
+            || memberName == "Ldind_Ref"
             || memberName == "Br"
             || memberName == "Brfalse"
             || memberName == "Call"

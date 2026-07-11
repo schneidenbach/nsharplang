@@ -61,7 +61,7 @@ func AssertStaticCall(
 }
 
 test "recursive code plans own every required opcode field" {
-    names := new string[](41)
+    names := new string[](43)
     names[0] = "Ldc_I4_M1"
     names[1] = "Ldc_I4_0"
     names[2] = "Ldc_I4_1"
@@ -103,6 +103,8 @@ test "recursive code plans own every required opcode field" {
     names[38] = "Ceq"
     names[39] = "Ldsfld"
     names[40] = "Ldtoken"
+    names[41] = "Ldarga"
+    names[42] = "Ldind_Ref"
 
     i := 0
     while i < names.Length {
@@ -296,6 +298,8 @@ test "source property metadata owns exact TypeBuilder method definition" {
 
 test "recursive code plans own exact type and local facts" {
     noArguments := new string[](0)
+    AssertVirtualCall("System.Type", "GetType", noArguments, "System.Type")
+    AssertVirtualCall("System.Type", "get_BaseType", noArguments, "System.Type")
     AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsEnum", noArguments, "System.Boolean")
@@ -312,6 +316,7 @@ test "recursive code plans own exact type and local facts" {
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "Type", "get_HasElementType", noArguments).IsSupported
     AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsByRefLike", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_GenericParameterPosition", noArguments, "System.Int32")
     AssertVirtualCall(
         "System.Type",
@@ -362,6 +367,11 @@ test "recursive executor owns exact reflection signature facts" {
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsAbstract",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_IsPublic",
         noArguments,
         "System.Boolean")
     AssertVirtualCall(
@@ -418,6 +428,11 @@ test "recursive executor owns exact reflection signature facts" {
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_IsLiteral",
+        noArguments,
+        "System.Boolean")
+    AssertVirtualCall(
+        "System.Reflection.FieldInfo",
+        "get_IsPublic",
         noArguments,
         "System.Boolean")
     AssertVirtualCall(
