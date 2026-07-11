@@ -72,6 +72,7 @@ public class ColumnarCodePlanContract {
     public static func LdcI8(): short { return 33 }
     public static func LdcR4(): short { return 34 }
     public static func LdcR8(): short { return 35 }
+    public static func Dup(): short { return 37 }
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
@@ -89,6 +90,7 @@ public class ColumnarCodePlanContract {
     public static func Ldflda(): short { return 124 }
     public static func Ldsfld(): short { return 126 }
     public static func Box(): short { return 140 }
+    public static func Newarr(): short { return 141 }
     public static func Ldlen(): short { return 142 }
     public static func LdelemU1(): short { return 145 }
     public static func LdelemU2(): short { return 147 }
@@ -98,7 +100,15 @@ public class ColumnarCodePlanContract {
     public static func LdelemR4(): short { return 152 }
     public static func LdelemR8(): short { return 153 }
     public static func LdelemRef(): short { return 154 }
+    public static func StelemI1(): short { return 156 }
+    public static func StelemI2(): short { return 157 }
+    public static func StelemI4(): short { return 158 }
+    public static func StelemI8(): short { return 159 }
+    public static func StelemR4(): short { return 160 }
+    public static func StelemR8(): short { return 161 }
+    public static func StelemRef(): short { return 162 }
     public static func Ldelem(): short { return 163 }
+    public static func Stelem(): short { return 164 }
     public static func Ldtoken(): short { return 208 }
     public static func Ceq(): short { return -511 }
     public static func Initobj(): short { return -491 }

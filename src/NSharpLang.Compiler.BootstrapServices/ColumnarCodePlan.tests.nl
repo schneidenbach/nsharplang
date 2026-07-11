@@ -232,6 +232,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.LdcI4_0() == 22
     assert ColumnarCodePlanContract.LdcI4_8() == 30
     assert ColumnarCodePlanContract.LdcI4() == 32
+    assert ColumnarCodePlanContract.Dup() == 37
     assert ColumnarCodePlanContract.Ldarg() == -503
     assert ColumnarCodePlanContract.Ldarga() == -502
     assert ColumnarCodePlanContract.Ldloc() == -500
@@ -245,6 +246,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.Newobj() == 115
     assert ColumnarCodePlanContract.Ldfld() == 123
     assert ColumnarCodePlanContract.Ldsfld() == 126
+    assert ColumnarCodePlanContract.Newarr() == 141
     assert ColumnarCodePlanContract.Ldlen() == 142
     assert ColumnarCodePlanContract.LdelemU1() == 145
     assert ColumnarCodePlanContract.LdelemU2() == 147
@@ -254,7 +256,15 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.LdelemR4() == 152
     assert ColumnarCodePlanContract.LdelemR8() == 153
     assert ColumnarCodePlanContract.LdelemRef() == 154
+    assert ColumnarCodePlanContract.StelemI1() == 156
+    assert ColumnarCodePlanContract.StelemI2() == 157
+    assert ColumnarCodePlanContract.StelemI4() == 158
+    assert ColumnarCodePlanContract.StelemI8() == 159
+    assert ColumnarCodePlanContract.StelemR4() == 160
+    assert ColumnarCodePlanContract.StelemR8() == 161
+    assert ColumnarCodePlanContract.StelemRef() == 162
     assert ColumnarCodePlanContract.Ldelem() == 163
+    assert ColumnarCodePlanContract.Stelem() == 164
     assert ColumnarCodePlanContract.Ldtoken() == 208
 }
 
