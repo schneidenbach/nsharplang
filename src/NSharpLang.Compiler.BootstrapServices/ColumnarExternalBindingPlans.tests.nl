@@ -619,6 +619,24 @@ test "static call plans own exact TypeBuilder member rebinding overloads" {
         methodArguments,
         "System.Reflection.Emit.TypeBuilder",
         "System.Reflection.MethodInfo")
+
+    constructorArguments := new string[](2)
+    constructorArguments[0] = "System.Type"
+    constructorArguments[1] = "System.Reflection.ConstructorInfo"
+    AssertStaticCall(
+        "TypeBuilder",
+        "GetConstructor",
+        constructorArguments,
+        constructorArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.ConstructorInfo")
+    AssertStaticCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "GetConstructor",
+        constructorArguments,
+        constructorArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.ConstructorInfo")
 }
 
 test "external binding scopes own exact assembly type discovery calls" {

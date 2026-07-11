@@ -471,6 +471,18 @@ public class ColumnarExternalBindingPlans {
                     Two("System.Type", "System.Reflection.MethodInfo"),
                     "System.Reflection.MethodInfo")
             }
+            if memberName == "GetConstructor"
+                && count == 2
+                && argumentTypeNames[0] == "System.Type"
+                && argumentTypeNames[1] == "System.Reflection.ConstructorInfo" {
+                return StaticCall(
+                    "System.Reflection.Emit.TypeBuilder",
+                    memberName,
+                    Two(
+                        "System.Type",
+                        "System.Reflection.ConstructorInfo"),
+                    "System.Reflection.ConstructorInfo")
+            }
         }
 
         if typeName == "Int32" || typeName == "int" {
