@@ -321,6 +321,7 @@ test "recursive code plans own exact type and local facts" {
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "Type", "get_HasElementType", noArguments).IsSupported
     AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_IsInterface", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsByRefLike", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_GenericParameterPosition", noArguments, "System.Int32")
     AssertVirtualCall(
@@ -364,6 +365,11 @@ test "recursive executor owns exact reflection signature facts" {
         "get_ReturnType",
         noArguments,
         "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.MethodInfo",
+        "get_Name",
+        noArguments,
+        "System.String")
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsStatic",
