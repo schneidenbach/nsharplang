@@ -1138,6 +1138,19 @@ public class ColumnarExternalBindingPlans {
     }
 
     static func ExactTypeIdentity(fullName: string): string {
+        if fullName == "System.Threading.Tasks.Task`1[System.String]" {
+            runtimeType := Type.GetType(fullName + ", System.Private.CoreLib")
+            if runtimeType == null {
+                throw new InvalidOperationException(
+                    "Required runtime generic type was unavailable.")
+            }
+            identity := runtimeType.get_AssemblyQualifiedName()
+            if identity == null || identity.Length == 0 {
+                throw new InvalidOperationException(
+                    "Required runtime generic type identity was unavailable.")
+            }
+            return identity
+        }
         if fullName == "System.Reflection.MetadataLoadContext"
             || fullName == "System.Reflection.PathAssemblyResolver"
             || fullName == "System.Reflection.MetadataAssemblyResolver" {

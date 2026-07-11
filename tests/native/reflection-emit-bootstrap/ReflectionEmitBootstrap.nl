@@ -38,9 +38,7 @@ public class ReflectionEmitBootstrapProbe {
 
         sameMethod: MethodInfo = method
         return Object.ReferenceEquals(method, sameMethod)
-            && System.Object.ReferenceEquals(method, sameMethod)
             && !Object.ReferenceEquals(method, differentMethod)
-            && !System.Object.ReferenceEquals(method, differentMethod)
     }
 
     public static func ParseInt32(text: string): int {

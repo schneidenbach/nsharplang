@@ -4,10 +4,9 @@
 #
 # This is the SINGLE SOURCE OF TRUTH for IL verification. It is invoked by
 # CI (.github/workflows/build.yml) and by the local full-suite gate
-# (tests/scripts/test-all-core.sh). It builds the product surface (example
-# projects, single-file examples, and representative test fixtures) with
-# `nlc build`, then runs `dotnet ilverify` over every emitted assembly,
-# resolving BCL/ASP.NET framework references.
+# (tests/scripts/test-all-core.sh). It builds examples, single-file examples,
+# and fixtures with `nlc build`, plus the direct-call native tests with `nlc
+# test`, then verifies every emitted assembly with BCL/ASP.NET references.
 #
 # WHY THIS EXISTS: PR #160 shipped GC-unsafe IL that ECMA-335 verification
 # would have rejected, but it only crashed at runtime on Linux x64 and CI
@@ -225,9 +224,8 @@ if [ -n "$BUILT_DIRS_FILE" ]; then
     fi
 else
     info "Building example/template/fixture projects"
-    # Project-based examples and the representative issue-tracker fixture. We scope
-    # fixtures narrowly: issue-tracker is the canonical end-to-end fixture and is
-    # already exercised by the format/check gates, so its IL is product-relevant.
+    # Include project examples and the canonical end-to-end issue-tracker fixture,
+    # which the format/check gates already exercise.
     PROJECT_YMLS="$(
         {
             find examples -name project.yml -type f 2>/dev/null
@@ -240,8 +238,7 @@ else
     done <<< "$PROJECT_YMLS"
 
     info "Building single-file examples"
-    # Single .nl files that are NOT part of a project directory (mirrors the
-    # logic in tests/scripts/test-all-core.sh Step 9).
+    # Single .nl files outside project directories (mirrors full-gate Step 9).
     while IFS= read -r nl_file; do
         [ -z "$nl_file" ] && continue
         dir="$(dirname "$nl_file")"
@@ -251,6 +248,15 @@ else
         build_single_file "$nl_file" || BUILD_FAILED=1
     done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
 
+    info "Building direct-call native test assembly"
+    DIRECT_CALL_TEST_ASSEMBLY="$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll"
+    if dotnet "$CLI_DLL" test --project "$REPO_ROOT/tests/native/direct-calls" --no-cache --json >/dev/null 2>&1 \
+        && [ -f "$DIRECT_CALL_TEST_ASSEMBLY" ]; then
+        BUILT_TARGETS+=("$DIRECT_CALL_TEST_ASSEMBLY")
+    else
+        fail "nlc test failed to emit the direct-call native test assembly"
+        BUILD_FAILED=1
+    fi
     if [ "$BUILD_FAILED" = "1" ]; then
         fail "One or more nlc builds failed; cannot run IL verification."
         echo "    Fix the build failures above and re-run."
@@ -262,8 +268,8 @@ echo
 # --------------------------------------------------------------------------
 # Collect every emitted assembly
 # --------------------------------------------------------------------------
-# The product gate supplies exact `Output:` assemblies so copied runtime assets remain references,
-# never targets. Directory discovery remains only for standalone/backward-compatible invocation.
+# Exact product-gate outputs keep copied runtime assets as references, not targets;
+# directory discovery remains for standalone/backward-compatible invocation.
 TARGETS=()
 SEEN=$'\n'     # newline-delimited absolute paths already collected
 FRAMEWORK_NAMES=$'\n'  # newline-delimited basenames of framework assemblies
@@ -328,10 +334,7 @@ for target in "${TARGETS[@]}"; do
     target_dir="$(dirname "$target")"
     asm_name="$(basename "$target")"
 
-    # Per-target refs: framework refs + sibling DLLs in the same output dir
-    # (covers multi-project references and copied runtime assets), excluding
-    # the target itself. The `+"..."` guard keeps empty-array expansion safe
-    # under `set -u` on bash 3.2 (macOS).
+    # Framework/sibling refs plus the `+"..."` guard support bash 3.2 `set -u`.
     local_refs=()
     for sibling in "$target_dir"/*.dll; do
         [ "$sibling" = "$target" ] && continue
@@ -379,10 +382,7 @@ for target in "${TARGETS[@]}"; do
         continue
     fi
 
-    # Extract verification findings. Two shapes appear:
-    #   [IL]: Error [Code]: [/abs/path : Ns.Type::Method(...)][offset 0x..] msg
-    #   [MD]: Error: <message referencing Class/Interface/Method>
-    # Normalize each to a stable, path-independent line:  <asm> | <code> | <detail>
+    # Normalize findings as: <assembly> | <code> | <member-or-detail>.
     # The `|| true` keeps a no-match grep (exit 1) from tripping `set -e`.
     while IFS= read -r line; do
         case "$line" in

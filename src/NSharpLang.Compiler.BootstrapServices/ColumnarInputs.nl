@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
 
-public class ColumnarEnumInput {
+class ColumnarEnumInput {
     nameValue: string
     memberNamesValue: string[]
     memberValuesValue: int[]
@@ -16,13 +16,7 @@ public class ColumnarEnumInput {
     IsStringBacked: bool => isStringBackedValue
     MemberStringValues: string[] => memberStringValuesValue
 
-    constructor(
-        name: string,
-        memberNames: string[],
-        memberValues: int[],
-        isStringBacked: bool = false,
-        memberStringValues: string[]? = null,
-        sourceFileId: int = 0) {
+    constructor(name: string, memberNames: string[], memberValues: int[], isStringBacked: bool = false, memberStringValues: string[]? = null, sourceFileId: int = 0) {
         nameValue = name
         memberNamesValue = memberNames
         memberValuesValue = memberValues
@@ -32,7 +26,7 @@ public class ColumnarEnumInput {
     }
 }
 
-public class ColumnarUnionInput {
+class ColumnarUnionInput {
     nameValue: string
     caseNamesValue: string[]
     caseFieldNamesValue: string[][]
@@ -48,14 +42,7 @@ public class ColumnarUnionInput {
     TypeParamNames: string[] => typeParamNamesValue
     IsValueStruct: bool => isValueStructValue
 
-    constructor(
-        name: string,
-        caseNames: string[],
-        caseFieldNames: string[][],
-        caseFieldTypeCanonicals: string[][],
-        typeParamNames: string[]? = null,
-        isValueStruct: bool = false,
-        sourceFileId: int = 0) {
+    constructor(name: string, caseNames: string[], caseFieldNames: string[][], caseFieldTypeCanonicals: string[][], typeParamNames: string[]? = null, isValueStruct: bool = false, sourceFileId: int = 0) {
         nameValue = name
         caseNamesValue = caseNames
         caseFieldNamesValue = caseFieldNames
@@ -66,7 +53,7 @@ public class ColumnarUnionInput {
     }
 }
 
-public class ColumnarFunctionInput {
+class ColumnarFunctionInput {
     Name: string
     ReturnCanonical: string
     ParamNames: string[]
@@ -88,30 +75,9 @@ public class ColumnarFunctionInput {
     IsBodylessNativeImport: bool
     NativeImportLibraryName: string
     NativeImportEntryPoint: string
-    public LocalFunctions: List<ColumnarLocalFunctionInput>?
+    LocalFunctions: List<ColumnarLocalFunctionInput>?
 
-    constructor(
-        name: string,
-        returnCanonical: string,
-        paramNames: string[],
-        paramCanonicals: string[],
-        bodyNodes: ColumnarNodeTable,
-        bodyRoot: int,
-        isStatic: bool = false,
-        typeParamNames: string[]? = null,
-        typeParamSpecialConstraints: int[]? = null,
-        typeParamTypeConstraints: string[][]? = null,
-        returnTupleElementNames: string[]? = null,
-        paramTupleElementNames: string[][]? = null,
-        paramModifierKinds: int[]? = null,
-        paramDefaultKinds: int[]? = null,
-        paramDefaultTexts: string[]? = null,
-        isAsync: bool = false,
-        modifierFlags: int = 0,
-        sourceFileId: int = 0,
-        isBodylessNativeImport: bool = false,
-        nativeImportLibraryName: string = "",
-        nativeImportEntryPoint: string = "") {
+    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "") {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
@@ -140,11 +106,12 @@ public class ColumnarFunctionInput {
                 t = t + 1
             }
         }
+
         TypeParamTypeConstraints = typeParamTypeConstraints
     }
 }
 
-public class ColumnarLocalFunctionInput {
+class ColumnarLocalFunctionInput {
     NodeIndex: int
     Function: ColumnarFunctionInput
 
@@ -154,7 +121,7 @@ public class ColumnarLocalFunctionInput {
     }
 }
 
-public class ColumnarConstructorInput {
+class ColumnarConstructorInput {
     Body: ColumnarFunctionInput
     ChainInitKind: int
     ChainArgKinds: int[]
@@ -164,15 +131,7 @@ public class ColumnarConstructorInput {
     IsSynthesizedInitializer: bool
     SourceFileId: int
 
-    constructor(
-        body: ColumnarFunctionInput,
-        chainInitKind: int,
-        chainArgKinds: int[],
-        chainArgTexts: string[],
-        paramDefaultKinds: int[]? = null,
-        paramDefaultTexts: string[]? = null,
-        isSynthesizedInitializer: bool = false,
-        sourceFileId: int = 0) {
+    constructor(body: ColumnarFunctionInput, chainInitKind: int, chainArgKinds: int[], chainArgTexts: string[], paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isSynthesizedInitializer: bool = false, sourceFileId: int = 0) {
         Body = body
         ChainInitKind = chainInitKind
         ChainArgKinds = chainArgKinds
@@ -184,7 +143,7 @@ public class ColumnarConstructorInput {
     }
 }
 
-public class ColumnarPropertyInput {
+class ColumnarPropertyInput {
     IsStatic: bool
     Name: string
     TypeCanonical: string
@@ -192,13 +151,7 @@ public class ColumnarPropertyInput {
     Setter: ColumnarFunctionInput?
     SourceFileId: int
 
-    constructor(
-        name: string,
-        typeCanonical: string,
-        getter: ColumnarFunctionInput,
-        setter: ColumnarFunctionInput?,
-        isStatic: bool = false,
-        sourceFileId: int = 0) {
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0) {
         IsStatic = isStatic
         Name = name
         TypeCanonical = typeCanonical
@@ -208,7 +161,7 @@ public class ColumnarPropertyInput {
     }
 }
 
-public class ColumnarStructInput {
+class ColumnarStructInput {
     Name: string
     FieldNames: string[]
     FieldTypeCanonicals: string[]
@@ -227,24 +180,7 @@ public class ColumnarStructInput {
     TypeParamNames: string[]
     SourceFileId: int
 
-    constructor(
-        name: string,
-        fieldNames: string[],
-        fieldTypeCanonicals: string[],
-        methods: IReadOnlyList<ColumnarFunctionInput>,
-        constructors: IReadOnlyList<ColumnarConstructorInput>,
-        properties: IReadOnlyList<ColumnarPropertyInput>,
-        isReference: bool,
-        baseNames: string[]? = null,
-        fieldStaticFlags: bool[]? = null,
-        fieldInitKinds: int[]? = null,
-        fieldInitTexts: string[]? = null,
-        isRecord: bool = false,
-        typeParamNames: string[]? = null,
-        fieldReadonlyFlags: bool[]? = null,
-        sourceFileId: int = 0,
-        isNewtype: bool = false,
-        isRefStruct: bool = false) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -264,6 +200,7 @@ public class ColumnarStructInput {
                 i = i + 1
             }
         }
+
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts ?? new string[](fieldNames.Length)
         IsRecord = isRecord
@@ -273,7 +210,7 @@ public class ColumnarStructInput {
     }
 }
 
-public class ColumnarInterfaceInput {
+class ColumnarInterfaceInput {
     Name: string
     BaseInterfaceNames: string[]
     TypeParamNames: string[]
@@ -281,19 +218,11 @@ public class ColumnarInterfaceInput {
     MethodReturnCanonicals: string[]
     MethodParamNames: string[][]
     MethodParamCanonicals: string[][]
+    MethodParamModifierKinds: int[][]
     MethodBodies: ColumnarFunctionInput?[]
     SourceFileId: int
 
-    constructor(
-        name: string,
-        baseInterfaceNames: string[],
-        methodNames: string[],
-        methodReturnCanonicals: string[],
-        methodParamNames: string[][],
-        methodParamCanonicals: string[][],
-        methodBodies: ColumnarFunctionInput?[]? = null,
-        typeParamNames: string[]? = null,
-        sourceFileId: int = 0) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -301,14 +230,26 @@ public class ColumnarInterfaceInput {
         MethodReturnCanonicals = methodReturnCanonicals
         MethodParamNames = methodParamNames
         MethodParamCanonicals = methodParamCanonicals
+        MethodParamModifierKinds = methodParamModifierKinds ?? CreateMethodParamModifierKinds(methodNames, methodParamCanonicals)
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
         SourceFileId = sourceFileId
+    }
+
+    static func CreateMethodParamModifierKinds(methodNames: string[], methodParamCanonicals: string[][]): int[][] {
+        result := new int[][](methodNames.Length)
+        i := 0
+        while i < result.Length {
+            result[i] = new int[](methodParamCanonicals[i].Length)
+            i = i + 1
+        }
+
+        return result
     }
 }
 
 // One PLAIN top-level test declaration (`test "<description>" { body }`). The body reuses the
 // function-input shape so node tables, source-file stamping, and body emission share machinery.
-public class ColumnarTestInput {
+class ColumnarTestInput {
     descriptionValue: string
     bodyValue: ColumnarFunctionInput
 
@@ -321,7 +262,7 @@ public class ColumnarTestInput {
     }
 }
 
-public class ColumnarProgramInput {
+class ColumnarProgramInput {
     bindingScope: ColumnarBindingScopeFacts
     ProjectRoot: string
     Source: string
@@ -333,56 +274,19 @@ public class ColumnarProgramInput {
     Interfaces: IReadOnlyList<ColumnarInterfaceInput>
     Tests: IReadOnlyList<ColumnarTestInput>?
 
-    public static func CreateSingleSource(
-        source: string,
-        functions: IReadOnlyList<ColumnarFunctionInput>,
-        enums: IReadOnlyList<ColumnarEnumInput>,
-        structs: IReadOnlyList<ColumnarStructInput>,
-        unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
-        tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
-        return new ColumnarProgramInput(
-            source,
-            functions,
-            enums,
-            structs,
-            unions,
-            interfaces,
-            BuildSingleSourceFiles(source),
-            tests,
-            null)
+    static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
+        return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
     }
 
-    public static func CreateFromSourceFiles(
-        sourceFiles: ColumnarSourceFile[],
-        functions: IReadOnlyList<ColumnarFunctionInput>,
-        enums: IReadOnlyList<ColumnarEnumInput>,
-        structs: IReadOnlyList<ColumnarStructInput>,
-        unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
-        tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
-        return new ColumnarProgramInput(
-            GetFirstSource(sourceFiles),
-            functions,
-            enums,
-            structs,
-            unions,
-            interfaces,
-            sourceFiles,
-            tests,
-            null)
+    static func CreateFromSourceFiles(sourceFiles: ColumnarSourceFile[], functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
+        return new ColumnarProgramInput(GetFirstSource(sourceFiles), functions, enums, structs, unions, interfaces, sourceFiles, tests, null)
     }
 
-    public static func MergeSourceFiles(
-        sourceFiles: ColumnarSourceFile[],
-        programs: ColumnarProgramInput[]): ColumnarProgramInput {
+    static func MergeSourceFiles(sourceFiles: ColumnarSourceFile[], programs: ColumnarProgramInput[]): ColumnarProgramInput {
         return MergeSourceFilesAtProjectRoot(sourceFiles, programs, "")
     }
 
-    public static func MergeSourceFilesAtProjectRoot(
-        sourceFiles: ColumnarSourceFile[],
-        programs: ColumnarProgramInput[],
-        projectRoot: string): ColumnarProgramInput {
+    static func MergeSourceFilesAtProjectRoot(sourceFiles: ColumnarSourceFile[], programs: ColumnarProgramInput[], projectRoot: string): ColumnarProgramInput {
         functions := new List<ColumnarFunctionInput>()
         enums := new List<ColumnarEnumInput>()
         structs := new List<ColumnarStructInput>()
@@ -401,22 +305,14 @@ public class ColumnarProgramInput {
             if programTests != null {
                 AddTests(tests, programTests)
             }
+
             index = index + 1
         }
 
-        return new ColumnarProgramInput(
-            GetFirstSource(sourceFiles),
-            functions,
-            enums,
-            structs,
-            unions,
-            interfaces,
-            sourceFiles,
-            tests,
-            projectRoot)
+        return new ColumnarProgramInput(GetFirstSource(sourceFiles), functions, enums, structs, unions, interfaces, sourceFiles, tests, projectRoot)
     }
 
-    public static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
+    static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
         AssignFunctionListSourceFileId(program.Functions, sourceFileId)
         AssignEnumListSourceFileId(program.Enums, sourceFileId)
         AssignStructListSourceFileId(program.Structs, sourceFileId)
@@ -432,16 +328,7 @@ public class ColumnarProgramInput {
         }
     }
 
-    constructor(
-        source: string,
-        functions: IReadOnlyList<ColumnarFunctionInput>,
-        enums: IReadOnlyList<ColumnarEnumInput>,
-        structs: IReadOnlyList<ColumnarStructInput>,
-        unions: IReadOnlyList<ColumnarUnionInput>,
-        interfaces: IReadOnlyList<ColumnarInterfaceInput>,
-        sourceFiles: ColumnarSourceFile[]? = null,
-        tests: IReadOnlyList<ColumnarTestInput>? = null,
-        projectRoot: string? = null) {
+    constructor(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, sourceFiles: ColumnarSourceFile[]? = null, tests: IReadOnlyList<ColumnarTestInput>? = null, projectRoot: string? = null) {
         Source = source
         Sources = sourceFiles ?? BuildSingleSourceFiles(source)
         ProjectRoot = projectRoot ?? ""
@@ -451,17 +338,16 @@ public class ColumnarProgramInput {
         Unions = unions
         Interfaces = interfaces
         Tests = tests
-        bindingScope = ColumnarBindingScopeFacts.Create(
-            Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
+        bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
+
         StampBindingContexts(bindingScope)
     }
 
-    public func PrepareExternalTypeBindings(
-        referenceAssemblyPaths: IReadOnlyList<string>?) {
+    func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
         bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths)
     }
 
-    public func GetSourceForFileId(fileId: int): string {
+    func GetSourceForFileId(fileId: int): string {
         if fileId >= 0 && fileId < Sources.Length {
             return Sources[fileId].Source
         }
@@ -481,8 +367,8 @@ public class ColumnarProgramInput {
         noTypeParameters := new string[](0)
         functionIndex := 0
         while functionIndex < Functions.Count {
-            StampFunctionBindingContext(
-                Functions[functionIndex], scope, "", noTypeParameters, null)
+            StampFunctionBindingContext(Functions[functionIndex], scope, "", noTypeParameters, null)
+
             functionIndex = functionIndex + 1
         }
 
@@ -491,114 +377,81 @@ public class ColumnarProgramInput {
             structInput := Structs[structIndex]
             methodIndex := 0
             while methodIndex < structInput.Methods.Count {
-                StampFunctionBindingContext(
-                    structInput.Methods[methodIndex],
-                    scope,
-                    scope.ExactTypeNameForFile(
-                        structInput.Name, structInput.SourceFileId),
-                    structInput.TypeParamNames,
-                    null)
+                StampFunctionBindingContext(structInput.Methods[methodIndex], scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+
                 methodIndex = methodIndex + 1
             }
+
             constructorIndex := 0
             while constructorIndex < structInput.Constructors.Count {
-                StampFunctionBindingContext(
-                    structInput.Constructors[constructorIndex].Body,
-                    scope,
-                    scope.ExactTypeNameForFile(
-                        structInput.Name, structInput.SourceFileId),
-                    structInput.TypeParamNames,
-                    null)
+                StampFunctionBindingContext(structInput.Constructors[constructorIndex].Body, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+
                 constructorIndex = constructorIndex + 1
             }
+
             propertyIndex := 0
             while propertyIndex < structInput.Properties.Count {
                 propertyInput := structInput.Properties[propertyIndex]
-                StampFunctionBindingContext(
-                    propertyInput.Getter,
-                    scope,
-                    scope.ExactTypeNameForFile(
-                        structInput.Name, structInput.SourceFileId),
-                    structInput.TypeParamNames,
-                    null)
+                StampFunctionBindingContext(propertyInput.Getter, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+
                 if propertyInput.Setter != null {
-                    StampFunctionBindingContext(
-                        propertyInput.Setter,
-                        scope,
-                        scope.ExactTypeNameForFile(
-                            structInput.Name, structInput.SourceFileId),
-                        structInput.TypeParamNames,
-                        null)
+                    StampFunctionBindingContext(propertyInput.Setter, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
                 }
+
                 propertyIndex = propertyIndex + 1
             }
+
             structIndex = structIndex + 1
         }
 
         interfaceIndex := 0
         while interfaceIndex < Interfaces.Count {
             interfaceInput := Interfaces[interfaceIndex]
-            if interfaceInput.MethodNames.Length
-                != interfaceInput.MethodBodies.Length {
-                throw new InvalidOperationException(
-                    "Columnar interface method names and bodies must have identical lengths.")
+            if interfaceInput.MethodNames.Length != interfaceInput.MethodBodies.Length {
+                throw new InvalidOperationException("Columnar interface method names and bodies must have identical lengths.")
             }
+
             visibleInterfaceMethodNames := new List<string>()
             methodIndex := 0
             while methodIndex < interfaceInput.MethodBodies.Length {
+
                 // The analyzer has no implicit `this` in an interface and analyzes methods
                 // sequentially. The current method declares itself before its body; later and
                 // base-interface methods are not lexical bindings in this body.
-                visibleInterfaceMethodNames.Add(
-                    interfaceInput.MethodNames[methodIndex])
+                visibleInterfaceMethodNames.Add(interfaceInput.MethodNames[methodIndex])
+
                 body := interfaceInput.MethodBodies[methodIndex]
                 if body != null {
-                    StampFunctionBindingContext(
-                        body,
-                        scope,
-                        "",
-                        interfaceInput.TypeParamNames,
-                        visibleInterfaceMethodNames.ToArray())
+                    StampFunctionBindingContext(body, scope, "", interfaceInput.TypeParamNames, visibleInterfaceMethodNames.ToArray())
                 }
+
                 methodIndex = methodIndex + 1
             }
+
             interfaceIndex = interfaceIndex + 1
         }
 
         if Tests != null {
             testIndex := 0
             while testIndex < Tests.Count {
-                StampFunctionBindingContext(
-                    Tests[testIndex].Body, scope, "", noTypeParameters, null)
+                StampFunctionBindingContext(Tests[testIndex].Body, scope, "", noTypeParameters, null)
+
                 testIndex = testIndex + 1
             }
         }
     }
 
-    static func StampFunctionBindingContext(
-        function: ColumnarFunctionInput,
-        scope: ColumnarBindingScopeFacts,
-        enclosingTypeName: string,
-        inheritedTypeParameterNames: string[],
-        additionalRootBindingNames: string[]?) {
-        visibleTypeParameters := MergeNames(
-            inheritedTypeParameterNames,
-            function.TypeParamNames)
-        function.BodyNodes.SetBindingContext(
-            scope.ForSourceFile(function.SourceFileId),
-            enclosingTypeName,
-            visibleTypeParameters,
-            additionalRootBindingNames)
+    static func StampFunctionBindingContext(function: ColumnarFunctionInput, scope: ColumnarBindingScopeFacts, enclosingTypeName: string, inheritedTypeParameterNames: string[], additionalRootBindingNames: string[]?) {
+        visibleTypeParameters := MergeNames(inheritedTypeParameterNames, function.TypeParamNames)
+
+        function.BodyNodes.SetBindingContext(scope.ForSourceFile(function.SourceFileId), enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
+
         localFunctions := function.LocalFunctions
         if localFunctions != null {
             localIndex := 0
             while localIndex < localFunctions.Count {
-                StampFunctionBindingContext(
-                    localFunctions[localIndex].Function,
-                    scope,
-                    enclosingTypeName,
-                    visibleTypeParameters,
-                    additionalRootBindingNames)
+                StampFunctionBindingContext(localFunctions[localIndex].Function, scope, enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
+
                 localIndex = localIndex + 1
             }
         }
@@ -611,12 +464,14 @@ public class ColumnarProgramInput {
             result[index] = first[index]
             index = index + 1
         }
+
         secondIndex := 0
         while secondIndex < second.Length {
             result[index] = second[secondIndex]
             index = index + 1
             secondIndex = secondIndex + 1
         }
+
         return result
     }
 
@@ -717,6 +572,7 @@ public class ColumnarProgramInput {
             if methodBody != null {
                 AssignFunctionSourceFileId(methodBody, sourceFileId)
             }
+
             methodIndex = methodIndex + 1
         }
     }

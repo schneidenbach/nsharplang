@@ -5,43 +5,43 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
-public class ColumnarBoundIdentifierBoxOwner<T> {
-    public Box: T
+class ColumnarBoundIdentifierBoxOwner<T> {
+    Box: T
 
     constructor(value: T) {
         Box = value
     }
 }
 
-public class ColumnarBoundIdentifierByRefProbe {
-    public static func Set(out value: int): bool {
+class ColumnarBoundIdentifierByRefProbe {
+    static func Set(out value: int): bool {
         value = 0
         return true
     }
 }
 
-public class ColumnarBoundIdentifierCurrentClassProbe {
-    public Field: int
+class ColumnarBoundIdentifierCurrentClassProbe {
+    Field: int
 
     constructor(value: int) {
         Field = value
     }
 
-    public Value: int => Field
+    Value: int => Field
 
-    public func Identity(value: int): int {
+    func Identity(value: int): int {
         return value
     }
 }
 
-public struct ColumnarBoundIdentifierCurrentStructProbe {
-    public Field: int
+struct ColumnarBoundIdentifierCurrentStructProbe {
+    Field: int
 
     constructor(value: int) {
         Field = value
     }
 
-    public Value: int => Field
+    Value: int => Field
 }
 
 func BoundIdentifierTree(name: string): ColumnarRangePlannerTestTree {
@@ -54,13 +54,8 @@ func BoundExplicitThisTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("this.")
     valueStart := builder.AddToken(name)
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
-        valueStart,
-        name.Length,
-        0,
-        5 + name.Length,
-        new int[](0))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), valueStart, name.Length, 0, 5 + name.Length, new int[](0))
+
     return builder.Build(root)
 }
 
@@ -69,13 +64,8 @@ func BoundRepeatedRangeTree(name: string): ColumnarRangePlannerTestTree {
     start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
     end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
     dots := builder.AddToken("..")
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.RangeExpression(),
-        dots,
-        2,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(start, end))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+
     return builder.Build(root)
 }
 
@@ -84,33 +74,22 @@ func BoundMixedRangeTree(startName: string, endName: string): ColumnarRangePlann
     start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), startName)
     end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), endName)
     dots := builder.AddToken("..")
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.RangeExpression(),
-        dots,
-        2,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(start, end))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+
     return builder.Build(root)
 }
 
-func BoundPlan(
-    tree: ColumnarRangePlannerTestTree,
-    bindings: ColumnarFragmentBindings): ColumnarCodePlan {
+func BoundPlan(tree: ColumnarRangePlannerTestTree, bindings: ColumnarFragmentBindings): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
-    if ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, bindings, plan)
-        != ColumnarFragmentPlanStatus.Planned {
+    if ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
         throw new InvalidOperationException("Expected bound-identifier ownership.")
     }
+
     ColumnarCodePlanExecutor.Validate(plan)
     return plan
 }
 
-func BoundDynamicMethod(
-    name: string,
-    returnType: Type,
-    parameterTypes: Type[]): DynamicMethod {
+func BoundDynamicMethod(name: string, returnType: Type, parameterTypes: Type[]): DynamicMethod {
     constructorTypes := new Type[](3)
     constructorTypes[0] = typeof(string)
     constructorTypes[1] = typeof(Type)
@@ -129,15 +108,17 @@ func BoundInvokeText(dynamicMethod: DynamicMethod, arguments: object[]): string 
     if result == null {
         throw new InvalidOperationException("Bound-identifier DynamicMethod returned null.")
     }
+
     return result.ToString() ?? ""
 }
 
 func BoundStrongBoxType(): Type {
-    value := Type.GetType(
-        "System.Runtime.CompilerServices.StrongBox`1[System.Int32], System.Private.CoreLib")
+    value := Type.GetType("System.Runtime.CompilerServices.StrongBox`1[System.Int32], System.Private.CoreLib")
+
     if value == null {
         throw new InvalidOperationException("StrongBox<int> runtime type was not found.")
     }
+
     return value
 }
 
@@ -146,6 +127,7 @@ func BoundVoidType(): Type {
     if value == null {
         throw new InvalidOperationException("System.Void runtime type was not found.")
     }
+
     return value
 }
 
@@ -154,10 +136,12 @@ func BoundByRefType(): Type {
     if method == null {
         throw new InvalidOperationException("By-reference probe method was not found.")
     }
+
     parameters := method.GetParameters()
     if parameters.Length != 1 {
         throw new InvalidOperationException("By-reference probe signature is invalid.")
     }
+
     return parameters[0].get_ParameterType()
 }
 
@@ -190,15 +174,16 @@ func BoundCreateBoxOwner(value: int): object {
     if owner == null {
         throw new InvalidOperationException("Boxed-capture owner construction returned null.")
     }
+
     return owner
 }
 
 func BoundRequiredField(owner: Type, name: string): FieldInfo {
     field := owner.GetField(name)
     if field == null {
-        throw new InvalidOperationException(
-            "Required current-instance field was not found.")
+        throw new InvalidOperationException("Required current-instance field was not found.")
     }
+
     return field
 }
 
@@ -206,19 +191,17 @@ func BoundRequiredGetter(owner: Type, name: string): MethodInfo {
     noParameters := new Type[](0)
     getter := owner.GetMethod(name, noParameters)
     if getter == null {
-        throw new InvalidOperationException(
-            "Required current-instance getter was not found.")
+        throw new InvalidOperationException("Required current-instance getter was not found.")
     }
+
     return getter
 }
 
-func BoundCurrentFacts(
-    owner: Type,
-    isReference: bool): ColumnarCurrentInstanceFacts {
+func BoundCurrentFacts(owner: Type, isReference: bool): ColumnarCurrentInstanceFacts {
     facts := new ColumnarCurrentInstanceFacts(owner, isReference)
     facts.Fields["Field"] = BoundRequiredField(owner, "Field")
-    facts.Properties["Value"] = new ColumnarCurrentPropertyFact(
-        BoundRequiredGetter(owner, "get_Value"), typeof(int), 0)
+    facts.Properties["Value"] = new ColumnarCurrentPropertyFact(BoundRequiredGetter(owner, "get_Value"), typeof(int), 0)
+
     return facts
 }
 
@@ -247,8 +230,7 @@ test "bound identifier planner owns exact parameter and local roots" {
 
 test "bound identifier planner owns exact class and struct current-instance roots" {
     classBindings := ColumnarRangePlannerEmptyBindings()
-    classBindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    classBindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
 
     classField := BoundPlan(BoundIdentifierTree("Field"), classBindings)
     assert classField.ResultType == typeof(int)
@@ -266,8 +248,7 @@ test "bound identifier planner owns exact class and struct current-instance root
     assert classProperty.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 
     structBindings := ColumnarRangePlannerEmptyBindings()
-    structBindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentStructProbe), false)
+    structBindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentStructProbe), false)
 
     structField := BoundPlan(BoundIdentifierTree("Field"), structBindings)
     assert structField.ArgumentIsAddress[0]
@@ -282,8 +263,8 @@ test "bound identifier planner owns exact class and struct current-instance root
 
 test "bound identifier planner preserves current-member shadowing and explicit-this escape" {
     bindings := ColumnarRangePlannerEmptyBindings()
-    bindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    bindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
     ColumnarRangePlannerAddParameter(bindings, "Field", 3, typeof(int))
 
     barePlan := BoundPlan(BoundIdentifierTree("Field"), bindings)
@@ -300,16 +281,15 @@ test "bound identifier planner preserves current-member shadowing and explicit-t
 
 test "range planner recursively consumes current fields and properties" {
     bindings := ColumnarRangePlannerEmptyBindings()
-    bindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    bindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
 
-    fieldPlan := ColumnarRangePlannerPlan(
-        ColumnarRangePlannerFromEndIdentifier("Field"), bindings)
+    fieldPlan := ColumnarRangePlannerPlan(ColumnarRangePlannerFromEndIdentifier("Field"), bindings)
+
     assert fieldPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
     assert fieldPlan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
 
-    propertyPlan := ColumnarRangePlannerPlan(
-        ColumnarRangePlannerFromEndIdentifier("Value"), bindings)
+    propertyPlan := ColumnarRangePlannerPlan(ColumnarRangePlannerFromEndIdentifier("Value"), bindings)
+
     assert propertyPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
     assert propertyPlan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 }
@@ -320,9 +300,8 @@ test "bound identifier planner owns exact lifted and boxed roots" {
 
     liftedBindings := ColumnarRangePlannerEmptyBindings()
     liftedLocal := ExternalProbeLocal(boxType)
-    liftedBindings.LiftedLocals["value"] = (
-        Box: liftedLocal,
-        ValueType: typeof(int))
+    liftedBindings.LiftedLocals["value"] = (Box: liftedLocal, ValueType: typeof(int))
+
     liftedPlan := BoundPlan(tree, liftedBindings)
     assert liftedPlan.ResultType == typeof(int)
     assert liftedPlan.OperationCount == 2
@@ -338,9 +317,9 @@ test "bound identifier planner owns exact lifted and boxed roots" {
     if boxField == null {
         throw new InvalidOperationException("Boxed-capture owner field was not found.")
     }
-    boxedBindings.BoxedCaptures["value"] = (
-        BoxField: boxField,
-        ValueType: typeof(int))
+
+    boxedBindings.BoxedCaptures["value"] = (BoxField: boxField, ValueType: typeof(int))
+
     boxedPlan := BoundPlan(tree, boxedBindings)
     assert boxedPlan.ResultType == typeof(int)
     assert boxedPlan.OperationCount == 3
@@ -360,9 +339,7 @@ test "bound identifier planner preserves lifted parameter priority and rejects i
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "value", 3, typeof(int))
     liftedLocal := ExternalProbeLocal(BoundStrongBoxType())
-    bindings.LiftedLocals["value"] = (
-        Box: liftedLocal,
-        ValueType: typeof(int))
+    bindings.LiftedLocals["value"] = (Box: liftedLocal, ValueType: typeof(int))
 
     plan := BoundPlan(tree, bindings)
     assert plan.AmbientLocalCount == 1
@@ -374,35 +351,26 @@ test "bound identifier planner preserves lifted parameter priority and rejects i
     ColumnarRangePlannerAddParameter(overlapping, "value", 0, typeof(int))
     overlapPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, overlapping, overlapPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, overlapping, overlapPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(overlapPlan)
 }
 
 test "bound identifier planner declines unknown and explicit-this forms atomically" {
     unknown := BoundIdentifierTree("missing")
     unknownPlan := new ColumnarCodePlan()
-    assert ColumnarBoundIdentifierPlanner.Plan(
-        unknown.Nodes,
-        unknown.Source,
-        unknown.Root,
-        ColumnarRangePlannerEmptyBindings(),
-        unknownPlan) == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarBoundIdentifierPlanner.Plan(unknown.Nodes, unknown.Source, unknown.Root, ColumnarRangePlannerEmptyBindings(), unknownPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(unknownPlan)
 
     explicitThis := BoundExplicitThisTree("value")
     explicitBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(explicitBindings, "value", 0, typeof(int))
     explicitPlan := new ColumnarCodePlan()
-    assert ColumnarBoundIdentifierPlanner.Plan(
-        explicitThis.Nodes,
-        explicitThis.Source,
-        explicitThis.Root,
-        explicitBindings,
-        explicitPlan) == ColumnarFragmentPlanStatus.NotOwned
-    ColumnarRangePlannerAssertEmptyRollback(explicitPlan)
+    assert ColumnarBoundIdentifierPlanner.Plan(explicitThis.Nodes, explicitThis.Source, explicitThis.Root, explicitBindings, explicitPlan) == ColumnarFragmentPlanStatus.NotOwned
 
+    ColumnarRangePlannerAssertEmptyRollback(explicitPlan)
 }
 
 test "bound identifier facade reports exact ownership and preserves byref fallback" {
@@ -414,67 +382,32 @@ test "bound identifier facade reports exact ownership and preserves byref fallba
     emptyNames := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
     owned := false
+    _legacyWholeSubtreePlanning := false
     resultType := typeof(object)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        parameterOrdinals,
-        parameterTypes,
-        new Dictionary<string, LocalBuilder>(StringComparer.Ordinal),
-        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        ColumnarRangePlannerEmptyLiftedFacts(),
-        null,
-        null,
-        new ColumnarStructDef[](0),
-        new ColumnarUnionDef[](0),
-        new Dictionary<string, string[]>(StringComparer.Ordinal),
-        emptyNames,
-        emptyNames,
-        emptyNames,
-        plan,
-        out owned,
-        out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out owned, out _legacyWholeSubtreePlanning, out resultType)
+
     assert owned
     assert resultType == typeof(int)
     ColumnarCodePlanExecutor.Validate(plan)
 
     byrefBindings := ColumnarRangePlannerEmptyBindings()
-    ColumnarRangePlannerAddParameter(
-        byrefBindings, "value", 2, BoundByRefType())
-    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(
-        tree.Nodes, tree.Source, tree.Root, byrefBindings)
+    ColumnarRangePlannerAddParameter(byrefBindings, "value", 2, BoundByRefType())
+
+    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, byrefBindings)
 
     explicitTree := BoundExplicitThisTree("missing")
-    assert ColumnarBoundIdentifierPlanner.ClaimsRoot(
-        explicitTree.Nodes,
-        explicitTree.Source,
-        explicitTree.Root,
-        ColumnarRangePlannerEmptyBindings())
+    assert ColumnarBoundIdentifierPlanner.ClaimsRoot(explicitTree.Nodes, explicitTree.Source, explicitTree.Root, ColumnarRangePlannerEmptyBindings())
 
     blockedBindings := ColumnarRangePlannerEmptyBindings()
     blockedNames := new string[](1)
     blockedNames[0] = "value"
-    blockedBindings = new ColumnarFragmentBindings(
-        blockedBindings.ParameterOrdinals,
-        blockedBindings.ParameterTypes,
-        blockedBindings.Locals,
-        blockedBindings.Enums,
-        new string[](0),
-        new string[](0),
-        blockedNames,
-        new string[](0),
-        new string[](0))
-    assert ColumnarBoundIdentifierPlanner.ClaimsRoot(
-        tree.Nodes, tree.Source, tree.Root, blockedBindings)
+    blockedBindings = new ColumnarFragmentBindings(blockedBindings.ParameterOrdinals, blockedBindings.ParameterTypes, blockedBindings.Locals, blockedBindings.Enums, new string[](0), new string[](0), blockedNames, new string[](0), new string[](0))
+
+    assert ColumnarBoundIdentifierPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, blockedBindings)
 
     unknown := BoundIdentifierTree("other")
-    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(
-        unknown.Nodes,
-        unknown.Source,
-        unknown.Root,
-        ColumnarRangePlannerEmptyBindings())
+    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(unknown.Nodes, unknown.Source, unknown.Root, ColumnarRangePlannerEmptyBindings())
 }
 
 test "bound identifier planner rejects malformed exact facts without partial plans" {
@@ -484,9 +417,9 @@ test "bound identifier planner rejects malformed exact facts without partial pla
     missingType.ParameterOrdinals["value"] = 0
     missingTypePlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, missingType, missingTypePlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, missingType, missingTypePlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(missingTypePlan)
 
     voidParameter := ColumnarRangePlannerEmptyBindings()
@@ -494,9 +427,9 @@ test "bound identifier planner rejects malformed exact facts without partial pla
     ColumnarRangePlannerAddParameter(voidParameter, "value", 0, voidType)
     voidPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, voidParameter, voidPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, voidParameter, voidPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(voidPlan)
 
     openParameter := ColumnarRangePlannerEmptyBindings()
@@ -504,38 +437,37 @@ test "bound identifier planner rejects malformed exact facts without partial pla
     ColumnarRangePlannerAddParameter(openParameter, "value", 0, openType)
     openPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, openParameter, openPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, openParameter, openPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(openPlan)
 
     voidLocal := ColumnarRangePlannerEmptyBindings()
     voidLocal.Locals["value"] = ExternalProbeLocal(BoundVoidType())
     voidLocalPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, voidLocal, voidLocalPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, voidLocal, voidLocalPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(voidLocalPlan)
 
     openLocal := ColumnarRangePlannerEmptyBindings()
     openLocal.Locals["value"] = ExternalProbeLocal(openType)
     openLocalPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, openLocal, openLocalPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, openLocal, openLocalPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(openLocalPlan)
 
     badLifted := ColumnarRangePlannerEmptyBindings()
-    badLifted.LiftedLocals["value"] = (
-        Box: ExternalProbeLocal(typeof(object)),
-        ValueType: typeof(int))
+    badLifted.LiftedLocals["value"] = (Box: ExternalProbeLocal(typeof(object)), ValueType: typeof(int))
+
     badLiftedPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, badLifted, badLiftedPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, badLifted, badLiftedPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(badLiftedPlan)
 
     ownerType := BoundBoxOwnerType()
@@ -543,69 +475,62 @@ test "bound identifier planner rejects malformed exact facts without partial pla
     if boxField == null {
         throw new InvalidOperationException("Boxed-capture owner field was not found.")
     }
+
     badBoxed := ColumnarRangePlannerEmptyBindings()
-    badBoxed.BoxedCaptures["value"] = (
-        BoxField: boxField,
-        ValueType: typeof(string))
+    badBoxed.BoxedCaptures["value"] = (BoxField: boxField, ValueType: typeof(string))
+
     badBoxedPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, badBoxed, badBoxedPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, badBoxed, badBoxedPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(badBoxedPlan)
 
     wrongProperty := ColumnarRangePlannerEmptyBindings()
-    wrongFacts := new ColumnarCurrentInstanceFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
-    wrongFacts.Properties["value"] = new ColumnarCurrentPropertyFact(
-        BoundRequiredGetter(
-            typeof(ColumnarBoundIdentifierCurrentClassProbe), "get_Value"),
-        typeof(string),
-        0)
+    wrongFacts := new ColumnarCurrentInstanceFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
+    wrongFacts.Properties["value"] = new ColumnarCurrentPropertyFact(BoundRequiredGetter(typeof(ColumnarBoundIdentifierCurrentClassProbe), "get_Value"), typeof(string), 0)
+
     wrongProperty.CurrentInstance = wrongFacts
     wrongPropertyPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, wrongProperty, wrongPropertyPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, wrongProperty, wrongPropertyPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(wrongPropertyPlan)
 
     wrongArity := ColumnarRangePlannerEmptyBindings()
-    wrongArityFacts := new ColumnarCurrentInstanceFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    wrongArityFacts := new ColumnarCurrentInstanceFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
     oneInt := new Type[](1)
     oneInt[0] = typeof(int)
-    wrongGetter := typeof(ColumnarBoundIdentifierCurrentClassProbe).GetMethod(
-        "Identity", oneInt)
+    wrongGetter := typeof(ColumnarBoundIdentifierCurrentClassProbe).GetMethod("Identity", oneInt)
+
     if wrongGetter == null {
-        throw new InvalidOperationException(
-            "Required malformed current-instance method was not found.")
+        throw new InvalidOperationException("Required malformed current-instance method was not found.")
     }
-    wrongArityFacts.Properties["value"] = new ColumnarCurrentPropertyFact(
-        wrongGetter, typeof(int), 1)
+
+    wrongArityFacts.Properties["value"] = new ColumnarCurrentPropertyFact(wrongGetter, typeof(int), 1)
+
     wrongArity.CurrentInstance = wrongArityFacts
     wrongArityPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, wrongArity, wrongArityPlan)
+        ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, wrongArity, wrongArityPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(wrongArityPlan)
 
     cyclic := ColumnarRangePlannerEmptyBindings()
-    cyclicFacts := new ColumnarCurrentInstanceFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    cyclicFacts := new ColumnarCurrentInstanceFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
     cyclicFacts.BaseFacts = cyclicFacts
     cyclic.CurrentInstance = cyclicFacts
     missingTree := BoundIdentifierTree("missing")
     cyclicPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
-        ColumnarBoundIdentifierPlanner.Plan(
-            missingTree.Nodes,
-            missingTree.Source,
-            missingTree.Root,
-            cyclic,
-            cyclicPlan)
+        ColumnarBoundIdentifierPlanner.Plan(missingTree.Nodes, missingTree.Source, missingTree.Root, cyclic, cyclicPlan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(cyclicPlan)
 }
 
@@ -613,20 +538,14 @@ test "bound identifier failures roll back an earlier recursive range child" {
     tree := BoundMixedRangeTree("start", "end")
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "start", 0, typeof(int))
-    bindings.LiftedLocals["end"] = (
-        Box: ExternalProbeLocal(typeof(object)),
-        ValueType: typeof(int))
+    bindings.LiftedLocals["end"] = (Box: ExternalProbeLocal(typeof(object)), ValueType: typeof(int))
+
     plan := new ColumnarCodePlan()
 
     assert throws InvalidOperationException {
-        ColumnarRangeIndexPlanner.Plan(
-            tree.Nodes,
-            tree.Source,
-            tree.Root,
-            bindings,
-            ColumnarRangeIndexHandles.Resolve(),
-            plan)
+        ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan)
     }
+
     ColumnarRangePlannerAssertEmptyRollback(plan)
 }
 
@@ -644,9 +563,8 @@ test "range planner recursively consumes every bound identifier storage form" {
     assert localPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloc()
 
     liftedBindings := ColumnarRangePlannerEmptyBindings()
-    liftedBindings.LiftedLocals["value"] = (
-        Box: ExternalProbeLocal(BoundStrongBoxType()),
-        ValueType: typeof(int))
+    liftedBindings.LiftedLocals["value"] = (Box: ExternalProbeLocal(BoundStrongBoxType()), ValueType: typeof(int))
+
     liftedPlan := ColumnarRangePlannerPlan(tree, liftedBindings)
     assert liftedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloc()
     assert liftedPlan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
@@ -657,9 +575,9 @@ test "range planner recursively consumes every bound identifier storage form" {
     if boxField == null {
         throw new InvalidOperationException("Boxed-capture owner field was not found.")
     }
-    boxedBindings.BoxedCaptures["value"] = (
-        BoxField: boxField,
-        ValueType: typeof(int))
+
+    boxedBindings.BoxedCaptures["value"] = (BoxField: boxField, ValueType: typeof(int))
+
     boxedPlan := ColumnarRangePlannerPlan(tree, boxedBindings)
     assert boxedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
     assert boxedPlan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
@@ -688,8 +606,8 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     parameterPlan := BoundPlan(tree, parameterBindings)
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(int)
-    parameterMethod := BoundDynamicMethod(
-        "BoundParameter", typeof(int), parameterTypes)
+    parameterMethod := BoundDynamicMethod("BoundParameter", typeof(int), parameterTypes)
+
     parameterIl := parameterMethod.GetILGenerator()
     ColumnarCodePlanExecutor.Execute(parameterPlan, parameterIl)
     parameterIl.Emit(OpCodes.Ret)
@@ -697,8 +615,8 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     ExecutorSetObject(parameterArgs, 0, 41)
     assert BoundInvokeText(parameterMethod, parameterArgs) == "41"
 
-    localMethod := BoundDynamicMethod(
-        "BoundLocal", typeof(int), new Type[](0))
+    localMethod := BoundDynamicMethod("BoundLocal", typeof(int), new Type[](0))
+
     localIl := localMethod.GetILGenerator()
     local := localIl.DeclareLocal(typeof(int))
     localIl.Emit(OpCodes.Ldc_I4, 42)
@@ -710,8 +628,8 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     localIl.Emit(OpCodes.Ret)
     assert BoundInvokeText(localMethod, new object[](0)) == "42"
 
-    liftedMethod := BoundDynamicMethod(
-        "BoundLifted", typeof(int), new Type[](0))
+    liftedMethod := BoundDynamicMethod("BoundLifted", typeof(int), new Type[](0))
+
     liftedIl := liftedMethod.GetILGenerator()
     boxType := BoundStrongBoxType()
     boxConstructorTypes := new Type[](1)
@@ -722,9 +640,8 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     liftedIl.Emit(OpCodes.Newobj, boxConstructor)
     liftedIl.Emit(OpCodes.Stloc, boxLocal)
     liftedBindings := ColumnarRangePlannerEmptyBindings()
-    liftedBindings.LiftedLocals["value"] = (
-        Box: boxLocal,
-        ValueType: typeof(int))
+    liftedBindings.LiftedLocals["value"] = (Box: boxLocal, ValueType: typeof(int))
+
     liftedPlan := BoundPlan(tree, liftedBindings)
     ColumnarCodePlanExecutor.Execute(liftedPlan, liftedIl)
     liftedIl.Emit(OpCodes.Ret)
@@ -733,16 +650,16 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     ownerType := BoundBoxOwnerType()
     boxedParameterTypes := new Type[](1)
     boxedParameterTypes[0] = ownerType
-    boxedMethod := BoundDynamicMethod(
-        "BoundBoxed", typeof(int), boxedParameterTypes)
+    boxedMethod := BoundDynamicMethod("BoundBoxed", typeof(int), boxedParameterTypes)
+
     boxedBindings := ColumnarRangePlannerEmptyBindings()
     boxField := ownerType.GetField("Box")
     if boxField == null {
         throw new InvalidOperationException("Boxed-capture owner field was not found.")
     }
-    boxedBindings.BoxedCaptures["value"] = (
-        BoxField: boxField,
-        ValueType: typeof(int))
+
+    boxedBindings.BoxedCaptures["value"] = (BoxField: boxField, ValueType: typeof(int))
+
     boxedPlan := BoundPlan(tree, boxedBindings)
     boxedIl := boxedMethod.GetILGenerator()
     ColumnarCodePlanExecutor.Execute(boxedPlan, boxedIl)
@@ -756,26 +673,25 @@ test "bound identifier plans execute current class fields and properties" {
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(ColumnarBoundIdentifierCurrentClassProbe)
     arguments := new object[](1)
-    ExecutorSetObject(
-        arguments, 0, new ColumnarBoundIdentifierCurrentClassProbe(45))
+    ExecutorSetObject(arguments, 0, new ColumnarBoundIdentifierCurrentClassProbe(45))
 
     fieldBindings := ColumnarRangePlannerEmptyBindings()
-    fieldBindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    fieldBindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
     fieldPlan := BoundPlan(BoundIdentifierTree("Field"), fieldBindings)
-    fieldMethod := BoundDynamicMethod(
-        "BoundCurrentField", typeof(int), parameterTypes)
+    fieldMethod := BoundDynamicMethod("BoundCurrentField", typeof(int), parameterTypes)
+
     fieldIl := fieldMethod.GetILGenerator()
     ColumnarCodePlanExecutor.Execute(fieldPlan, fieldIl)
     fieldIl.Emit(OpCodes.Ret)
     assert BoundInvokeText(fieldMethod, arguments) == "45"
 
     propertyBindings := ColumnarRangePlannerEmptyBindings()
-    propertyBindings.CurrentInstance = BoundCurrentFacts(
-        typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+    propertyBindings.CurrentInstance = BoundCurrentFacts(typeof(ColumnarBoundIdentifierCurrentClassProbe), true)
+
     propertyPlan := BoundPlan(BoundIdentifierTree("Value"), propertyBindings)
-    propertyMethod := BoundDynamicMethod(
-        "BoundCurrentProperty", typeof(int), parameterTypes)
+    propertyMethod := BoundDynamicMethod("BoundCurrentProperty", typeof(int), parameterTypes)
+
     propertyIl := propertyMethod.GetILGenerator()
     ColumnarCodePlanExecutor.Execute(propertyPlan, propertyIl)
     propertyIl.Emit(OpCodes.Ret)

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -10,6 +9,9 @@ class ColumnarCodePlanStackValueKind {
     public static func LiteralI4(): int { return 1 }
     public static func NativeUnsigned(): int { return 2 }
     public static func I8Slot(): int { return 3 }
+    public static func BoxedExact(): int { return 4 }
+    public static func NullReference(): int { return 5 }
+    public static func UnassignedPlanLocalAddress(): int { return 6 }
 }
 
 class ColumnarCodePlanReflectionContract {
@@ -256,6 +258,8 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.FieldOperand() {
             if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
                 il.Emit(OpCodes.Ldsfld, plan.Fields[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Ldflda() {
+                il.Emit(OpCodes.Ldflda, plan.Fields[operandIndex])
             } else {
                 il.Emit(OpCodes.Ldfld, plan.Fields[operandIndex])
             }
@@ -268,6 +272,10 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.TypeOperand() {
             if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
                 il.Emit(OpCodes.Ldtoken, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Box() {
+                il.Emit(OpCodes.Box, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
+                il.Emit(OpCodes.Initobj, plan.Types[operandIndex])
             } else {
                 il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
             }
@@ -275,7 +283,9 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func EmitWithoutOperand(il: ILGenerator, opCodeValue: short) {
-        if opCodeValue == ColumnarCodePlanContract.LdcI4_M1() {
+        if opCodeValue == ColumnarCodePlanContract.Ldnull() {
+            il.Emit(OpCodes.Ldnull)
+        } else if opCodeValue == ColumnarCodePlanContract.LdcI4_M1() {
             il.Emit(OpCodes.Ldc_I4_M1)
         } else if opCodeValue == ColumnarCodePlanContract.LdcI4_0() {
             il.Emit(OpCodes.Ldc_I4_0)
@@ -305,6 +315,12 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ldind_Ref)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             il.Emit(OpCodes.Conv_I4)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI8() {
+            il.Emit(OpCodes.Conv_I8)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvR4() {
+            il.Emit(OpCodes.Conv_R4)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvR8() {
+            il.Emit(OpCodes.Conv_R8)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
             il.Emit(OpCodes.Ldlen)
         } else if opCodeValue == ColumnarCodePlanContract.LdelemU1() {
@@ -533,7 +549,7 @@ public class ColumnarCodePlanExecutor {
         }
         i = 0
         while i < plan.ConstructorCount {
-            ValidateConstructor(plan.Constructors[i], schemaName)
+            ValidateConstructor(plan, i, schemaName)
             i += 1
         }
         i = 0
@@ -623,7 +639,11 @@ public class ColumnarCodePlanExecutor {
         }
     }
 
-    static func ValidateConstructor(constructorInfo: ConstructorInfo, schemaName: string) {
+    static func ValidateConstructor(
+        plan: ColumnarCodePlan,
+        constructorIndex: int,
+        schemaName: string) {
+        constructorInfo := plan.Constructors[constructorIndex]
         declaringType := constructorInfo.get_DeclaringType()
         if declaringType == null
             || constructorInfo.get_IsStatic()
@@ -637,6 +657,32 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(
                 schemaName + " constructors cannot use the VarArgs calling convention.")
         }
+
+        if plan.ConstructorUsesDeclaredSignature[constructorIndex] {
+            declaredType := plan.ConstructorDeclaringTypes[constructorIndex]
+            if !ExactTypeShapeMatches(declaringType, declaredType) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " declared constructor identity does not match its handle.")
+            }
+            ValidateStorableType(declaredType, "constructor result", schemaName)
+            declaredParameters := plan.ConstructorParameterTypes[constructorIndex]
+            parameterIndex := 0
+            while parameterIndex < declaredParameters.Length {
+                ValidateStorableType(
+                    declaredParameters[parameterIndex],
+                    "constructor argument",
+                    schemaName)
+                parameterIndex += 1
+            }
+            ValidateDeclaredConstructorSignatureIfAvailable(
+                constructorInfo,
+                declaredType,
+                declaredParameters,
+                schemaName)
+            return
+        }
+
         ValidateStorableType(declaringType, "constructor result", schemaName)
         parameters := constructorInfo.GetParameters()
         i := 0
@@ -646,6 +692,43 @@ public class ColumnarCodePlanExecutor {
                 "constructor argument",
                 schemaName)
             i += 1
+        }
+    }
+
+    static func ValidateDeclaredConstructorSignatureIfAvailable(
+        constructorInfo: ConstructorInfo,
+        declaringType: Type,
+        declaredParameters: Type[],
+        schemaName: string) {
+        try {
+            actualParameters := constructorInfo.GetParameters()
+            if actualParameters.Length != declaredParameters.Length {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " declared constructor arity does not match its inspectable handle.")
+            }
+            declaringArguments := DeclaringTypeArguments(declaringType)
+            noMethodArguments := new Type[](0)
+            i := 0
+            while i < actualParameters.Length {
+                actualParameter := ResolveMemberSignatureType(
+                    actualParameters[i].get_ParameterType(),
+                    declaringArguments,
+                    noMethodArguments,
+                    schemaName)
+                if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
+                    throw new InvalidOperationException(
+                        schemaName
+                            + " declared constructor parameter does not match its inspectable handle.")
+                }
+                i += 1
+            }
+        } catch ex: NotSupportedException {
+            // TypeBuilder.GetConstructor and unbaked ConstructorBuilder handles may expose no
+            // parameter list. The planner-owned declaration is the exact available signature.
+            return
+        } catch ex: NotImplementedException {
+            return
         }
     }
 
@@ -1091,6 +1174,31 @@ public class ColumnarCodePlanExecutor {
                 null)
         }
 
+        if left.ValueKind == ColumnarCodePlanStackValueKind.NullReference()
+            && right.ValueKind == ColumnarCodePlanStackValueKind.Exact()
+            && !right.ValueType.get_IsValueType()
+            && !right.ValueType.get_IsGenericParameter() {
+            return new ColumnarCodePlanStackNode(
+                right.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0,
+                null)
+        }
+        if right.ValueKind == ColumnarCodePlanStackValueKind.NullReference()
+            && left.ValueKind == ColumnarCodePlanStackValueKind.Exact()
+            && !left.ValueType.get_IsValueType()
+            && !left.ValueType.get_IsGenericParameter() {
+            return new ColumnarCodePlanStackNode(
+                left.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0,
+                null)
+        }
+
         if left.ValueKind == right.ValueKind {
             if left.ValueKind == ColumnarCodePlanStackValueKind.Exact() {
                 return new ColumnarCodePlanStackNode(
@@ -1115,6 +1223,41 @@ public class ColumnarCodePlanExecutor {
                 left.ValueKind,
                 literalKnown,
                 literalValue,
+                null)
+        }
+
+        if left.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact()
+            && right.ValueKind == ColumnarCodePlanStackValueKind.Exact()
+            && !right.ValueType.get_IsValueType()
+            && IsStackCompatible(
+                right.ValueType,
+                left.ValueType,
+                left.ValueKind,
+                false,
+                0) {
+            return new ColumnarCodePlanStackNode(
+                right.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0,
+                null)
+        }
+        if right.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact()
+            && left.ValueKind == ColumnarCodePlanStackValueKind.Exact()
+            && !left.ValueType.get_IsValueType()
+            && IsStackCompatible(
+                left.ValueType,
+                right.ValueType,
+                right.ValueKind,
+                false,
+                0) {
+            return new ColumnarCodePlanStackNode(
+                left.ValueType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0,
                 null)
         }
 
@@ -1209,6 +1352,13 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.LiteralI4(),
                 true,
                 literalValue)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldnull() {
+            state.Push(
+                typeof(object),
+                false,
+                ColumnarCodePlanStackValueKind.NullReference(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.LdcI4() {
             state.Push(
                 typeof(int),
@@ -1268,9 +1418,15 @@ public class ColumnarCodePlanExecutor {
             ApplyMethodCall(
                 plan, operationIndex, operandIndex, opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {
-            ApplyConstructor(plan.Constructors[operandIndex], state, schemaName)
-        } else if opCodeValue == ColumnarCodePlanContract.Ldfld() {
-            ApplyField(plan, operandIndex, state, schemaName)
+            ApplyConstructor(plan, operandIndex, state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldfld()
+            || opCodeValue == ColumnarCodePlanContract.Ldflda() {
+            ApplyField(
+                plan,
+                operandIndex,
+                opCodeValue == ColumnarCodePlanContract.Ldflda(),
+                state,
+                schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
             ApplyStaticField(plan, operandIndex, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
@@ -1280,6 +1436,50 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Box() {
+            targetType := plan.Types[operandIndex]
+            value := state.Pop()
+            if (!targetType.get_IsValueType() && !targetType.get_IsGenericParameter())
+                || value.IsAddress
+                || !IsStackCompatible(
+                    targetType,
+                    value.ValueType,
+                    value.ValueKind,
+                    value.LiteralKnown,
+                    value.LiteralValue) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " box requires a compatible value and an exact value-type operand.")
+            }
+            state.Push(
+                targetType,
+                false,
+                ColumnarCodePlanStackValueKind.BoxedExact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
+            targetType := plan.Types[operandIndex]
+            address := state.Pop()
+            if !targetType.get_IsValueType()
+                || targetType.get_IsGenericTypeDefinition()
+                || !address.IsAddress
+                || (address.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+                    && address.ValueKind
+                        != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress())
+                || !ExactTypeShapeMatches(targetType, address.ValueType) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " initobj requires an exact managed address to its value type.")
+            }
+            if address.ValueKind
+                == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() {
+                localIndex := address.LiteralValue
+                if localIndex < 0 || localIndex >= plan.PlanLocalCount {
+                    throw new InvalidOperationException(
+                        schemaName + " initobj plan-local identity is invalid.")
+                }
+                state.MarkPlanLocalAssigned(localIndex)
+            }
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
@@ -1378,6 +1578,48 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI8() {
+            value := state.Pop()
+            if value.IsAddress
+                || !CanWidenToI8(value.ValueType, value.ValueKind) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " conv.i8 requires an exact int-promotable scalar.")
+            }
+            state.Push(
+                typeof(long),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvR4() {
+            value := state.Pop()
+            if value.IsAddress
+                || !CanWidenToR4(value.ValueType, value.ValueKind) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " conv.r4 requires an exact int-promotable or Int64 scalar.")
+            }
+            state.Push(
+                typeof(float),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvR8() {
+            value := state.Pop()
+            if value.IsAddress
+                || !CanWidenToR8(value.ValueType, value.ValueKind) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " conv.r8 requires an exact int-promotable, Int64, or Single scalar.")
+            }
+            state.Push(
+                typeof(double),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
             arrayValue := state.Pop()
             RequireSzArray(arrayValue.ValueType, arrayValue.IsAddress, schemaName)
@@ -1445,8 +1687,13 @@ public class ColumnarCodePlanExecutor {
                 0)
         } else if opCodeValue == ColumnarCodePlanContract.Ldloca() {
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
-                throw new InvalidOperationException(
-                    schemaName + " plan locals must be assigned before ldloca.")
+                state.Push(
+                    localType,
+                    true,
+                    ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress(),
+                    false,
+                    localIndex)
+                return
             }
             state.Push(
                 localType,
@@ -1695,14 +1942,20 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func ApplyConstructor(
-        constructorInfo: ConstructorInfo,
+        plan: ColumnarCodePlan,
+        constructorIndex: int,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
-        parameters := constructorInfo.GetParameters()
-        parameterIndex := parameters.Length - 1
+        constructorInfo := plan.Constructors[constructorIndex]
+        usesDeclaredSignature :=
+            plan.ConstructorUsesDeclaredSignature[constructorIndex]
+        parameterTypes := usesDeclaredSignature
+            ? plan.ConstructorParameterTypes[constructorIndex]
+            : ConstructorParameterTypes(constructorInfo)
+        parameterIndex := parameterTypes.Length - 1
         while parameterIndex >= 0 {
             value := state.Pop()
-            parameterType := parameters[parameterIndex].get_ParameterType()
+            parameterType := parameterTypes[parameterIndex]
             if value.IsAddress
                 || !IsStackCompatible(
                     parameterType,
@@ -1716,7 +1969,9 @@ public class ColumnarCodePlanExecutor {
             }
             parameterIndex -= 1
         }
-        declaringType := constructorInfo.get_DeclaringType()
+        declaringType := usesDeclaredSignature
+            ? plan.ConstructorDeclaringTypes[constructorIndex]
+            : constructorInfo.get_DeclaringType()
         if declaringType == null {
             throw new InvalidOperationException(
                 schemaName + " constructor has no declaring type.")
@@ -1729,9 +1984,22 @@ public class ColumnarCodePlanExecutor {
             0)
     }
 
+    static func ConstructorParameterTypes(
+        constructorInfo: ConstructorInfo): Type[] {
+        parameters := constructorInfo.GetParameters()
+        result := new Type[](parameters.Length)
+        i := 0
+        while i < parameters.Length {
+            result[i] = parameters[i].get_ParameterType()
+            i += 1
+        }
+        return result
+    }
+
     static func ApplyField(
         plan: ColumnarCodePlan,
         fieldIndex: int,
+        loadAddress: bool,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
         field := plan.Fields[fieldIndex]
@@ -1760,7 +2028,7 @@ public class ColumnarCodePlanExecutor {
             usesDeclaredSignature
                 ? plan.FieldValueTypes[fieldIndex]
                 : field.get_FieldType(),
-            false,
+            loadAddress,
             ColumnarCodePlanStackValueKind.Exact(),
             false,
             0)
@@ -1796,12 +2064,15 @@ public class ColumnarCodePlanExecutor {
         isAddress: bool,
         actualKind: int,
         schemaName: string) {
-        if actualKind != ColumnarCodePlanStackValueKind.Exact() {
+        if actualKind != ColumnarCodePlanStackValueKind.Exact()
+            && actualKind != ColumnarCodePlanStackValueKind.BoxedExact() {
             throw new InvalidOperationException(
                 schemaName + " receivers must have an exact semantic type.")
         }
         if expectedType.get_IsValueType() {
-            if !isAddress || !ExactTypeShapeMatches(expectedType, actualType) {
+            if actualKind != ColumnarCodePlanStackValueKind.Exact()
+                || !isAddress
+                || !ExactTypeShapeMatches(expectedType, actualType) {
                 throw new InvalidOperationException(
                     schemaName + " value-type receivers require an exact managed address.")
             }
@@ -1911,6 +2182,19 @@ public class ColumnarCodePlanExecutor {
         }
         if actualKind == ColumnarCodePlanStackValueKind.I8Slot() {
             return IsI8Destination(expectedType)
+        }
+        if actualKind == ColumnarCodePlanStackValueKind.NullReference() {
+            return !expectedType.get_IsValueType()
+                && !expectedType.get_IsGenericParameter()
+        }
+        if actualKind == ColumnarCodePlanStackValueKind.BoxedExact() {
+            if expectedType.get_IsValueType() || expectedType.get_IsGenericParameter() {
+                return false
+            }
+            if expectedType == typeof(object) {
+                return true
+            }
+            return ReferenceAssignableFrom(expectedType, actualType)
         }
         if actualKind != ColumnarCodePlanStackValueKind.Exact() {
             return false
@@ -2032,6 +2316,27 @@ public class ColumnarCodePlanExecutor {
                     || valueType == typeof(char)
                     || (valueType.get_IsEnum()
                         && valueType.GetEnumUnderlyingType() == typeof(int))))
+    }
+
+    static func CanWidenToI8(valueType: Type, valueKind: int): bool {
+        return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
+            || (valueKind == ColumnarCodePlanStackValueKind.Exact()
+                && ColumnarNumericFacts.IsIntPromotable(valueType))
+    }
+
+    static func CanWidenToR4(valueType: Type, valueKind: int): bool {
+        return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
+            || (valueKind == ColumnarCodePlanStackValueKind.Exact()
+                && (ColumnarNumericFacts.IsIntPromotable(valueType)
+                    || valueType == typeof(long)))
+    }
+
+    static func CanWidenToR8(valueType: Type, valueKind: int): bool {
+        return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
+            || (valueKind == ColumnarCodePlanStackValueKind.Exact()
+                && (ColumnarNumericFacts.IsIntPromotable(valueType)
+                    || valueType == typeof(long)
+                    || valueType == typeof(float)))
     }
 
     static func IsLiteralI4Destination(

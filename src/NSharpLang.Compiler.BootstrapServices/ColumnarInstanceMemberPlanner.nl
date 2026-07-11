@@ -7,7 +7,8 @@ import System.Reflection.Emit
 enum ColumnarInstanceMemberKind {
     None,
     Field,
-    Property
+    Property,
+    ArrayLength
 }
 
 class ColumnarInstanceMemberSelection {
@@ -201,6 +202,71 @@ class ColumnarInstanceMemberPlanner {
         }
     }
 
+    // Leaves an exact managed address to a value-typed instance field. This is intentionally
+    // narrower than ordinary member reads: properties and non-addressable receiver expressions
+    // cannot preserve mutation semantics and remain with later receiver owners.
+    static func TryAppendAddressableValueReceiver(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, expectedType: Type): bool {
+        if nodes == null || source == null || bindings == null || plan == null || expectedType == null || !expectedType.get_IsValueType() || expectedType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            receiver := nodes.Child(candidate, 0)
+            receiverType := typeof(int)
+            directStorage := false
+            byRefParameter := false
+            if !ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, receiver, bindings, out receiverType, out directStorage, out byRefParameter) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            memberName := RewriteTupleMemberName(nodes, source, receiver, nodes.Text(source, candidate), bindings)
+            selection := EmptySelection()
+            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ResultType, expectedType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            receiverIsAddress := false
+            if selection.ReceiverIsReference {
+                receiverNode := UnwrapParentheses(nodes, receiver)
+                if receiverNode < 0 {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(receiverNode), receiverNode)
+                if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiver, bindings, false, plan, out receiverType, out receiverIsAddress) || receiverIsAddress {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                plan.CompleteFragment(receiverFragment, receiverType)
+            } else if (!directStorage && !byRefParameter) || !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiver, bindings, true, plan, out receiverType, out receiverIsAddress) || !receiverIsAddress {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            field := selection.Field
+            if field == null {
+                throw new InvalidOperationException("Addressable instance-field selection has no exact handle.")
+            }
+
+            fieldIndex := plan.AddFieldWithSignature(field, selection.DeclaringType, selection.ResultType, false)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldIndex)
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
     static func TryGetComposedReceiverType(nodes: ColumnarNodeTable, source: string, receiver: int, bindings: ColumnarFragmentBindings, out receiverType: Type): bool {
         receiverType = typeof(int)
         receiverNode := UnwrapParentheses(nodes, receiver)
@@ -256,6 +322,10 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func CanOwnReceiver(receiverType: Type, bindings: ColumnarFragmentBindings): bool {
+        if receiverType.get_IsSZArray() {
+            return true
+        }
+
         source := EmptySelection()
         if TryClassifySource(receiverType, bindings, out source) {
             return true
@@ -266,6 +336,16 @@ class ColumnarInstanceMemberPlanner {
 
     static func TrySelect(receiverType: Type, memberName: string, bindings: ColumnarFragmentBindings, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
+        if receiverType.get_IsSZArray() {
+            if memberName != "Length" {
+                return false
+            }
+
+            selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.ArrayLength, true, false, receiverType, typeof(int), null, null)
+
+            return true
+        }
+
         sourceClass := EmptySelection()
         if TryClassifySource(receiverType, bindings, out sourceClass) {
             return TrySelectSource(receiverType, memberName, bindings, sourceClass, out selection)
@@ -478,7 +558,7 @@ class ColumnarInstanceMemberPlanner {
         return true
     }
 
-    static func TrySelectExactFacts(receiverType: Type, memberName: string, root: ColumnarCurrentInstanceFacts, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+    static func TrySelectExactFacts(_receiverType: Type, memberName: string, root: ColumnarCurrentInstanceFacts, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         ValidateExactHierarchy(root)
         current: ColumnarCurrentInstanceFacts? = root
@@ -594,6 +674,12 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func AppendSelection(plan: ColumnarCodePlan, selection: ColumnarInstanceMemberSelection) {
+        if selection.Kind == ColumnarInstanceMemberKind.ArrayLength {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldlen())
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+            return
+        }
+
         if selection.Kind == ColumnarInstanceMemberKind.Field {
             field := selection.Field
             if field == null {

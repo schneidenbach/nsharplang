@@ -57,6 +57,7 @@ public class ColumnarCodePlanContract {
     }
 
     public static func NoOpCode(): short { return 0 }
+    public static func Ldnull(): short { return 20 }
     public static func LdcI4_M1(): short { return 21 }
     public static func LdcI4_0(): short { return 22 }
     public static func LdcI4_1(): short { return 23 }
@@ -78,11 +79,16 @@ public class ColumnarCodePlanContract {
     public static func Neg(): short { return 101 }
     public static func Not(): short { return 102 }
     public static func ConvI4(): short { return 105 }
+    public static func ConvI8(): short { return 106 }
+    public static func ConvR4(): short { return 107 }
+    public static func ConvR8(): short { return 108 }
     public static func Callvirt(): short { return 111 }
     public static func Ldstr(): short { return 114 }
     public static func Newobj(): short { return 115 }
     public static func Ldfld(): short { return 123 }
+    public static func Ldflda(): short { return 124 }
     public static func Ldsfld(): short { return 126 }
+    public static func Box(): short { return 140 }
     public static func Ldlen(): short { return 142 }
     public static func LdelemU1(): short { return 145 }
     public static func LdelemU2(): short { return 147 }
@@ -95,6 +101,7 @@ public class ColumnarCodePlanContract {
     public static func Ldelem(): short { return 163 }
     public static func Ldtoken(): short { return 208 }
     public static func Ceq(): short { return -511 }
+    public static func Initobj(): short { return -491 }
 
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
     public static func Ldarg(): short { return -503 }
@@ -127,10 +134,14 @@ public class ColumnarCodePlanContract {
     }
 
     public static func IsScalarNoOperandOpcode(opCodeValue: short): bool {
-        return opCodeValue == Neg()
+        return opCodeValue == Ldnull()
+            || opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()
             || opCodeValue == LdindRef()
+            || opCodeValue == ConvI8()
+            || opCodeValue == ConvR4()
+            || opCodeValue == ConvR8()
     }
 
     public static func IsLocalOpcode(opCodeValue: short): bool {
@@ -257,6 +268,9 @@ public class ColumnarCodePlan {
     public MethodIsAbstract: bool[]
     public ConstructorCount: int
     public Constructors: ConstructorInfo[]
+    public ConstructorUsesDeclaredSignature: bool[]
+    public ConstructorDeclaringTypes: Type[]
+    public ConstructorParameterTypes: Type[][]
     public FieldCount: int
     public Fields: FieldInfo[]
     public FieldUsesDeclaredSignature: bool[]
@@ -327,6 +341,9 @@ public class ColumnarCodePlan {
         MethodIsAbstract = new bool[](0)
         ConstructorCount = 0
         Constructors = new ConstructorInfo[](0)
+        ConstructorUsesDeclaredSignature = new bool[](0)
+        ConstructorDeclaringTypes = new Type[](0)
+        ConstructorParameterTypes = new Type[][](0)
         FieldCount = 0
         Fields = new FieldInfo[](0)
         FieldUsesDeclaredSignature = new bool[](0)
@@ -575,6 +592,43 @@ public class ColumnarCodePlan {
         EnsureConstructorCapacity(ConstructorCount + 1)
         index := ConstructorCount
         Constructors[index] = value
+        ConstructorUsesDeclaredSignature[index] = false
+        ConstructorCount = ConstructorCount + 1
+        return index
+    }
+
+    // A constructor rebound through TypeBuilder.GetConstructor may expose no parameter list
+    // until its generic owner is baked. Preserve the selected constructed signature next to the
+    // exact handle, just as declared method and field facts do.
+    public func AddConstructorWithSignature(
+        value: ConstructorInfo,
+        declaringType: Type,
+        parameterTypes: Type[]): int {
+        EnsureV2Building()
+        if value == null {
+            throw new ArgumentNullException("value")
+        }
+        if declaringType == null {
+            throw new ArgumentNullException("declaringType")
+        }
+        if parameterTypes == null {
+            throw new ArgumentNullException("parameterTypes")
+        }
+        exactParameterTypes := new Type[](parameterTypes.Length)
+        parameterIndex := 0
+        while parameterIndex < parameterTypes.Length {
+            if parameterTypes[parameterIndex] == null {
+                throw new ArgumentNullException("parameterTypes")
+            }
+            exactParameterTypes[parameterIndex] = parameterTypes[parameterIndex]
+            parameterIndex += 1
+        }
+        EnsureConstructorCapacity(ConstructorCount + 1)
+        index := ConstructorCount
+        Constructors[index] = value
+        ConstructorUsesDeclaredSignature[index] = true
+        ConstructorDeclaringTypes[index] = declaringType
+        ConstructorParameterTypes[index] = exactParameterTypes
         ConstructorCount = ConstructorCount + 1
         return index
     }
@@ -788,7 +842,9 @@ public class ColumnarCodePlan {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Ldelem()
                 && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-                    || opCodeValue != ColumnarCodePlanContract.Ldtoken()))
+                    || (opCodeValue != ColumnarCodePlanContract.Ldtoken()
+                        && opCodeValue != ColumnarCodePlanContract.Box()
+                        && opCodeValue != ColumnarCodePlanContract.Initobj())))
             || typeIndex < 0
             || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
@@ -864,7 +920,8 @@ public class ColumnarCodePlan {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Ldfld()
                 && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-                    || opCodeValue != ColumnarCodePlanContract.Ldsfld()))
+                    || (opCodeValue != ColumnarCodePlanContract.Ldflda()
+                        && opCodeValue != ColumnarCodePlanContract.Ldsfld())))
             || fieldIndex < 0
             || fieldIndex >= FieldCount {
             throw new InvalidOperationException("The opcode does not use this field pool entry.")
@@ -1409,6 +1466,12 @@ public class ColumnarCodePlan {
             || MethodIsAbstract.Length < MethodCount
             || Constructors == null
             || Constructors.Length < ConstructorCount
+            || ConstructorUsesDeclaredSignature == null
+            || ConstructorUsesDeclaredSignature.Length < ConstructorCount
+            || ConstructorDeclaringTypes == null
+            || ConstructorDeclaringTypes.Length < ConstructorCount
+            || ConstructorParameterTypes == null
+            || ConstructorParameterTypes.Length < ConstructorCount
             || Fields == null
             || Fields.Length < FieldCount
             || FieldUsesDeclaredSignature == null
@@ -1464,6 +1527,17 @@ public class ColumnarCodePlan {
         i = 0
         while i < ConstructorCount {
             if Constructors[i] == null { return false }
+            if ConstructorUsesDeclaredSignature[i] {
+                if ConstructorDeclaringTypes[i] == null
+                    || ConstructorParameterTypes[i] == null {
+                    return false
+                }
+                parameterIndex := 0
+                while parameterIndex < ConstructorParameterTypes[i].Length {
+                    if ConstructorParameterTypes[i][parameterIndex] == null { return false }
+                    parameterIndex += 1
+                }
+            }
             i += 1
         }
         i = 0
@@ -1687,7 +1761,8 @@ public class ColumnarCodePlan {
         }
         if opCodeValue == ColumnarCodePlanContract.Ldfld()
             || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
-                && opCodeValue == ColumnarCodePlanContract.Ldsfld()) {
+                && (opCodeValue == ColumnarCodePlanContract.Ldflda()
+                    || opCodeValue == ColumnarCodePlanContract.Ldsfld())) {
             return operandKind == ColumnarCodePlanContract.FieldOperand()
                 && operandIndex >= 0
                 && operandIndex < FieldCount
@@ -1700,7 +1775,9 @@ public class ColumnarCodePlan {
         }
         if opCodeValue == ColumnarCodePlanContract.Ldelem()
             || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
-                && opCodeValue == ColumnarCodePlanContract.Ldtoken()) {
+                && (opCodeValue == ColumnarCodePlanContract.Ldtoken()
+                    || opCodeValue == ColumnarCodePlanContract.Box()
+                    || opCodeValue == ColumnarCodePlanContract.Initobj())) {
             return operandKind == ColumnarCodePlanContract.TypeOperand()
                 && operandIndex >= 0
                 && operandIndex < TypeCount
@@ -1830,10 +1907,26 @@ public class ColumnarCodePlan {
     }
 
     func EnsureConstructorCapacity(minimum: int) {
-        if Constructors == null || Constructors.Length < minimum {
-            Constructors = GrowConstructorArray(
-                Constructors,
-                NextCapacity(Constructors == null ? 0 : Constructors.Length, minimum))
+        if Constructors == null || Constructors.Length < minimum
+            || ConstructorUsesDeclaredSignature == null
+            || ConstructorUsesDeclaredSignature.Length < minimum
+            || ConstructorDeclaringTypes == null
+            || ConstructorDeclaringTypes.Length < minimum
+            || ConstructorParameterTypes == null
+            || ConstructorParameterTypes.Length < minimum {
+            capacity := NextCapacity(
+                Constructors == null ? 0 : Constructors.Length,
+                minimum)
+            Constructors = GrowConstructorArray(Constructors, capacity)
+            ConstructorUsesDeclaredSignature = GrowBoolArray(
+                ConstructorUsesDeclaredSignature,
+                capacity)
+            ConstructorDeclaringTypes = GrowTypeArray(
+                ConstructorDeclaringTypes,
+                capacity)
+            ConstructorParameterTypes = GrowTypeArrayArray(
+                ConstructorParameterTypes,
+                capacity)
         }
     }
 

@@ -18,6 +18,7 @@ class ColumnarSourceBindingFacts {
     UnaliasedNamespaceImports: List<string>
     UnaliasedFileImportPaths: List<string>
     ImportedNames: HashSet<string>
+    ImportedSourceTypeNames: Dictionary<string, string>
     DeclaredNames: HashSet<string>
     ExportedNames: HashSet<string>
     DeclaredTypeNames: HashSet<string>
@@ -33,6 +34,8 @@ class ColumnarSourceBindingFacts {
         UnaliasedNamespaceImports = new List<string>()
         UnaliasedFileImportPaths = new List<string>()
         ImportedNames = new HashSet<string>(StringComparer.Ordinal)
+        ImportedSourceTypeNames = new Dictionary<string, string>(
+            StringComparer.Ordinal)
         DeclaredNames = new HashSet<string>(StringComparer.Ordinal)
         ExportedNames = new HashSet<string>(StringComparer.Ordinal)
         DeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
@@ -178,6 +181,7 @@ public class ColumnarBindingScopeFacts {
     projectRoot: string
     sourceTypeNames: HashSet<string>
     exportedSourceTypeNames: HashSet<string>
+    ambiguousSourceTypeNames: HashSet<string>
     memberNamesByType: Dictionary<string, ColumnarBindingNameSet>
     currentLexicalNamesByType: Dictionary<string, ColumnarBindingNameSet>
     classBaseNameByType: Dictionary<string, string>
@@ -188,7 +192,9 @@ public class ColumnarBindingScopeFacts {
     activeImportAliasNames: HashSet<string>
     activeUnaliasedNamespaceImports: List<string>
     activeImportedNames: HashSet<string>
+    activeImportedSourceTypeNames: Dictionary<string, string>
     activeDeclaredNames: HashSet<string>
+    activeDeclaredTypeNames: HashSet<string>
     activeTypeAliasTargets: Dictionary<string, string>
     hasActiveUnresolvedFileImport: bool
     activeNamespaceName: string
@@ -201,6 +207,7 @@ public class ColumnarBindingScopeFacts {
         projectRoot = Path.GetFullPath(".")
         sourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         exportedSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        ambiguousSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         memberNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
         currentLexicalNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
         classBaseNameByType = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -212,7 +219,10 @@ public class ColumnarBindingScopeFacts {
         activeImportAliasNames = new HashSet<string>(StringComparer.Ordinal)
         activeUnaliasedNamespaceImports = new List<string>()
         activeImportedNames = new HashSet<string>(StringComparer.Ordinal)
+        activeImportedSourceTypeNames = new Dictionary<string, string>(
+            StringComparer.Ordinal)
         activeDeclaredNames = new HashSet<string>(StringComparer.Ordinal)
+        activeDeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
         activeTypeAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
         hasActiveUnresolvedFileImport = false
         activeNamespaceName = ""
@@ -255,7 +265,11 @@ public class ColumnarBindingScopeFacts {
                         exactSourceTypeName = fileFacts.NamespaceName
                             + "." + sourceTypeName
                     }
-                    result.AddSourceType(exactSourceTypeName)
+                    if result.sourceTypeNames.Contains(exactSourceTypeName) {
+                        result.ambiguousSourceTypeNames.Add(exactSourceTypeName)
+                    } else {
+                        result.AddSourceType(exactSourceTypeName)
+                    }
                     if fileFacts.ExportedNames.Contains(sourceTypeName) {
                         result.exportedSourceTypeNames.Add(exactSourceTypeName)
                     }
@@ -316,6 +330,7 @@ public class ColumnarBindingScopeFacts {
         view.projectRoot = projectRoot
         view.sourceTypeNames = sourceTypeNames
         view.exportedSourceTypeNames = exportedSourceTypeNames
+        view.ambiguousSourceTypeNames = ambiguousSourceTypeNames
         view.memberNamesByType = memberNamesByType
         view.currentLexicalNamesByType = currentLexicalNamesByType
         view.classBaseNameByType = classBaseNameByType
@@ -330,7 +345,9 @@ public class ColumnarBindingScopeFacts {
             view.activeImportAliasNames = fileFacts.AliasNames
             view.activeUnaliasedNamespaceImports = fileFacts.UnaliasedNamespaceImports
             view.activeImportedNames = fileFacts.ImportedNames
+            view.activeImportedSourceTypeNames = fileFacts.ImportedSourceTypeNames
             view.activeDeclaredNames = fileFacts.DeclaredNames
+            view.activeDeclaredTypeNames = fileFacts.DeclaredTypeNames
             view.activeTypeAliasTargets = fileFacts.TypeAliasTargets
             view.hasActiveUnresolvedFileImport = fileFacts.HasUnresolvedFileImport
             view.activeNamespaceName = fileFacts.NamespaceName
@@ -358,6 +375,22 @@ public class ColumnarBindingScopeFacts {
 
     public func UnaliasedNamespaceImportAt(index: int): string {
         return activeUnaliasedNamespaceImports[index]
+    }
+
+    // Import-alias member/call trees are a distinct semantic owner form. Expression planners
+    // that do not own alias-member binding can defer the whole subtree without mistaking the
+    // alias for a runtime or source type name.
+    public func IsImportAliasRoot(name: string): bool {
+        return hasActiveFileFacts && name != null && name.Length > 0
+            && activeImportAliasNames.Contains(name)
+    }
+
+    // A direct type-alias owner (Alias.Run) can be resolved to its source/runtime target. Once
+    // another member appears between the alias and the call (Alias.Shared.Run), the receiver is
+    // a value-or-nested-type chain whose binding belongs to the composed-expression owner.
+    public func IsTypeAliasRoot(name: string): bool {
+        return hasActiveFileFacts && name != null && name.Length > 0
+            && activeTypeAliasTargets.ContainsKey(name)
     }
 
     public func ExactTypeNameForFile(name: string, sourceFileId: int): string {
@@ -470,6 +503,258 @@ public class ColumnarBindingScopeFacts {
         }
         return TryResolveExternalType(
             ownerName, expectedDeclaringTypeIdentity, out expectedDeclaringType)
+    }
+
+    // Resolve a static source owner to the exact emitted type identity. A false result with
+    // blocked=true is terminal: a lexical binding, source declaration, ambiguity, or incomplete
+    // scope prevents any later tier from reinterpreting the spelling as a runtime type.
+    public func TryResolveSourceStaticOwner(
+        enclosingTypeName: string,
+        visibleFunctionTypeParameterNames: string[],
+        rootName: string,
+        ownerName: string,
+        out exactOwnerName: string,
+        out blocked: bool): bool {
+        exactOwnerName = ""
+        blocked = true
+        if !sourceScanComplete || !hasActiveFileFacts
+            || hasActiveUnresolvedFileImport || rootName == null
+            || rootName.Length == 0 || ownerName == null
+            || ownerName.Length == 0 {
+            return false
+        }
+        if ContainsName(visibleFunctionTypeParameterNames, rootName) {
+            return false
+        }
+
+        aliasTarget := ""
+        if ownerName == rootName
+            && activeTypeAliasTargets.TryGetValue(rootName, out aliasTarget) {
+            aliasBlocked := false
+            if TryResolveVisibleSourceTypeName(
+                    aliasTarget, out exactOwnerName, out aliasBlocked) {
+                blocked = false
+                return true
+            }
+            blocked = aliasBlocked
+            return false
+        }
+        if activeImportAliasNames.Contains(rootName) {
+            return false
+        }
+
+        if ownerName.Contains(".") {
+            // A value/function/type imported or declared at the root changes this into member
+            // lookup on that binding; it is never a namespace-qualified source owner.
+            if activeDeclaredNames.Contains(rootName)
+                || activeImportedNames.Contains(rootName) {
+                return false
+            }
+            // Namespace-qualified project source types are an Analyzer fence, not an expression
+            // binding: the namespace root remains undefined. Keep them terminal instead of
+            // fabricating source ownership or allowing runtime reinterpretation.
+            blocked = BlocksQualifiedSourceOwner(ownerName)
+            return false
+        }
+
+        activeBlocked := false
+        if TryResolveActiveSourceTypeName(
+                ownerName, out exactOwnerName, out activeBlocked) {
+            blocked = false
+            return true
+        }
+        if activeBlocked || BlocksLexicalOrMemberRoot(
+                enclosingTypeName, rootName) {
+            blocked = true
+            return false
+        }
+        return TryResolveProjectSourceTypeName(
+            ownerName, out exactOwnerName, out blocked)
+    }
+
+    func TryResolveVisibleSourceTypeName(
+        name: string,
+        out exactName: string,
+        out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+        if name == null || name.Length == 0 {
+            blocked = true
+            return false
+        }
+        if name.Contains(".") {
+            if TryResolveQualifiedSourceTypeName(name, out exactName) {
+                return true
+            }
+            blocked = BlocksQualifiedSourceOwner(name)
+            return false
+        }
+
+        if TryResolveActiveSourceTypeName(
+                name, out exactName, out blocked) || blocked {
+            return exactName.Length > 0
+        }
+        return TryResolveProjectSourceTypeName(
+            name, out exactName, out blocked)
+    }
+
+    func TryResolveActiveSourceTypeName(
+        name: string,
+        out exactName: string,
+        out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+
+        if activeDeclaredNames.Contains(name)
+            && !activeDeclaredTypeNames.Contains(name) {
+            blocked = true
+            return false
+        }
+        if activeDeclaredNames.Contains(name)
+            && activeImportedNames.Contains(name) {
+            blocked = true
+            return false
+        }
+
+        if activeDeclaredTypeNames.Contains(name) {
+            activeExactName := name
+            if activeNamespaceName.Length > 0 {
+                activeExactName = activeNamespaceName + "." + name
+            }
+            if ambiguousSourceTypeNames.Contains(activeExactName)
+                || !sourceTypeNames.Contains(activeExactName) {
+                blocked = true
+                return false
+            }
+            exactName = activeExactName
+            return true
+        }
+
+        importedExactName := ""
+        if activeImportedSourceTypeNames.TryGetValue(
+                name, out importedExactName) {
+            if importedExactName.Length == 0
+                || ambiguousSourceTypeNames.Contains(importedExactName)
+                || !sourceTypeNames.Contains(importedExactName) {
+                blocked = true
+                return false
+            }
+            exactName = importedExactName
+            return true
+        }
+        if activeImportedNames.Contains(name) {
+            blocked = true
+            return false
+        }
+        return false
+    }
+
+    func TryResolveProjectSourceTypeName(
+        name: string,
+        out exactName: string,
+        out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+        activeExactName := name
+        if activeNamespaceName.Length > 0 {
+            activeExactName = activeNamespaceName + "." + name
+        }
+        if sourceTypeNames.Contains(activeExactName) {
+            if ambiguousSourceTypeNames.Contains(activeExactName) {
+                blocked = true
+                return false
+            }
+            exactName = activeExactName
+            return true
+        }
+
+        importIndex := 0
+        while importIndex < activeUnaliasedNamespaceImports.Count {
+            importedName := activeUnaliasedNamespaceImports[importIndex]
+                + "." + name
+            if exportedSourceTypeNames.Contains(importedName) {
+                if ambiguousSourceTypeNames.Contains(importedName) {
+                    blocked = true
+                    return false
+                }
+                exactName = importedName
+                return true
+            }
+            importIndex = importIndex + 1
+        }
+
+        // A global exported declaration remains visible from a namespaced file. Source types in
+        // unrelated named namespaces intentionally do not shadow runtime imports.
+        if exportedSourceTypeNames.Contains(name) {
+            if ambiguousSourceTypeNames.Contains(name) {
+                blocked = true
+                return false
+            }
+            exactName = name
+            return true
+        }
+        return false
+    }
+
+    func TryResolveQualifiedSourceTypeName(
+        ownerName: string,
+        out exactName: string): bool {
+        exactName = ""
+        if !sourceTypeNames.Contains(ownerName)
+            || ambiguousSourceTypeNames.Contains(ownerName) {
+            return false
+        }
+
+        separator := ownerName.Length - 1
+        while separator >= 0 && ownerName[separator] != '.' {
+            separator = separator - 1
+        }
+        if separator <= 0 {
+            return false
+        }
+        ownerNamespace := ownerName.Substring(0, separator)
+        if ownerNamespace != activeNamespaceName
+            && !exportedSourceTypeNames.Contains(ownerName) {
+            return false
+        }
+        exactName = ownerName
+        return true
+    }
+
+    // Direct-call selection discovers the exact method identity from the resolved runtime owner,
+    // so it cannot supply a declaring-type identity before lookup. Preserve the same alias,
+    // source-shadowing, import-order, and type-parameter fences as the identity-pinned static
+    // member path while returning the semantically resolved owner itself.
+    public func TryResolveExternalStaticOwnerType(
+        enclosingTypeName: string,
+        visibleFunctionTypeParameterNames: string[],
+        rootName: string,
+        ownerName: string,
+        out ownerType: Type): bool {
+        ownerType = typeof(object)
+        aliasTarget := ""
+        if ownerName == rootName
+            && activeTypeAliasTargets.TryGetValue(rootName, out aliasTarget) {
+            if BlocksUnqualifiedRootCore(
+                    enclosingTypeName,
+                    visibleFunctionTypeParameterNames,
+                    rootName,
+                    true)
+                || !TryResolveExternalCanonical(aliasTarget, out ownerType) {
+                ownerType = typeof(object)
+                return false
+            }
+            return true
+        }
+        if BlocksQualifiedSourceOwner(ownerName)
+            || BlocksUnqualifiedRootCore(
+                enclosingTypeName,
+                visibleFunctionTypeParameterNames,
+                rootName,
+                false) {
+            return false
+        }
+        return TryResolveExternalCanonical(ownerName, out ownerType)
     }
 
     func BlocksQualifiedSourceOwner(ownerName: string): bool {
@@ -589,6 +874,12 @@ public class ColumnarBindingScopeFacts {
             return true
         }
 
+        return BlocksLexicalOrMemberRoot(enclosingTypeName, rootName)
+    }
+
+    func BlocksLexicalOrMemberRoot(
+        enclosingTypeName: string,
+        rootName: string): bool {
         if enclosingTypeName.Length == 0 {
             return false
         }
@@ -1173,6 +1464,15 @@ public class ColumnarBindingScopeFacts {
                     && importedFacts.ScanComplete {
                     for importedName in importedFacts.ExportedNames {
                         facts.ImportedNames.Add(importedName)
+                        if importedFacts.DeclaredTypeNames.Contains(importedName) {
+                            exactImportedName := importedName
+                            if importedFacts.NamespaceName.Length > 0 {
+                                exactImportedName = importedFacts.NamespaceName
+                                    + "." + importedName
+                            }
+                            AddImportedSourceType(
+                                facts, importedName, exactImportedName)
+                        }
                     }
                 } else {
                     facts.HasUnresolvedFileImport = true
@@ -1181,6 +1481,22 @@ public class ColumnarBindingScopeFacts {
             }
             index = index + 1
         }
+    }
+
+    static func AddImportedSourceType(
+        facts: ColumnarSourceBindingFacts,
+        shortName: string,
+        exactName: string) {
+        existing := ""
+        if facts.ImportedSourceTypeNames.TryGetValue(shortName, out existing) {
+            if existing != exactName {
+                // An unaliased file-import collision is already a semantic error. Retain an
+                // explicit ambiguous marker so emission can only fail closed.
+                facts.ImportedSourceTypeNames[shortName] = ""
+            }
+            return
+        }
+        facts.ImportedSourceTypeNames.Add(shortName, exactName)
     }
 
     static func UnquoteStringLiteral(value: string): string {

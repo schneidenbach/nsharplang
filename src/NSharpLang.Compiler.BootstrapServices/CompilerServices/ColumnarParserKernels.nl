@@ -1,6 +1,7 @@
 import System
 import System.Text
 
+
 // Static columnar parser kernels formerly emitted through the Dogfood assembly.
 // ---- LexerTokenKindScanner.nl ----
 class LexerTokenKindTable {
@@ -50,11 +51,6 @@ class LexerIndentStackTable {
     }
 }
 
-
-
-
-
-
 // Insert the virtual indentation braces that the production lexer's InsertIndentationBraces
 // post-pass produces, but write only the parser-consumed token metadata columns. The raw metadata
 // stream still carries line/column because indentation decisions require it; the product adapter no
@@ -63,9 +59,6 @@ class LexerIndentStackTable {
 // Product columnar lexer entry: tokenize, insert indentation braces, and compact parser metadata before
 // returning to the host. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
 // compact parser-token count. This keeps the transition adapter from binding standalone lexer probe ABIs.
-
-
-
 
 // Lifetime token support, mirroring Lexer.IsLifetimeStart, Lexer.IsLifetimeContext, and
 // Lexer.ReadLifetime in the live Lexer.nl. At an
@@ -78,10 +71,6 @@ class LexerIndentStackTable {
 // the scanner-wide ASCII-vs-Unicode classification gap is tracked separately in self-host-progress.md.
 // Whitespace for the lifetime-context lookback.
 
-
-
-
-
 // Returns ((exclusive end offset) << 2) | kind, where kind is 1 = IntLiteral, 2 = FloatLiteral, and
 // 3 = Unknown (the malformed-number error token). The 1/2 values double as the
 // TokenType ordinals; callers map the sentinel 3 to Unknown (137). Each error branch returns the same
@@ -91,17 +80,10 @@ class LexerIndentStackTable {
 //   - a second decimal point (Lexer.ReadNumber in Lexer.nl) -> Unknown after consuming the remaining digits/dots;
 //   - an exponent e/E[+/-] with no digit after it (Lexer.ReadNumber) -> Unknown ending after the sign.
 
-
-
-
 // Encodes token kind and source width as kind * 4 + width to avoid tuple/out parameters.
-
-
 
 // Character classification mirrors the live Lexer.nl scanner's use of the BCL Unicode predicates
 // in Lexer.NextToken, Lexer.ReadIdentifier, Lexer.ReadNumber, and the lifetime helpers.
-
-
 
 // Hex digits are ASCII-only letters plus any Unicode decimal digit, matching Lexer.IsHexDigit.
 
@@ -268,10 +250,6 @@ class TypeReferenceTupleNameTable {
         Names = names
     }
 }
-
-
-
-
 
 // Consume one closing `>` for a generic argument list, including split `>>` handling:
 // a single `>` (Greater 102) is consumed directly;
@@ -456,64 +434,68 @@ class TypeReferenceTupleNameTable {
 
 // The one live expression-node-kind ledger. Parser producers and downstream N# owners consume
 // these named values instead of duplicating ordinals.
-public class ColumnarExpressionNodeKind {
-    public static func IntLiteralExpression(): int {
+class ColumnarExpressionNodeKind {
+    static func IntLiteralExpression(): int {
         return 0
     }
 
-    public static func FloatLiteralExpression(): int {
+    static func FloatLiteralExpression(): int {
         return 1
     }
 
-    public static func CharLiteralExpression(): int {
+    static func CharLiteralExpression(): int {
         return 2
     }
 
-    public static func StringLiteralExpression(): int {
+    static func StringLiteralExpression(): int {
         return 3
     }
 
-    public static func BoolLiteralExpression(): int {
+    static func BoolLiteralExpression(): int {
         return 4
     }
 
-    public static func NullLiteralExpression(): int {
+    static func NullLiteralExpression(): int {
         return 5
     }
 
-    public static func IdentifierExpression(): int {
+    static func IdentifierExpression(): int {
         return 6
     }
 
-    public static func ParenthesizedExpression(): int {
+    static func ParenthesizedExpression(): int {
         return 7
     }
 
-    public static func MemberAccessExpression(): int {
+    static func MemberAccessExpression(): int {
         return 8
     }
 
-    public static func IndexAccessExpression(): int {
+    static func CallExpression(): int {
+        return 9
+    }
+
+    static func IndexAccessExpression(): int {
         return 10
     }
 
-    public static func UnaryExpression(): int {
+    static func UnaryExpression(): int {
         return 11
     }
 
-    public static func TernaryExpression(): int {
+    static func TernaryExpression(): int {
         return 13
     }
 
-    public static func TypeOfExpression(): int {
+    static func TypeOfExpression(): int {
         return 55
     }
 
-    public static func NameOfExpression(): int {
+    static func NameOfExpression(): int {
         return 62
     }
 
-    public static func RangeExpression(): int {
+    static func RangeExpression(): int {
         return 69
     }
 }
@@ -536,10 +518,6 @@ class ParserExpressionNodeTable {
         SpanLengths = spanLengths
     }
 }
-
-
-
-
 
 // Mirrors Parser.cs IsExpressionStart: the set of token kinds that can begin an expression. Used by the cast
 // detection in ParsePrimaryExpressionNode to disambiguate `( <type> ) <expr>` (a hard cast) from a
@@ -578,7 +556,6 @@ class ParserExpressionNodeTable {
 // A primary expression followed by any run of `.member` and `[index]` suffixes. The member name and the
 // two index children are appended right after the object/index are fully parsed (fixed arity => contiguous
 // child runs, no arg-stack). Index expressions recurse to this postfix level (the current expression top).
-
 
 // ParseUnaryExpression (Parser.cs:4223) restricted to the prefix operators: ! (Not 106), - (Negate, Minus
 // 89), ~ (BitwiseNot 110), ++ (PreIncrement 113), -- (PreDecrement 114), ^ (IndexFromEnd, BitwiseXor 109).
@@ -698,12 +675,9 @@ class ParserExpressionNodeTable {
 // TokenType ordinals (Token.cs): Identifier 0, If 23, Else 24, For 25, Foreach 26, While 27, In 28, Return 29,
 // Break 35, Continue 36, Assign 93, ColonAssign 121, LeftBrace 129, RightBrace 130, Semicolon 133, Eof 135, Newline 136.
 
-
-
 // Dispatch + parse a single statement at st.Pos. Returns the emitted statement node id, or -1.
 
 // The non-control-flow statements: return / break / continue / `:=` declaration / expression statement.
-
 
 // ---- ParserDeclarations.nl ----
 
@@ -992,7 +966,6 @@ class ParserDeclarationResultTable {
     }
 }
 
-
 // Parser slice 4: namespace imports. The parser processes a prefix of `package`/`import` lines
 // before declarations; an `import` whose first token is an Identifier is a
 // NamespaceImport (`import A.B.C [as X]`) routed to CompilationUnit.Imports, while one followed by a
@@ -1013,7 +986,6 @@ class ParserDeclarationResultTable {
 // from `where` until the body `{` (which also ends the signature). All three top-level scanners share
 // this rule.
 
-
 // Parser slice 2: like TopLevelDeclarationKindsCore, but also records each declaration's NAME span.
 // A declaration's name is the token immediately after its keyword (modifiers precede the keyword, so
 // nothing sits between keyword and name) when that token is an Identifier (kind 0). For `test "..."`
@@ -1021,24 +993,11 @@ class ParserDeclarationResultTable {
 // test string name is out of scope for this slice. The host materializes the name from
 // source via outNameStarts/outNameLengths.
 
-
-
-
-
-
-
-
-
-
-
-
 // Parser declaration safety guard for top-level functions. The declaration scans intentionally skip
 // unknown depth-0 tokens, so this validates the token immediately before each `func` keyword: only
 // recognized modifiers (`static`, `async`), a previous declaration close, a package/namespace import
 // dotted header prefix, or a quoted file-import header may precede a top-level function. Returns 1
 // when every function preamble is valid.
-
-
 
 // Parser declaration utility: the compacted-token index of the `}` (130) that closes the `{` (129)
 // at `open`, or -1 if `open` is not a left brace or the brace run is unbalanced. This keeps property
@@ -1055,41 +1014,14 @@ class ParserDeclarationResultTable {
 // Flattened ParsePropertyAccessor*Into ABIs live in the parity corpus; product callers compose this
 // core through ParserColumnarProperties.nl.
 
-
-
-
-
 // Product interface declaration core. Flattened ParseInterfaceDeclaration* ABIs live in the
 // parity corpus; product callers compose this core through ParserInterfaceSignatures.nl.
-
-
-
-
-
-
-
-
-
 
 // Product enum declaration core. Flattened ParseEnumDeclaration* ABIs live in the parity corpus;
 // product callers compose this core through ParserColumnarEnums.nl.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Parse one struct/class/record declaration into wrapper-owned declaration tables. The flattened
 // ParseStructDeclaration* ABIs live in the parity corpus; product callers compose this core directly.
-
 
 // Parse a CONSTRUCTOR's chaining initializer `: this(args)` / `: base(args)`, given the constructor's identifier
 // token index (`ctorIndex`, the "constructor" identifier). Scans past the param list `(...)` (balanced) to the
@@ -1226,19 +1158,6 @@ class FunctionSignatureOwnerIndexTable {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 class ParserFunctionParameterTable {
     NameStarts: int[]
     NameLengths: int[]
@@ -1270,7 +1189,6 @@ class ParserFunctionWhereTable {
     }
 }
 
-
 // ---- ParserConstructorSignatures.nl ----
 
 // Composed constructor-signature product core. ParserDeclarations.nl keeps the standalone constructor chain
@@ -1294,9 +1212,6 @@ class ConstructorSignatureOutputTable {
         ArgTexts = argTexts
     }
 }
-
-
-
 
 // ---- ParserInterfaceSignatures.nl ----
 
@@ -1328,7 +1243,8 @@ class InterfaceSignatureMethodOutputTable {
     BodyFlags: int[]
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
-    constructor(funcIndices: int[], nameTexts: string[], returnTexts: string[], paramCounts: int[], bodyFlags: int[], paramNameTexts: string[], paramTypeTexts: string[]) {
+    ParamModifierKinds: int[]
+    constructor(funcIndices: int[], nameTexts: string[], returnTexts: string[], paramCounts: int[], bodyFlags: int[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[]) {
         FuncIndices = funcIndices
         NameTexts = nameTexts
         ReturnTexts = returnTexts
@@ -1336,6 +1252,7 @@ class InterfaceSignatureMethodOutputTable {
         BodyFlags = bodyFlags
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
+        ParamModifierKinds = paramModifierKinds
     }
 }
 
@@ -1351,8 +1268,6 @@ class InterfaceSignatureTupleNodeTable {
         ChildIndices = childIndices
     }
 }
-
-
 
 // ---- ParserLocalFunctions.nl ----
 
@@ -1395,7 +1310,6 @@ class LocalFunctionResultTable {
         FuncTokenIndices = funcTokenIndices
     }
 }
-
 
 // ---- ParserColumnarFunctions.nl ----
 
@@ -1485,12 +1399,6 @@ class ColumnarFunctionResultTable {
     }
 }
 
-
-
-
-
-
-
 // ---- ParserColumnarConstructors.nl ----
 
 // Product columnar constructor parser wrapper. It composes constructor signature/chain parsing with the
@@ -1553,14 +1461,6 @@ class ColumnarConstructorResultTable {
         Values = values
     }
 }
-
-
-
-
-
-
-
-
 
 // ---- ParserColumnarStructs.nl ----
 
@@ -1644,22 +1544,6 @@ class ColumnarStructResultTable {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ---- ParserColumnarUnions.nl ----
 
 // Product columnar union parser wrapper. It keeps declaration span scratch columns inside N# and exposes only
@@ -1723,17 +1607,12 @@ class ColumnarUnionResultTable {
     }
 }
 
-
-
-
-
 // Mirrors UnionValueLayout.IsValueStructEmittable on the columnar union shape. A small, closed,
 // payload-free, non-generic union emits as its allocation-free PUBLIC readonly tag struct. The
 // columnar input builder consults this kernel so it can select the value-struct ABI instead of
 // heap case classes. Eligibility holds when the
 // union is non-generic, has 1..MaxValueStructCases (16) cases, and every case is payload-free (caseFieldCounts[c]
 // is case c's field count; a non-zero count means the case carries a payload). Returns 1 when eligible, else 0.
-
 
 // ---- ParserColumnarEnums.nl ----
 
@@ -1788,12 +1667,6 @@ class ColumnarEnumResultTable {
     }
 }
 
-
-
-
-
-
-
 // ---- ParserColumnarInterfaces.nl ----
 
 // Product columnar interface parser wrapper. It keeps base-name span scratch columns inside N#,
@@ -1836,8 +1709,9 @@ class ColumnarInterfaceOutputTable {
     MethodBodyFlags: int[]
     MethodParamNameTexts: string[]
     MethodParamTypeTexts: string[]
+    MethodParamModifierKinds: int[]
     TypeParamTexts: string[]
-    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], typeParamTexts: string[]) {
+    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[]) {
         MethodFuncIndices = methodFuncIndices
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
@@ -1847,6 +1721,7 @@ class ColumnarInterfaceOutputTable {
         MethodBodyFlags = methodBodyFlags
         MethodParamNameTexts = methodParamNameTexts
         MethodParamTypeTexts = methodParamTypeTexts
+        MethodParamModifierKinds = methodParamModifierKinds
         TypeParamTexts = typeParamTexts
     }
 }
@@ -1857,12 +1732,6 @@ class ColumnarInterfaceResultTable {
         Values = values
     }
 }
-
-
-
-
-
-
 
 // ---- ParserColumnarProperties.nl ----
 
@@ -1918,11 +1787,6 @@ class ColumnarPropertyResultTable {
         Values = values
     }
 }
-
-
-
-
-
 
 func ParserTokenCompactionIndicesCountedInto(tokenKinds: int[], tokenCount: int, resultIndices: int[]): int {
     if tokenCount < 0 {
@@ -2089,6 +1953,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
             if position < length && source[position] == '\n' {
                 position = position + 1
             }
+
             line = line + 1
             column = 1
             continue
@@ -2120,6 +1985,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                     position = position + 1
                     column = column + 1
                 }
+
                 continue
             }
 
@@ -2138,6 +2004,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                         if position < length && source[position] == '\n' {
                             position = position + 1
                         }
+
                         line = line + 1
                         column = 1
                         continue
@@ -2153,6 +2020,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                     position = position + 1
                     column = column + 1
                 }
+
                 continue
             }
         }
@@ -2172,6 +2040,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                         if position < nextPosition && source[position] == '\n' {
                             position = position + 1
                         }
+
                         line = line + 1
                         column = 1
                         continue
@@ -2198,6 +2067,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                 column = column + (nextPosition - start)
                 position = nextPosition
             }
+
             continue
         }
 
@@ -2216,6 +2086,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                         if position < nextPosition && source[position] == '\n' {
                             position = position + 1
                         }
+
                         line = line + 1
                         column = 1
                         continue
@@ -2242,6 +2113,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
                 column = column + (nextPosition - start)
                 position = nextPosition
             }
+
             continue
         }
 
@@ -2330,11 +2202,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
     return count
 }
 
-func InsertIndentationParserMetadataCore(
-    raw: LexerTokenMetadataTable,
-    rawCount: int,
-    output: LexerCompactTokenMetadataTable,
-    indentStack: LexerIndentStackTable): int {
+func InsertIndentationParserMetadataCore(raw: LexerTokenMetadataTable, rawCount: int, output: LexerCompactTokenMetadataTable, indentStack: LexerIndentStackTable): int {
     outCount := 0
     stackTop := 0
     indentStack.Indents[0] = 0
@@ -2487,6 +2355,7 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
                     if position < length {
                         position = position + 1
                     }
+
                     continue
                 }
 
@@ -2734,6 +2603,7 @@ func ParserConsumeIntegerSuffix(source: string, position: int, length: int): int
         if position < length && (source[position] == 'l' || source[position] == 'L') {
             position = position + 1
         }
+
         return position
     }
 
@@ -2742,6 +2612,7 @@ func ParserConsumeIntegerSuffix(source: string, position: int, length: int): int
         if position < length && (source[position] == 'u' || source[position] == 'U') {
             position = position + 1
         }
+
         return position
     }
 
@@ -2756,6 +2627,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '=' {
                 return 486
             }
+
             if next == ':' {
                 return 494
             }
@@ -2765,6 +2637,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '=' {
                 return 394
             }
+
             if next == '>' {
                 return 482
             }
@@ -2778,6 +2651,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '=' {
                 return 406
             }
+
             if next == '<' {
                 return 446
             }
@@ -2787,6 +2661,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '=' {
                 return 414
             }
+
             if next == '>' {
                 return 450
             }
@@ -2804,6 +2679,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '+' {
                 return 454
             }
+
             if next == '=' {
                 return 378
             }
@@ -2813,6 +2689,7 @@ func OperatorInfo(source: string, position: int, length: int): int {
             if next == '-' {
                 return 458
             }
+
             if next == '=' {
                 return 382
             }
@@ -2964,16 +2841,20 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'f' {
                 return 23
             }
+
             if source[start + 1] == 'n' {
                 return 28
             }
+
             if source[start + 1] == 's' {
                 return 47
             }
         }
+
         if ch0 == 'a' && source[start + 1] == 's' {
             return 48
         }
+
         if ch0 == 'o' && source[start + 1] == 'r' {
             return 56
         }
@@ -2983,26 +2864,33 @@ func KeywordKind(source: string, start: int, length: int): int {
         if ch0 == 'f' && source[start + 1] == 'o' && source[start + 2] == 'r' {
             return 25
         }
+
         if ch0 == 'l' && source[start + 1] == 'e' && source[start + 2] == 't' {
             return 19
         }
+
         if ch0 == 'n' {
             if source[start + 1] == 'e' && source[start + 2] == 'w' {
                 return 41
             }
+
             if source[start + 1] == 'o' && source[start + 2] == 't' {
                 return 57
             }
         }
+
         if ch0 == 't' && source[start + 1] == 'r' && source[start + 2] == 'y' {
             return 38
         }
+
         if ch0 == 'a' && source[start + 1] == 'n' && source[start + 2] == 'd' {
             return 55
         }
+
         if ch0 == 'o' && source[start + 1] == 'u' && source[start + 2] == 't' {
             return 79
         }
+
         if ch0 == 'r' && source[start + 1] == 'e' && source[start + 2] == 'f' {
             return 78
         }
@@ -3013,55 +2901,70 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'u' && source[start + 2] == 'n' && source[start + 3] == 'c' {
                 return 7
             }
+
             if source[start + 1] == 'i' && source[start + 2] == 'l' && source[start + 3] == 'e' {
                 return 81
             }
         }
+
         if ch0 == 'd' && source[start + 1] == 'u' && source[start + 2] == 'c' && source[start + 3] == 'k' {
             return 11
         }
+
         if ch0 == 'e' {
             if source[start + 1] == 'n' && source[start + 2] == 'u' && source[start + 3] == 'm' {
                 return 14
             }
+
             if source[start + 1] == 'l' && source[start + 2] == 's' && source[start + 3] == 'e' {
                 return 24
             }
         }
+
         if ch0 == 't' {
             if source[start + 1] == 'r' && source[start + 2] == 'u' && source[start + 3] == 'e' {
                 return 44
             }
+
             if source[start + 1] == 'h' && source[start + 2] == 'i' && source[start + 3] == 's' {
                 return 42
             }
+
             if source[start + 1] == 'y' && source[start + 2] == 'p' && source[start + 3] == 'e' {
                 return 72
             }
         }
+
         if ch0 == 'b' && source[start + 1] == 'a' && source[start + 2] == 's' && source[start + 3] == 'e' {
             return 43
         }
+
         if ch0 == 'n' && source[start + 1] == 'u' && source[start + 2] == 'l' && source[start + 3] == 'l' {
             return 46
         }
+
         if ch0 == 'c' && source[start + 1] == 'a' && source[start + 2] == 's' && source[start + 3] == 'e' {
             return 33
         }
+
         if ch0 == 'l' && source[start + 1] == 'o' && source[start + 2] == 'c' && source[start + 3] == 'k' {
             return 80
         }
+
         if ch0 == 'i' && source[start + 1] == 'n' && source[start + 2] == 'i' && source[start + 3] == 't' {
             return 77
         }
+
         if ch0 == 'w' {
             if source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'n' {
                 return 54
             }
+
             if source[start + 1] == 'i' && source[start + 2] == 't' && source[start + 3] == 'h' {
                 return 71
             }
         }
+
         if ch0 == 'm' && source[start + 1] == 'u' && source[start + 2] == 's' && source[start + 3] == 't' {
             return 20
         }
@@ -3072,58 +2975,74 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'l' && source[start + 2] == 'a' && source[start + 3] == 's' && source[start + 4] == 's' {
                 return 8
             }
+
             if source[start + 1] == 'o' && source[start + 2] == 'n' && source[start + 3] == 's' && source[start + 4] == 't' {
                 return 21
             }
+
             if source[start + 1] == 'a' && source[start + 2] == 't' && source[start + 3] == 'c' && source[start + 4] == 'h' {
                 return 39
             }
         }
+
         if ch0 == 'u' {
             if source[start + 1] == 'n' && source[start + 2] == 'i' && source[start + 3] == 'o' && source[start + 4] == 'n' {
                 return 12
             }
+
             if source[start + 1] == 's' && source[start + 2] == 'i' && source[start + 3] == 'n' && source[start + 4] == 'g' {
                 return 16
             }
         }
+
         if ch0 == 't' && source[start + 1] == 'h' && source[start + 2] == 'r' && source[start + 3] == 'o' && source[start + 4] == 'w' {
             return 37
         }
+
         if ch0 == 'w' {
             if source[start + 1] == 'h' && source[start + 2] == 'i' && source[start + 3] == 'l' && source[start + 4] == 'e' {
                 return 27
             }
+
             if source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'e' {
                 return 53
             }
         }
+
         if ch0 == 'y' && source[start + 1] == 'i' && source[start + 2] == 'e' && source[start + 3] == 'l' && source[start + 4] == 'd' {
             return 30
         }
+
         if ch0 == 'm' && source[start + 1] == 'a' && source[start + 2] == 't' && source[start + 3] == 'c' && source[start + 4] == 'h' {
             return 31
         }
+
         if ch0 == 'b' && source[start + 1] == 'r' && source[start + 2] == 'e' && source[start + 3] == 'a' && source[start + 4] == 'k' {
             return 35
         }
+
         if ch0 == 'f' && source[start + 1] == 'a' && source[start + 2] == 'l' && source[start + 3] == 's' && source[start + 4] == 'e' {
             return 45
         }
+
         if ch0 == 'a' {
             if source[start + 1] == 's' && source[start + 2] == 'y' && source[start + 3] == 'n' && source[start + 4] == 'c' {
                 return 68
             }
+
             if source[start + 1] == 'w' && source[start + 2] == 'a' && source[start + 3] == 'i' && source[start + 4] == 't' {
                 return 69
             }
+
             if source[start + 1] == 'l' && source[start + 2] == 'l' && source[start + 3] == 'o' && source[start + 4] == 'c' {
                 return 143
             }
+
             if source[start + 1] == 'l' && source[start + 2] == 'l' && source[start + 3] == 'o' && source[start + 4] == 'w' {
                 return 144
             }
         }
+
         if ch0 == 'p' && source[start + 1] == 'r' && source[start + 2] == 'i' && source[start + 3] == 'n' && source[start + 4] == 't' {
             return 52
         }
@@ -3134,50 +3053,64 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 't' && source[start + 2] == 'r' && source[start + 3] == 'u' && source[start + 4] == 'c' && source[start + 5] == 't' {
                 return 9
             }
+
             if source[start + 1] == 'w' && source[start + 2] == 'i' && source[start + 3] == 't' && source[start + 4] == 'c' && source[start + 5] == 'h' {
                 return 32
             }
+
             if source[start + 1] == 'i' && source[start + 2] == 'z' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
                 return 51
             }
+
             if source[start + 1] == 'e' && source[start + 2] == 'a' && source[start + 3] == 'l' && source[start + 4] == 'e' && source[start + 5] == 'd' {
                 return 61
             }
+
             if source[start + 1] == 't' && source[start + 2] == 'a' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'c' {
                 return 63
             }
+
             if source[start + 1] == 'c' && source[start + 2] == 'o' && source[start + 3] == 'p' && source[start + 4] == 'e' && source[start + 5] == 'd' {
                 return 147
             }
         }
+
         if ch0 == 'u' && source[start + 1] == 'n' && source[start + 2] == 's' && source[start + 3] == 'a' && source[start + 4] == 'f' && source[start + 5] == 'e' {
             return 146
         }
+
         if ch0 == 'r' {
             if source[start + 1] == 'e' && source[start + 2] == 'c' && source[start + 3] == 'o' && source[start + 4] == 'r' && source[start + 5] == 'd' {
                 return 13
             }
+
             if source[start + 1] == 'e' && source[start + 2] == 't' && source[start + 3] == 'u' && source[start + 4] == 'r' && source[start + 5] == 'n' {
                 return 29
             }
         }
+
         if ch0 == 'i' && source[start + 1] == 'm' && source[start + 2] == 'p' && source[start + 3] == 'o' && source[start + 4] == 'r' && source[start + 5] == 't' {
             return 17
         }
+
         if ch0 == 't' && source[start + 1] == 'y' && source[start + 2] == 'p' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
             return 49
         }
+
         if ch0 == 'n' && source[start + 1] == 'a' && source[start + 2] == 'm' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
             return 50
         }
+
         if ch0 == 'p' {
             if source[start + 1] == 'u' && source[start + 2] == 'b' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' {
                 return 64
             }
+
             if source[start + 1] == 'a' && source[start + 2] == 'r' && source[start + 3] == 'a' && source[start + 4] == 'm' && source[start + 5] == 's' {
                 return 82
             }
         }
+
         if ch0 == 'a' && source[start + 1] == 's' && source[start + 2] == 's' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 't' {
             return 74
         }
@@ -3188,30 +3121,38 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'a' && source[start + 2] == 'c' && source[start + 3] == 'k' && source[start + 4] == 'a' && source[start + 5] == 'g' && source[start + 6] == 'e' {
                 return 18
             }
+
             if source[start + 1] == 'a' && source[start + 2] == 'r' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'a' && source[start + 6] == 'l' {
                 return 62
             }
+
             if source[start + 1] == 'r' && source[start + 2] == 'i' && source[start + 3] == 'v' && source[start + 4] == 'a' && source[start + 5] == 't' && source[start + 6] == 'e' {
                 return 65
             }
         }
+
         if ch0 == 'f' {
             if source[start + 1] == 'o' && source[start + 2] == 'r' && source[start + 3] == 'e' && source[start + 4] == 'a' && source[start + 5] == 'c' && source[start + 6] == 'h' {
                 return 26
             }
+
             if source[start + 1] == 'i' && source[start + 2] == 'n' && source[start + 3] == 'a' && source[start + 4] == 'l' && source[start + 5] == 'l' && source[start + 6] == 'y' {
                 return 40
             }
         }
+
         if ch0 == 'd' && source[start + 1] == 'e' && source[start + 2] == 'f' && source[start + 3] == 'a' && source[start + 4] == 'u' && source[start + 5] == 'l' && source[start + 6] == 't' {
             return 34
         }
+
         if ch0 == 'v' && source[start + 1] == 'i' && source[start + 2] == 'r' && source[start + 3] == 't' && source[start + 4] == 'u' && source[start + 5] == 'a' && source[start + 6] == 'l' {
             return 58
         }
+
         if ch0 == 'c' && source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'c' && source[start + 4] == 'k' && source[start + 5] == 'e' && source[start + 6] == 'd' {
             return 83
         }
+
         if ch0 == 'n' && source[start + 1] == 'e' && source[start + 2] == 'w' && source[start + 3] == 't' && source[start + 4] == 'y' && source[start + 5] == 'p' && source[start + 6] == 'e' {
             return 87
         }
@@ -3222,31 +3163,39 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'e' && source[start + 2] == 'a' && source[start + 3] == 'd' && source[start + 4] == 'o' && source[start + 5] == 'n' && source[start + 6] == 'l' && source[start + 7] == 'y' {
                 return 22
             }
+
             if source[start + 1] == 'e' && source[start + 2] == 'q' && source[start + 3] == 'u' && source[start + 4] == 'i' && source[start + 5] == 'r' && source[start + 6] == 'e' && source[start + 7] == 'd' {
                 return 76
             }
         }
+
         if ch0 == 'c' && source[start + 1] == 'o' && source[start + 2] == 'n' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'n' && source[start + 6] == 'u' && source[start + 7] == 'e' {
             return 36
         }
+
         if ch0 == 'a' && source[start + 1] == 'b' && source[start + 2] == 's' && source[start + 3] == 't' && source[start + 4] == 'r' && source[start + 5] == 'a' && source[start + 6] == 'c' && source[start + 7] == 't' {
             return 60
         }
+
         if ch0 == 'i' {
             if source[start + 1] == 'n' && source[start + 2] == 't' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 'n' && source[start + 6] == 'a' && source[start + 7] == 'l' {
                 return 66
             }
+
             if source[start + 1] == 'm' && source[start + 2] == 'p' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' && source[start + 6] == 'i' && source[start + 7] == 't' {
                 return 85
             }
         }
+
         if ch0 == 'e' && source[start + 1] == 'x' && source[start + 2] == 'p' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' && source[start + 6] == 'i' && source[start + 7] == 't' {
             return 86
         }
+
         if ch0 == 'o' {
             if source[start + 1] == 'p' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'a' && source[start + 5] == 't' && source[start + 6] == 'o' && source[start + 7] == 'r' {
                 return 75
             }
+
             if source[start + 1] == 'v' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'r' && source[start + 5] == 'i' && source[start + 6] == 'd' && source[start + 7] == 'e' {
                 return 59
             }
@@ -3258,16 +3207,20 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'n' && source[start + 2] == 't' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 'f' && source[start + 6] == 'a' && source[start + 7] == 'c' && source[start + 8] == 'e' {
                 return 10
             }
+
             if source[start + 1] == 'm' && source[start + 2] == 'm' && source[start + 3] == 'u' && source[start + 4] == 't' && source[start + 5] == 'a' && source[start + 6] == 'b' && source[start + 7] == 'l' && source[start + 8] == 'e' {
                 return 70
             }
         }
+
         if ch0 == 'n' && source[start + 1] == 'a' && source[start + 2] == 'm' && source[start + 3] == 'e' && source[start + 4] == 's' && source[start + 5] == 'p' && source[start + 6] == 'a' && source[start + 7] == 'c' && source[start + 8] == 'e' {
             return 15
         }
+
         if ch0 == 'p' && source[start + 1] == 'r' && source[start + 2] == 'o' && source[start + 3] == 't' && source[start + 4] == 'e' && source[start + 5] == 'c' && source[start + 6] == 't' && source[start + 7] == 'e' && source[start + 8] == 'd' {
             return 67
         }
+
         if ch0 == 'u' && source[start + 1] == 'n' && source[start + 2] == 'c' && source[start + 3] == 'h' && source[start + 4] == 'e' && source[start + 5] == 'c' && source[start + 6] == 'k' && source[start + 7] == 'e' && source[start + 8] == 'd' {
             return 84
         }
@@ -3505,11 +3458,13 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
             firstElemNameLength = tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 2
         }
+
         firstElem := ParseUnionTypeReferenceNodeCore(tokens, count, st, argStack, nodes, outChildIndices, depth + 1)
         if firstElem < 0 {
             st.ArgStackTop = tupleArgBase
             return -1
         }
+
         if namedForm == 1 {
             firstWrapRun := st.ChildCursor
             AppendTypeReferenceChild(st, outChildIndices, firstElem)
@@ -3535,6 +3490,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
                     st.ArgStackTop = tupleArgBase
                     return -1
                 }
+
                 elemNameStart = tokens.Starts[st.Pos]
                 elemNameLength = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 2
@@ -3542,11 +3498,13 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
                 st.ArgStackTop = tupleArgBase
                 return -1
             }
+
             nextElem := ParseUnionTypeReferenceNodeCore(tokens, count, st, argStack, nodes, outChildIndices, depth + 1)
             if nextElem < 0 {
                 st.ArgStackTop = tupleArgBase
                 return -1
             }
+
             if namedForm == 1 {
                 wrapRun := st.ChildCursor
                 AppendTypeReferenceChild(st, outChildIndices, nextElem)
@@ -3571,6 +3529,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
             AppendTypeReferenceChild(st, outChildIndices, argStack.Values[tupleElemIdx])
             tupleElemIdx = tupleElemIdx + 1
         }
+
         st.ArgStackTop = tupleArgBase
 
         return EmitTypeReferenceNode(st, nodes, 6, -1, 0, tupleChildRunStart, tupleChildCount, tupleTypeStart, tupleRightParenEnd - tupleTypeStart)
@@ -3626,6 +3585,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
             AppendTypeReferenceChild(st, outChildIndices, argStack.Values[a])
             a = a + 1
         }
+
         st.ArgStackTop = argBase
 
         return EmitTypeReferenceNode(st, nodes, 1, nameStart, nameEnd - nameStart, childRunStart, childCount, nameStart, greaterEnd - nameStart)
@@ -3712,6 +3672,7 @@ func ParseUnionTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: P
         AppendTypeReferenceChild(st, outChildIndices, argStack.Values[a])
         a = a + 1
     }
+
     st.ArgStackTop = argBase
 
     spanStart := nodes.SpanStarts[firstArm]
@@ -3787,6 +3748,7 @@ func ParseArrayLiteralExpressionNode(tokens: ParserTokenTable, count: int, st: P
         AppendExpressionChild(st, children, argStack.Values[a])
         a = a + 1
     }
+
     st.ArgStackTop = argBase
 
     return EmitExpressionNode(st, nodes, 58, -1, 0, childRunStart, childCount, arrayStart, arrayEnd - arrayStart)
@@ -3801,6 +3763,7 @@ func IsExpressionStartKind(kind: int): bool {
     if kind >= 0 && kind <= 6 {
         return true
     }
+
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
 }
 
@@ -3826,6 +3789,7 @@ func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): 
             if depth == 0 {
                 return i < count && tokens.Kinds[i] == 127
             }
+
             if depth < 0 {
                 return false
             }
@@ -3833,6 +3797,7 @@ func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): 
             return false
         }
     }
+
     return false
 }
 
@@ -3845,12 +3810,14 @@ func ParseOrPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, a
     if left < 0 {
         return -1
     }
+
     while st.Pos < count && tokens.Kinds[st.Pos] == 56 {
         st.Pos = st.Pos + 1
         right := ParseAndPatternNode(tokens, count, st, argStack, nodes, children, depth)
         if right < 0 {
             return -1
         }
+
         orChildRun := st.ChildCursor
         AppendExpressionChild(st, children, left)
         AppendExpressionChild(st, children, right)
@@ -3858,6 +3825,7 @@ func ParseOrPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, a
         orSpanEnd := nodes.SpanStarts[right] + nodes.SpanLengths[right]
         left = EmitExpressionNode(st, nodes, 34, -1, 0, orChildRun, 2, orSpanStart, orSpanEnd - orSpanStart)
     }
+
     return left
 }
 
@@ -3866,12 +3834,14 @@ func ParseAndPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
     if left < 0 {
         return -1
     }
+
     while st.Pos < count && tokens.Kinds[st.Pos] == 55 {
         st.Pos = st.Pos + 1
         right := ParseNotPatternNode(tokens, count, st, argStack, nodes, children, depth)
         if right < 0 {
             return -1
         }
+
         andChildRun := st.ChildCursor
         AppendExpressionChild(st, children, left)
         AppendExpressionChild(st, children, right)
@@ -3879,6 +3849,7 @@ func ParseAndPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
         andSpanEnd := nodes.SpanStarts[right] + nodes.SpanLengths[right]
         left = EmitExpressionNode(st, nodes, 33, -1, 0, andChildRun, 2, andSpanStart, andSpanEnd - andSpanStart)
     }
+
     return left
 }
 
@@ -3886,6 +3857,7 @@ func ParseNotPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
     if depth > 200 {
         return -1
     }
+
     if st.Pos < count && tokens.Kinds[st.Pos] == 57 {
         notStart := tokens.Starts[st.Pos]
         st.Pos = st.Pos + 1
@@ -3893,11 +3865,13 @@ func ParseNotPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, 
         if inner < 0 {
             return -1
         }
+
         notChildRun := st.ChildCursor
         AppendExpressionChild(st, children, inner)
         notSpanEnd := nodes.SpanStarts[inner] + nodes.SpanLengths[inner]
         return EmitExpressionNode(st, nodes, 35, -1, 0, notChildRun, 1, notStart, notSpanEnd - notStart)
     }
+
     return ParseRelationalPatternNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
@@ -3920,12 +3894,14 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
             if relOperand < 0 {
                 return -1
             }
+
             relChildRun := st.ChildCursor
             AppendExpressionChild(st, children, relOperand)
             relSpanEnd := nodes.SpanStarts[relOperand] + nodes.SpanLengths[relOperand]
             return EmitExpressionNode(st, nodes, 32, relOpStart, relOpLen, relChildRun, 1, relOpStart, relSpanEnd - relOpStart)
         }
     }
+
     // The non-relational pattern leaf is a POSTFIX expression (not just a primary): this is what lets an enum
     // constant `Enum.Member` parse as a MemberAccess (kind 8) in pattern position. A
     // literal/identifier still parses as before (no postfix to apply); a call/index parses but the emitter declines
@@ -3950,6 +3926,7 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
                 st.ArgStackTop = caseArgBase
                 return -1
             }
+
             argStack.Values[st.ArgStackTop] = bindNode
             st.ArgStackTop = st.ArgStackTop + 1
             if st.Pos < count && tokens.Kinds[st.Pos] != 130 {
@@ -3957,13 +3934,16 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = caseArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
             }
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
             st.ArgStackTop = caseArgBase
             return -1
         }
+
         caseEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         caseChildCount := st.ArgStackTop - caseArgBase
@@ -3973,6 +3953,7 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, argStack.Values[caseArg])
             caseArg = caseArg + 1
         }
+
         st.ArgStackTop = caseArgBase
         caseSpanStart := nodes.SpanStarts[leaf]
         return EmitExpressionNode(st, nodes, 37, -1, 0, caseChildRun, caseChildCount, caseSpanStart, caseEnd - caseSpanStart)
@@ -3983,8 +3964,7 @@ func ParseRelationalPatternNode(tokens: ParserTokenTable, count: int, st: Parser
     // the pattern is immediately terminated by `=>` or `when`, reinterpret the first identifier as a SIMPLE
     // type root and the second as the arm binding. Composed type-binding patterns remain deliberately
     // under-accepted until the emitter models them.
-    if nodes.Kinds[leaf] == 6 && st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0
-        && (tokens.Kinds[st.Pos + 1] == 120 || tokens.Kinds[st.Pos + 1] == 54) {
+    if nodes.Kinds[leaf] == 6 && st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && (tokens.Kinds[st.Pos + 1] == 120 || tokens.Kinds[st.Pos + 1] == 54) {
         bindStart := tokens.Starts[st.Pos]
         bindLen := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
@@ -4020,6 +4000,7 @@ func ParseObjectPatternNode(tokens: ParserTokenTable, count: int, st: ParserStat
             st.ArgStackTop = objectArgBase
             return -1
         }
+
         argStack.Values[st.ArgStackTop] = entry
         st.ArgStackTop = st.ArgStackTop + 1
 
@@ -4028,6 +4009,7 @@ func ParseObjectPatternNode(tokens: ParserTokenTable, count: int, st: ParserStat
                 st.ArgStackTop = objectArgBase
                 return -1
             }
+
             st.Pos = st.Pos + 1
         }
     }
@@ -4046,6 +4028,7 @@ func ParseObjectPatternNode(tokens: ParserTokenTable, count: int, st: ParserStat
         AppendExpressionChild(st, children, argStack.Values[a])
         a = a + 1
     }
+
     st.ArgStackTop = objectArgBase
     return EmitExpressionNode(st, nodes, 67, -1, 0, childRun, childCount, objectStart, objectEnd - objectStart)
 }
@@ -4072,6 +4055,7 @@ func ParsePropertyPatternEntryNode(tokens: ParserTokenTable, count: int, st: Par
         if pattern < 0 {
             return -1
         }
+
         childRun = st.ChildCursor
         AppendExpressionChild(st, children, pattern)
         childCount = 1
@@ -4111,6 +4095,7 @@ func ParseListPatternNode(tokens: ParserTokenTable, count: int, st: ParserState,
                     sliceEnd = bindStart + bindLength
                     st.Pos = st.Pos + 1
                 }
+
                 pattern = EmitExpressionNode(st, nodes, 66, bindStart, bindLength, -1, 0, sliceStart, sliceEnd - sliceStart)
             } else {
                 pattern = ParseMatchPatternNode(tokens, count, st, argStack, nodes, children, depth + 1)
@@ -4149,6 +4134,7 @@ func ParseListPatternNode(tokens: ParserTokenTable, count: int, st: ParserState,
         AppendExpressionChild(st, children, argStack.Values[a])
         a = a + 1
     }
+
     st.ArgStackTop = listArgBase
     return EmitExpressionNode(st, nodes, 65, -1, 0, childRun, childCount, listStart, listEnd - listStart)
 }
@@ -4169,143 +4155,97 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
     if kind == 1 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IntLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 2 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.FloatLiteralExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.FloatLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 3 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.CharLiteralExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.CharLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 4 || kind == 5 || kind == 6 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.StringLiteralExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.StringLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 44 || kind == 45 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.BoolLiteralExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BoolLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 46 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.NullLiteralExpression(),
-            -1,
-            0,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 131 {
         return ParseArrayLiteralExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
+
     if kind == 143 {
         st.Pos = pos + 1
         return ParsePrimaryExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
     }
+
     if kind == 0 {
         st.Pos = pos + 1
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            tokenStart,
-            tokenLength,
-            -1,
-            0,
-            tokenStart,
-            tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+
     if kind == 49 {
         typeOfStart := tokenStart
         st.Pos = pos + 1
         if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
             return -1
         }
+
         st.Pos = st.Pos + 1
         st.SplitGreaterDepth = 0
         typeRoot := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         if typeRoot < 0 {
             return -1
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
             return -1
         }
+
         typeOfEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         typeOfChildRun := st.ChildCursor
         AppendExpressionChild(st, children, typeRoot)
         return EmitExpressionNode(st, nodes, 55, -1, 0, typeOfChildRun, 1, typeOfStart, typeOfEnd - typeOfStart)
     }
+
     if kind == 50 {
         nameOfStart := tokenStart
         st.Pos = pos + 1
         if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
             return -1
         }
+
         st.Pos = st.Pos + 1
         target := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if target < 0 {
             return -1
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
             return -1
         }
+
         nameOfEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         nameOfChildRun := st.ChildCursor
         AppendExpressionChild(st, children, target)
         return EmitExpressionNode(st, nodes, 62, -1, 0, nameOfChildRun, 1, nameOfStart, nameOfEnd - nameOfStart)
     }
+
     if kind == 83 || kind == 84 {
         checkedStart := tokenStart
         checkedLength := tokenLength
@@ -4313,21 +4253,26 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
             return -1
         }
+
         st.Pos = st.Pos + 1
         checkedValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if checkedValue < 0 {
             return -1
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
             return -1
         }
+
         checkedEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         checkedChildRun := st.ChildCursor
         AppendExpressionChild(st, children, checkedValue)
         return EmitExpressionNode(st, nodes, 57, checkedStart, checkedLength, checkedChildRun, 1, checkedStart, checkedEnd - checkedStart)
     }
+
     if kind == 31 {
+
         // `match <value> { <pattern> => <result>, ... }` (Match token 31, Arrow `=>` token 120). MatchExpression
         // kind 18: children = [value, pat0, res0, pat1, res1, ...] (one value, then each case as a pattern/result
         // pair). The pattern is a PRIMARY expression (a literal or a bare identifier `_`/binding); the emitter
@@ -4342,6 +4287,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             st.ArgStackTop = matchArgBase
             return -1
         }
+
         argStack.Values[st.ArgStackTop] = matchValue
         st.ArgStackTop = st.ArgStackTop + 1
 
@@ -4349,10 +4295,12 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             st.ArgStackTop = matchArgBase
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         matchCaseCount := 0
         while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+
             // Parse the case PATTERN via the pattern-precedence chain (or > and > not > relational > primary,
             // see ParseMatchPatternNode). This yields a literal/identifier primary, a RelationalPattern (kind 32),
             // or an And/Or/Not combinator (kinds 33/34/35) over those. The `when` guard (below) then wraps it.
@@ -4373,6 +4321,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = matchArgBase
                     return -1
                 }
+
                 guardChildRun := st.ChildCursor
                 AppendExpressionChild(st, children, matchPattern)
                 AppendExpressionChild(st, children, matchGuard)
@@ -4388,6 +4337,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 st.ArgStackTop = matchArgBase
                 return -1
             }
+
             st.Pos = st.Pos + 1
 
             matchResult := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
@@ -4395,6 +4345,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 st.ArgStackTop = matchArgBase
                 return -1
             }
+
             argStack.Values[st.ArgStackTop] = matchResult
             st.ArgStackTop = st.ArgStackTop + 1
             matchCaseCount = matchCaseCount + 1
@@ -4408,6 +4359,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             st.ArgStackTop = matchArgBase
             return -1
         }
+
         matchEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
 
@@ -4418,11 +4370,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, argStack.Values[matchArg])
             matchArg = matchArg + 1
         }
+
         st.ArgStackTop = matchArgBase
 
         return EmitExpressionNode(st, nodes, 18, -1, 0, matchChildRunStart, matchChildCount, matchStart, matchEnd - matchStart)
     }
+
     if kind == 41 {
+
         // `new <type> ( args )` -- the array/object construction form the dogfood kernels use
         // (e.g. new int[](length + 1)). COMPOSES the type kernel (the element/constructed type, via the
         // now-unified shared st + argStack) with the expression kernel (the positional constructor args).
@@ -4440,6 +4395,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = anonArgBase
                     return -1
                 }
+
                 anonNameStart := tokens.Starts[st.Pos]
                 anonNameLen := tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
@@ -4447,6 +4403,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = anonArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
                 anonNameNode := EmitExpressionNode(st, nodes, 6, anonNameStart, anonNameLen, -1, 0, anonNameStart, anonNameLen)
                 argStack.Values[st.ArgStackTop] = anonNameNode
@@ -4456,16 +4413,19 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = anonArgBase
                     return -1
                 }
+
                 argStack.Values[st.ArgStackTop] = anonValue
                 st.ArgStackTop = st.ArgStackTop + 1
                 if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                     st.Pos = st.Pos + 1
                 }
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
                 st.ArgStackTop = anonArgBase
                 return -1
             }
+
             anonEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             anonChildCount := st.ArgStackTop - anonArgBase
@@ -4475,6 +4435,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[anonArg])
                 anonArg = anonArg + 1
             }
+
             st.ArgStackTop = anonArgBase
             return EmitExpressionNode(st, nodes, 59, -1, 0, anonChildRun, anonChildCount, newStart, anonEnd - newStart)
         }
@@ -4531,6 +4492,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[targetArg])
                 targetArg = targetArg + 1
             }
+
             st.ArgStackTop = targetArgBase
             return EmitExpressionNode(st, nodes, 63, -1, 0, targetChildRun, targetChildCount, newStart, targetRightParenEnd - newStart)
         }
@@ -4552,9 +4514,11 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             if lengthExpression < 0 {
                 return -1
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
                 return -1
             }
+
             arrayEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
 
@@ -4574,6 +4538,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[sa])
                 sa = sa + 1
             }
+
             st.ArgStackTop = sizedArgBase
             return EmitExpressionNode(st, nodes, 15, -1, 0, sizedChildRun, 2, newStart, arrayEnd - newStart)
         }
@@ -4592,6 +4557,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = objArgBase
                     return -1
                 }
+
                 fieldNameStart := tokens.Starts[st.Pos]
                 fieldNameLen := tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
@@ -4599,6 +4565,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = objArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
                 fieldNameNode := EmitExpressionNode(st, nodes, 6, fieldNameStart, fieldNameLen, -1, 0, fieldNameStart, fieldNameLen)
                 argStack.Values[st.ArgStackTop] = fieldNameNode
@@ -4608,16 +4575,19 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = objArgBase
                     return -1
                 }
+
                 argStack.Values[st.ArgStackTop] = fieldVal
                 st.ArgStackTop = st.ArgStackTop + 1
                 if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                     st.Pos = st.Pos + 1
                 }
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
                 st.ArgStackTop = objArgBase
                 return -1
             }
+
             objInitEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             objInitChildCount := st.ArgStackTop - objArgBase
@@ -4627,11 +4597,13 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[objArg])
                 objArg = objArg + 1
             }
+
             st.ArgStackTop = objArgBase
             return EmitExpressionNode(st, nodes, 36, -1, 0, objInitChildRun, objInitChildCount, newStart, objInitEnd - newStart)
         }
 
         if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
+
             // `new <type>` with NEITHER `{ inits }` NOR `( args )` -- a BARE-NEW expression (kind 42,
             // children [typeRoot]): the brace-less construction form the pipeline accepts for union cases
             // (`new Color.Red`, `new Opt.None<int>`, `new Opt.None` adopting an expected type) -- fields
@@ -4642,6 +4614,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             bareNewEnd := nodes.SpanStarts[typeRoot] + nodes.SpanLengths[typeRoot]
             return EmitExpressionNode(st, nodes, 42, -1, 0, bareNewChildRun, 1, newStart, bareNewEnd - newStart)
         }
+
         st.Pos = st.Pos + 1
 
         argBase := st.ArgStackTop
@@ -4695,6 +4668,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, argStack.Values[na])
             na = na + 1
         }
+
         st.ArgStackTop = argBase
         newCall := EmitExpressionNode(st, nodes, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
 
@@ -4708,6 +4682,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = initArgBase
                     return -1
                 }
+
                 initNameStart := tokens.Starts[st.Pos]
                 initNameLength := tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
@@ -4715,6 +4690,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = initArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
                 initNameNode := EmitExpressionNode(st, nodes, 6, initNameStart, initNameLength, -1, 0, initNameStart, initNameLength)
                 argStack.Values[st.ArgStackTop] = initNameNode
@@ -4724,16 +4700,19 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = initArgBase
                     return -1
                 }
+
                 argStack.Values[st.ArgStackTop] = initValue
                 st.ArgStackTop = st.ArgStackTop + 1
                 if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                     st.Pos = st.Pos + 1
                 }
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
                 st.ArgStackTop = initArgBase
                 return -1
             }
+
             initEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             initChildCount := st.ArgStackTop - initArgBase
@@ -4743,6 +4722,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[ia])
                 ia = ia + 1
             }
+
             st.ArgStackTop = initArgBase
             return EmitExpressionNode(st, nodes, 36, -1, 0, initChildRun, initChildCount, newStart, initEnd - newStart)
         }
@@ -4768,6 +4748,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         castType := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         isCast := false
         if castType >= 0 && st.Pos < count && tokens.Kinds[st.Pos] == 128 {
+
             // `(<identifier>)..end` is a parenthesized range start, not a cast whose operand
             // begins with `..`. Open-start ranges are expression starts everywhere else.
             if st.Pos + 1 < count && tokens.Kinds[st.Pos + 1] != 125 && IsExpressionStartKind(tokens.Kinds[st.Pos + 1]) {
@@ -4808,6 +4789,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = namedTupleArgBase
                     return -1
                 }
+
                 namedElemNameStart := tokens.Starts[st.Pos]
                 namedElemNameLength := tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 2
@@ -4816,6 +4798,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = namedTupleArgBase
                     return -1
                 }
+
                 namedWrapRun := st.ChildCursor
                 AppendExpressionChild(st, children, namedElemValue)
                 namedWrapped := EmitExpressionNode(st, nodes, 43, namedElemNameStart, namedElemNameLength, namedWrapRun, 1, namedElemNameStart, nodes.SpanStarts[namedElemValue] + nodes.SpanLengths[namedElemValue] - namedElemNameStart)
@@ -4827,10 +4810,12 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     namedScanning = false
                 }
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 128 || st.ArgStackTop - namedTupleArgBase < 2 {
                 st.ArgStackTop = namedTupleArgBase
                 return -1
             }
+
             namedTupleEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             namedTupleChildCount := st.ArgStackTop - namedTupleArgBase
@@ -4840,6 +4825,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[namedTupleArg])
                 namedTupleArg = namedTupleArg + 1
             }
+
             st.ArgStackTop = namedTupleArgBase
             return EmitExpressionNode(st, nodes, 17, -1, 0, namedTupleChildRun, namedTupleChildCount, parenStart, namedTupleEnd - parenStart)
         }
@@ -4882,6 +4868,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[tupleArg])
                 tupleArg = tupleArg + 1
             }
+
             st.ArgStackTop = tupleArgBase
             return EmitExpressionNode(st, nodes, 17, -1, 0, tupleChildRunStart, tupleChildCount, parenStart, tupleRightParenEnd - parenStart)
         }
@@ -4894,16 +4881,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.Pos = st.Pos + 1
         childRunStart := st.ChildCursor
         AppendExpressionChild(st, children, inner)
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.ParenthesizedExpression(),
-            -1,
-            0,
-            childRunStart,
-            1,
-            parenStart,
-            rightParenEnd - parenStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, childRunStart, 1, parenStart, rightParenEnd - parenStart)
     }
 
     return -1
@@ -4916,16 +4894,8 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         memberStart := tokens.Starts[st.Pos + 2]
         memberLength := tokens.ValueLengths[st.Pos + 2]
         memberEnd := memberStart + memberLength
-        expr = EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            memberStart,
-            memberLength,
-            -1,
-            0,
-            thisStart,
-            memberEnd - thisStart)
+        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+
         st.Pos = st.Pos + 3
     } else {
         expr = ParsePrimaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -4945,16 +4915,8 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
-            expr = EmitExpressionNode(
-                st,
-                nodes,
-                ColumnarExpressionNodeKind.MemberAccessExpression(),
-                memberStart,
-                memberLength,
-                childRunStart,
-                1,
-                objSpanStart,
-                memberEnd - objSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+
             st.Pos = pos + 2
         } else if pos < count && tokens.Kinds[pos] == 131 {
             objSpanStart := nodes.SpanStarts[expr]
@@ -4973,17 +4935,9 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
-            expr = EmitExpressionNode(
-                st,
-                nodes,
-                ColumnarExpressionNodeKind.IndexAccessExpression(),
-                -1,
-                0,
-                childRunStart,
-                2,
-                objSpanStart,
-                rightBracketEnd - objSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
+
             // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
             // a bare identifier or dotted member access and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
             // well-formed type-argument list whose close is followed DIRECTLY by `(`. Each argument parses as
@@ -4999,6 +4953,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 calleeNameStart = objSpanStart
                 calleeNameLength = nodes.SpanLengths[expr]
             }
+
             st.Pos = pos + 1
             gArgBase := st.ArgStackTop
             st.SplitGreaterDepth = 0
@@ -5007,6 +4962,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 st.ArgStackTop = gArgBase
                 return -1
             }
+
             argStack.Values[st.ArgStackTop] = firstTypeArg
             st.ArgStackTop = st.ArgStackTop + 1
 
@@ -5017,6 +4973,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = gArgBase
                     return -1
                 }
+
                 argStack.Values[st.ArgStackTop] = nextTypeArg
                 st.ArgStackTop = st.ArgStackTop + 1
             }
@@ -5034,9 +4991,11 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[g])
                 g = g + 1
             }
+
             st.ArgStackTop = gArgBase
             expr = EmitExpressionNode(st, nodes, 38, calleeNameStart, calleeNameLength, gChildRunStart, gChildCount, objSpanStart, closeEnd - objSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 127 {
+
             // Call `callee(args)`: children = [callee, arg0, arg1, ...]. Like generic type arguments, the
             // callee + arg node ids are gathered on the LIFO arg-stack (each arg is a full expression that
             // appends its own descendants) and the contiguous child run is appended only after the closing
@@ -5085,9 +5044,11 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[a])
                 a = a + 1
             }
+
             st.ArgStackTop = argBase
             expr = EmitExpressionNode(st, nodes, 9, -1, 0, childRunStart, childCount, objSpanStart, rightParenEnd - objSpanStart)
         } else if pos + 1 < count && tokens.Kinds[pos] == 71 && tokens.Kinds[pos + 1] == 129 {
+
             // `expr with { Field: value, ... }` (With 71) -- WithExpression kind 52: children
             // [receiver, name0 (Identifier kind 6), value0, name1, value1, ...] -- the kind-36
             // object-initializer pair layout with the RECEIVER expression in place of the type root
@@ -5103,6 +5064,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = wArgBase
                     return -1
                 }
+
                 wNameStart := tokens.Starts[st.Pos]
                 wNameLen := tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
@@ -5110,6 +5072,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = wArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
                 wNameNode := EmitExpressionNode(st, nodes, 6, wNameStart, wNameLen, -1, 0, wNameStart, wNameLen)
                 argStack.Values[st.ArgStackTop] = wNameNode
@@ -5119,16 +5082,19 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.ArgStackTop = wArgBase
                     return -1
                 }
+
                 argStack.Values[st.ArgStackTop] = wValue
                 st.ArgStackTop = st.ArgStackTop + 1
                 if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                     st.Pos = st.Pos + 1
                 }
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
                 st.ArgStackTop = wArgBase
                 return -1
             }
+
             withEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             wChildCount := st.ArgStackTop - wArgBase
@@ -5138,6 +5104,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 AppendExpressionChild(st, children, argStack.Values[wArg])
                 wArg = wArg + 1
             }
+
             st.ArgStackTop = wArgBase
             expr = EmitExpressionNode(st, nodes, 52, -1, 0, wChildRun, wChildCount, receiverSpanStart, withEnd - receiverSpanStart)
         } else {
@@ -5248,11 +5215,13 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if mustOperand < 0 {
                 return -1
             }
+
             mustSpanEnd := nodes.SpanStarts[mustOperand] + nodes.SpanLengths[mustOperand]
             mustChildRun := st.ChildCursor
             AppendExpressionChild(st, children, mustOperand)
             return EmitExpressionNode(st, nodes, 45, -1, 0, mustChildRun, 1, mustStart, mustSpanEnd - mustStart)
         }
+
         // `await <operand>` (Await 69) -- the prefix await (AwaitExpression kind 53, ONE child; the
         // operand recurses at THIS unary level, mirroring the production's prefix-unary production
         // at Parser.cs ParseUnaryExpression so `await await x` chains).
@@ -5263,11 +5232,13 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if awaitOperand < 0 {
                 return -1
             }
+
             awaitSpanEnd := nodes.SpanStarts[awaitOperand] + nodes.SpanLengths[awaitOperand]
             awaitChildRun := st.ChildCursor
             AppendExpressionChild(st, children, awaitOperand)
             return EmitExpressionNode(st, nodes, 53, -1, 0, awaitChildRun, 1, awaitStart, awaitSpanEnd - awaitStart)
         }
+
         if k == 106 || k == 89 || k == 110 || k == 113 || k == 114 || k == 109 {
             opStart := tokens.Starts[pos]
             opLength := tokens.ValueLengths[pos]
@@ -5280,16 +5251,7 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             operandSpanEnd := nodes.SpanStarts[operand] + nodes.SpanLengths[operand]
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, operand)
-            return EmitExpressionNode(
-                st,
-                nodes,
-                ColumnarExpressionNodeKind.UnaryExpression(),
-                opStart,
-                opLength,
-                childRunStart,
-                1,
-                opStart,
-                operandSpanEnd - opStart)
+            return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.UnaryExpression(), opStart, opLength, childRunStart, 1, opStart, operandSpanEnd - opStart)
         }
     }
 
@@ -5317,6 +5279,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if endNode < 0 {
                 return -1
             }
+
             rangeEnd = nodes.SpanStarts[endNode] + nodes.SpanLengths[endNode]
         }
 
@@ -5327,16 +5290,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             childCount = 1
         }
 
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.RangeExpression(),
-            dotDotStart,
-            dotDotLength,
-            childRun,
-            childCount,
-            dotDotStart,
-            rangeEnd - dotDotStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression(), dotDotStart, dotDotLength, childRun, childCount, dotDotStart, rangeEnd - dotDotStart)
     }
 
     startNode := ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -5356,6 +5310,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if endNode < 0 {
                 return -1
             }
+
             rangeEnd = nodes.SpanStarts[endNode] + nodes.SpanLengths[endNode]
         }
 
@@ -5368,16 +5323,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
         }
 
         rangeStart := nodes.SpanStarts[startNode]
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.RangeExpression(),
-            dotDotStart,
-            dotDotLength,
-            childRun,
-            childCount,
-            rangeStart,
-            rangeEnd - rangeStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression(), dotDotStart, dotDotLength, childRun, childCount, rangeStart, rangeEnd - rangeStart)
     }
 
     return startNode
@@ -5387,36 +5333,47 @@ func BinaryOpPrecedence(kind: int): int {
     if kind == 116 {
         return 1
     }
+
     if kind == 105 {
         return 2
     }
+
     if kind == 104 {
         return 3
     }
+
     if kind == 108 {
         return 4
     }
+
     if kind == 109 {
         return 5
     }
+
     if kind == 107 {
         return 6
     }
+
     if kind == 98 || kind == 99 {
         return 7
     }
+
     if kind == 100 || kind == 101 || kind == 102 || kind == 103 {
         return 8
     }
+
     if kind == 111 || kind == 112 {
         return 9
     }
+
     if kind == 88 || kind == 89 {
         return 10
     }
+
     if kind == 90 || kind == 91 || kind == 92 {
         return 11
     }
+
     return 0
 }
 
@@ -5440,12 +5397,14 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
         if tokens.Kinds[st.Pos] == 48 {
             isAsKind = 47
         }
+
         st.Pos = st.Pos + 1
         st.SplitGreaterDepth = 0
         isAsType := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         if isAsType < 0 {
             return -1
         }
+
         isAsSpanStart := nodes.SpanStarts[left]
         isAsSpanEnd := nodes.SpanStarts[isAsType] + nodes.SpanLengths[isAsType]
         isAsChildRun := st.ChildCursor
@@ -5502,6 +5461,7 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         if st.Pos >= count || tokens.Kinds[st.Pos] != 122 {
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         elseNode := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
@@ -5514,16 +5474,7 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         AppendExpressionChild(st, children, condition)
         AppendExpressionChild(st, children, thenNode)
         AppendExpressionChild(st, children, elseNode)
-        return EmitExpressionNode(
-            st,
-            nodes,
-            ColumnarExpressionNodeKind.TernaryExpression(),
-            -1,
-            0,
-            childRunStart,
-            3,
-            conditionSpanStart,
-            elseSpanEnd - conditionSpanStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, childRunStart, 3, conditionSpanStart, elseSpanEnd - conditionSpanStart)
     }
 
     return condition
@@ -5596,6 +5547,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
                 }
             }
         }
+
         if valid && scan < count && tokens.Kinds[scan] == 120 {
             isLambda = true
         }
@@ -5623,6 +5575,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
                 st.Pos = st.Pos + 1
             }
         }
+
         st.Pos = st.Pos + 1
     }
 
@@ -5640,10 +5593,12 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
     } else {
         body = ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
     }
+
     if body < 0 {
         st.ArgStackTop = argBase
         return -1
     }
+
     argStack.Values[st.ArgStackTop] = body
     st.ArgStackTop = st.ArgStackTop + 1
 
@@ -5653,6 +5608,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
         AppendExpressionChild(st, children, argStack.Values[a])
         a = a + 1
     }
+
     childCount := st.ArgStackTop - argBase
     st.ArgStackTop = argBase
     bodySpanEnd := nodes.SpanStarts[body] + nodes.SpanLengths[body]
@@ -5689,6 +5645,7 @@ func ParseBlockStatementNodeCore(tokens: ParserTokenTable, count: int, st: Parse
         AppendExpressionChild(st, children, argStack.Values[a])
         a = a + 1
     }
+
     st.ArgStackTop = argBase
 
     return EmitExpressionNode(st, nodes, 25, -1, 0, childRunStart, childCount, blockStart, rightBraceEnd - blockStart)
@@ -5764,10 +5721,12 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
             return -1
         }
+
         tryBlock := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
         if tryBlock < 0 {
             return -1
         }
+
         tryArgBase := st.ArgStackTop
         argStack.Values[st.ArgStackTop] = tryBlock
         st.ArgStackTop = st.ArgStackTop + 1
@@ -5788,6 +5747,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                         st.ArgStackTop = tryArgBase
                         return -1
                     }
+
                     typeStart = tokens.Starts[st.Pos]
                     typeLen = tokens.ValueLengths[st.Pos]
                     st.Pos = st.Pos + 1
@@ -5796,6 +5756,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                         st.ArgStackTop = tryArgBase
                         return -1
                     }
+
                     typeStart = tokens.Starts[st.Pos]
                     typeLen = tokens.ValueLengths[st.Pos]
                     st.Pos = st.Pos + 1
@@ -5805,10 +5766,12 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                         st.Pos = st.Pos + 1
                     }
                 }
+
                 if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
                     st.ArgStackTop = tryArgBase
                     return -1
                 }
+
                 st.Pos = st.Pos + 1
             } else if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
                 nameStart = tokens.Starts[st.Pos]
@@ -5818,56 +5781,68 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                     st.ArgStackTop = tryArgBase
                     return -1
                 }
+
                 typeStart = tokens.Starts[st.Pos]
                 typeLen = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
+
             catchBody := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
             if catchBody < 0 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
+
             catchEnd := nodes.SpanStarts[catchBody] + nodes.SpanLengths[catchBody]
             clauseChildCount := 1
             if nameStart >= 0 {
                 clauseChildCount = 2
             }
+
             nameNode := 0 - 1
             if nameStart >= 0 {
                 nameNode = EmitExpressionNode(st, nodes, 6, nameStart, nameLen, st.ChildCursor, 0, nameStart, nameLen)
             }
+
             clauseChildRun := st.ChildCursor
             if nameNode >= 0 {
                 AppendExpressionChild(st, children, nameNode)
             }
+
             AppendExpressionChild(st, children, catchBody)
             clause := EmitExpressionNode(st, nodes, 50, typeStart, typeLen, clauseChildRun, clauseChildCount, catchStart, catchEnd - catchStart)
             argStack.Values[st.ArgStackTop] = clause
             st.ArgStackTop = st.ArgStackTop + 1
         }
+
         if st.Pos < count && tokens.Kinds[st.Pos] == 40 {
             st.Pos = st.Pos + 1
             if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
+
             finallyBlock := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
             if finallyBlock < 0 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
+
             argStack.Values[st.ArgStackTop] = finallyBlock
             st.ArgStackTop = st.ArgStackTop + 1
         }
+
         childTotal := st.ArgStackTop - tryArgBase
         if childTotal < 2 {
             st.ArgStackTop = tryArgBase
             return -1
         }
+
         lastClause := argStack.Values[st.ArgStackTop - 1]
         tryEnd := nodes.SpanStarts[lastClause] + nodes.SpanLengths[lastClause]
         tryChildRun := st.ChildCursor
@@ -5876,6 +5851,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
             AppendExpressionChild(st, children, argStack.Values[a])
             a = a + 1
         }
+
         st.ArgStackTop = tryArgBase
         return EmitExpressionNode(st, nodes, 49, -1, 0, tryChildRun, childTotal, tryStart, tryEnd - tryStart)
     }
@@ -5890,13 +5866,16 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if lockee < 0 {
             return -1
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
             return -1
         }
+
         lockBody := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
         if lockBody < 0 {
             return -1
         }
+
         lockEnd := nodes.SpanStarts[lockBody] + nodes.SpanLengths[lockBody]
         lockChildRun := st.ChildCursor
         AppendExpressionChild(st, children, lockee)
@@ -5913,6 +5892,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 127 {
             return -1
         }
+
         st.Pos = st.Pos + 1
         parenDepth := 1
         while st.Pos < count && parenDepth > 0 {
@@ -5921,18 +5901,23 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
             } else if tokens.Kinds[st.Pos] == 128 {
                 parenDepth = parenDepth - 1
             }
+
             st.Pos = st.Pos + 1
         }
+
         if parenDepth != 0 {
             return -1
         }
+
         if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
             return -1
         }
+
         allowBody := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
         if allowBody < 0 {
             return -1
         }
+
         allowEnd := nodes.SpanStarts[allowBody] + nodes.SpanLengths[allowBody]
         allowChildRun := st.ChildCursor
         AppendExpressionChild(st, children, allowBody)
@@ -5999,6 +5984,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 133 {
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         forCondition := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
@@ -6009,6 +5995,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 133 {
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         increment := ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
@@ -6040,6 +6027,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
             return -1
         }
+
         foreachVarStart := tokens.Starts[st.Pos]
         foreachVarLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
@@ -6047,6 +6035,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         if st.Pos >= count || tokens.Kinds[st.Pos] != 28 {
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         collection := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
@@ -6139,10 +6128,12 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
             return -1
         }
+
         throwValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if throwValue < 0 {
             return -1
         }
+
         throwEnd := nodes.SpanStarts[throwValue] + nodes.SpanLengths[throwValue]
         throwChildRun := st.ChildCursor
         AppendExpressionChild(st, children, throwValue)
@@ -6157,10 +6148,12 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
             return -1
         }
+
         printValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if printValue < 0 {
             return -1
         }
+
         printEnd := nodes.SpanStarts[printValue] + nodes.SpanLengths[printValue]
         printChildRun := st.ChildCursor
         AppendExpressionChild(st, children, printValue)
@@ -6178,34 +6171,40 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
             return -1
         }
-        if tokens.Kinds[st.Pos] == 0 && st.Source.Length > 0
-            && ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], "throws") {
+
+        if tokens.Kinds[st.Pos] == 0 && st.Source.Length > 0 && ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], "throws") {
             st.Pos = st.Pos + 1
             if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                 return -1
             }
+
             throwsTypeStart := tokens.Starts[st.Pos]
             throwsTypeLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             while st.Pos < count && tokens.Kinds[st.Pos] == 136 {
                 st.Pos = st.Pos + 1
             }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 return -1
             }
+
             throwsBody := ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, 1)
             if throwsBody < 0 {
                 return -1
             }
+
             throwsEnd := nodes.SpanStarts[throwsBody] + nodes.SpanLengths[throwsBody]
             throwsChildRun := st.ChildCursor
             AppendExpressionChild(st, children, throwsBody)
             return EmitExpressionNode(st, nodes, 62, throwsTypeStart, throwsTypeLength, throwsChildRun, 1, assertStart, throwsEnd - assertStart)
         }
+
         assertCondition := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if assertCondition < 0 {
             return -1
         }
+
         assertEnd := nodes.SpanStarts[assertCondition] + nodes.SpanLengths[assertCondition]
         assertMessage := -1
         if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
@@ -6214,8 +6213,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if assertMessage < 0 {
                 return -1
             }
+
             assertEnd = nodes.SpanStarts[assertMessage] + nodes.SpanLengths[assertMessage]
         }
+
         assertChildRun := st.ChildCursor
         AppendExpressionChild(st, children, assertCondition)
         assertChildCount := 1
@@ -6223,6 +6224,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             AppendExpressionChild(st, children, assertMessage)
             assertChildCount = 2
         }
+
         return EmitExpressionNode(st, nodes, 61, -1, 0, assertChildRun, assertChildCount, assertStart, assertEnd - assertStart)
     }
 
@@ -6266,6 +6268,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             st.ArgStackTop = deconArgBase
             return -1
         }
+
         st.Pos = st.Pos + 1
 
         deconValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
@@ -6284,6 +6287,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             AppendExpressionChild(st, children, argStack.Values[deconIdx])
             deconIdx = deconIdx + 1
         }
+
         st.ArgStackTop = deconArgBase
 
         return EmitExpressionNode(st, nodes, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
@@ -6298,15 +6302,18 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if kind != 7 {
             funcTokenIndex = start + 1
         }
+
         localFuncValueStart := tokens.Starts[funcTokenIndex]
         localFuncValueLength := tokens.ValueLengths[funcTokenIndex]
         funcScan := funcTokenIndex + 1
         while funcScan < count && tokens.Kinds[funcScan] != 129 {
             funcScan = funcScan + 1
         }
+
         if funcScan >= count {
             return -1
         }
+
         localFuncDepth := 1
         funcScan = funcScan + 1
         while funcScan < count && localFuncDepth > 0 {
@@ -6315,11 +6322,14 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             } else if tokens.Kinds[funcScan] == 130 {
                 localFuncDepth = localFuncDepth - 1
             }
+
             funcScan = funcScan + 1
         }
+
         if localFuncDepth != 0 {
             return -1
         }
+
         st.Pos = funcScan
         localFuncEnd := tokens.Starts[funcScan - 1] + tokens.ValueLengths[funcScan - 1]
         return EmitExpressionNode(st, nodes, 41, localFuncValueStart, localFuncValueLength, -1, 0, localFuncSourceStart, localFuncEnd - localFuncSourceStart)
@@ -6341,6 +6351,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     } else if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 122 {
         isTypedLocal = true
     }
+
     if isTypedLocal {
         typedNameStart := tokens.Starts[typedNameIndex]
         typedNameLength := tokens.ValueLengths[typedNameIndex]
@@ -6351,6 +6362,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if kind == 0 && typeFirst < count && tokens.Kinds[typeFirst] == 127 {
             return -1
         }
+
         scanPos := typeFirst
         angleDepth := 0
         groupDepth := 0
@@ -6359,6 +6371,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             if scanPos >= count {
                 return -1
             }
+
             k := tokens.Kinds[scanPos]
             if k == 93 && angleDepth == 0 && groupDepth == 0 {
                 scanning = false
@@ -6374,15 +6387,19 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
                 } else if k == 128 || k == 132 {
                     groupDepth = groupDepth - 1
                 }
+
                 if angleDepth < 0 || groupDepth < 0 {
                     return -1
                 }
+
                 scanPos = scanPos + 1
             }
         }
+
         if scanPos == typeFirst {
             return -1
         }
+
         typeSpanStart := tokens.Starts[typeFirst]
         typeSpanEnd := tokens.Starts[scanPos - 1] + tokens.ValueLengths[scanPos - 1]
         st.Pos = scanPos + 1
@@ -6390,6 +6407,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         if typedInit < 0 {
             return -1
         }
+
         typedNameNode := EmitExpressionNode(st, nodes, 6, typedNameStart, typedNameLength, -1, 0, typedNameStart, typedNameLength)
         typedInitEnd := nodes.SpanStarts[typedInit] + nodes.SpanLengths[typedInit]
         typedChildRunStart := st.ChildCursor
@@ -6445,6 +6463,7 @@ func ParseColumnarExpressionInto(source: string, tokenKinds: int[], tokenStarts:
     if outResult.Length < 3 {
         return -1
     }
+
     if count < 0 {
         return -1
     }
@@ -6453,6 +6472,7 @@ func ParseColumnarExpressionInto(source: string, tokenKinds: int[], tokenStarts:
     if parseCount > 0 && tokenKinds[parseCount - 1] == 135 {
         parseCount = parseCount - 1
     }
+
     if parseCount <= 0 {
         return -1
     }
@@ -6487,6 +6507,7 @@ func PackageNameSpanCore(tokens: ParserDeclarationTokenTable, count: int, result
                 braceDepth = 0
             }
         } else if braceDepth == 0 && kind == 18 {
+
             // `package` keyword: collect the dotted name that follows (identifier (. identifier)*).
             j := i + 1
             nameStart := -1
@@ -6534,6 +6555,7 @@ func NamespaceImportSpansCore(tokens: ParserDeclarationTokenTable, count: int, i
             while i < count && (tokens.Kinds[i] == 0 || tokens.Kinds[i] == 124) {
                 i = i + 1
             }
+
             continue
         }
 
@@ -6573,6 +6595,7 @@ func NamespaceImportSpansCore(tokens: ParserDeclarationTokenTable, count: int, i
             while i < count && tokens.Kinds[i] != 136 {
                 i = i + 1
             }
+
             continue
         }
 
@@ -6586,39 +6609,51 @@ func ModifierFlag(kind: int): int {
     if kind == 64 {
         return 1
     }
+
     if kind == 65 {
         return 2
     }
+
     if kind == 66 {
         return 4
     }
+
     if kind == 67 {
         return 8
     }
+
     if kind == 63 {
         return 16
     }
+
     if kind == 58 {
         return 32
     }
+
     if kind == 60 {
         return 64
     }
+
     if kind == 61 {
         return 128
     }
+
     if kind == 62 {
         return 256
     }
+
     if kind == 68 {
         return 2048
     }
+
     if kind == 81 {
         return 32768
     }
+
     if kind == 59 {
         return 65536
     }
+
     return 0
 }
 
@@ -6732,6 +6767,7 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
                 if kind == 13 && nameIndex < count && tokens.Kinds[nameIndex] == 9 {
                     nameIndex = nameIndex + 1
                 }
+
                 if nameIndex < count && tokens.Kinds[nameIndex] == 0 {
                     decls.NameStarts[outCount] = tokens.Starts[nameIndex]
                     decls.NameLengths[outCount] = tokens.ValueLengths[nameIndex]
@@ -7026,6 +7062,7 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: ParserDeclarationKindStr
                 if kind == 13 && i + 1 < count && tokens.Kinds[i + 1] == 9 {
                     declReferenceFlag = 0
                 }
+
                 output.Indices[outCount] = i
                 output.ReferenceFlags[outCount] = declReferenceFlag
                 output.RecordFlags[outCount] = isRecord
@@ -7305,8 +7342,8 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
 
             // Valid header prefixes: `namespace A.B` / `import A.B[.C] [as X]` / `package A`, or a
             // FILE import with an alias — `import "path" as X` — whose walk stops at the string.
-            isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4
-                && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
+            isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
+
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
                 if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                     return 0
@@ -7499,9 +7536,7 @@ func TopLevelUnmodeledTestShapeExistsCore(source: string, tokens: ParserDeclarat
                 if TopLevelPlainTestHeaderEndsAt(tokens, count, i) < 0 {
                     return 1
                 }
-            } else if kind == 0
-                && (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup")
-                    || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown")) {
+            } else if kind == 0 && (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup") || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown")) {
                 nextKind := ParserDeclarationNextNonNewlineTokenKind(tokens, count, i + 1)
                 atDeclarationBoundary := ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens, i)
                 if nextKind == 129 || atDeclarationBoundary {
@@ -7546,16 +7581,20 @@ func TopLevelPlainTestHeaderEndsAt(tokens: ParserDeclarationTokenTable, count: i
     while i < count && tokens.Kinds[i] == 136 {
         i = i + 1
     }
+
     if i >= count || tokens.Kinds[i] != 4 {
         return -1
     }
+
     i = i + 1
     while i < count && tokens.Kinds[i] == 136 {
         i = i + 1
     }
+
     if i >= count || tokens.Kinds[i] != 129 {
         return -1
     }
+
     return i
 }
 
@@ -7563,7 +7602,7 @@ func TopLevelPlainTestHeaderEndsAt(tokens: ParserDeclarationTokenTable, count: i
 // Newtype 87, ONE simple underlying type token). Records the Type token index plus the name and
 // underlying-type token spans. A composed underlying type (generics, arrays) is unmodeled and
 // fails the scan (-1) so the host declines with a reason instead of mis-synthesizing.
-func TopLevelColumnarNewtypeDeclarationIndicesInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outIndices: int[], outNameStarts: int[], outNameLengths: int[], outTypeStarts: int[], outTypeLengths: int[], outResult: int[]): int {
+func TopLevelColumnarNewtypeDeclarationIndicesInto(_source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outIndices: int[], outNameStarts: int[], outNameLengths: int[], outTypeStarts: int[], outTypeLengths: int[], outResult: int[]): int {
     if count < 0 || count > tokenKinds.Length || outIndices.Length < count + 1 || outResult.Length < 1 {
         return -1
     }
@@ -7580,15 +7619,16 @@ func TopLevelColumnarNewtypeDeclarationIndicesInto(source: string, tokenKinds: i
             if braceDepth < 0 {
                 braceDepth = 0
             }
-        } else if braceDepth == 0 && kind == 72
-            && i + 3 < count && tokenKinds[i + 1] == 0 && tokenKinds[i + 2] == 93 && tokenKinds[i + 3] == 87 {
+        } else if braceDepth == 0 && kind == 72 && i + 3 < count && tokenKinds[i + 1] == 0 && tokenKinds[i + 2] == 93 && tokenKinds[i + 3] == 87 {
             if i + 4 >= count || tokenKinds[i + 4] != 0 {
                 return -1
             }
+
             // A COMPOSED underlying type (generic `<`, array `[`, dotted access) is unmodeled.
             if i + 5 < count && (tokenKinds[i + 5] == 100 || tokenKinds[i + 5] == 131 || tokenKinds[i + 5] == 124) {
                 return -1
             }
+
             outIndices[outCount] = i
             outNameStarts[outCount] = tokenStarts[i + 1]
             outNameLengths[outCount] = tokenValueLengths[i + 1]
@@ -7685,6 +7725,7 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
     while descIndex < rawCount && rawTokenKinds[descIndex] == 136 {
         descIndex = descIndex + 1
     }
+
     if descIndex >= rawCount || rawTokenKinds[descIndex] != 4 {
         return -1
     }
@@ -7750,11 +7791,13 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
     if pos >= count || tokens.Kinds[pos] != 10 {
         return -1
     }
+
     pos = pos + 1
 
     if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
+
     result.Values[0] = tokens.Starts[pos]
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
@@ -7766,6 +7809,7 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
             if tokens.Kinds[pos] != 0 {
                 return -1
             }
+
             decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
             decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
             typeParamCount = typeParamCount + 1
@@ -7775,17 +7819,21 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
                 if tokens.Kinds[pos] != 134 {
                     return -1
                 }
+
                 pos = pos + 1
                 if pos >= count || tokens.Kinds[pos] != 0 {
                     return -1
                 }
             }
         }
+
         if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
             return -1
         }
+
         pos = pos + 1
     }
+
     if result.Values.Length > 4 {
         result.Values[4] = typeParamCount
     }
@@ -7799,6 +7847,7 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
             if typeEnd < 0 {
                 return -1
             }
+
             decl.BaseNameStarts[baseCount] = baseTypeResult.Values[0]
             decl.BaseNameLengths[baseCount] = baseTypeResult.Values[1]
             baseCount = baseCount + 1
@@ -7808,14 +7857,17 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
                 pos = pos + 1
                 continue
             }
+
             break
         }
     }
+
     result.Values[2] = baseCount
 
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
+
     pos = pos + 1
 
     methodCount := 0
@@ -7823,6 +7875,7 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
         if tokens.Kinds[pos] != 7 {
             return -1
         }
+
         decl.MethodFuncIndices[methodCount] = pos
         pos = pos + 1
         while pos < count && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 130 {
@@ -7835,20 +7888,27 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
                     } else if tokens.Kinds[pos] == 130 {
                         depth = depth - 1
                     }
+
                     pos = pos + 1
                 }
+
                 if depth != 0 {
                     return -1
                 }
+
                 break
             }
+
             pos = pos + 1
         }
+
         methodCount = methodCount + 1
     }
+
     if pos >= count {
         return -1
     }
+
     return methodCount
 }
 
@@ -7865,6 +7925,7 @@ func ParseEnumMemberValuesCore(source: string, members: EnumMemberTable, memberC
             if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], values, i) {
                 return false
             }
+
             value = values.Values[i]
         } else {
             values.Values[i] = value
@@ -7910,6 +7971,7 @@ func ParserDeclarationDottedNameSpanAfter(tokens: ParserDeclarationTokenTable, c
     if result.Values.Length < 2 {
         return -1
     }
+
     result.Values[0] = -1
     result.Values[1] = 0
 
@@ -7926,11 +7988,13 @@ func ParserDeclarationDottedNameSpanAfter(tokens: ParserDeclarationTokenTable, c
             if tokens.Kinds[pos] != 124 {
                 break
             }
+
             expectDot = 0
         } else {
             if tokens.Kinds[pos] != 0 {
                 return -1
             }
+
             end = tokens.Starts[pos] + tokens.ValueLengths[pos]
             expectDot = 1
         }
@@ -8054,6 +8118,7 @@ func ParserDeclarationDirectContainingTypeNameText(source: string, tokens: Parse
                 if tokens.Kinds[ownerKeyword] == 13 && ownerNameIndex < count && tokens.Kinds[ownerNameIndex] == 9 {
                     ownerNameIndex = ownerNameIndex + 1
                 }
+
                 if ownerNameIndex >= count || tokens.Kinds[ownerNameIndex] != 0 {
                     return ""
                 }
@@ -8076,6 +8141,7 @@ func ParserDeclarationNamespacesEqual(source: string, tokens: ParserDeclarationT
     if ParserDeclarationNamespaceSpanBefore(tokens, count, leftDeclarationIndex, leftResult) < 0 {
         return -1
     }
+
     if ParserDeclarationNamespaceSpanBefore(tokens, count, rightDeclarationIndex, rightResult) < 0 {
         return -1
     }
@@ -8083,12 +8149,15 @@ func ParserDeclarationNamespacesEqual(source: string, tokens: ParserDeclarationT
     if leftResult.Values[1] != rightResult.Values[1] {
         return 0
     }
+
     if leftResult.Values[1] == 0 {
         return 1
     }
+
     if ParserDeclarationSourceSpansEqual(source, leftResult.Values[0], leftResult.Values[1], rightResult.Values[0], rightResult.Values[1]) {
         return 1
     }
+
     return 0
 }
 
@@ -8173,6 +8242,7 @@ func ParserDeclarationOnlyNumericSeparatorsRemain(source: string, start: int, en
         if source[index] != '_' {
             return false
         }
+
         index = index + 1
     }
 
@@ -8184,11 +8254,13 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
     if pos >= count || tokens.Kinds[pos] != 14 {
         return -1
     }
+
     pos = pos + 1
 
     if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
+
     result.Values[0] = tokens.Starts[pos]
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
@@ -8198,12 +8270,14 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
         if pos >= count || tokens.Kinds[pos] != 0 {
             return -1
         }
+
         pos = pos + 1
     }
 
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
+
     pos = pos + 1
 
     memberCount := 0
@@ -8211,6 +8285,7 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
         if tokens.Kinds[pos] != 0 {
             return -1
         }
+
         members.NameStarts[memberCount] = tokens.Starts[pos]
         members.NameLengths[memberCount] = tokens.ValueLengths[pos]
         members.HasValue[memberCount] = 0
@@ -8223,6 +8298,7 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
             if pos >= count || (tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 4) {
                 return -1
             }
+
             members.HasValue[memberCount] = 1
             members.ValueStarts[memberCount] = tokens.Starts[pos]
             members.ValueLengths[memberCount] = tokens.ValueLengths[pos]
@@ -8235,6 +8311,7 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
             if tokens.Kinds[pos] != 134 {
                 return -1
             }
+
             pos = pos + 1
         }
     }
@@ -8242,6 +8319,7 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
     if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
+
     return memberCount
 }
 
@@ -8283,12 +8361,15 @@ func ParserDeclarationMemberModifierKind(kind: int): int {
     if kind == 63 {
         return 2
     }
+
     if kind == 64 || kind == 65 || kind == 66 || kind == 67 {
         return 1
     }
+
     if kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
         return 3
     }
+
     return 0
 }
 
@@ -8296,6 +8377,7 @@ func ParserDeclarationMemberModifierFlag(kind: int): int {
     if kind == 22 {
         return 512
     }
+
     return ModifierFlag(kind)
 }
 
@@ -8313,6 +8395,7 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
     if result.Values.Length >= 3 {
         result.Values[2] = 0
     }
+
     while pos < count {
         if tokens.Kinds[pos] == 131 {
             bracketDepth := 1
@@ -8323,11 +8406,14 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
                 } else if tokens.Kinds[pos] == 132 {
                     bracketDepth = bracketDepth - 1
                 }
+
                 pos = pos + 1
             }
+
             if bracketDepth != 0 {
                 return -1
             }
+
             continue
         }
 
@@ -8347,6 +8433,7 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
             if result.Values[0] == 1 {
                 return -1
             }
+
             result.Values[0] = 1
         } else if modifierKind == 1 {
             result.Values[1] = result.Values[1] + 1
@@ -8382,6 +8469,7 @@ func ParseDeclarationFunctionSignatureEndCore(tokens: ParserDeclarationTokenTabl
     if paramCount < 0 {
         return -1
     }
+
     return signatureResult.Values[6]
 }
 
@@ -8396,6 +8484,7 @@ func ColumnarStructLibraryImportAttributeSpanCore(source: string, tokens: Parser
     while scan >= 0 && ParserDeclarationMemberModifierKind(tokens.Kinds[scan]) != 0 {
         scan = scan - 1
     }
+
     if scan < 0 || tokens.Kinds[scan] != 132 {
         return 0
     }
@@ -8414,15 +8503,18 @@ func ColumnarStructLibraryImportAttributeSpanCore(source: string, tokens: Parser
                 if attributeStart < 0 || attributeEnd < attributeStart || attributeEnd > source.Length {
                     return 0
                 }
+
                 attributeText := source.Substring(attributeStart, attributeEnd - attributeStart)
                 if attributeText.IndexOf("LibraryImport", StringComparison.Ordinal) >= 0 {
                     result.Values[0] = scan
                     result.Values[1] = closeIndex
                     return 1
                 }
+
                 return 0
             }
         }
+
         scan = scan - 1
     }
 
@@ -8438,9 +8530,11 @@ func ColumnarTokenTextEquals(source: string, tokens: ParserDeclarationTokenTable
     if index < 0 || index >= tokens.Kinds.Length {
         return false
     }
+
     if tokens.Starts[index] < 0 || tokens.ValueLengths[index] != text.Length {
         return false
     }
+
     if tokens.Starts[index] + tokens.ValueLengths[index] > source.Length {
         return false
     }
@@ -8487,23 +8581,28 @@ func ParseColumnarNativeImportInfoInto(source: string, tokenKinds: int[], tokenS
     while scan < closeIndex && !ColumnarTokenTextEquals(source, tokens, scan, "LibraryImport") {
         scan = scan + 1
     }
+
     if scan >= closeIndex {
         return -1
     }
+
     scan = scan + 1
 
     if scan >= closeIndex || tokenKinds[scan] != 127 {
         return -1
     }
+
     scan = scan + 1
 
     if scan >= closeIndex || tokenKinds[scan] != 4 {
         return -1
     }
+
     libraryName := DecodeColumnarAttributeStringToken(source, tokens, scan)
     if libraryName == "" {
         return -1
     }
+
     entryPointName := methodName
     scan = scan + 1
 
@@ -8517,6 +8616,7 @@ func ParseColumnarNativeImportInfoInto(source: string, tokenKinds: int[], tokenS
         if entryPointName == "" {
             return -1
         }
+
         scan = scan + 3
     }
 
@@ -8558,18 +8658,22 @@ func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: in
                 if gdepth == 0 && parenDepth != 0 {
                     return -1
                 }
+
                 if gdepth == 0 {
                     gdone = 1
                 }
+
                 gprevIdent = 0
             } else if gk == 112 {
                 gdepth = gdepth - 2
                 if gdepth == 0 && parenDepth != 0 {
                     return -1
                 }
+
                 if gdepth == 0 {
                     gdone = 1
                 }
+
                 gprevIdent = 0
             } else if gk == 127 {
                 parenDepth = parenDepth + 1
@@ -8579,11 +8683,13 @@ func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: in
                 if parenDepth < 0 {
                     return -1
                 }
+
                 gprevIdent = 1
             } else if gk == 0 {
                 if gprevIdent == 1 {
                     return -1
                 }
+
                 gprevIdent = 1
             } else if gk == 131 || gk == 132 || gk == 115 {
                 gprevIdent = gprevIdent
@@ -8594,15 +8700,19 @@ func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: in
             } else {
                 return -1
             }
+
             if gdepth < 0 {
                 return -1
             }
+
             typeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
             pos = pos + 1
         }
+
         if gdone == 0 {
             return -1
         }
+
         if parenDepth != 0 {
             return -1
         }
@@ -8646,9 +8756,11 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTabl
             dotCount = dotCount + 1
             pos = pos + 2
         }
+
         if dotCount > 0 {
             return pos
         }
+
         return -1
     }
 
@@ -8742,12 +8854,14 @@ func ParserDeclarationDefaultDottedNameSupported(tokens: ParserDeclarationTokenT
             if kind != 0 {
                 return false
             }
+
             identifierCount = identifierCount + 1
             expectIdentifier = false
         } else {
             if kind != 124 {
                 return false
             }
+
             dotCount = dotCount + 1
             expectIdentifier = true
         }
@@ -8769,15 +8883,14 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
     typeResult := new ParserDeclarationResultTable(new int[](2))
 
     while pos < count && tokens.Kinds[pos] != 128 {
-        if paramCount >= parameters.NameStarts.Length
-            || paramCount >= parameters.TypeStarts.Length
-            || paramCount >= parameters.DefaultKinds.Length {
+        if paramCount >= parameters.NameStarts.Length || paramCount >= parameters.TypeStarts.Length || paramCount >= parameters.DefaultKinds.Length {
             return -1
         }
 
         if tokens.Kinds[pos] != 0 {
             return -1
         }
+
         parameters.NameStarts[paramCount] = tokens.Starts[pos]
         parameters.NameLengths[paramCount] = tokens.ValueLengths[pos]
         pos = pos + 1
@@ -8785,12 +8898,14 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
         if pos >= count || tokens.Kinds[pos] != 122 {
             return -1
         }
+
         pos = pos + 1
 
         pos = ParseDeclarationTypeSpanCore(tokens, count, pos, typeResult)
         if pos < 0 {
             return -1
         }
+
         parameters.TypeStarts[paramCount] = typeResult.Values[0]
         parameters.TypeLengths[paramCount] = typeResult.Values[1]
         parameters.DefaultKinds[paramCount] = -1
@@ -8890,6 +9005,7 @@ func ParseDeclarationSkipDeclarationBlockCore(tokens: ParserDeclarationTokenTabl
     while pos < count && tokens.Kinds[pos] != 129 {
         pos = pos + 1
     }
+
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
@@ -8912,6 +9028,7 @@ func ParseDeclarationSkipDeclarationBlockCore(tokens: ParserDeclarationTokenTabl
     if done == 0 {
         return -1
     }
+
     return pos
 }
 
@@ -8920,15 +9037,18 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
         return -1
     }
+
     // `record struct Name` — the Struct token is the record-struct TAIL of the Record head.
     if tokens.Kinds[pos] == 13 && pos + 1 < count && tokens.Kinds[pos + 1] == 9 {
         pos = pos + 1
     }
+
     pos = pos + 1
 
     if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
+
     result.Values[0] = tokens.Starts[pos]
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
@@ -8946,6 +9066,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if tokens.Kinds[pos] != 0 {
                 return -1
             }
+
             decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
             decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
             typeParamCount = typeParamCount + 1
@@ -8955,6 +9076,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 if tokens.Kinds[pos] != 134 {
                     return -1
                 }
+
                 pos = pos + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
@@ -8964,11 +9086,14 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 }
             }
         }
+
         if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
             return -1
         }
+
         pos = pos + 1
     }
+
     result.Values[7] = typeParamCount
 
     primaryParameters := new PrimaryConstructorParameterTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
@@ -8980,8 +9105,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         if primaryCtorParamCount < 0 {
             return -1
         }
+
         pos = primaryResult.Values[0]
     }
+
     if result.Values.Length > 9 {
         result.Values[9] = primaryCtorParamCount
     }
@@ -9000,12 +9127,14 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if typeEnd < 0 {
                 return -1
             }
+
             decl.BaseNameStarts[baseNameCount] = baseTypeResult.Values[0]
             decl.BaseNameLengths[baseNameCount] = baseTypeResult.Values[1]
             if baseNameCount == 0 {
                 result.Values[5] = baseTypeResult.Values[0]
                 result.Values[6] = baseTypeResult.Values[1]
             }
+
             baseNameCount = baseNameCount + 1
             pos = typeEnd
 
@@ -9013,14 +9142,17 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 pos = pos + 1
                 continue
             }
+
             break
         }
     }
+
     result.Values[8] = baseNameCount
 
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
+
     pos = pos + 1
 
     // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), a
@@ -9071,8 +9203,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                         pdone = 1
                     }
                 }
+
                 pos = pos + 1
             }
+
             if pdone == 0 {
                 return -1
             }
@@ -9080,6 +9214,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if tokens.Kinds[memberStart] != 0 {
                 return -1
             }
+
             decl.FieldNameStarts[fieldCount] = tokens.Starts[memberStart]
             decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[memberStart]
             pos = memberStart + 1
@@ -9087,18 +9222,21 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if pos >= count || tokens.Kinds[pos] != 122 {
                 return -1
             }
+
             pos = pos + 1
 
             pos = ParseDeclarationTypeSpanCore(tokens, count, pos, fieldTypeResult)
             if pos < 0 {
                 return -1
             }
+
             decl.FieldTypeStarts[fieldCount] = fieldTypeResult.Values[0]
             decl.FieldTypeLengths[fieldCount] = fieldTypeResult.Values[1]
             fieldModifierFlags := memberModifiers.Values[0]
             if ParserDeclarationModifierFlagsIncludeReadonly(memberModifiers.Values[2]) {
                 fieldModifierFlags = fieldModifierFlags + 2
             }
+
             decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
@@ -9120,11 +9258,14 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                             pdone = 1
                         }
                     }
+
                     pos = pos + 1
                 }
+
                 if pdone == 0 {
                     return -1
                 }
+
                 continue
             }
 
@@ -9136,6 +9277,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 if pos < 0 {
                     return -1
                 }
+
                 continue
             }
 
@@ -9161,8 +9303,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                             if initEnd < 0 {
                                 return -1
                             }
+
                             initKind = ParserDeclarationFieldInitializerExpressionKind()
                         }
+
                         initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
                         pos = initEnd - 1
                     } else {
@@ -9175,23 +9319,28 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                         if initEnd < 0 {
                             return -1
                         }
+
                         if memberModifiers.Values[0] != 0 {
                             initKind = ParserDeclarationFieldInitializerExpressionKind()
                         }
                     }
+
                     initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
                     pos = initEnd - 1
                 }
+
                 if memberModifiers.Values[0] == 1 {
                     if initKind == 0 || initKind == 41 {
                         return -1
                     }
+
                     decl.FieldInitKinds[fieldCount] = initKind
                     decl.FieldInitStarts[fieldCount] = initStart
                     decl.FieldInitLengths[fieldCount] = initLength
                 } else {
                     hasInstanceInitializer = 1
                 }
+
                 pos = pos + 1
             }
 
@@ -9202,8 +9351,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     if primaryCtorParamCount > 0 {
         paramIndex := 0
         while paramIndex < primaryCtorParamCount {
-            if primaryAssignedFlags[paramIndex] == 0
-                && StructDeclarationFieldIndexOf(source, decl, fieldCount, primaryParameters.NameStarts[paramIndex], primaryParameters.NameLengths[paramIndex]) < 0 {
+            if primaryAssignedFlags[paramIndex] == 0 && StructDeclarationFieldIndexOf(source, decl, fieldCount, primaryParameters.NameStarts[paramIndex], primaryParameters.NameLengths[paramIndex]) < 0 {
                 decl.FieldNameStarts[fieldCount] = primaryParameters.NameStarts[paramIndex]
                 decl.FieldNameLengths[fieldCount] = primaryParameters.NameLengths[paramIndex]
                 decl.FieldTypeStarts[fieldCount] = primaryParameters.TypeStarts[paramIndex]
@@ -9236,6 +9384,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         decl.CtorIndices[ctorCount] = structIndex
         ctorCount = ctorCount + 1
     }
+
     while pos < count && tokens.Kinds[pos] != 130 {
         memberStart := ParseMemberModifierPrefixCore(tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
@@ -9247,10 +9396,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
                 methodFlags = methodFlags | 16
             }
+
             signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, memberStart)
             if signatureEnd < 0 || signatureEnd >= count {
                 return -1
             }
+
             if tokens.Kinds[signatureEnd] != 129 && tokens.Kinds[signatureEnd] != 120 {
                 if (methodFlags & 16) == 0 || !ColumnarStructMethodHasLibraryImportAttribute(source, tokens, memberStart) {
                     return -1
@@ -9262,6 +9413,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 if decl.MethodModifierFlags.Length > methodCount {
                     decl.MethodModifierFlags[methodCount] = methodFlags
                 }
+
                 methodCount = methodCount + 1
                 pos = signatureEnd
                 continue
@@ -9272,15 +9424,18 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if decl.MethodModifierFlags.Length > methodCount {
                 decl.MethodModifierFlags[methodCount] = methodFlags
             }
+
             methodCount = methodCount + 1
             pos = signatureEnd
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             if memberModifiers.Values[0] == 1 {
                 return -1
             }
+
             if syntheticCtorNeeded && tokens.Kinds[structIndex] == 9 {
                 return -1
             }
+
             decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
             pos = memberStart + 1
@@ -9289,18 +9444,21 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if pos < 0 {
                 return -1
             }
+
             continue
         } else if tokens.Kinds[memberStart] == 0 {
             propTypePos := memberStart + 1
             if propTypePos >= count || tokens.Kinds[propTypePos] != 122 {
                 return -1
             }
+
             propTypePos = propTypePos + 1
 
             propBodyPos := ParseDeclarationTypeSpanCore(tokens, count, propTypePos, fieldTypeResult)
             if propBodyPos < 0 || propBodyPos >= count {
                 return -1
             }
+
             if tokens.Kinds[propBodyPos] != 129 && tokens.Kinds[propBodyPos] != 120 {
                 return -1
             }
@@ -9315,6 +9473,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 if pos < 0 {
                     return -1
                 }
+
                 continue
             }
         } else {
@@ -9324,13 +9483,16 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 120 {
             pos = pos + 1
         }
+
         if pos < count && tokens.Kinds[pos] == 120 {
             pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
             if pos < 0 {
                 return -1
             }
+
             continue
         }
+
         if pos >= count || tokens.Kinds[pos] != 129 {
             return -1
         }
@@ -9346,8 +9508,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                     bodyDone = 1
                 }
             }
+
             pos = pos + 1
         }
+
         if bodyDone == 0 {
             return -1
         }
@@ -9356,6 +9520,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
+
     result.Values[2] = methodCount
     result.Values[3] = ctorCount
     result.Values[4] = propCount
@@ -9399,8 +9564,10 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
                 pdone = 1
             }
         }
+
         pos = pos + 1
     }
+
     if pdone == 0 {
         return 0
     }
@@ -9409,13 +9576,16 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
         if pos < count && tokens.Kinds[pos] == 129 {
             result.Values[1] = pos
         }
+
         return 0
     }
+
     pos = pos + 1
 
     if pos >= count {
         return -1
     }
+
     if tokens.Kinds[pos] == 42 {
         result.Values[0] = 1
     } else if tokens.Kinds[pos] == 43 {
@@ -9423,11 +9593,13 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
     } else {
         return -1
     }
+
     pos = pos + 1
 
     if pos >= count || tokens.Kinds[pos] != 127 {
         return -1
     }
+
     pos = pos + 1
 
     argCount := 0
@@ -9436,6 +9608,7 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
             if pos + 3 >= count || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 127 || tokens.Kinds[pos + 3] != 128 {
                 return -1
             }
+
             args.Kinds[argCount] = tokens.Kinds[pos]
             args.Starts[argCount] = tokens.Starts[pos + 1]
             args.Lengths[argCount] = tokens.ValueLengths[pos + 1]
@@ -9445,6 +9618,7 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
             if tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 4 {
                 return -1
             }
+
             args.Kinds[argCount] = tokens.Kinds[pos]
             args.Starts[argCount] = tokens.Starts[pos]
             args.Lengths[argCount] = tokens.ValueLengths[pos]
@@ -9456,6 +9630,7 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
             if tokens.Kinds[pos] != 134 {
                 return -1
             }
+
             pos = pos + 1
         }
     }
@@ -9463,10 +9638,12 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
     if pos >= count || tokens.Kinds[pos] != 128 {
         return -1
     }
+
     pos = pos + 1
     if pos < count && tokens.Kinds[pos] == 129 {
         result.Values[1] = pos
     }
+
     return argCount
 }
 
@@ -9475,11 +9652,13 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
     if pos >= count || tokens.Kinds[pos] != 12 {
         return -1
     }
+
     pos = pos + 1
 
     if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
+
     result.Values[0] = tokens.Starts[pos]
     result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
@@ -9494,6 +9673,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
             if tokens.Kinds[pos] != 0 {
                 return -1
             }
+
             decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
             decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
             typeParamCount = typeParamCount + 1
@@ -9503,6 +9683,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
                 if tokens.Kinds[pos] != 134 {
                     return -1
                 }
+
                 pos = pos + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
@@ -9512,16 +9693,20 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
                 }
             }
         }
+
         if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
             return -1
         }
+
         pos = pos + 1
     }
+
     result.Values[2] = typeParamCount
 
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
+
     pos = pos + 1
 
     caseCount := 0
@@ -9530,6 +9715,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
         if tokens.Kinds[pos] != 0 {
             return -1
         }
+
         decl.CaseNameStarts[caseCount] = tokens.Starts[pos]
         decl.CaseNameLengths[caseCount] = tokens.ValueLengths[pos]
         pos = pos + 1
@@ -9542,6 +9728,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
                 if tokens.Kinds[pos] != 0 {
                     return -1
                 }
+
                 decl.FieldNameStarts[totalFields] = tokens.Starts[pos]
                 decl.FieldNameLengths[totalFields] = tokens.ValueLengths[pos]
                 pos = pos + 1
@@ -9549,11 +9736,13 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
                 if pos >= count || tokens.Kinds[pos] != 122 {
                     return -1
                 }
+
                 pos = pos + 1
 
                 if pos >= count || tokens.Kinds[pos] != 0 {
                     return -1
                 }
+
                 decl.FieldTypeStarts[totalFields] = tokens.Starts[pos]
                 decl.FieldTypeLengths[totalFields] = tokens.ValueLengths[pos]
                 pos = pos + 1
@@ -9565,6 +9754,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
                     if tokens.Kinds[pos] != 134 {
                         return -1
                     }
+
                     pos = pos + 1
                 }
             }
@@ -9572,6 +9762,7 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
             if pos >= count || tokens.Kinds[pos] != 130 {
                 return -1
             }
+
             pos = pos + 1
         } else if pos >= count || (tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 130) {
             return -1
@@ -9584,9 +9775,11 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
     if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
+
     if caseCount == 0 {
         return -1
     }
+
     return caseCount
 }
 
@@ -9619,10 +9812,12 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     if typeParamCount > outputs.TypeParamTexts.Length || typeParamCount > outputs.TypeParamSpecials.Length || typeParamCount > outputs.TypeParamConstraintCounts.Length {
         return -1
     }
+
     declaredTypeParamNames := new FunctionSignatureNameSpanTable(typeParams.Starts, typeParams.Lengths)
     if FunctionSignatureTypeParameterNamesDistinctCore(source, declaredTypeParamNames, typeParamCount) == 0 {
         return -1
     }
+
     declaredParamNames := new FunctionSignatureNameSpanTable(parameters.NameStarts, parameters.NameLengths)
     if FunctionSignatureParameterNamesDistinctCore(source, declaredParamNames, paramCount) == 0 {
         return -1
@@ -9638,9 +9833,11 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     } else {
         functionName = FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
     }
+
     if functionName == "" {
         return -1
     }
+
     outputs.FunctionNameTexts[0] = functionName
 
     returnTupleNameCount := 0
@@ -9778,12 +9975,14 @@ func FunctionSignatureDefaultDottedNameSupported(tokens: ParserTokenTable, start
             if kind != 0 {
                 return false
             }
+
             identifierCount = identifierCount + 1
             expectIdentifier = false
         } else {
             if kind != 124 {
                 return false
             }
+
             dotCount = dotCount + 1
             expectIdentifier = true
         }
@@ -9804,11 +10003,13 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
         if pos >= count || tokens.Kinds[pos] != 75 {
             return -1
         }
+
         pos = pos + 1
     } else if pos < count && tokens.Kinds[pos] == 75 {
         if pos + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[pos + 1]) {
             return -1
         }
+
         pos = pos + 2
     } else if pos < count && tokens.Kinds[pos] == 0 {
         pos = pos + 1
@@ -9819,9 +10020,11 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
     while pos < count && tokens.Kinds[pos] != 127 {
         pos = pos + 1
     }
+
     if pos >= count || tokens.Kinds[pos] != 127 {
         return -1
     }
+
     pos = pos + 1
 
     typeStack := new ParserArgumentStack(new int[](count + 1))
@@ -9845,6 +10048,7 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
                 } else if tokens.Kinds[pos] == 132 {
                     bracketDepth = bracketDepth - 1
                 }
+
                 pos = pos + 1
             }
         }
@@ -9860,17 +10064,20 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
             } else if tokens.Kinds[pos] == 42 {
                 modifierKind = 4
             }
+
             pos = pos + 1
         }
 
         if pos >= count || tokens.Kinds[pos] != 0 {
             return -1
         }
+
         pos = pos + 1
 
         if pos >= count || tokens.Kinds[pos] != 122 {
             return -1
         }
+
         pos = pos + 1
 
         st.Pos = pos
@@ -9882,6 +10089,7 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
         if typeRoot < 0 {
             return -1
         }
+
         pos = st.Pos
         if pos + 1 < count && tokens.Kinds[pos] == 147 && tokens.Kinds[pos + 1] == 142 {
             pos = pos + 2
@@ -10061,140 +10269,186 @@ func FunctionSignatureOperatorClrName(kind: int, paramCount: int): string {
         if paramCount == 1 {
             return "op_True"
         }
+
         return ""
     }
+
     if kind == 45 {
         if paramCount == 1 {
             return "op_False"
         }
+
         return ""
     }
+
     if kind == 88 {
         if paramCount == 1 {
             return "op_UnaryPlus"
         }
+
         if paramCount == 2 {
             return "op_Addition"
         }
+
         return ""
     }
+
     if kind == 89 {
         if paramCount == 1 {
             return "op_UnaryNegation"
         }
+
         if paramCount == 2 {
             return "op_Subtraction"
         }
+
         return ""
     }
+
     if kind == 90 {
         if paramCount == 2 {
             return "op_Multiply"
         }
+
         return ""
     }
+
     if kind == 91 {
         if paramCount == 2 {
             return "op_Division"
         }
+
         return ""
     }
+
     if kind == 92 {
         if paramCount == 2 {
             return "op_Modulus"
         }
+
         return ""
     }
+
     if kind == 98 {
         if paramCount == 2 {
             return "op_Equality"
         }
+
         return ""
     }
+
     if kind == 99 {
         if paramCount == 2 {
             return "op_Inequality"
         }
+
         return ""
     }
+
     if kind == 100 {
         if paramCount == 2 {
             return "op_LessThan"
         }
+
         return ""
     }
+
     if kind == 101 {
         if paramCount == 2 {
             return "op_LessThanOrEqual"
         }
+
         return ""
     }
+
     if kind == 102 {
         if paramCount == 2 {
             return "op_GreaterThan"
         }
+
         return ""
     }
+
     if kind == 103 {
         if paramCount == 2 {
             return "op_GreaterThanOrEqual"
         }
+
         return ""
     }
+
     if kind == 106 {
         if paramCount == 1 {
             return "op_LogicalNot"
         }
+
         return ""
     }
+
     if kind == 107 {
         if paramCount == 2 {
             return "op_BitwiseAnd"
         }
+
         return ""
     }
+
     if kind == 108 {
         if paramCount == 2 {
             return "op_BitwiseOr"
         }
+
         return ""
     }
+
     if kind == 109 {
         if paramCount == 2 {
             return "op_ExclusiveOr"
         }
+
         return ""
     }
+
     if kind == 110 {
         if paramCount == 1 {
             return "op_OnesComplement"
         }
+
         return ""
     }
+
     if kind == 111 {
         if paramCount == 2 {
             return "op_LeftShift"
         }
+
         return ""
     }
+
     if kind == 112 {
         if paramCount == 2 {
             return "op_RightShift"
         }
+
         return ""
     }
+
     if kind == 113 {
         if paramCount == 1 {
             return "op_Increment"
         }
+
         return ""
     }
+
     if kind == 114 {
         if paramCount == 1 {
             return "op_Decrement"
         }
+
         return ""
     }
+
     return ""
 }
 
@@ -10219,17 +10473,7 @@ func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLengt
     return true
 }
 
-func ParseFunctionSignatureCore(
-    tokens: ParserTokenTable,
-    count: int,
-    funcIndex: int,
-    typeStack: ParserArgumentStack,
-    nodes: ParserNodeTable,
-    children: ParserChildIndexTable,
-    parameters: ParserFunctionParameterTable,
-    typeParams: ParserFunctionTypeParameterTable,
-    whereItems: ParserFunctionWhereTable,
-    outResult: ParserResultTable): int {
+func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex: int, typeStack: ParserArgumentStack, nodes: ParserNodeTable, children: ParserChildIndexTable, parameters: ParserFunctionParameterTable, typeParams: ParserFunctionTypeParameterTable, whereItems: ParserFunctionWhereTable, outResult: ParserResultTable): int {
     funcNameStart := -1
     funcNameLength := 0
     returnRoot := -1
@@ -10241,6 +10485,7 @@ func ParseFunctionSignatureCore(
         if i >= count || tokens.Kinds[i] != 75 {
             return -1
         }
+
         funcNameStart = tokens.Starts[funcIndex]
         funcNameLength = tokens.Starts[i] + tokens.ValueLengths[i] - tokens.Starts[funcIndex]
         i = i + 1
@@ -10248,6 +10493,7 @@ func ParseFunctionSignatureCore(
         if i + 1 >= count || !FunctionSignatureOperatorKindSupported(tokens.Kinds[i + 1]) {
             return -1
         }
+
         funcNameStart = tokens.Starts[i]
         funcNameLength = tokens.Starts[i + 1] + tokens.ValueLengths[i + 1] - tokens.Starts[i]
         i = i + 2
@@ -10273,6 +10519,7 @@ func ParseFunctionSignatureCore(
             } else if tokens.Kinds[i] != 142 {
                 return -1
             }
+
             typeParamItemCount = typeParamItemCount + 1
             i = i + 1
 
@@ -10280,6 +10527,7 @@ func ParseFunctionSignatureCore(
                 if tokens.Kinds[i] != 134 {
                     return -1
                 }
+
                 i = i + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
@@ -10289,9 +10537,11 @@ func ParseFunctionSignatureCore(
                 }
             }
         }
+
         if i >= count || tokens.Kinds[i] != 102 || typeParamItemCount == 0 {
             return -1
         }
+
         i = i + 1
     }
 
@@ -10303,6 +10553,7 @@ func ParseFunctionSignatureCore(
         if returnRoot < 0 {
             return -1
         }
+
         i = st.Pos
     }
 
@@ -10313,11 +10564,13 @@ func ParseFunctionSignatureCore(
     if i >= count || tokens.Kinds[i] != 127 {
         return -1
     }
+
     i = i + 1
 
     paramCount := 0
 
     while i < count && tokens.Kinds[i] != 128 {
+
         // Skip attribute lists `[ ... ]` (balanced).
         while i < count && tokens.Kinds[i] == 131 {
             bracketDepth := 1
@@ -10328,6 +10581,7 @@ func ParseFunctionSignatureCore(
                 } else if tokens.Kinds[i] == 132 {
                     bracketDepth = bracketDepth - 1
                 }
+
                 i = i + 1
             }
         }
@@ -10339,6 +10593,7 @@ func ParseFunctionSignatureCore(
             if tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 {
                 byRefParameter = true
             }
+
             i = i + 1
         }
 
@@ -10353,6 +10608,7 @@ func ParseFunctionSignatureCore(
         if i >= count || tokens.Kinds[i] != 122 {
             return -1
         }
+
         i = i + 1
 
         st.Pos = i
@@ -10362,6 +10618,7 @@ func ParseFunctionSignatureCore(
         if typeRoot < 0 {
             return -1
         }
+
         i = st.Pos
         if byRefParameter {
             childRunStart := st.ChildCursor
@@ -10370,6 +10627,7 @@ func ParseFunctionSignatureCore(
             typeSpanEnd := typeSpanStart + nodes.SpanLengths[typeRoot]
             typeRoot = EmitTypeReferenceNode(st, nodes, 5, -1, 0, childRunStart, 1, typeSpanStart, typeSpanEnd - typeSpanStart)
         }
+
         if i + 1 < count && tokens.Kinds[i] == 147 && tokens.Kinds[i + 1] == 142 {
             i = i + 2
         }
@@ -10422,6 +10680,7 @@ func ParseFunctionSignatureCore(
     }
 
     if conversionOperatorKind == 0 && i < count && tokens.Kinds[i] == 122 {
+
         // A `: this(...)` / `: base(...)` CONSTRUCTOR chaining initializer is NOT a return type — leave returnRoot at
         // -1 and stop; the composed constructor parser handles the initializer via ParseConstructorChainInfoCore. A regular
         // function's `: ReturnType` always has a TYPE token after `:`, never `this` (42) / `base` (43), so this
@@ -10435,9 +10694,11 @@ func ParseFunctionSignatureCore(
             if returnRoot < 0 {
                 return -1
             }
+
             i = st.Pos
         }
     }
+
     if i + 1 < count && tokens.Kinds[i] == 0 && tokens.Kinds[i + 1] == 142 {
         i = i + 2
     }
@@ -10453,12 +10714,14 @@ func ParseFunctionSignatureCore(
         if i >= count || tokens.Kinds[i] != 0 {
             return -1
         }
+
         whereNameStart := tokens.Starts[i]
         whereNameLength := tokens.ValueLengths[i]
         i = i + 1
         if i >= count || tokens.Kinds[i] != 122 {
             return -1
         }
+
         i = i + 1
 
         moreItems := true
@@ -10474,6 +10737,7 @@ func ParseFunctionSignatureCore(
                 if i + 2 >= count || tokens.Kinds[i + 1] != 127 || tokens.Kinds[i + 2] != 128 {
                     return -1
                 }
+
                 itemCode = -4
                 i = i + 3
             } else {
@@ -10484,6 +10748,7 @@ func ParseFunctionSignatureCore(
                 if itemCode < 0 {
                     return -1
                 }
+
                 i = st.Pos
             }
 
@@ -10524,6 +10789,7 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
     if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length {
         return -1
     }
+
     if paramCount > outputs.ArgKinds.Length || paramCount > outputs.ArgTexts.Length {
         return -1
     }
@@ -10609,6 +10875,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
     if pos >= count || tokens.Kinds[pos] != 127 {
         return -1
     }
+
     pos = pos + 1
 
     typeStack := new ParserArgumentStack(new int[](count + 1))
@@ -10632,6 +10899,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
                 } else if tokens.Kinds[pos] == 132 {
                     bracketDepth = bracketDepth - 1
                 }
+
                 pos = pos + 1
             }
         }
@@ -10643,11 +10911,13 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
         if pos >= count || tokens.Kinds[pos] != 0 {
             return -1
         }
+
         pos = pos + 1
 
         if pos >= count || tokens.Kinds[pos] != 122 {
             return -1
         }
+
         pos = pos + 1
 
         st.Pos = pos
@@ -10659,6 +10929,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
         if typeRoot < 0 {
             return -1
         }
+
         pos = st.Pos
 
         outputs.ArgKinds[paramCount] = -1
@@ -10745,6 +11016,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     if baseOutputs.InterfaceNameTexts.Length < 1 || baseCount > baseOutputs.BaseNameTexts.Length || typeParamCount > baseOutputs.TypeParamTexts.Length {
         return -1
     }
+
     declaredInterfaceTypeParamNames := new FunctionSignatureNameSpanTable(declaration.TypeParamStarts, declaration.TypeParamLengths)
     if FunctionSignatureTypeParameterNamesDistinctCore(source, declaredInterfaceTypeParamNames, typeParamCount) == 0 {
         return -1
@@ -10754,6 +11026,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     if interfaceName == "" {
         return -1
     }
+
     baseOutputs.InterfaceNameTexts[0] = interfaceName
 
     baseIndex := 0
@@ -10782,11 +11055,19 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
         return -1
     }
 
+    modifierScratch := new int[](count + 1)
+    modifierOutputs := new FunctionSignatureInfoOutputTable(new string[](0), new string[](0), new string[](0), new string[](0), modifierScratch, new int[](count + 1), new string[](count + 1), new int[](0), new string[](0), new string[](0), new string[](0), new int[](0), new int[](0), new string[](0))
+
     flatParamCount := 0
     methodIndex := 0
     while methodIndex < methodCount {
         paramCount := ParseFunctionSignatureCore(tokens, count, methodOutputs.FuncIndices[methodIndex], typeStack, nodes, children, parameters, typeParams, whereItems, signatureResult)
         if paramCount < 0 || signatureResult.Values[3] < 0 {
+            return -1
+        }
+
+        modifierCount := ParseFunctionParameterDefaultsCore(source, tokens, count, methodOutputs.FuncIndices[methodIndex], modifierOutputs)
+        if modifierCount != paramCount {
             return -1
         }
 
@@ -10803,6 +11084,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
         if methodName == "" {
             return -1
         }
+
         methodOutputs.NameTexts[methodIndex] = methodName
 
         returnRoot := signatureResult.Values[1]
@@ -10816,7 +11098,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
             methodOutputs.ReturnTexts[methodIndex] = "void"
         }
 
-        if flatParamCount + paramCount > methodOutputs.ParamNameTexts.Length || flatParamCount + paramCount > methodOutputs.ParamTypeTexts.Length {
+        if flatParamCount + paramCount > methodOutputs.ParamNameTexts.Length || flatParamCount + paramCount > methodOutputs.ParamTypeTexts.Length || flatParamCount + paramCount > methodOutputs.ParamModifierKinds.Length {
             return -1
         }
 
@@ -10835,6 +11117,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
             flatSlot := flatParamCount + paramIndex
             methodOutputs.ParamNameTexts[flatSlot] = paramName
             methodOutputs.ParamTypeTexts[flatSlot] = TypeReferenceCanonicalTextCore(source, canonicalNodes, paramRoot)
+            methodOutputs.ParamModifierKinds[flatSlot] = modifierScratch[paramIndex]
             paramIndex = paramIndex + 1
         }
 
@@ -10983,6 +11266,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     if paramCount < 0 {
         return -1
     }
+
     if isLocalFunction != 0 && signatureResult.Values[2] > 0 {
         return -1
     }
@@ -10999,6 +11283,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     } else {
         bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(tokens, bodyBrace, body, bodyResult)
     }
+
     if bodyNodeCount <= 0 {
         return -1
     }
@@ -11015,9 +11300,11 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     if localFunctionCount < 0 {
         return -1
     }
+
     if ColumnarFunctionLocalFunctionNamesDistinct(source, tokens, locals, localFunctionCount) == 0 {
         return -1
     }
+
     if isLocalFunction != 0 && localFunctionCount > 0 {
         return -1
     }
@@ -11152,6 +11439,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     if paramCount < 0 {
         return -1
     }
+
     bodyBrace := signatureResult.Values[1]
     if bodyBrace < 0 || bodyBrace >= tokens.Count || tokens.Kinds[bodyBrace] != 129 {
         return -1
@@ -11181,18 +11469,23 @@ func ColumnarPrimaryConstructorLiteralExpressionKind(tokenKind: int): int {
     if tokenKind == 1 {
         return ColumnarExpressionNodeKind.IntLiteralExpression()
     }
+
     if tokenKind == 2 {
         return ColumnarExpressionNodeKind.FloatLiteralExpression()
     }
+
     if tokenKind == 3 {
         return ColumnarExpressionNodeKind.CharLiteralExpression()
     }
+
     if tokenKind == 4 {
         return ColumnarExpressionNodeKind.StringLiteralExpression()
     }
+
     if tokenKind == 44 || tokenKind == 45 {
         return ColumnarExpressionNodeKind.BoolLiteralExpression()
     }
+
     if tokenKind == 46 {
         return ColumnarExpressionNodeKind.NullLiteralExpression()
     }
@@ -11212,6 +11505,7 @@ func EmitColumnarPrimaryConstructorAssignmentNode(body: ColumnarConstructorBodyT
     if result.Values.Length < 2 {
         return -1
     }
+
     if nodeCursor + 4 > body.NodeKinds.Length || childCursor + 3 > body.ChildIndices.Length {
         return -1
     }
@@ -11250,6 +11544,7 @@ func EmitColumnarPrimaryConstructorAssignmentNode(body: ColumnarConstructorBodyT
     } else {
         body.SpanLengths[assignmentNode] = fieldLength
     }
+
     childCursor = childCursor + 2
     nodeCursor = nodeCursor + 1
 
@@ -11266,6 +11561,7 @@ func EmitColumnarPrimaryConstructorAssignmentNode(body: ColumnarConstructorBodyT
     } else {
         body.SpanLengths[statementNode] = fieldLength
     }
+
     childCursor = childCursor + 1
     nodeCursor = nodeCursor + 1
 
@@ -11278,6 +11574,7 @@ func EmitColumnarPrimaryConstructorAssignmentRootNode(body: ColumnarConstructorB
     if result.Values.Length < 2 {
         return -1
     }
+
     if valueRoot < 0 || valueRoot >= nodeCursor || nodeCursor + 3 > body.NodeKinds.Length || childCursor + 3 > body.ChildIndices.Length {
         return -1
     }
@@ -11328,9 +11625,11 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     if pos < tokens.Count && tokens.Kinds[ctorIndex] == 13 && tokens.Kinds[pos] == 9 {
         pos = pos + 1
     }
+
     if pos >= tokens.Count || tokens.Kinds[pos] != 0 {
         return -1
     }
+
     pos = pos + 1
 
     if pos < tokens.Count && tokens.Kinds[pos] == 100 {
@@ -11350,11 +11649,14 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                     gdone = 1
                 }
             }
+
             if gdepth < 0 {
                 return -1
             }
+
             pos = pos + 1
         }
+
         if gdone == 0 {
             return -1
         }
@@ -11369,6 +11671,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     } else {
         primaryResult.Values[0] = pos
     }
+
     if paramCount < 0 || paramCount > signatureOutputs.ParamNameTexts.Length || paramCount > signatureOutputs.ParamTypeTexts.Length || paramCount > signatureOutputs.ArgKinds.Length || paramCount > signatureOutputs.ArgTexts.Length {
         return -1
     }
@@ -11389,6 +11692,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         } else {
             signatureOutputs.ArgTexts[p] = ""
         }
+
         p = p + 1
     }
 
@@ -11399,11 +11703,13 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
             if pos >= tokens.Count || tokens.Kinds[pos] != 0 {
                 return -1
             }
+
             pos = pos + 1
             if pos < tokens.Count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
                 continue
             }
+
             break
         }
     }
@@ -11458,8 +11764,10 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                             pdone = 1
                         }
                     }
+
                     scan = scan + 1
                 }
+
                 if pdone == 0 {
                     return -1
                 }
@@ -11467,6 +11775,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                 while scan < tokens.Count && tokens.Kinds[scan] != 136 && tokens.Kinds[scan] != 130 {
                     scan = scan + 1
                 }
+
                 if scan < tokens.Count && tokens.Kinds[scan] == 136 {
                     scan = scan + 1
                 }
@@ -11484,6 +11793,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                     if scan >= tokens.Count {
                         return -1
                     }
+
                     if tokens.Kinds[scan] == 0 {
                         paramIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, paramCount, tokens.Starts[scan], tokens.ValueLengths[scan])
                         if paramIndex >= 0 {
@@ -11498,6 +11808,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                             if valueRoot < 0 || expressionState.Pos <= scan {
                                 return -1
                             }
+
                             nodeCursor = expressionState.NodeCursor
                             childCursor = expressionState.ChildCursor
                             scan = expressionState.Pos
@@ -11514,6 +11825,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                             if valueRoot < 0 || expressionState.Pos <= scan {
                                 return -1
                             }
+
                             nodeCursor = expressionState.NodeCursor
                             childCursor = expressionState.ChildCursor
                             scan = expressionState.Pos
@@ -11536,6 +11848,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                     if statementNode < 0 || assignmentCount >= statementIndices.Length {
                         return -1
                     }
+
                     nodeCursor = cursorResult.Values[0]
                     childCursor = cursorResult.Values[1]
                     statementIndices[assignmentCount] = statementNode
@@ -11545,6 +11858,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                     if statementNode < 0 || assignmentCount >= statementIndices.Length {
                         return -1
                     }
+
                     nodeCursor = cursorResult.Values[0]
                     childCursor = cursorResult.Values[1]
                     statementIndices[assignmentCount] = statementNode
@@ -11564,6 +11878,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                 if statementNode < 0 || assignmentCount >= statementIndices.Length {
                     return -1
                 }
+
                 nodeCursor = cursorResult.Values[0]
                 childCursor = cursorResult.Values[1]
                 statementIndices[assignmentCount] = statementNode
@@ -11577,6 +11892,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     if nodeCursor >= body.NodeKinds.Length || childCursor + assignmentCount > body.ChildIndices.Length {
         return -1
     }
+
     root := nodeCursor
     body.NodeKinds[root] = 25
     body.ValueStarts[root] = -1
@@ -11590,6 +11906,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         body.ChildIndices[childCursor + i] = statementIndices[i]
         i = i + 1
     }
+
     nodeCursor = nodeCursor + 1
 
     result.Values[0] = 0
@@ -11631,18 +11948,23 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     if fieldCount < 0 || outputs.StructNameTexts.Length < 1 || fieldCount > outputs.FieldNameTexts.Length || fieldCount > outputs.FieldTypeTexts.Length || fieldCount > outputs.FieldInitTexts.Length || typeParamCount > outputs.TypeParamTexts.Length || baseNameCount > outputs.BaseNameTexts.Length {
         return -1
     }
+
     if ColumnarStructTypeParameterNamesDistinct(source, scratch, typeParamCount) == 0 {
         return -1
     }
+
     if ColumnarStructFieldNamesDistinct(source, scratch, fieldCount) == 0 {
         return -1
     }
+
     if ColumnarStructBaseNamesDistinct(source, scratch, baseNameCount) == 0 {
         return -1
     }
+
     if ColumnarStructMethodMemberNamesSupported(source, tokens, scratch, outputs, fieldCount, methodCount) == 0 {
         return -1
     }
+
     if ColumnarStructPropertyMemberNamesDistinct(source, tokens, scratch, outputs, fieldCount, methodCount, propCount) == 0 {
         return -1
     }
@@ -11722,6 +12044,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     if methodUnsupported != 0 {
         return -1
     }
+
     ctorUnsupported := ColumnarStructConstructorUnsupportedStatus(source, tokens, outputs, ctorCount, isReference)
     if ctorUnsupported != 0 {
         return -1
@@ -11731,6 +12054,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     if structName == "" {
         return -1
     }
+
     outputs.StructNameTexts[0] = structName
 
     i = 0
@@ -11809,10 +12133,12 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
             if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
                 return -1
             }
+
             paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
         } else {
             paramCount = ParseColumnarFunctionInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], 0, signatureOutputs, body, locals, result)
         }
+
         if paramCount < 0 {
             return -1
         }
@@ -11874,6 +12200,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
                 j = j + 1
             }
         }
+
         methodNameTexts[i] = methodName
         methodParamStarts[i] = nextMethodParamType
         paramSlot := 0
@@ -11885,10 +12212,12 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
             methodParamTypeTexts[nextMethodParamType + paramSlot] = signatureOutputs.ParamTypeTexts[paramSlot]
             paramSlot = paramSlot + 1
         }
+
         nextMethodParamType = nextMethodParamType + paramCount
         if result.Values[2] > 0 {
             return 1
         }
+
         if !nativeImportMethod && result.Values[8] > 0 {
             return 1
         }
@@ -11953,6 +12282,7 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
             ctorParamTypeTexts[nextCtorParamType + paramSlot] = signatureOutputs.ParamTypeTexts[paramSlot]
             paramSlot = paramSlot + 1
         }
+
         nextCtorParamType = nextCtorParamType + paramCount
 
         if isReference == 0 {
@@ -11967,6 +12297,7 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
         if localFunctionCount < 0 {
             return -1
         }
+
         if localFunctionCount > 0 {
             return 1
         }
@@ -11979,6 +12310,7 @@ func ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(tokens: ColumnarSt
     if paramCount != 0 || ctorIndex < 0 || ctorIndex >= tokens.Count {
         return false
     }
+
     return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 13
 }
 
@@ -12069,69 +12401,91 @@ func ColumnarStructOperatorMemberName(kind: int): string {
     if kind == 44 {
         return "operator true"
     }
+
     if kind == 45 {
         return "operator false"
     }
+
     if kind == 88 {
         return "operator +"
     }
+
     if kind == 89 {
         return "operator -"
     }
+
     if kind == 90 {
         return "operator *"
     }
+
     if kind == 91 {
         return "operator /"
     }
+
     if kind == 92 {
         return "operator %"
     }
+
     if kind == 98 {
         return "operator =="
     }
+
     if kind == 99 {
         return "operator !="
     }
+
     if kind == 100 {
         return "operator <"
     }
+
     if kind == 101 {
         return "operator <="
     }
+
     if kind == 102 {
         return "operator >"
     }
+
     if kind == 103 {
         return "operator >="
     }
+
     if kind == 106 {
         return "operator !"
     }
+
     if kind == 107 {
         return "operator &"
     }
+
     if kind == 108 {
         return "operator |"
     }
+
     if kind == 109 {
         return "operator ^"
     }
+
     if kind == 110 {
         return "operator ~"
     }
+
     if kind == 111 {
         return "operator <<"
     }
+
     if kind == 112 {
         return "operator >>"
     }
+
     if kind == 113 {
         return "operator ++"
     }
+
     if kind == 114 {
         return "operator --"
     }
+
     return ""
 }
 
@@ -12140,6 +12494,7 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
         if tokens.Kinds[funcIndex] == 85 {
             return "op_Implicit"
         }
+
         if tokens.Kinds[funcIndex] == 86 {
             return "op_Explicit"
         }
@@ -12159,6 +12514,7 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
         if symbolIndex < 0 || symbolIndex >= tokens.Count {
             return ""
         }
+
         return ColumnarStructOperatorMemberName(tokens.Kinds[symbolIndex])
     }
 
@@ -12352,12 +12708,15 @@ func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable,
     if outputs.UnionNameTexts.Length < 1 || caseCount > outputs.CaseNameTexts.Length || fieldCount > outputs.FieldNameTexts.Length || fieldCount > outputs.FieldTypeTexts.Length || typeParamCount > outputs.TypeParamTexts.Length {
         return -1
     }
+
     if ColumnarUnionTypeParameterNamesDistinct(source, scratch, typeParamCount) == 0 {
         return -1
     }
+
     if ColumnarUnionCaseNamesDistinct(source, scratch, caseCount) == 0 {
         return -1
     }
+
     if ColumnarUnionCaseFieldNamesDistinct(source, scratch, outputs, caseCount) == 0 {
         return -1
     }
@@ -12366,6 +12725,7 @@ func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable,
     if unionName == "" {
         return -1
     }
+
     outputs.UnionNameTexts[0] = unionName
 
     i = 0
@@ -12578,6 +12938,7 @@ func ParseColumnarEnumInfoCore(source: string, tokens: ColumnarEnumTokenTable, e
     if enumName == "" {
         return -1
     }
+
     containerName := ParserDeclarationDirectContainingTypeNameText(source, declarationTokens, tokens.Count, enumIndex)
     if containerName != "" {
         simpleName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
@@ -12587,6 +12948,7 @@ func ParseColumnarEnumInfoCore(source: string, tokens: ColumnarEnumTokenTable, e
 
         enumName = containerName + "." + simpleName
     }
+
     outputs.EnumNameTexts[0] = enumName
 
     i := 0
@@ -12635,11 +12997,13 @@ func ColumnarEnumBackingKind(source: string, tokens: ColumnarEnumTokenTable, enu
                 if explicitKind == 0 || sawIntValue != 0 {
                     return -1
                 }
+
                 backingKind = 1
             } else if valueKind == 1 {
                 if explicitKind == 1 || backingKind == 1 {
                     return -1
                 }
+
                 sawIntValue = 1
             } else {
                 return -1
@@ -12716,10 +13080,10 @@ func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMember
     return 1
 }
 
-func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outTypeParamTexts: string[], outResult: int[]): int {
+func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outResult: int[]): int {
     tokens := new ColumnarInterfaceTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outTypeParamTexts)
+    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts)
     result := new ColumnarInterfaceResultTable(outResult)
     return ParseColumnarInterfaceInfoCore(source, tokens, interfaceIndex, scratch, outputs, result)
 }
@@ -12727,7 +13091,7 @@ func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStar
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts)
-    methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts)
+    methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -12748,14 +13112,17 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTok
     if interfaceName == "" {
         return -1
     }
+
     outputs.InterfaceNameTexts[0] = interfaceName
 
     if ColumnarInterfaceBaseNamesDistinct(outputs, result.Values[2]) == 0 {
         return -1
     }
+
     if ColumnarInterfaceMethodNamesDistinct(outputs, methodCount) == 0 {
         return -1
     }
+
     if ColumnarInterfaceMethodParamNamesDistinct(outputs, methodCount) == 0 {
         return -1
     }
@@ -12877,6 +13244,7 @@ func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarI
         if bodyFlag == 0 {
             continue
         }
+
         if bodyFlag != 1 {
             return -1
         }
@@ -12885,6 +13253,7 @@ func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarI
         if paramCount < 0 {
             return -1
         }
+
         if result.Values[8] > 0 {
             return 1
         }
@@ -12943,6 +13312,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
     } else {
         getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(tokens, getBodyBrace, getBody, getBodyResult)
     }
+
     if getBodyNodeCount <= 0 {
         return -1
     }
@@ -12951,6 +13321,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
     if getBodyRoot < 0 || getBodyRoot >= getBodyNodeCount {
         return -1
     }
+
     getLocalFunctionStatus := ColumnarPropertyDirectLocalFunctionStatus(tokens, getBody, getBodyRoot)
     if getLocalFunctionStatus != 0 {
         return -1
@@ -12974,6 +13345,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
         if setBodyRoot < 0 || setBodyRoot >= setBodyNodeCount {
             return -1
         }
+
         setLocalFunctionStatus := ColumnarPropertyDirectLocalFunctionStatus(tokens, setBody, setBodyRoot)
         if setLocalFunctionStatus != 0 {
             return -1
@@ -13004,6 +13376,7 @@ func ColumnarPropertyDirectLocalFunctionStatus(tokens: ColumnarPropertyTokenTabl
     if localFunctionCount < 0 {
         return -1
     }
+
     if localFunctionCount > 0 {
         return 1
     }

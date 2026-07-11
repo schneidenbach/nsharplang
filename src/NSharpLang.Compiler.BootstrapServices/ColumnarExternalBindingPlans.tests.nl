@@ -496,6 +496,20 @@ test "range code plans own the short IL argument operand" {
         "System.Void")
 }
 
+test "runtime call plans own exact constructed generic return identities" {
+    plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.IO.StreamReader",
+        "ReadToEndAsync",
+        new string[](0))
+    runtimeType := Type.GetType(
+        "System.Threading.Tasks.Task`1[System.String], System.Private.CoreLib")
+
+    assert runtimeType != null
+    assert plan.IsSupported
+    assert plan.Kind == ColumnarExternalCallKind.CallVirtual
+    assert plan.ReturnTypeName == runtimeType.get_AssemblyQualifiedName()
+}
+
 test "static call plans own exact CLR overloads" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"

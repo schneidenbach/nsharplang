@@ -142,6 +142,37 @@ public class ColumnarScalarLiteralPlanner {
         return true
     }
 
+    // Contextual call binding may retain the syntax fact that an otherwise-Int32 literal can
+    // adopt a declaration's integral parameter type. Match the legacy columnar rule exactly:
+    // only unsuffixed decimal digits within Int32's positive magnitude participate.
+    public static func TryGetTargetTypedIntegerMagnitude(
+        text: string,
+        out magnitude: int): bool {
+        magnitude = 0
+        if text == null || text.Length == 0 {
+            return false
+        }
+
+        index := 0
+        while index < text.Length {
+            if text[index] < '0' || text[index] > '9' {
+                return false
+            }
+            index += 1
+        }
+
+        literalKind := 0
+        parsedMagnitude := 0UL
+        if !TryParseIntegerLiteral(text, out literalKind, out parsedMagnitude)
+            || literalKind != 0
+            || parsedMagnitude > 2147483647UL {
+            return false
+        }
+
+        magnitude = (int)parsedMagnitude
+        return true
+    }
+
     static func TryAppendFloatingPoint(
         text: string,
         plan: ColumnarCodePlan,

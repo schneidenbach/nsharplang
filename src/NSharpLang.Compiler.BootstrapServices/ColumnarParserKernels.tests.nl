@@ -1,28 +1,27 @@
 namespace NSharpLang.Compiler.Columnar
 
-import System
 import NSharpLang.Compiler
 
 class ColumnarNumericLiteralParseProbe {
-    public Source: string
-    public RawKinds: int[]
-    public RawStarts: int[]
-    public RawValueLengths: int[]
-    public TokenKinds: int[]
-    public TokenStarts: int[]
-    public TokenValueLengths: int[]
-    public TokenCount: int
-    public RawCount: int
-    public NodeKinds: int[]
-    public NodeValueStarts: int[]
-    public NodeValueLengths: int[]
-    public NodeChildStarts: int[]
-    public NodeChildCounts: int[]
-    public NodeChildren: int[]
-    public NodeSpanStarts: int[]
-    public NodeSpanLengths: int[]
-    public ParseResult: int[]
-    public NodeCount: int
+    Source: string
+    RawKinds: int[]
+    RawStarts: int[]
+    RawValueLengths: int[]
+    TokenKinds: int[]
+    TokenStarts: int[]
+    TokenValueLengths: int[]
+    TokenCount: int
+    RawCount: int
+    NodeKinds: int[]
+    NodeValueStarts: int[]
+    NodeValueLengths: int[]
+    NodeChildStarts: int[]
+    NodeChildCounts: int[]
+    NodeChildren: int[]
+    NodeSpanStarts: int[]
+    NodeSpanLengths: int[]
+    ParseResult: int[]
+    NodeCount: int
 
     constructor(source: string) {
         Source = source
@@ -34,15 +33,8 @@ class ColumnarNumericLiteralParseProbe {
         TokenStarts = new int[](capacity)
         TokenValueLengths = new int[](capacity)
         tokenCounts := new int[](2)
-        TokenCount = TokenizeColumnarSourceInto(
-            source,
-            RawKinds,
-            RawStarts,
-            RawValueLengths,
-            TokenKinds,
-            TokenStarts,
-            TokenValueLengths,
-            tokenCounts)
+        TokenCount = TokenizeColumnarSourceInto(source, RawKinds, RawStarts, RawValueLengths, TokenKinds, TokenStarts, TokenValueLengths, tokenCounts)
+
         RawCount = tokenCounts[0]
 
         NodeKinds = new int[](capacity)
@@ -54,24 +46,10 @@ class ColumnarNumericLiteralParseProbe {
         NodeSpanStarts = new int[](capacity)
         NodeSpanLengths = new int[](capacity)
         ParseResult = new int[](3)
-        NodeCount = ParseColumnarExpressionInto(
-            source,
-            TokenKinds,
-            TokenStarts,
-            TokenValueLengths,
-            TokenCount,
-            NodeKinds,
-            NodeValueStarts,
-            NodeValueLengths,
-            NodeChildStarts,
-            NodeChildCounts,
-            NodeChildren,
-            NodeSpanStarts,
-            NodeSpanLengths,
-            ParseResult)
+        NodeCount = ParseColumnarExpressionInto(source, TokenKinds, TokenStarts, TokenValueLengths, TokenCount, NodeKinds, NodeValueStarts, NodeValueLengths, NodeChildStarts, NodeChildCounts, NodeChildren, NodeSpanStarts, NodeSpanLengths, ParseResult)
     }
 
-    public func AssertSingleLiteral(expectedTokenKind: int, expectedNodeKind: int): void {
+    func AssertSingleLiteral(expectedTokenKind: int, expectedNodeKind: int): void {
         assert RawCount == 2
         assert TokenCount == 2
         assert RawKinds[0] == expectedTokenKind
@@ -112,15 +90,7 @@ func AssertMalformedColumnarNumberPrefix(source: string, consumedText: string): 
     tokenStarts := new int[](capacity)
     tokenValueLengths := new int[](capacity)
     tokenCounts := new int[](2)
-    tokenCount := TokenizeColumnarSourceInto(
-        source,
-        rawKinds,
-        rawStarts,
-        rawValueLengths,
-        tokenKinds,
-        tokenStarts,
-        tokenValueLengths,
-        tokenCounts)
+    tokenCount := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawValueLengths, tokenKinds, tokenStarts, tokenValueLengths, tokenCounts)
 
     assert tokenCounts[0] == 3
     assert tokenCount == 3
@@ -147,6 +117,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarExpressionNodeKind.TypeOfExpression() == 55
     assert ColumnarExpressionNodeKind.BoolLiteralExpression() == 4
     assert ColumnarExpressionNodeKind.NullLiteralExpression() == 5
+    assert ColumnarExpressionNodeKind.CallExpression() == 9
 
     assert ColumnarPrimaryConstructorLiteralExpressionKind(1) == ColumnarExpressionNodeKind.IntLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(2) == ColumnarExpressionNodeKind.FloatLiteralExpression()
@@ -241,4 +212,97 @@ test "enum integer value consumer ignores numeric separators" {
     assert ParserDeclarationTryParseIntLiteralCore(minText, 0, minText.Length, values, 1)
     assert values.Values[1] == 0 - 2147483647 - 1
     assert !ParserDeclarationTryParseIntLiteralCore(overflowText, 0, overflowText.Length, values, 2)
+}
+
+class ColumnarInterfaceModifierParseProbe {
+    MethodCount: int
+    MethodNames: string[]
+    MethodParamCounts: int[]
+    MethodParamNames: string[]
+    MethodParamTypes: string[]
+    MethodParamModifierKinds: int[]
+    MethodBodyFlags: int[]
+    Result: int[]
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawValueLengths, tokenKinds, tokenStarts, tokenValueLengths, tokenCounts)
+
+        methodFuncIndices := new int[](capacity)
+        baseNames := new string[](capacity)
+        interfaceNames := new string[](1)
+        MethodNames = new string[](capacity)
+        methodReturns := new string[](capacity)
+        MethodParamCounts = new int[](capacity)
+        MethodBodyFlags = new int[](capacity)
+        MethodParamNames = new string[](capacity)
+        MethodParamTypes = new string[](capacity)
+        MethodParamModifierKinds = new int[](capacity)
+        typeParams := new string[](capacity)
+        Result = new int[](8)
+        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, Result)
+    }
+}
+
+test "columnar interface parser flattens ref out and params modifier facts" {
+    source := "interface IModifierProbe {\n    func Mutate(ref left: int, out right: int)\n    func Collect(params rest: string[])\n}\n"
+    probe := new ColumnarInterfaceModifierParseProbe(source)
+
+    assert probe.MethodCount == 2
+    assert probe.MethodNames[0] == "Mutate"
+    assert probe.MethodNames[1] == "Collect"
+    assert probe.MethodParamCounts[0] == 2
+    assert probe.MethodParamCounts[1] == 1
+    assert probe.MethodBodyFlags[0] == 0
+    assert probe.MethodBodyFlags[1] == 0
+    assert probe.Result[3] == 3
+    assert probe.MethodParamNames[0] == "left"
+    assert probe.MethodParamNames[1] == "right"
+    assert probe.MethodParamNames[2] == "rest"
+    assert probe.MethodParamModifierKinds[0] == 1
+    assert probe.MethodParamModifierKinds[1] == 2
+    assert probe.MethodParamModifierKinds[2] == 3
+}
+
+test "columnar interface input carries modifiers while old construction defaults to ordinary parameters" {
+    methodNames := new string[](1)
+    methodNames[0] = "Apply"
+    returnTypes := new string[](1)
+    returnTypes[0] = "void"
+    parameterNames := new string[][](1)
+    parameterNames[0] = new string[](3)
+    parameterNames[0][0] = "left"
+    parameterNames[0][1] = "right"
+    parameterNames[0][2] = "rest"
+    parameterTypes := new string[][](1)
+    parameterTypes[0] = new string[](3)
+    parameterTypes[0][0] = "int&"
+    parameterTypes[0][1] = "int&"
+    parameterTypes[0][2] = "string[]"
+    modifierKinds := new int[][](1)
+    modifierKinds[0] = new int[](3)
+    modifierKinds[0][0] = 1
+    modifierKinds[0][1] = 2
+    modifierKinds[0][2] = 3
+
+    input := new ColumnarInterfaceInput("IModifierProbe", new string[](0), methodNames, returnTypes, parameterNames, parameterTypes, new ColumnarFunctionInput?[](1), new string[](0), 0, modifierKinds)
+
+    assert input.MethodParamModifierKinds[0][0] == 1
+    assert input.MethodParamModifierKinds[0][1] == 2
+    assert input.MethodParamModifierKinds[0][2] == 3
+
+    ordinaryInput := new ColumnarInterfaceInput("IOrdinaryProbe", new string[](0), methodNames, returnTypes, parameterNames, parameterTypes)
+
+    assert ordinaryInput.MethodParamModifierKinds.Length == 1
+    assert ordinaryInput.MethodParamModifierKinds[0].Length == 3
+    assert ordinaryInput.MethodParamModifierKinds[0][0] == 0
+    assert ordinaryInput.MethodParamModifierKinds[0][1] == 0
+    assert ordinaryInput.MethodParamModifierKinds[0][2] == 0
 }

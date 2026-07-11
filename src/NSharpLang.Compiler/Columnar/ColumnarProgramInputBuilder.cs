@@ -982,12 +982,14 @@ internal static class ColumnarProgramInputBuilder
                 var outMethodBodyFlags = new int[cap];
                 var outMethodParamNameTexts = new string[cap];
                 var outMethodParamTypeTexts = new string[cap];
+                var outMethodParamModifierKinds = new int[cap];
                 var outTypeParamTexts = new string[cap];
                 var outResult = new int[8];
                 var methodCount = global::Program.ParseColumnarInterfaceInfoInto(source, ck, cs, cv, n, interfaceIndex,
                     outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts,
                     outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
-                    outMethodParamNameTexts, outMethodParamTypeTexts, outTypeParamTexts, outResult);
+                    outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds,
+                    outTypeParamTexts, outResult);
                 if (methodCount < 0)
                     return DeclineAtToken("parse.interface", "interface declaration could not be parsed into columnar input", cs, cv, interfaceIndex);
                 var interfaceName = outInterfaceNameTexts[0];
@@ -995,8 +997,7 @@ internal static class ColumnarProgramInputBuilder
                 var baseInterfaceNames = new string[baseInterfaceCount];
                 for (var b = 0; b < baseInterfaceCount; b++)
                 {
-                    var baseInterfaceName = outBaseNameTexts[b];
-                    baseInterfaceNames[b] = baseInterfaceName;
+                    baseInterfaceNames[b] = outBaseNameTexts[b];
                 }
                 var typeParamCount = outResult[4];
                 if (typeParamCount < 0 || typeParamCount > outTypeParamTexts.Length)
@@ -1004,15 +1005,15 @@ internal static class ColumnarProgramInputBuilder
                 var typeParamNames = new string[typeParamCount];
                 for (var tp = 0; tp < typeParamCount; tp++)
                 {
-                    var typeParamName = outTypeParamTexts[tp];
-                    if (string.IsNullOrWhiteSpace(typeParamName))
+                    if (string.IsNullOrWhiteSpace(outTypeParamTexts[tp]))
                         return DeclineAtToken("parse.interface.type-param", "interface type parameter name was invalid", cs, cv, interfaceIndex, interfaceName);
-                    typeParamNames[tp] = typeParamName;
+                    typeParamNames[tp] = outTypeParamTexts[tp];
                 }
                 var methodNames = new string[methodCount];
                 var methodReturns = new string[methodCount];
                 var methodParamNames = new string[methodCount][];
                 var methodParamCanonicals = new string[methodCount][];
+                var methodParamModifierKinds = new int[methodCount][];
                 var methodBodies = new ColumnarFunctionInput?[methodCount];
                 var flatParamCount = outResult[3];
                 if (flatParamCount < 0)
@@ -1022,20 +1023,19 @@ internal static class ColumnarProgramInputBuilder
                 {
                     var methodName = outMethodNameTexts[m];
                     methodNames[m] = methodName;
-                    var methodReturn = outMethodReturnTexts[m];
-                    methodReturns[m] = methodReturn;
+                    methodReturns[m] = outMethodReturnTexts[m];
                     var paramCount = outMethodParamCounts[m];
                     if (paramCount < 0 || paramCursor + paramCount > flatParamCount)
                         return DeclineAtToken("parse.interface.method-params", "interface method parameter metadata was invalid", cs, cv, interfaceIndex, interfaceName + "." + methodName);
                     methodParamNames[m] = new string[paramCount];
                     methodParamCanonicals[m] = new string[paramCount];
+                    methodParamModifierKinds[m] = new int[paramCount];
                     for (var p = 0; p < paramCount; p++)
                     {
                         var flatSlot = paramCursor + p;
-                        var paramName = outMethodParamNameTexts[flatSlot];
-                        methodParamNames[m][p] = paramName;
-                        var paramCanonical = outMethodParamTypeTexts[flatSlot];
-                        methodParamCanonicals[m][p] = paramCanonical;
+                        methodParamNames[m][p] = outMethodParamNameTexts[flatSlot];
+                        methodParamCanonicals[m][p] = outMethodParamTypeTexts[flatSlot];
+                        methodParamModifierKinds[m][p] = outMethodParamModifierKinds[flatSlot];
                     }
                     paramCursor += paramCount;
                     if (outMethodBodyFlags[m] == 1)
@@ -1053,7 +1053,7 @@ internal static class ColumnarProgramInputBuilder
                     return DeclineAtToken("parse.interface.params", "interface parameter metadata did not consume the expected count", cs, cv, interfaceIndex, interfaceName);
                 interfaceInputs.Add(new ColumnarInterfaceInput(
                     interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies,
-                    typeParamNames: typeParamNames));
+                    typeParamNames: typeParamNames, methodParamModifierKinds: methodParamModifierKinds));
             }
             return true;
         }

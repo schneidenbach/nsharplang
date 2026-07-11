@@ -6,15 +6,15 @@ import System.Reflection
 import System.Reflection.Emit
 
 class ColumnarInstanceMemberByRefProbe {
-    static func SourceStruct(out value: ColumnarBoundIdentifierCurrentStructProbe): bool {
+    static func SourceStruct(out _value: ColumnarBoundIdentifierCurrentStructProbe): bool {
         throw new InvalidOperationException("Signature-only byref probe.")
     }
 
-    static func RuntimeReference(out value: Version): bool {
+    static func RuntimeReference(out _value: Version): bool {
         throw new InvalidOperationException("Signature-only byref probe.")
     }
 
-    static func RuntimeValue(out value: DateTime): bool {
+    static func RuntimeValue(out _value: DateTime): bool {
         throw new InvalidOperationException("Signature-only byref probe.")
     }
 }
@@ -180,8 +180,9 @@ func InstanceFacadeAssertTerminal(tree: ColumnarRangePlannerTestTree, receiverTy
 
     typePlan := new ColumnarCodePlan()
     typeOwned := false
+    _typeLegacyWholeSubtreePlanning := false
     typeResult := typeof(object)
-    typeSuccess := ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, typePlan, out typeOwned, out typeResult)
+    typeSuccess := ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, typePlan, out typeOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
 
     assert typeOwned
     assert typeSuccess == expectedSuccess
@@ -198,8 +199,9 @@ func InstanceFacadeAssertTerminal(tree: ColumnarRangePlannerTestTree, receiverTy
 
     emitPlan := new ColumnarCodePlan()
     emitOwned := false
+    _emitLegacyWholeSubtreePlanning := false
     emitResult := typeof(object)
-    emitSuccess := ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, emitPlan, dynamicMethod.GetILGenerator(), out emitOwned, out emitResult)
+    emitSuccess := ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, emitPlan, dynamicMethod.GetILGenerator(), out emitOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
 
     assert emitOwned
     assert emitSuccess == expectedSuccess
@@ -267,6 +269,30 @@ test "instance member planner owns scalar literal receivers" {
     assert ColumnarInstanceMemberPlanner.Plan(hole.Nodes, hole.Source, hole.Root, bindings, holePlan) == ColumnarFragmentPlanStatus.NotOwned
 
     ColumnarRangePlannerAssertEmptyRollback(holePlan)
+}
+
+test "instance member planner owns exact SZ-array Length reads" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "values", 0, typeof(byte[]))
+    tree := InstanceMemberTree("values", "Length")
+
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, bindings)
+
+    plan := InstanceMemberPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldlen()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.ConvI4()
+
+    rejected := InstanceMemberTree("values", "LongLength")
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(rejected.Nodes, rejected.Source, rejected.Root, bindings)
+
+    rejectedPlan := new ColumnarCodePlan()
+    assert ColumnarInstanceMemberPlanner.Plan(rejected.Nodes, rejected.Source, rejected.Root, bindings, rejectedPlan) == ColumnarFragmentPlanStatus.NotOwned
+
+    ColumnarRangePlannerAssertEmptyRollback(rejectedPlan)
 }
 
 test "instance member planner owns typeof receivers and exact Type properties" {

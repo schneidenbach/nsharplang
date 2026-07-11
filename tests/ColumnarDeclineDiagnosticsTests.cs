@@ -20,8 +20,8 @@ public class ColumnarDeclineDiagnosticsTests
             WriteProject(tempDir, "SingleDecline");
             var programPath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(programPath, """
-func TypeName(value: string): string {
-    return value.GetType().Name
+func TypeName(value: string): string? {
+    return value.GetType().AssemblyQualifiedName
 }
 """);
 
@@ -30,12 +30,12 @@ func TypeName(value: string): string {
 
             Assert.False(result.Success);
             Assert.Contains(
-                "Declined at emit.call.instance-member-unmodeled: instance call 'String.GetType' with 0 argument(s) is not modeled in 'TypeName' (Program.nl:2:12).",
+                "Declined at emit.return.expression: return expression could not be emitted in 'TypeName' (Program.nl:2:12).",
                 error.Message);
             Assert.Equal(Path.GetFullPath(programPath), Path.GetFullPath(error.FileName!));
             Assert.Equal(2, error.Line);
             Assert.Equal(12, error.Column);
-            Assert.Equal(15, error.Length);
+            Assert.Equal(37, error.Length);
         }
         finally
         {
@@ -58,8 +58,8 @@ func Keep(): int {
 }
 """);
             File.WriteAllText(secondPath, """
-func TypeName(value: string): string {
-    return value.GetType().Name
+func TypeName(value: string): string? {
+    return value.GetType().AssemblyQualifiedName
 }
 """);
 
@@ -123,15 +123,15 @@ test "x" {
         {
             WriteProject(tempDir, "TraceDecline");
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func TypeName(value: string): string {
-    return value.GetType().Name
+func TypeName(value: string): string? {
+    return value.GetType().AssemblyQualifiedName
 }
 """);
 
             var (_, stderr) = CaptureStderr(() => CompileProject(tempDir, "TraceDecline"));
 
-            Assert.Contains("decline site=emit.call.instance-member-unmodeled", stderr);
-            Assert.Contains("String.GetType", stderr);
+            Assert.Contains("decline site=emit.return.expression", stderr);
+            Assert.Contains("return expression could not be emitted", stderr);
             Assert.Contains("location=Program.nl:2:12", stderr);
         }
         finally

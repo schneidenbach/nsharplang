@@ -423,7 +423,7 @@ internal sealed class ColumnarIlEmitter
                                                   // comparisons call System.Decimal's op_* methods
         || IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
         || t == typeof(object)
-        || t == typeof(Stream)
+        || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(t)
         || t == typeof(StreamReader)
         || t == typeof(StringComparer)
         || t == typeof(TextWriter)
@@ -1659,8 +1659,8 @@ internal sealed class ColumnarIlEmitter
             boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public);
             boxedCaptureMap[boxedNames[b]] = (boxedFields[b], boxedSources[b].ValueType);
         }
-        var displayDef = new ColumnarStructDef(
-            display, snapshotNames.ToArray(), displayFields, isReference: true, isClosureDisplay: true);
+        var displayDef = new ColumnarStructDef(display, snapshotNames.ToArray(), displayFields,
+            isReference: true, isClosureDisplay: true, declaredTypeName: display.Name ?? string.Empty);
         // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
         // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
         // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
@@ -4090,7 +4090,7 @@ internal sealed class ColumnarIlEmitter
                     interfaceTypeParams[iface.TypeParamNames[tp]] = declaredParams[tp];
             }
             var interfaceDef = new ColumnarStructDef(interfaceTb, Array.Empty<string>(),
-                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true)
+                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true, declaredTypeName: iface.Name)
             {
                 IsInterface = true,
                 GenericParameters = interfaceTypeParams,
@@ -4132,7 +4132,8 @@ internal sealed class ColumnarIlEmitter
             }
 
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
-            var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord)
+            var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord,
+                declaredTypeName: st.Name)
             {
                 IsNewtype = st.IsNewtype,
                 GenericParameters = typeGenericParams,
@@ -4195,6 +4196,9 @@ internal sealed class ColumnarIlEmitter
                     || !IsSupportedType(memberReturn))
                     return false;
                 var memberParams = new Type[iface.MethodParamCanonicals[m].Length];
+                var memberParamModifierKinds = iface.MethodParamModifierKinds[m];
+                if (memberParamModifierKinds.Length != 0 && memberParamModifierKinds.Length != memberParams.Length)
+                    return false;
                 for (var p = 0; p < memberParams.Length; p++)
                 {
                     if (!(interfaceDef.GenericParameters != null
@@ -4212,9 +4216,10 @@ internal sealed class ColumnarIlEmitter
                     iface.MethodNames[m],
                     methodAttributes,
                     memberReturn, memberParams);
-                if (!DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                if (!DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], memberParamModifierKinds, Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
                     return false;
-                AddInstanceMethod(interfaceDef, iface.MethodNames[m], new ColumnarInstanceMethodDef(abstractMethod, memberParams, memberReturn));
+                AddInstanceMethod(interfaceDef, iface.MethodNames[m],
+                    new ColumnarInstanceMethodDef(abstractMethod, memberParams, memberParamModifierKinds, memberReturn));
                 if (hasDefaultBody)
                 {
                     interfaceDef.DefaultInterfaceMethodNames.Add(iface.MethodNames[m]);
@@ -4600,7 +4605,8 @@ internal sealed class ColumnarIlEmitter
                     foreach (var overriddenExternalInterfaceMethod in overriddenExternalInterfaceMethods)
                         def.Builder.DefineMethodOverride(mb, overriddenExternalInterfaceMethod);
                 }
-                AddInstanceMethod(def, m.Name, new ColumnarInstanceMethodDef(mb, mParamTypes, mSignatureReturn));
+                AddInstanceMethod(def, m.Name,
+                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn));
                 structMethodJobs.Add((def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, mParamTypeMap, false));
             }
         }
@@ -8953,9 +8959,7 @@ internal sealed class ColumnarIlEmitter
         var tb = def.Builder;
         if (!def.Methods.ContainsKey("Equals"))
         {
-            var equals = tb.DefineMethod(
-                "Equals", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
-                typeof(bool), new[] { typeof(object) });
+            var equals = def.DefineSynthesizedRecordEquals();
             var eil = equals.GetILGenerator();
             var returnFalse = eil.DefineLabel();
             var compareFields = eil.DefineLabel();
@@ -8991,14 +8995,11 @@ internal sealed class ColumnarIlEmitter
             eil.MarkLabel(returnFalse);
             eil.Emit(OpCodes.Ldc_I4_0);
             eil.Emit(OpCodes.Ret);
-            def.RecordEquals = equals;
         }
 
         if (!def.Methods.ContainsKey("GetHashCode"))
         {
-            var hash = tb.DefineMethod(
-                "GetHashCode", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
-                typeof(int), Type.EmptyTypes);
+            var hash = def.DefineSynthesizedRecordGetHashCode();
             var hil = hash.GetILGenerator();
             var acc = hil.DeclareLocal(typeof(int));
             hil.Emit(OpCodes.Ldc_I4, 17);
@@ -9019,7 +9020,6 @@ internal sealed class ColumnarIlEmitter
             }
             hil.Emit(OpCodes.Ldloc, acc);
             hil.Emit(OpCodes.Ret);
-            def.RecordGetHashCode = hash;
         }
 
         SynthesizeRecordCloneMember(def);
@@ -9650,6 +9650,7 @@ internal sealed class ColumnarIlEmitter
                 _liftedLocals,
                 _boxedCaptures,
                 _currentStruct,
+                _enclosingType,
                 _structRegistry.Values,
                 _unionRegistry.Values,
                 _tupleNamesByVariable,
@@ -9659,6 +9660,7 @@ internal sealed class ColumnarIlEmitter
                 _codePlan,
                 _il,
                 out var nsharpOwned,
+                out var legacyWholeSubtreePlanning,
                 out type))
             return true;
         if (nsharpOwned)
@@ -10104,17 +10106,13 @@ internal sealed class ColumnarIlEmitter
                 }
             }
 
-            case 9: // Call [callee, args...] — a sibling top-level function (bare-identifier callee, incl.
-            {       // self/recursion), or a BCL method call (instance on a string, or static on a type like Char)
-                    // whose callee is a MemberAccess [receiver, method-name].
+            case 9: // Calls not terminally owned by the N# direct-call planner.
+            {
                 var callee = Child(idx, 0);
                 if (_nodes.Kind(callee) == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 {
                     var name = Text(callee);
-                    // A local/param of the same name: the N# pipeline binds bare calls to the METHOD (locals do
-                    // not shadow call targets — pinned), so a name carried by BOTH a value and ANY method tier
-                    // declines (under-accept). When NO method tier carries the name, a DELEGATE-typed local/param
-                    // invokes via callvirt Invoke (L1a); a non-delegate value still declines.
+                    // Values invoke only when delegate-typed; any same-named method tier remains terminal.
                     if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name)
                         || _liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
                     {
@@ -10124,20 +10122,6 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         return TryEmitDelegateInvoke(idx, name, out type);
                     }
-                    // Bare-call resolution order, verified probe-by-probe against the production pipeline (a
-                    // first agent-probe round claimed own-instance-beats-top-level; DIRECT re-probing REFUTED
-                    // that — the pinned truth, parity-tested, is):
-                    //   1. a sibling TOP-LEVEL function — beats every same-named type member (own instance,
-                    //      inherited instance, and statics alike),
-                    //   2. an instance method on the enclosing type's chain (nearest declaration first),
-                    //   3. a STATIC method on the enclosing type's chain (nearest arity match).
-                    // Tier 2 requires an instance context (`_currentStruct` — null inside a static method, so a
-                    // static body calling an instance method bare structurally declines, as the pipeline rejects
-                    // it); tier 3 anchors on `_enclosingType` so it fires in static bodies too. Tiers 2 and 3 can
-                    // never compete: a name carried by both an instance and a static method anywhere on the chain
-                    // was declined in PASS 0b/0b''.
-                    // LOCAL FUNCTIONS shadow same-named siblings at call sites (probe-pinned: the
-                    // pipeline calls the local) — their tier comes FIRST.
                     if (_localFuncs != null && _visibleLocalFuncs.Contains(name)
                         && _localFuncs.TryGetValue(name, out var localTarget))
                     {
@@ -10164,19 +10148,12 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         if (target.TypeParams.Length > 0)
                         {
-                            // A GENERIC sibling with INFERRED type arguments: start from an empty binding —
-                            // the shared emission helper unifies each declared parameter shape against the
-                            // emitted argument types (the legacy emitter's TryInferDeclaredMethodTypeArguments).
+                            // Generic sibling inference remains a separate owner.
                             return TryEmitGenericSiblingCall(idx, target, new Type?[target.TypeParams.Length], out type);
                         }
                         if (useExpandedParams)
                             return TryEmitSiblingExpandedParamsCall(idx, target, out type);
-                        // Each argument's type must match the callee's declared parameter type. int and bool are both
-                        // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
-                        // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
-                        // A LAMBDA literal argument (kind 39) is CONTEXTUALLY typed — the declared delegate
-                        // parameter supplies its signature (the production's expected-type flow); it synthesizes
-                        // a static `<Lambda>_{n}` method and constructs the delegate in place (L1b).
+                        // Contextual lambdas and method groups remain on this legacy-only tier.
                         for (var a = 1; a <= argCount; a++)
                         {
                             if (!EmitDeclaredCallArgument(Child(idx, a), target.ParamTypes[a - 1], allowLambdaLiteral: true))
@@ -10187,9 +10164,15 @@ internal sealed class ColumnarIlEmitter
                         return true;
                     }
                     if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, idx, out var ownMethod))
+                    {
+                        if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod))
+                            return false;
                         return EmitImplicitThisCall(idx, ownMethod, out type);
+                    }
                     if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out var ownStatic))
                     {
+                        if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(ownStatic))
+                            return false;
                         // No receiver: just the args, then a direct `call` to the declaring type's static.
                         var staticArgCount = _nodes.ChildCount(idx) - 1;
                         for (var a = 1; a <= staticArgCount; a++)
@@ -10262,7 +10245,7 @@ internal sealed class ColumnarIlEmitter
                     return TryEmitGenericSiblingCall(idx, gTarget, explicitBinding, out type);
                 }
                 if (_nodes.Kind(callee) == 8) // MemberAccess callee -> a BCL instance/static method call.
-                    return TryEmitBclMethodCall(idx, callee, out type);
+                    return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out type);
                 return false;
             }
 
@@ -13305,10 +13288,7 @@ internal sealed class ColumnarIlEmitter
         else _il.Emit(OpCodes.Ldelem, elementType);
     }
 
-    // A BCL method call whose callee is a MemberAccess [receiver, method-name]. A STATIC call (receiver is a
-    // bare identifier naming a known type, e.g. `Char`) must be detected BEFORE the receiver is emitted (the
-    // type name is not a value); an INSTANCE call emits the receiver value then dispatches on its type.
-    private bool TryEmitBclMethodCall(int callIdx, int callee, out Type type)
+    private bool TryEmitBclMethodCall(int callIdx, int callee, bool legacyWholeSubtreePlanning, out Type type)
     {
         type = null!;
         var memberName = Text(callee);
@@ -13341,7 +13321,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     return false;
                 }
-                return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, out type);
+                return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, legacyWholeSubtreePlanning, out type);
             }
         }
 
@@ -13360,7 +13340,7 @@ internal sealed class ColumnarIlEmitter
         {
             return false;
         }
-        if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, out type))
+        if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, legacyWholeSubtreePlanning, out type))
         {
             return false;
         }
@@ -13680,18 +13660,10 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Static calls (no receiver on the stack): a USER type's static methods first, then a small BCL whitelist.
-    // Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
-    private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount, out Type type)
+    private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount,
+        bool legacyWholeSubtreePlanning, out Type type)
     {
         type = null!;
-        // A USER-DECLARED type name binds its OWN static methods (chain-walked, nearest declaration first — the
-        // legacy emitter resolves `Derived.F()` to a base-declared static). Resolution is by arg count; arg TYPES must
-        // match exactly (the legacy emitter's implicit conversions are not modelled — mismatch declines). CRITICALLY, a
-        // user type name must NEVER fall through to the BCL whitelist below: a user `record Math { … }` SHADOWS
-        // System.Math in the N# pipeline, so emitting the BCL method for `Math.Abs(x)` would be semantically wrong
-        // IL (the over-acceptance failure mode). The same gate covers user enums and unions — no static methods
-        // are modelled on them, so any TypeName.Member(...) call on one declines.
         if (_structRegistry.TryGetValue(typeName, out var userType))
         {
             var useExpandedParams = false;
@@ -13707,6 +13679,8 @@ internal sealed class ColumnarIlEmitter
             }
             if (useExpandedParams)
                 return TryEmitStaticExpandedParamsCall(callIdx, userStatic, out type);
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(userStatic))
+                return false;
             if (argCount != userStatic.ParamTypes.Length)
                 return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount + " argument(s) is not modeled", callIdx);
             for (var a = 1; a <= argCount; a++)
@@ -13720,8 +13694,10 @@ internal sealed class ColumnarIlEmitter
         }
         if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
             return false;
-        if (TryEmitPlannedExternalCall(typeName, isStatic: true, member, callIdx, out type))
+        if (TryEmitPlannedExternalCall(typeName, isStatic: true, member, callIdx, legacyWholeSubtreePlanning, out type))
             return true;
+        if (!legacyWholeSubtreePlanning)
+            return false;
         if (typeName == "Console" && member is nameof(Console.Write) or nameof(Console.WriteLine) && argCount == 1)
         {
             var method = typeof(Console).GetMethod(member, new[] { typeof(string) });
@@ -16419,6 +16395,7 @@ internal sealed class ColumnarIlEmitter
                 _liftedLocals,
                 _boxedCaptures,
                 _currentStruct,
+                _enclosingType,
                 _structRegistry.Values,
                 _unionRegistry.Values,
                 _tupleNamesByVariable,
@@ -16427,6 +16404,7 @@ internal sealed class ColumnarIlEmitter
                 _visibleLocalFuncs,
                 _codePlan,
                 out var nsharpOwned,
+                out var legacyWholeSubtreePlanning,
                 out type))
             return true;
         if (nsharpOwned)
@@ -16539,7 +16517,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     var receiver = Child(callee, 0);
                     if (TryGetPreflightExpressionType(receiver, out var receiverType)
-                        && TryGetPreflightInstanceCallType(receiverType, Text(callee), node, out type))
+                        && TryGetPreflightInstanceCallType(receiverType, Text(callee), node, legacyWholeSubtreePlanning, out type))
                         return true;
                     return false;
                 }
@@ -16561,11 +16539,15 @@ internal sealed class ColumnarIlEmitter
                 }
                 if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, calleeName, node, out var ownMethod))
                 {
+                    if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod))
+                        return false;
                     type = ownMethod.ReturnType;
                     return true;
                 }
                 if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out var ownStatic))
                 {
+                    if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(ownStatic))
+                        return false;
                     type = ownStatic.ReturnType;
                     return true;
                 }
@@ -16770,6 +16752,7 @@ internal sealed class ColumnarIlEmitter
         bool isStatic,
         string member,
         int callIdx,
+        bool legacyWholeSubtreePlanning,
         out ColumnarExternalCallPlan plan,
         out MethodInfo method,
         out Type[] parameterTypes,
@@ -16779,6 +16762,8 @@ internal sealed class ColumnarIlEmitter
         method = null!;
         parameterTypes = Type.EmptyTypes;
         returnType = null!;
+        if (!legacyWholeSubtreePlanning)
+            return false;
 
         var argumentCount = _nodes.ChildCount(callIdx) - 1;
         var argumentTypeNames = new string[argumentCount];
@@ -16822,6 +16807,7 @@ internal sealed class ColumnarIlEmitter
         bool isStatic,
         string member,
         int callIdx,
+        bool legacyWholeSubtreePlanning,
         out Type type)
     {
         type = null!;
@@ -16830,6 +16816,7 @@ internal sealed class ColumnarIlEmitter
                 isStatic,
                 member,
                 callIdx,
+                legacyWholeSubtreePlanning,
                 out var plan,
                 out var method,
                 out var parameterTypes,
@@ -16847,7 +16834,8 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private bool TryGetPreflightInstanceCallType(Type receiverType, string member, int callIdx, out Type type)
+    private bool TryGetPreflightInstanceCallType(Type receiverType, string member, int callIdx,
+        bool legacyWholeSubtreePlanning, out Type type)
     {
         type = null!;
         if (receiverType is TypeBuilder receiverBuilder)
@@ -16855,21 +16843,10 @@ internal sealed class ColumnarIlEmitter
             var def = FindDefByBuilder(receiverBuilder);
             if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out var method))
             {
+                if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(method))
+                    return false;
                 type = method.ReturnType;
                 return true;
-            }
-            if (def is { IsRecord: true })
-            {
-                if (member == "Equals" && _nodes.ChildCount(callIdx) == 2 && def.RecordEquals != null)
-                {
-                    type = typeof(bool);
-                    return true;
-                }
-                if (member == "GetHashCode" && _nodes.ChildCount(callIdx) == 1 && def.RecordGetHashCode != null)
-                {
-                    type = typeof(int);
-                    return true;
-                }
             }
             if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out type))
                 return true;
@@ -16881,6 +16858,8 @@ internal sealed class ColumnarIlEmitter
         if (TryGetClosedReceiverDef(receiverType, out var closedDef, out var closedArgs)
             && TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out var closedMethod))
         {
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(closedMethod))
+                return false;
             type = SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
             return true;
         }
@@ -16896,11 +16875,14 @@ internal sealed class ColumnarIlEmitter
                 isStatic: false,
                 member,
                 callIdx,
+                legacyWholeSubtreePlanning,
                 out _,
                 out _,
                 out _,
                 out type))
             return true;
+        if (!legacyWholeSubtreePlanning)
+            return false;
 
         if (IsSupportedSpanLikeType(receiverType) && member == "Slice" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3))
         {
@@ -17694,9 +17676,8 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Instance BCL calls (the receiver value is already on the stack): a small whitelist of string methods.
-    // string.IndexOf(char, int) -> int ; string.Substring(int, int) -> string.
-    private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
+    private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount,
+        bool legacyWholeSubtreePlanning, out Type type)
     {
         type = null!;
 
@@ -17705,8 +17686,11 @@ internal sealed class ColumnarIlEmitter
                 isStatic: false,
                 member,
                 callIdx,
+                legacyWholeSubtreePlanning,
                 out type))
             return true;
+        if (!legacyWholeSubtreePlanning)
+            return false;
 
         if (TryEmitAspNetStaticFilesCall(callIdx, receiverType, member, argCount, out type))
             return true;
@@ -18304,14 +18288,6 @@ internal sealed class ColumnarIlEmitter
             type = typeof(string);
             return true;
         }
-        if (receiverType == typeof(TextWriter) && member == nameof(TextWriter.WriteLine) && argCount == 1)
-        {
-            if (!EmitArg(callIdx, 1, typeof(string)))
-                return false;
-            _il.Emit(OpCodes.Callvirt, typeof(TextWriter).GetMethod(nameof(TextWriter.WriteLine), new[] { typeof(string) })!);
-            type = typeof(void);
-            return true;
-        }
         if (receiverType == typeof(Stream))
         {
             if (member == nameof(Stream.Read) && argCount == 3)
@@ -18355,20 +18331,14 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        // A USER-TYPE INSTANCE method (`receiver.Method(args)`): the receiver VALUE/REF is already on the stack.
-        // - VALUE type (struct): the instance method needs the receiver's ADDRESS, so spill to a temp and
-        //   `ldloca temp; <args>; call <MethodBuilder>` (non-virtual `call` — value-type instance methods are sealed).
-        // - REFERENCE type (record/class): the receiver IS the object ref, so spill and `ldloc temp; <args>; callvirt`
-        //   (callvirt gives the standard null check; the method is non-virtual but callvirt calls it directly).
-        // Args are emitted AFTER the receiver, in order, each type-checked against the method's declared param type.
-        // Resolution walks the BASE chain (nearest declaration first — modelling method hiding) so a derived
-        // receiver exposes INHERITED methods (`d.GetX()` where GetX is declared on Base).
         if (receiverType is TypeBuilder)
         {
             foreach (var d in _structRegistry.Values)
             {
                 if (d.Builder == receiverType && TrySelectInstanceMethodOnChain(d, member, callIdx, out var structMethod))
                 {
+                    if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(structMethod))
+                        return false;
                     var receiverTemp = _il.DeclareLocal(receiverType);
                     _il.Emit(OpCodes.Stloc, receiverTemp);
                     _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp);
@@ -18382,52 +18352,15 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
             }
-            // The synthesized RECORD value members (PASS 0e): `.Equals(other)` -> callvirt the generated
-            // Equals(object) (a reference arg converts to object implicitly; an unboxed value arg
-            // declines); `.GetHashCode()` -> callvirt the generated override. Classes have neither —
-            // the pipeline's NL103 (probe-pinned) — so they fall through to the decline below.
-            if (FindDefByBuilder((TypeBuilder)receiverType) is { IsRecord: true } recordDef)
-            {
-                if (member == "Equals" && argCount == 1 && recordDef.RecordEquals != null)
-                {
-                    // A VALUE record receiver needs its address (`call`); a reference record calls
-                    // through the object ref (`callvirt`). Value-typed args box into the object param.
-                    if (!recordDef.IsReference)
-                    {
-                        var equalsReceiverTemp = _il.DeclareLocal(receiverType);
-                        _il.Emit(OpCodes.Stloc, equalsReceiverTemp);
-                        _il.Emit(OpCodes.Ldloca, equalsReceiverTemp);
-                    }
-                    if (!EmitExpression(Child(callIdx, 1), out var equalsArgType))
-                        return false;
-                    if (equalsArgType.IsValueType)
-                        _il.Emit(OpCodes.Box, equalsArgType);
-                    _il.Emit(recordDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, recordDef.RecordEquals);
-                    type = typeof(bool);
-                    return true;
-                }
-                if (member == "GetHashCode" && argCount == 0 && recordDef.RecordGetHashCode != null)
-                {
-                    if (!recordDef.IsReference)
-                    {
-                        var hashReceiverTemp = _il.DeclareLocal(receiverType);
-                        _il.Emit(OpCodes.Stloc, hashReceiverTemp);
-                        _il.Emit(OpCodes.Ldloca, hashReceiverTemp);
-                    }
-                    _il.Emit(recordDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, recordDef.RecordGetHashCode);
-                    type = typeof(int);
-                    return true;
-                }
-            }
             return false; // a TypeBuilder receiver with no matching instance method -> decline.
         }
 
-        // A CLOSED user-generic receiver (`Box<int>`): resolve the method on the OPEN definition (own
-        // type only — generic base chains are declined at declaration), rebind via TypeBuilder.GetMethod,
-        // and substitute the closed type arguments into the param checks and the result type.
+        // The same exclusion fence applies to closed source-generic receivers.
         if (TryGetClosedReceiverDef(receiverType, out var closedDef, out var closedArgs))
         {
             if (!TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out var closedMethod))
+                return false;
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(closedMethod))
                 return false;
             var closedReceiverTemp = _il.DeclareLocal(receiverType);
             _il.Emit(OpCodes.Stloc, closedReceiverTemp);

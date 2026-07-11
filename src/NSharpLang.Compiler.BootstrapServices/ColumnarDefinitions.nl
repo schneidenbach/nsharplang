@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
-public class ColumnarEnumDef {
+class ColumnarEnumDef {
     enumTypeValue: Type
     constantsValue: Dictionary<string, int>
     stringConstantsValue: Dictionary<string, string>?
@@ -22,7 +22,7 @@ public class ColumnarEnumDef {
     }
 }
 
-public class ColumnarUnionDef {
+class ColumnarUnionDef {
     Base: TypeBuilder
     Cases: Dictionary<string, ColumnarUnionCaseDef>
     TypeParamCount: int
@@ -37,7 +37,7 @@ public class ColumnarUnionDef {
     }
 }
 
-public class ColumnarUnionCaseDef {
+class ColumnarUnionCaseDef {
     CaseType: TypeBuilder
     Ctor: ConstructorBuilder
     FieldOrder: string[]
@@ -62,25 +62,53 @@ public class ColumnarUnionCaseDef {
 // Named metadata rows keep the source-type model readable to both N# and its temporary
 // C# assembly owner. N# tuple element names are source-only today, so public tuple fields
 // would otherwise surface to C# as Item1/Item2/Item3.
-public class ColumnarInstanceMethodDef {
+class ColumnarInstanceMethodDef {
     Builder: MethodBuilder
     ParamTypes: Type[]
+    ParamModifierKinds: int[]
     ReturnType: Type
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
+        if builder == null || paramTypes == null || returnType == null {
+            throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
+        }
+
         Builder = builder
         ParamTypes = paramTypes
+        ParamModifierKinds = new int[](0)
         ReturnType = returnType
     }
 
-    public func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type) {
+        if builder == null || paramTypes == null || paramModifierKinds == null || returnType == null {
+            throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
+        }
+
+        if paramModifierKinds.Length != 0 && paramModifierKinds.Length != paramTypes.Length {
+            throw new InvalidOperationException("Source instance-method modifier facts must be empty or match the parameter count.")
+        }
+
+        Builder = builder
+        ParamTypes = paramTypes
+        ParamModifierKinds = paramModifierKinds
+        ReturnType = returnType
+    }
+
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
         builder = Builder
         paramTypes = ParamTypes
         returnType = ReturnType
     }
+
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
+        builder = Builder
+        paramTypes = ParamTypes
+        paramModifierKinds = ParamModifierKinds
+        returnType = ReturnType
+    }
 }
 
-public class ColumnarStaticMethodDef {
+class ColumnarStaticMethodDef {
     Builder: MethodBuilder
     ParamTypes: Type[]
     ParamModifierKinds: int[]
@@ -93,7 +121,7 @@ public class ColumnarStaticMethodDef {
         ReturnType = returnType
     }
 
-    public func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
         builder = Builder
         paramTypes = ParamTypes
         paramModifierKinds = ParamModifierKinds
@@ -101,23 +129,20 @@ public class ColumnarStaticMethodDef {
     }
 }
 
-class ColumnarPropertyDefinitionToken {}
+class ColumnarPropertyDefinitionToken {
+}
 
-public class ColumnarPropertyDef {
+class ColumnarPropertyDef {
     Getter: MethodBuilder
     Setter: MethodBuilder?
     PropertyType: Type
     GetterParameterCount: int
 
-    constructor(
-        getter: MethodBuilder,
-        setter: MethodBuilder?,
-        propertyType: Type,
-        token: ColumnarPropertyDefinitionToken) {
+    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken) {
         if getter == null || propertyType == null || token == null {
-            throw new InvalidOperationException(
-                "Source property definition facts cannot be null.")
+            throw new InvalidOperationException("Source property definition facts cannot be null.")
         }
+
         Getter = getter
         Setter = setter
         PropertyType = propertyType
@@ -127,42 +152,31 @@ public class ColumnarPropertyDef {
     // Define the accessors and their signature fact atomically. A ColumnarPropertyDef cannot
     // wrap an arbitrary MethodBuilder: the only construction route creates a zero-parameter
     // getter and, when present, a one-parameter setter itself.
-    public static func Define(
-        owner: TypeBuilder,
-        getterName: string,
-        getterAttributes: MethodAttributes,
-        propertyType: Type,
-        setterName: string?,
-        setterAttributes: MethodAttributes): ColumnarPropertyDef {
+    static func Define(owner: TypeBuilder, getterName: string, getterAttributes: MethodAttributes, propertyType: Type, setterName: string?, setterAttributes: MethodAttributes): ColumnarPropertyDef {
         if owner == null || getterName == null || propertyType == null {
-            throw new InvalidOperationException(
-                "Source property definition inputs cannot be null.")
+            throw new InvalidOperationException("Source property definition inputs cannot be null.")
         }
+
         getterParameters := new Type[](0)
-        getter := owner.DefineMethod(
-            getterName, getterAttributes, propertyType, getterParameters)
+        getter := owner.DefineMethod(getterName, getterAttributes, propertyType, getterParameters)
+
         setter: MethodBuilder? = null
         if setterName != null {
             voidType := Type.GetType("System.Void")
             if voidType == null {
-                throw new InvalidOperationException(
-                    "System.Void runtime type was not found.")
+                throw new InvalidOperationException("System.Void runtime type was not found.")
             }
+
             setterParameters := new Type[](1)
             setterParameters[0] = propertyType
-            setter = owner.DefineMethod(
-                setterName, setterAttributes, voidType, setterParameters)
+            setter = owner.DefineMethod(setterName, setterAttributes, voidType, setterParameters)
         }
-        return new ColumnarPropertyDef(
-            getter,
-            setter,
-            propertyType,
-            new ColumnarPropertyDefinitionToken())
-    }
 
+        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
+    }
 }
 
-public class ColumnarConstructorDef {
+class ColumnarConstructorDef {
     Builder: ConstructorBuilder
     ParamTypes: Type[]
     DefaultKinds: int[]
@@ -175,7 +189,7 @@ public class ColumnarConstructorDef {
         DefaultTexts = defaultTexts
     }
 
-    public func Deconstruct(out builder: ConstructorBuilder, out paramTypes: Type[], out defaultKinds: int[], out defaultTexts: string[]) {
+    func Deconstruct(out builder: ConstructorBuilder, out paramTypes: Type[], out defaultKinds: int[], out defaultTexts: string[]) {
         builder = Builder
         paramTypes = ParamTypes
         defaultKinds = DefaultKinds
@@ -185,8 +199,9 @@ public class ColumnarConstructorDef {
 
 // Live source-type metadata is N#-owned so expression planners can select exact unbaked
 // FieldBuilder/MethodBuilder handles without a C# lookup bridge.
-public class ColumnarStructDef {
+class ColumnarStructDef {
     Builder: TypeBuilder
+    DeclaredTypeName: string
     FieldOrder: string[]
     Fields: Dictionary<string, FieldBuilder>
     NullableFields: HashSet<string>
@@ -216,17 +231,13 @@ public class ColumnarStructDef {
     RecordGetHashCode: MethodBuilder?
     RecordClone: MethodBuilder?
 
-    constructor(
-        builder: TypeBuilder,
-        fieldOrder: string[],
-        fields: Dictionary<string, FieldBuilder>,
-        isReference: bool,
-        isRecord: bool = false,
-        isClosureDisplay: bool = false) {
-        if builder == null || fieldOrder == null || fields == null {
+    constructor(builder: TypeBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, isReference: bool, isRecord: bool = false, isClosureDisplay: bool = false, declaredTypeName: string = "") {
+        if builder == null || fieldOrder == null || fields == null || declaredTypeName == null {
             throw new InvalidOperationException("Columnar source-type metadata cannot be null.")
         }
+
         Builder = builder
+        DeclaredTypeName = declaredTypeName
         FieldOrder = fieldOrder
         Fields = fields
         NullableFields = new HashSet<string>(StringComparer.Ordinal)
@@ -250,38 +261,73 @@ public class ColumnarStructDef {
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
     }
 
-    public func SetFieldOrder(fieldOrder: string[]) {
+    func SetFieldOrder(fieldOrder: string[]) {
         if fieldOrder == null {
             throw new InvalidOperationException("Columnar source-type field order cannot be null.")
         }
+
         FieldOrder = fieldOrder
     }
 
+    // Synthesized record value members enter the same exact source-method registry as user
+    // declarations. Defining the MethodBuilder and its signature fact together prevents a later
+    // call owner from reconstructing either fact from an unbaked TypeBuilder.
+    func DefineSynthesizedRecordEquals(): MethodBuilder {
+        if !IsRecord || RecordEquals != null || Methods.ContainsKey("Equals") || MethodOverloads.ContainsKey("Equals") {
+            throw new InvalidOperationException("Synthesized record Equals requires one unclaimed record member slot.")
+        }
+
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = typeof(object)
+        method := Builder.DefineMethod("Equals", (MethodAttributes)198, typeof(bool), parameterTypes)
+        definition := new ColumnarInstanceMethodDef(method, parameterTypes, new int[](0), typeof(bool))
+        overloads := new List<ColumnarInstanceMethodDef>()
+        overloads.Add(definition)
+
+        RecordEquals = method
+        Methods["Equals"] = definition
+        MethodOverloads["Equals"] = overloads
+        return method
+    }
+
+    func DefineSynthesizedRecordGetHashCode(): MethodBuilder {
+        if !IsRecord || RecordGetHashCode != null || Methods.ContainsKey("GetHashCode") || MethodOverloads.ContainsKey("GetHashCode") {
+            throw new InvalidOperationException("Synthesized record GetHashCode requires one unclaimed record member slot.")
+        }
+
+        parameterTypes := new Type[](0)
+        method := Builder.DefineMethod("GetHashCode", (MethodAttributes)198, typeof(int), parameterTypes)
+        definition := new ColumnarInstanceMethodDef(method, parameterTypes, new int[](0), typeof(int))
+        overloads := new List<ColumnarInstanceMethodDef>()
+        overloads.Add(definition)
+
+        RecordGetHashCode = method
+        Methods["GetHashCode"] = definition
+        MethodOverloads["GetHashCode"] = overloads
+        return method
+    }
 }
 
 // Exact read-only view of the active `this` chain. Production facts wrap the live source
 // definitions without copying their mutable declaration maps; native owner tests can instead
 // provide baked runtime handles. Lookup and cycle rejection live here as one semantic authority.
-public class ColumnarCurrentPropertyFact {
+class ColumnarCurrentPropertyFact {
     Getter: MethodInfo
     PropertyType: Type
     GetterParameterCount: int
 
-    constructor(
-        getter: MethodInfo,
-        propertyType: Type,
-        getterParameterCount: int) {
+    constructor(getter: MethodInfo, propertyType: Type, getterParameterCount: int) {
         if getter == null || propertyType == null || getterParameterCount < 0 {
-            throw new InvalidOperationException(
-                "Current-instance property facts cannot be null.")
+            throw new InvalidOperationException("Current-instance property facts cannot be null.")
         }
+
         Getter = getter
         PropertyType = propertyType
         GetterParameterCount = getterParameterCount
     }
 }
 
-public class ColumnarCurrentInstanceFacts {
+class ColumnarCurrentInstanceFacts {
     ExactType: Type
     IsReference: bool
     IsClosureDisplay: bool
@@ -290,14 +336,11 @@ public class ColumnarCurrentInstanceFacts {
     Properties: Dictionary<string, ColumnarCurrentPropertyFact>
     BaseFacts: ColumnarCurrentInstanceFacts?
 
-    constructor(
-        exactType: Type,
-        isReference: bool,
-        isClosureDisplay: bool = false) {
+    constructor(exactType: Type, isReference: bool, isClosureDisplay: bool = false) {
         if exactType == null {
-            throw new InvalidOperationException(
-                "Current-instance exact type cannot be null.")
+            throw new InvalidOperationException("Current-instance exact type cannot be null.")
         }
+
         ExactType = exactType
         IsReference = isReference
         IsClosureDisplay = isClosureDisplay
@@ -306,27 +349,22 @@ public class ColumnarCurrentInstanceFacts {
         Properties = new Dictionary<string, ColumnarCurrentPropertyFact>(StringComparer.Ordinal)
     }
 
-    public static func FromSourceDefinition(
-        source: ColumnarStructDef): ColumnarCurrentInstanceFacts {
+    static func FromSourceDefinition(source: ColumnarStructDef): ColumnarCurrentInstanceFacts {
         if source == null {
-            throw new InvalidOperationException(
-                "Current-instance source definition cannot be null.")
+            throw new InvalidOperationException("Current-instance source definition cannot be null.")
         }
-        result := new ColumnarCurrentInstanceFacts(
-            source.Builder, source.IsReference, source.IsClosureDisplay)
+
+        result := new ColumnarCurrentInstanceFacts(source.Builder, source.IsReference, source.IsClosureDisplay)
+
         result.SourceDefinition = source
         return result
     }
 
-    public static func TryFindField(
-        root: ColumnarCurrentInstanceFacts,
-        name: string,
-        out field: FieldInfo?,
-        out declaringType: Type): bool {
+    static func TryFindField(root: ColumnarCurrentInstanceFacts, name: string, out field: FieldInfo?, out declaringType: Type): bool {
         if root == null || name == null {
-            throw new InvalidOperationException(
-                "Current-instance field lookup facts cannot be null.")
+            throw new InvalidOperationException("Current-instance field lookup facts cannot be null.")
         }
+
         if root.SourceDefinition != null {
             ValidateSourceHierarchy(root.SourceDefinition)
             current: ColumnarStructDef? = root.SourceDefinition
@@ -336,6 +374,7 @@ public class ColumnarCurrentInstanceFacts {
                     declaringType = current.Builder
                     return true
                 }
+
                 current = current.BaseDef
             }
         } else {
@@ -343,32 +382,29 @@ public class ColumnarCurrentInstanceFacts {
             currentFacts: ColumnarCurrentInstanceFacts? = root
             while currentFacts != null {
                 if currentFacts.SourceDefinition != null {
-                    throw new InvalidOperationException(
-                        "Current-instance runtime facts cannot mix source definitions into their base chain.")
+                    throw new InvalidOperationException("Current-instance runtime facts cannot mix source definitions into their base chain.")
                 }
+
                 if currentFacts.Fields.ContainsKey(name) {
                     field = currentFacts.Fields[name]
                     declaringType = currentFacts.ExactType
                     return true
                 }
+
                 currentFacts = currentFacts.BaseFacts
             }
         }
+
         field = null
         declaringType = typeof(object)
         return false
     }
 
-    public static func TryFindProperty(
-        root: ColumnarCurrentInstanceFacts,
-        name: string,
-        out getter: MethodInfo?,
-        out propertyType: Type,
-        out declaringType: Type): bool {
+    static func TryFindProperty(root: ColumnarCurrentInstanceFacts, name: string, out getter: MethodInfo?, out propertyType: Type, out declaringType: Type): bool {
         if root == null || name == null {
-            throw new InvalidOperationException(
-                "Current-instance property lookup facts cannot be null.")
+            throw new InvalidOperationException("Current-instance property lookup facts cannot be null.")
         }
+
         if root.SourceDefinition != null {
             ValidateSourceHierarchy(root.SourceDefinition)
             current: ColumnarStructDef? = root.SourceDefinition
@@ -378,12 +414,13 @@ public class ColumnarCurrentInstanceFacts {
                     getter = AsMethodInfo(property.Getter)
                     propertyType = property.PropertyType
                     if property.GetterParameterCount != 0 {
-                        throw new InvalidOperationException(
-                            "Source property getter facts must declare zero parameters.")
+                        throw new InvalidOperationException("Source property getter facts must declare zero parameters.")
                     }
+
                     declaringType = current.Builder
                     return true
                 }
+
                 current = current.BaseDef
             }
         } else {
@@ -391,23 +428,25 @@ public class ColumnarCurrentInstanceFacts {
             currentFacts: ColumnarCurrentInstanceFacts? = root
             while currentFacts != null {
                 if currentFacts.SourceDefinition != null {
-                    throw new InvalidOperationException(
-                        "Current-instance runtime facts cannot mix source definitions into their base chain.")
+                    throw new InvalidOperationException("Current-instance runtime facts cannot mix source definitions into their base chain.")
                 }
+
                 if currentFacts.Properties.ContainsKey(name) {
                     property := currentFacts.Properties[name]
                     getter = property.Getter
                     propertyType = property.PropertyType
                     if property.GetterParameterCount != 0 {
-                        throw new InvalidOperationException(
-                            "Current-instance property getter facts must declare zero parameters.")
+                        throw new InvalidOperationException("Current-instance property getter facts must declare zero parameters.")
                     }
+
                     declaringType = currentFacts.ExactType
                     return true
                 }
+
                 currentFacts = currentFacts.BaseFacts
             }
         }
+
         getter = null
         propertyType = typeof(object)
         declaringType = typeof(object)
@@ -421,14 +460,15 @@ public class ColumnarCurrentInstanceFacts {
             if slow != null {
                 slow = slow.BaseDef
             }
+
             next := fast.BaseDef
             if next == null {
                 return
             }
+
             fast = next.BaseDef
             if slow != null && slow == fast {
-                throw new InvalidOperationException(
-                    "Current-instance source hierarchy contains a cycle.")
+                throw new InvalidOperationException("Current-instance source hierarchy contains a cycle.")
             }
         }
     }
@@ -440,14 +480,15 @@ public class ColumnarCurrentInstanceFacts {
             if slow != null {
                 slow = slow.BaseFacts
             }
+
             next := fast.BaseFacts
             if next == null {
                 return
             }
+
             fast = next.BaseFacts
             if slow != null && slow == fast {
-                throw new InvalidOperationException(
-                    "Current-instance runtime hierarchy contains a cycle.")
+                throw new InvalidOperationException("Current-instance runtime hierarchy contains a cycle.")
             }
         }
     }

@@ -196,7 +196,7 @@ SETS = {
                        "docs/", "website/docs/",
                        "editors/vscode/test/suite/"),
     "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
-                           "tests/scripts/"),
+                           "tests/native/direct-calls/", "tests/scripts/"),
 }
 
 # Behavior-changing environment must be part of every step key, mirroring
@@ -557,6 +557,7 @@ handle_success "N# NuGet package cache entries cleared"
 run_template_and_examples_steps() {
 ILVERIFY_BUILT_DIRS_FILE=$(mktemp)
 ILVERIFY_TEMP_DIRS=()
+printf '%s\n' "$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll" >> "$ILVERIFY_BUILT_DIRS_FILE"
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local N# package cache..."
 if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
@@ -792,8 +793,7 @@ section "Step 10: Check Examples (nlc check)"
 echo "Running nlc check on all example directories..."
 echo "This verifies the Language Server won't report false errors."
 
-# Directories to check individually (each is a self-contained project scope).
-# Skip umbrella folders with no direct .nl files and no project.yml; their child
+# Check each self-contained project; skip umbrella folders with no direct .nl files or project.yml. Their child
 # projects are checked separately. This keeps the output trustworthy without
 # parent-directory allowlists that mask bad import roots.
 CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)

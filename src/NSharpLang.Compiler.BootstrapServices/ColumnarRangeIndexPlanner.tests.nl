@@ -9,10 +9,10 @@ enum ColumnarRangePlannerProbeEnum {
     Four = 4
 }
 
-public class ColumnarRangePlannerTestTree {
-    public Nodes: ColumnarNodeTable
-    public Source: string
-    public Root: int
+class ColumnarRangePlannerTestTree {
+    Nodes: ColumnarNodeTable
+    Source: string
+    Root: int
 
     constructor(nodes: ColumnarNodeTable, source: string, root: int) {
         Nodes = nodes
@@ -22,7 +22,7 @@ public class ColumnarRangePlannerTestTree {
 }
 
 class ColumnarRangePlannerNodeBuilder {
-    public Source: string
+    Source: string
     kinds: List<int>
     valueStarts: List<int>
     valueLengths: List<int>
@@ -44,19 +44,13 @@ class ColumnarRangePlannerNodeBuilder {
         spanLengths = new List<int>()
     }
 
-    public func AddToken(text: string): int {
+    func AddToken(text: string): int {
         start := Source.Length
         Source = Source + text
         return start
     }
 
-    public func AddNode(
-        kind: int,
-        valueStart: int,
-        valueLength: int,
-        spanStart: int,
-        spanLength: int,
-        nodeChildren: int[]): int {
+    func AddNode(kind: int, valueStart: int, valueLength: int, spanStart: int, spanLength: int, nodeChildren: int[]): int {
         index := kinds.Count
         kinds.Add(kind)
         valueStarts.Add(valueStart)
@@ -66,26 +60,20 @@ class ColumnarRangePlannerNodeBuilder {
         for child in nodeChildren {
             children.Add(child)
         }
+
         spanStarts.Add(spanStart)
         spanLengths.Add(spanLength)
         return index
     }
 
-    public func AddLeaf(kind: int, text: string): int {
+    func AddLeaf(kind: int, text: string): int {
         start := AddToken(text)
         return AddNode(kind, start, text.Length, start, text.Length, new int[](0))
     }
 
-    public func Build(root: int): ColumnarRangePlannerTestTree {
-        table := new ColumnarNodeTable(
-            kinds.ToArray(),
-            valueStarts.ToArray(),
-            valueLengths.ToArray(),
-            childStarts.ToArray(),
-            childCounts.ToArray(),
-            children.ToArray(),
-            spanStarts.ToArray(),
-            spanLengths.ToArray())
+    func Build(root: int): ColumnarRangePlannerTestTree {
+        table := new ColumnarNodeTable(kinds.ToArray(), valueStarts.ToArray(), valueLengths.ToArray(), childStarts.ToArray(), childCounts.ToArray(), children.ToArray(), spanStarts.ToArray(), spanLengths.ToArray())
+
         return new ColumnarRangePlannerTestTree(table, Source, root)
     }
 }
@@ -112,23 +100,10 @@ func ColumnarRangePlannerChildren3(first: int, second: int, third: int): int[] {
 }
 
 func ColumnarRangePlannerEmptyBindings(): ColumnarFragmentBindings {
-    return new ColumnarFragmentBindings(
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        new Dictionary<string, Type>(StringComparer.Ordinal),
-        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
-        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal))
+    return new ColumnarFragmentBindings(new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal))
 }
 
-func ColumnarRangePlannerAddParameter(
-    bindings: ColumnarFragmentBindings,
-    name: string,
-    ordinal: int,
-    parameterType: Type) {
+func ColumnarRangePlannerAddParameter(bindings: ColumnarFragmentBindings, name: string, ordinal: int, parameterType: Type) {
     bindings.ParameterOrdinals[name] = ordinal
     bindings.ParameterTypes[name] = parameterType
 }
@@ -141,9 +116,7 @@ func ColumnarRangePlannerEmptyBoxedFacts(): Dictionary<string, (BoxField: System
     return new Dictionary<string, (BoxField: System.Reflection.FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
 }
 
-func ColumnarRangePlannerAddNumericEnum(
-    bindings: ColumnarFragmentBindings,
-    name: string) {
+func ColumnarRangePlannerAddNumericEnum(bindings: ColumnarFragmentBindings, name: string) {
     constants := new Dictionary<string, int>(StringComparer.Ordinal)
     constants["Zero"] = 0
     constants["One"] = 1
@@ -155,24 +128,15 @@ func ColumnarRangePlannerFromEndLiteral(text: string, parentheses: int = 0): Col
     builder := new ColumnarRangePlannerNodeBuilder()
     caretStart := builder.AddToken("^")
     literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caretStart,
-        1,
-        caretStart,
-        1 + text.Length,
-        ColumnarRangePlannerChildren1(literal))
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(literal))
+
     i := 0
     while i < parentheses {
-        root = builder.AddNode(
-            ColumnarExpressionNodeKind.ParenthesizedExpression(),
-            -1,
-            0,
-            caretStart,
-            1 + text.Length,
-            ColumnarRangePlannerChildren1(root))
+        root = builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(root))
+
         i = i + 1
     }
+
     return builder.Build(root)
 }
 
@@ -180,13 +144,8 @@ func ColumnarRangePlannerFromEndIdentifier(name: string): ColumnarRangePlannerTe
     builder := new ColumnarRangePlannerNodeBuilder()
     caretStart := builder.AddToken("^")
     identifier := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caretStart,
-        1,
-        caretStart,
-        1 + name.Length,
-        ColumnarRangePlannerChildren1(identifier))
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 1 + name.Length, ColumnarRangePlannerChildren1(identifier))
+
     return builder.Build(root)
 }
 
@@ -194,13 +153,8 @@ func ColumnarRangePlannerDirectAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
     selector := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "selector")
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(receiver, selector))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+
     return builder.Build(root)
 }
 
@@ -208,13 +162,8 @@ func ColumnarRangePlannerOrdinaryLiteralAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
     selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(receiver, selector))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+
     return builder.Build(root)
 }
 
@@ -223,28 +172,13 @@ func ColumnarRangePlannerFromEndIndexedCount(): ColumnarRangePlannerTestTree {
     values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
     counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "counts")
     zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    count := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(counts, zero))
+    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
+
     caret := builder.AddToken("^")
-    fromEnd := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caret,
-        1,
-        caret,
-        1,
-        ColumnarRangePlannerChildren1(count))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(values, fromEnd))
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, caret, 1, ColumnarRangePlannerChildren1(count))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, fromEnd))
+
     return builder.Build(root)
 }
 
@@ -253,20 +187,10 @@ func ColumnarRangePlannerOrdinaryIndexedCount(): ColumnarRangePlannerTestTree {
     values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
     counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "counts")
     zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    count := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(counts, zero))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(values, count))
+    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, count))
+
     return builder.Build(root)
 }
 
@@ -274,29 +198,14 @@ func ColumnarRangePlannerNestedArrayFromEnd(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     matrix := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "matrix")
     zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    row := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(matrix, zero))
+    row := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(matrix, zero))
+
     caret := builder.AddToken("^")
     one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    fromEnd := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caret,
-        1,
-        caret,
-        2,
-        ColumnarRangePlannerChildren1(one))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(row, fromEnd))
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, caret, 2, ColumnarRangePlannerChildren1(one))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(row, fromEnd))
+
     return builder.Build(root)
 }
 
@@ -311,27 +220,18 @@ func ColumnarRangePlannerRangeForm(form: int): ColumnarRangePlannerTestTree {
     if form == 0 || form == 2 {
         startToken = builder.AddToken("1")
     }
+
     dotToken = builder.AddToken("..")
     if form == 0 || form == 1 {
         endToken = builder.AddToken("4")
     }
+
     if startToken >= 0 {
-        startNode = builder.AddNode(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            startToken,
-            1,
-            startToken,
-            1,
-            new int[](0))
+        startNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), startToken, 1, startToken, 1, new int[](0))
     }
+
     if endToken >= 0 {
-        endNode = builder.AddNode(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            endToken,
-            1,
-            endToken,
-            1,
-            new int[](0))
+        endNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), endToken, 1, endToken, 1, new int[](0))
     }
 
     nodeChildren := new int[](0)
@@ -342,30 +242,20 @@ func ColumnarRangePlannerRangeForm(form: int): ColumnarRangePlannerTestTree {
     } else if endNode >= 0 {
         nodeChildren = ColumnarRangePlannerChildren1(endNode)
     }
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.RangeExpression(),
-        dotToken,
-        2,
-        0,
-        builder.Source.Length,
-        nodeChildren)
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dotToken, 2, 0, builder.Source.Length, nodeChildren)
+
     return builder.Build(root)
 }
 
-func ColumnarRangePlannerPlan(
-    tree: ColumnarRangePlannerTestTree,
-    bindings: ColumnarFragmentBindings): ColumnarCodePlan {
+func ColumnarRangePlannerPlan(tree: ColumnarRangePlannerTestTree, bindings: ColumnarFragmentBindings): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
-    status := ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        bindings,
-        ColumnarRangeIndexHandles.Resolve(),
-        plan)
+    status := ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan)
+
     if status != ColumnarFragmentPlanStatus.Planned {
         throw new InvalidOperationException("Expected range/index planner ownership.")
     }
+
     ColumnarCodePlanExecutor.Validate(plan)
     return plan
 }
@@ -391,11 +281,7 @@ func ColumnarRangePlannerAssertEmptyRollback(plan: ColumnarCodePlan) {
     assert plan.LabelCount == 0
 }
 
-func ColumnarRangePlannerAssertArrayIndexOpcode(
-    arrayType: Type,
-    elementType: Type,
-    expectedOpcode: short,
-    expectedOperandKind: int) {
+func ColumnarRangePlannerAssertArrayIndexOpcode(arrayType: Type, elementType: Type, expectedOpcode: short, expectedOperandKind: int) {
     tree := ColumnarRangePlannerDirectAccess()
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "target", 0, arrayType)
@@ -464,11 +350,12 @@ test "range planner emits each open and closed range form exactly" {
         } else if form == 3 {
             expectedFragments = 1
         }
+
         assert plan.ResultType == typeof(Range)
         assert plan.OperationCount == 7
         assert plan.FragmentCount == expectedFragments
-        assert plan.OpCodeValues[plan.OperationCount - 1]
-            == ColumnarCodePlanContract.Newobj()
+        assert plan.OpCodeValues[plan.OperationCount - 1] == ColumnarCodePlanContract.Newobj()
+
         if form == 0 {
             assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
             assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4_0()
@@ -485,10 +372,12 @@ test "range planner emits each open and closed range form exactly" {
             } else {
                 assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_0()
             }
+
             assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4_0()
             assert plan.OpCodeValues[3] == ColumnarCodePlanContract.LdcI4_0()
             assert plan.OpCodeValues[4] == ColumnarCodePlanContract.LdcI4_1()
         }
+
         assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Newobj()
         assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Newobj()
         rangeConstructor := plan.Constructors[plan.OperandIndices[plan.OperationCount - 1]]
@@ -503,41 +392,16 @@ test "range planner owns parenthesized start through an inclusive from-end-zero 
     dotToken := builder.AddToken("..")
     caretToken := builder.AddToken("^")
     zeroToken := builder.AddToken("0")
-    start := builder.AddNode(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
-        startToken,
-        1,
-        startToken,
-        1,
-        new int[](0))
-    parenthesizedStart := builder.AddNode(
-        ColumnarExpressionNodeKind.ParenthesizedExpression(),
-        -1,
-        0,
-        startToken,
-        1,
-        ColumnarRangePlannerChildren1(start))
-    zero := builder.AddNode(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
-        zeroToken,
-        1,
-        zeroToken,
-        1,
-        new int[](0))
-    fromEndZero := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caretToken,
-        1,
-        caretToken,
-        2,
-        ColumnarRangePlannerChildren1(zero))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.RangeExpression(),
-        dotToken,
-        2,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(parenthesizedStart, fromEndZero))
+    start := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), startToken, 1, startToken, 1, new int[](0))
+
+    parenthesizedStart := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, startToken, 1, ColumnarRangePlannerChildren1(start))
+
+    zero := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), zeroToken, 1, zeroToken, 1, new int[](0))
+
+    fromEndZero := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretToken, 1, caretToken, 2, ColumnarRangePlannerChildren1(zero))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dotToken, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(parenthesizedStart, fromEndZero))
+
     plan := ColumnarRangePlannerPlan(builder.Build(root), ColumnarRangePlannerEmptyBindings())
 
     assert plan.ResultType == typeof(Range)
@@ -556,13 +420,8 @@ test "range planner accepts direct Index endpoints and exact small integral conv
     start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "start")
     dot := builder.AddToken("..")
     end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "end")
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.RangeExpression(),
-        dot,
-        2,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(start, end))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dot, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+
     tree := builder.Build(root)
 
     indexBindings := ColumnarRangePlannerEmptyBindings()
@@ -588,20 +447,10 @@ test "range planner resolves exact numeric enum members and rejects every shadow
     caret := builder.AddToken("^")
     owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Bound")
     memberToken := builder.AddToken("One")
-    member := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
-        memberToken,
-        3,
-        1,
-        8,
-        ColumnarRangePlannerChildren1(owner))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caret,
-        1,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren1(member))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberToken, 3, 1, 8, ColumnarRangePlannerChildren1(owner))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+
     tree := builder.Build(root)
 
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -614,66 +463,44 @@ test "range planner resolves exact numeric enum members and rejects every shadow
 
     blockedNames := new HashSet<string>(StringComparer.Ordinal)
     callableNames := new HashSet<string>(StringComparer.Ordinal)
-    shadowed := new ColumnarFragmentBindings(
-        bindings.ParameterOrdinals,
-        bindings.ParameterTypes,
-        bindings.Locals,
-        bindings.Enums,
-        blockedNames,
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        callableNames)
+    shadowed := new ColumnarFragmentBindings(bindings.ParameterOrdinals, bindings.ParameterTypes, bindings.Locals, bindings.Enums, blockedNames, new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), callableNames)
 
     blockedNames.Add("Bound")
     blockedPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, shadowed,
-        ColumnarRangeIndexHandles.Resolve(), blockedPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, shadowed, ColumnarRangeIndexHandles.Resolve(), blockedPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(blockedPlan)
 
     blockedNames.Remove("Bound")
     callableNames.Add("Bound")
     callablePlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, shadowed,
-        ColumnarRangeIndexHandles.Resolve(), callablePlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, shadowed, ColumnarRangeIndexHandles.Resolve(), callablePlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(callablePlan)
 
     callableNames.Remove("Bound")
     ColumnarRangePlannerAddParameter(shadowed, "Bound", 7, typeof(int))
     parameterPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, shadowed,
-        ColumnarRangeIndexHandles.Resolve(), parameterPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, shadowed, ColumnarRangeIndexHandles.Resolve(), parameterPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(parameterPlan)
 
     unknownBindings := ColumnarRangePlannerEmptyBindings()
-    unknownBindings.Enums["Bound"] = new ColumnarEnumDef(
-        typeof(ColumnarRangePlannerProbeEnum),
-        new Dictionary<string, int>(StringComparer.Ordinal))
+    unknownBindings.Enums["Bound"] = new ColumnarEnumDef(typeof(ColumnarRangePlannerProbeEnum), new Dictionary<string, int>(StringComparer.Ordinal))
+
     unknownPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, unknownBindings,
-        ColumnarRangeIndexHandles.Resolve(), unknownPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, unknownBindings, ColumnarRangeIndexHandles.Resolve(), unknownPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(unknownPlan)
 
     stringConstants := new Dictionary<string, string>(StringComparer.Ordinal)
     stringConstants["One"] = "one"
     stringBindings := ColumnarRangePlannerEmptyBindings()
-    stringBindings.Enums["Bound"] = new ColumnarEnumDef(
-        typeof(string),
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        stringConstants)
+    stringBindings.Enums["Bound"] = new ColumnarEnumDef(typeof(string), new Dictionary<string, int>(StringComparer.Ordinal), stringConstants)
+
     stringPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, stringBindings,
-        ColumnarRangeIndexHandles.Resolve(), stringPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, stringBindings, ColumnarRangeIndexHandles.Resolve(), stringPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(stringPlan)
 }
 
@@ -682,28 +509,13 @@ test "range planner resolves dotted enum names by exact root and member identity
     caret := builder.AddToken("^")
     packageNode := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Pkg")
     ownerToken := builder.AddToken("Bound")
-    owner := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
-        ownerToken,
-        5,
-        1,
-        8,
-        ColumnarRangePlannerChildren1(packageNode))
+    owner := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), ownerToken, 5, 1, 8, ColumnarRangePlannerChildren1(packageNode))
+
     memberToken := builder.AddToken("Four")
-    member := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
-        memberToken,
-        4,
-        1,
-        12,
-        ColumnarRangePlannerChildren1(owner))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caret,
-        1,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren1(member))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberToken, 4, 1, 12, ColumnarRangePlannerChildren1(owner))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+
     tree := builder.Build(root)
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddNumericEnum(bindings, "Pkg.Bound")
@@ -750,64 +562,44 @@ test "range planner emits exact string Index and Range read sequences" {
 }
 
 test "range planner selects every exact SZ-array Index load family" {
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(bool[]), typeof(bool), ColumnarCodePlanContract.LdelemU1(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(char[]), typeof(char), ColumnarCodePlanContract.LdelemU2(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(int[]), typeof(int), ColumnarCodePlanContract.LdelemI4(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(uint[]), typeof(uint), ColumnarCodePlanContract.LdelemU4(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(long[]), typeof(long), ColumnarCodePlanContract.LdelemI8(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(ulong[]), typeof(ulong), ColumnarCodePlanContract.LdelemI8(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(float[]), typeof(float), ColumnarCodePlanContract.LdelemR4(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(double[]), typeof(double), ColumnarCodePlanContract.LdelemR8(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(string[]), typeof(string), ColumnarCodePlanContract.LdelemRef(),
-        ColumnarCodePlanContract.NoOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(object[]), typeof(object), ColumnarCodePlanContract.LdelemRef(),
-        ColumnarCodePlanContract.NoOperand())
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(bool[]), typeof(bool), ColumnarCodePlanContract.LdelemU1(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(char[]), typeof(char), ColumnarCodePlanContract.LdelemU2(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(int[]), typeof(int), ColumnarCodePlanContract.LdelemI4(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(uint[]), typeof(uint), ColumnarCodePlanContract.LdelemU4(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(long[]), typeof(long), ColumnarCodePlanContract.LdelemI8(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(ulong[]), typeof(ulong), ColumnarCodePlanContract.LdelemI8(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(float[]), typeof(float), ColumnarCodePlanContract.LdelemR4(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(double[]), typeof(double), ColumnarCodePlanContract.LdelemR8(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(string[]), typeof(string), ColumnarCodePlanContract.LdelemRef(), ColumnarCodePlanContract.NoOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(object[]), typeof(object), ColumnarCodePlanContract.LdelemRef(), ColumnarCodePlanContract.NoOperand())
 }
 
 test "range planner uses typed ldelem for narrow enum struct and generic elements" {
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(byte[]), typeof(byte), ColumnarCodePlanContract.Ldelem(),
-        ColumnarCodePlanContract.TypeOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(sbyte[]), typeof(sbyte), ColumnarCodePlanContract.Ldelem(),
-        ColumnarCodePlanContract.TypeOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(short[]), typeof(short), ColumnarCodePlanContract.Ldelem(),
-        ColumnarCodePlanContract.TypeOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(ushort[]), typeof(ushort), ColumnarCodePlanContract.Ldelem(),
-        ColumnarCodePlanContract.TypeOperand())
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        typeof(ColumnarRangePlannerProbeEnum[]), typeof(ColumnarRangePlannerProbeEnum),
-        ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(byte[]), typeof(byte), ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(sbyte[]), typeof(sbyte), ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(short[]), typeof(short), ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(ushort[]), typeof(ushort), ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+
+    ColumnarRangePlannerAssertArrayIndexOpcode(typeof(ColumnarRangePlannerProbeEnum[]), typeof(ColumnarRangePlannerProbeEnum), ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+
     tupleElement := typeof(ValueTuple<int, int>)
     tupleArray := tupleElement.MakeArrayType()
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        tupleArray, tupleElement,
-        ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+    ColumnarRangePlannerAssertArrayIndexOpcode(tupleArray, tupleElement, ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
 
     genericElement := RangeHandleGenericParameter()
-    ColumnarRangePlannerAssertArrayIndexOpcode(
-        genericElement.MakeArrayType(), genericElement,
-        ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
+    ColumnarRangePlannerAssertArrayIndexOpcode(genericElement.MakeArrayType(), genericElement, ColumnarCodePlanContract.Ldelem(), ColumnarCodePlanContract.TypeOperand())
 }
 
 test "range planner closes exact GetSubArray handles for concrete and generic arrays" {
@@ -841,36 +633,16 @@ test "range planner recursively plans conditional Index and Range selectors" {
     condition := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "choose")
     firstCaret := builder.AddToken("^")
     firstValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    firstIndex := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        firstCaret,
-        1,
-        firstCaret,
-        2,
-        ColumnarRangePlannerChildren1(firstValue))
+    firstIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), firstCaret, 1, firstCaret, 2, ColumnarRangePlannerChildren1(firstValue))
+
     secondCaret := builder.AddToken("^")
     secondValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
-    secondIndex := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        secondCaret,
-        1,
-        secondCaret,
-        2,
-        ColumnarRangePlannerChildren1(secondValue))
-    conditional := builder.AddNode(
-        ColumnarExpressionNodeKind.TernaryExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren3(condition, firstIndex, secondIndex))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(receiver, conditional))
+    secondIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), secondCaret, 1, secondCaret, 2, ColumnarRangePlannerChildren1(secondValue))
+
+    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstIndex, secondIndex))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
+
     tree := builder.Build(root)
 
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -891,38 +663,15 @@ test "range planner recursively plans bool literal and parenthesized conditional
     receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "text")
     condition := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
     firstRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "first")
-    firstParenthesized := builder.AddNode(
-        ColumnarExpressionNodeKind.ParenthesizedExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren1(firstRange))
+    firstParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(firstRange))
+
     secondRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "second")
-    secondParenthesized := builder.AddNode(
-        ColumnarExpressionNodeKind.ParenthesizedExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren1(secondRange))
-    conditional := builder.AddNode(
-        ColumnarExpressionNodeKind.TernaryExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren3(
-            condition,
-            firstParenthesized,
-            secondParenthesized))
-    root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
-        -1,
-        0,
-        0,
-        builder.Source.Length,
-        ColumnarRangePlannerChildren2(receiver, conditional))
+    secondParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(secondRange))
+
+    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstParenthesized, secondParenthesized))
+
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
+
     tree := builder.Build(root)
 
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -939,10 +688,8 @@ test "range planner recursively plans bool literal and parenthesized conditional
 
     bindings.ParameterTypes["second"] = typeof(Index)
     rejected := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, bindings,
-        ColumnarRangeIndexHandles.Resolve(), rejected)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), rejected) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(rejected)
 }
 
@@ -993,28 +740,16 @@ test "range planner rolls back an unsupported ordinary index child without widen
     ColumnarRangePlannerAddParameter(bindings, "values", 0, typeof(int[]))
     ColumnarRangePlannerAddParameter(bindings, "counts", 1, typeof(int))
     rejected := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        nested.Nodes,
-        nested.Source,
-        nested.Root,
-        bindings,
-        ColumnarRangeIndexHandles.Resolve(),
-        rejected)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(nested.Nodes, nested.Source, nested.Root, bindings, ColumnarRangeIndexHandles.Resolve(), rejected) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(rejected)
 
     direct := ColumnarRangePlannerOrdinaryLiteralAccess()
     directBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(directBindings, "target", 0, typeof(int[]))
     directPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        direct.Nodes,
-        direct.Source,
-        direct.Root,
-        directBindings,
-        ColumnarRangeIndexHandles.Resolve(),
-        directPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(direct.Nodes, direct.Source, direct.Root, directBindings, ColumnarRangeIndexHandles.Resolve(), directPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(directPlan)
 
     nestedDirect := ColumnarRangePlannerOrdinaryIndexedCount()
@@ -1022,14 +757,8 @@ test "range planner rolls back an unsupported ordinary index child without widen
     ColumnarRangePlannerAddParameter(nestedDirectBindings, "values", 0, typeof(int[]))
     ColumnarRangePlannerAddParameter(nestedDirectBindings, "counts", 1, typeof(int[]))
     nestedDirectPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        nestedDirect.Nodes,
-        nestedDirect.Source,
-        nestedDirect.Root,
-        nestedDirectBindings,
-        ColumnarRangeIndexHandles.Resolve(),
-        nestedDirectPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(nestedDirect.Nodes, nestedDirect.Source, nestedDirect.Root, nestedDirectBindings, ColumnarRangeIndexHandles.Resolve(), nestedDirectPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(nestedDirectPlan)
 }
 
@@ -1039,63 +768,46 @@ test "range planner declines atomically on unknown wide and ordinary root forms"
     ColumnarRangePlannerAddParameter(bindings, "target", 0, typeof(int[]))
     ColumnarRangePlannerAddParameter(bindings, "selector", 1, typeof(int))
     plan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        tree.Nodes, tree.Source, tree.Root, bindings,
-        ColumnarRangeIndexHandles.Resolve(), plan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(plan)
 
     unknown := ColumnarRangePlannerFromEndIdentifier("missing")
     unknownPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        unknown.Nodes, unknown.Source, unknown.Root, ColumnarRangePlannerEmptyBindings(),
-        ColumnarRangeIndexHandles.Resolve(), unknownPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(unknown.Nodes, unknown.Source, unknown.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), unknownPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(unknownPlan)
 
     uintTree := ColumnarRangePlannerFromEndIdentifier("wide")
     uintBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(uintBindings, "wide", 0, typeof(uint))
     uintPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        uintTree.Nodes, uintTree.Source, uintTree.Root, uintBindings,
-        ColumnarRangeIndexHandles.Resolve(), uintPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(uintTree.Nodes, uintTree.Source, uintTree.Root, uintBindings, ColumnarRangeIndexHandles.Resolve(), uintPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(uintPlan)
 }
 
 test "range planner declines malformed literals branches and node shapes atomically" {
     overflow := ColumnarRangePlannerFromEndLiteral("2147483648", 0)
     overflowPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        overflow.Nodes, overflow.Source, overflow.Root, ColumnarRangePlannerEmptyBindings(),
-        ColumnarRangeIndexHandles.Resolve(), overflowPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(overflow.Nodes, overflow.Source, overflow.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), overflowPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(overflowPlan)
 
     suffix := ColumnarRangePlannerFromEndLiteral("1L", 0)
     suffixPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        suffix.Nodes, suffix.Source, suffix.Root, ColumnarRangePlannerEmptyBindings(),
-        ColumnarRangeIndexHandles.Resolve(), suffixPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(suffix.Nodes, suffix.Source, suffix.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), suffixPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(suffixPlan)
 
     builder := new ColumnarRangePlannerNodeBuilder()
     caret := builder.AddToken("^")
-    badRoot := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
-        caret,
-        1,
-        0,
-        1,
-        new int[](0))
+    badRoot := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, 1, new int[](0))
+
     malformed := builder.Build(badRoot)
     malformedPlan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        malformed.Nodes, malformed.Source, malformed.Root, ColumnarRangePlannerEmptyBindings(),
-        ColumnarRangeIndexHandles.Resolve(), malformedPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(malformed.Nodes, malformed.Source, malformed.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), malformedPlan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(malformedPlan)
 }
 
@@ -1104,10 +816,8 @@ test "range planner root ownership excludes scalar leaves and standalone ternari
     literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
     scalar := builder.Build(literal)
     plan := new ColumnarCodePlan()
-    assert ColumnarRangeIndexPlanner.Plan(
-        scalar.Nodes, scalar.Source, scalar.Root, ColumnarRangePlannerEmptyBindings(),
-        ColumnarRangeIndexHandles.Resolve(), plan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarRangeIndexPlanner.Plan(scalar.Nodes, scalar.Source, scalar.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plan) == ColumnarFragmentPlanStatus.NotOwned
+
     ColumnarRangePlannerAssertEmptyRollback(plan)
 }
 
@@ -1123,28 +833,11 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
     visibleLocals := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
     identifierOwned := false
+    _legacyWholeSubtreePlanning := false
     resultType := typeof(int)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        parameterOrdinals,
-        parameterTypes,
-        locals,
-        enums,
-        lifted,
-        null,
-        null,
-        new ColumnarStructDef[](0),
-        new ColumnarUnionDef[](0),
-        new Dictionary<string, string[]>(StringComparer.Ordinal),
-        enclosing,
-        siblings,
-        visibleLocals,
-        plan,
-        out identifierOwned,
-        out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, lifted, null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), enclosing, siblings, visibleLocals, plan, out identifierOwned, out _legacyWholeSubtreePlanning, out resultType)
+
     assert !identifierOwned
     assert resultType == typeof(Index)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
@@ -1155,54 +848,19 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
     tree := ColumnarRangePlannerOrdinaryLiteralAccess()
     typePlan := new ColumnarCodePlan()
     typeIdentifierOwned := false
+    _typeLegacyWholeSubtreePlanning := false
     typeResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        typePlan,
-        out typeIdentifierOwned,
-        out typeResult)
+    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, typePlan, out typeIdentifierOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
+
     assert !typeIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(typePlan)
 
     emitPlan := new ColumnarCodePlan()
     emitIdentifierOwned := false
+    _emitLegacyWholeSubtreePlanning := false
     emitResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryEmitFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        emitPlan,
-        null,
-        out emitIdentifierOwned,
-        out emitResult)
+    assert !ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, emitPlan, null, out emitIdentifierOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
+
     assert !emitIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(emitPlan)
 
@@ -1213,27 +871,10 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
     identifierTypes["selector"] = typeof(int)
     identifierPlan := new ColumnarCodePlan()
     identifierOwned := false
+    _identifierLegacyWholeSubtreePlanning := false
     identifierResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        identifierTree.Nodes,
-        identifierTree.Source,
-        identifierTree.Root,
-        identifierOrdinals,
-        identifierTypes,
-        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
-        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        ColumnarRangePlannerEmptyLiftedFacts(),
-        null,
-        null,
-        new ColumnarStructDef[](0),
-        new ColumnarUnionDef[](0),
-        new Dictionary<string, string[]>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.Ordinal),
-        identifierPlan,
-        out identifierOwned,
-        out identifierResult)
+    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(identifierTree.Nodes, identifierTree.Source, identifierTree.Root, identifierOrdinals, identifierTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), identifierPlan, out identifierOwned, out _identifierLegacyWholeSubtreePlanning, out identifierResult)
+
     assert !identifierOwned
     ColumnarRangePlannerAssertEmptyRollback(identifierPlan)
 }
@@ -1249,28 +890,11 @@ test "range planner raw-facts facade admits an ordinary child beneath an owned r
     emptyNames := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
     identifierOwned := false
+    _childLegacyWholeSubtreePlanning := false
     resultType := typeof(object)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        parameterOrdinals,
-        parameterTypes,
-        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
-        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        ColumnarRangePlannerEmptyLiftedFacts(),
-        null,
-        null,
-        new ColumnarStructDef[](0),
-        new ColumnarUnionDef[](0),
-        new Dictionary<string, string[]>(StringComparer.Ordinal),
-        emptyNames,
-        emptyNames,
-        emptyNames,
-        plan,
-        out identifierOwned,
-        out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _childLegacyWholeSubtreePlanning, out resultType)
+
     assert !identifierOwned
     assert resultType == typeof(int)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
@@ -1289,28 +913,11 @@ test "range planner raw-facts selector gate recognizes direct Range parameters" 
     emptyNames := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
     identifierOwned := false
+    _selectorLegacyWholeSubtreePlanning := false
     resultType := typeof(int)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
-        tree.Nodes,
-        tree.Source,
-        tree.Root,
-        parameterOrdinals,
-        parameterTypes,
-        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
-        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        ColumnarRangePlannerEmptyLiftedFacts(),
-        null,
-        null,
-        new ColumnarStructDef[](0),
-        new ColumnarUnionDef[](0),
-        new Dictionary<string, string[]>(StringComparer.Ordinal),
-        emptyNames,
-        emptyNames,
-        emptyNames,
-        plan,
-        out identifierOwned,
-        out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _selectorLegacyWholeSubtreePlanning, out resultType)
+
     assert !identifierOwned
     assert resultType == typeof(string)
     ColumnarCodePlanExecutor.Validate(plan)
@@ -1321,19 +928,14 @@ test "range planner rejects corrupt parameter facts and invalid roots" {
     corrupt := ColumnarRangePlannerEmptyBindings()
     corrupt.ParameterOrdinals["value"] = 0
     assert throws InvalidOperationException {
-        ColumnarRangeIndexPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, corrupt,
-            ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
+        ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, corrupt, ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
     }
 
     assert throws InvalidOperationException {
-        ColumnarRangeIndexPlanner.Plan(
-            tree.Nodes, tree.Source, 50, ColumnarRangePlannerEmptyBindings(),
-            ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
+        ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, 50, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
     }
+
     assert throws InvalidOperationException {
-        ColumnarRangeIndexPlanner.Plan(
-            null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(),
-            ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
+        ColumnarRangeIndexPlanner.Plan(null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
     }
 }
