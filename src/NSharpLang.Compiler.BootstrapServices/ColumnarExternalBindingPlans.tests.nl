@@ -138,6 +138,7 @@ test "external static selections accept short and fully qualified owner names" {
 test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Index", "System.Index")
     AssertRuntimeType("Range", "System.Range")
+    AssertRuntimeType("RuntimeTypeHandle", "System.RuntimeTypeHandle")
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
     AssertRuntimeType("MethodAttributes", "System.Reflection.MethodAttributes")

@@ -115,6 +115,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Index"
         } else if canonical == "Range" || canonical == "System.Range" {
             runtimeTypeName = "System.Range"
+        } else if canonical == "RuntimeTypeHandle" || canonical == "System.RuntimeTypeHandle" {
+            runtimeTypeName = "System.RuntimeTypeHandle"
         } else if canonical == "RuntimeHelpers"
             || canonical == "System.Runtime.CompilerServices.RuntimeHelpers" {
             runtimeTypeName = "System.Runtime.CompilerServices.RuntimeHelpers"
@@ -153,6 +155,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.ParameterInfo"
             || name == "System.Index"
             || name == "System.Range"
+            || name == "System.RuntimeTypeHandle"
     }
 
     public static func GetStaticMemberPlan(typeName: string, memberName: string): ColumnarExternalStaticMemberPlan {
