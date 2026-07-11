@@ -16,6 +16,10 @@ class ColumnarFragmentBindings {
     LiftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     BoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
     CurrentInstance: ColumnarCurrentInstanceFacts?
+    // Exact live handles for every method/type generic parameter visible to this body. Method
+    // parameters are installed first; an enclosing type parameter with the same name must never
+    // replace that more-local binding.
+    typeParameters: Dictionary<string, Type>
     // The production emitter passes this live view. Registry aliases may expose the same
     // definition more than once, so member selection deduplicates by definition identity.
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
@@ -45,6 +49,7 @@ class ColumnarFragmentBindings {
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CurrentInstance = null
+        typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         EnclosingTypeDefinition = null
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
@@ -56,11 +61,11 @@ class ColumnarFragmentBindings {
         this.visibleLocalCallableNames = visibleLocalCallableNames
     }
 
-    static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>): ColumnarFragmentBindings {
+    static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
         emptyNames := new string[](0)
         result := new ColumnarFragmentBindings(parameterOrdinals, parameterTypes, locals, enums, emptyNames, emptyNames, enclosingNames, declaredCallableNames, visibleLocalCallableNames)
 
-        if liftedLocals == null || sourceTypeDefinitions == null || sourceUnionDefinitions == null || tupleNames == null {
+        if liftedLocals == null || sourceTypeDefinitions == null || sourceUnionDefinitions == null || tupleNames == null || typeParameters == null {
             throw new InvalidOperationException("Columnar recursive binding collections cannot be null.")
         }
 
@@ -73,6 +78,14 @@ class ColumnarFragmentBindings {
             result.CurrentInstance = ColumnarCurrentInstanceFacts.FromSourceDefinition(currentInstance)
         }
 
+        for pair in typeParameters {
+            ValidateTypeParameter(pair.Key, pair.Value)
+        }
+
+        for pair in typeParameters {
+            result.typeParameters.Add(pair.Key, pair.Value)
+        }
+
         result.SourceTypeDefinitions = sourceTypeDefinitions
         result.SourceUnionDefinitions = sourceUnionDefinitions
         result.TupleNames = tupleNames
@@ -80,7 +93,180 @@ class ColumnarFragmentBindings {
     }
 
     func SetEnclosingTypeDefinition(enclosingTypeDefinition: ColumnarStructDef?) {
+        if enclosingTypeDefinition != null {
+            enclosingTypeParameters := enclosingTypeDefinition.GenericParameters
+            if enclosingTypeParameters != null {
+                for pair in enclosingTypeParameters {
+                    ValidateTypeParameter(pair.Key, pair.Value)
+                }
+
+                for pair in enclosingTypeParameters {
+                    if !typeParameters.ContainsKey(pair.Key) {
+                        typeParameters.Add(pair.Key, pair.Value)
+                    }
+                }
+            }
+        }
+
         EnclosingTypeDefinition = enclosingTypeDefinition
+    }
+
+    func TryGetTypeParameter(name: string, out parameterType: Type): bool {
+        if name == null {
+            throw new InvalidOperationException("Columnar type-parameter lookup name cannot be null.")
+        }
+
+        parameterType = typeof(object)
+        return typeParameters.TryGetValue(name, out parameterType)
+    }
+
+    // The binding scope selects one semantic source declaration before this live-handle bridge
+    // runs. Registry aliases may repeat that declaration, so identity deduplication is required;
+    // a declaration-name fallback is permitted only when the selected exact source name is not
+    // present in the mechanical builder registries.
+    func TryResolveSelectedSourceType(exactName: string, declarationName: string, out selectedType: Type): bool {
+        if exactName == null || exactName.Length == 0 || declarationName == null || declarationName.Length == 0
+            || Enums == null || SourceTypeDefinitions == null || SourceUnionDefinitions == null {
+            throw new InvalidOperationException("Selected source-type lookup facts cannot be null or empty.")
+        }
+
+        identities := new List<object>()
+        types := new List<Type>()
+        CollectSelectedDeclaredTypeCandidates(exactName, identities, types)
+        if identities.Count == 0 {
+            CollectSelectedSourceTypeBridgeCandidates(exactName, true, identities, types)
+        }
+        if identities.Count == 0 {
+            CollectSelectedDeclaredTypeCandidates(declarationName, identities, types)
+        }
+        if identities.Count == 0 {
+            CollectSelectedSourceTypeBridgeCandidates(declarationName, false, identities, types)
+        }
+
+        selectedType = typeof(object)
+        if identities.Count != 1 {
+            return false
+        }
+
+        selectedType = types[0]
+        return true
+    }
+
+    func CollectSelectedDeclaredTypeCandidates(name: string, identities: List<object>, types: List<Type>) {
+        for pair in Enums {
+            definition := pair.Value
+            if definition == null {
+                throw new InvalidOperationException("Selected source enum facts cannot contain null definitions.")
+            }
+
+            if definition.DeclaredTypeName == name {
+                AddDistinctSourceTypeCandidate(definition, definition.EnumType, identities, types)
+            }
+        }
+
+        for definition in SourceTypeDefinitions {
+            if definition == null {
+                throw new InvalidOperationException("Selected source type facts cannot contain null definitions.")
+            }
+
+            if definition.DeclaredTypeName == name {
+                AddDistinctSourceTypeCandidate(definition, definition.Builder, identities, types)
+            }
+        }
+
+        for definition in SourceUnionDefinitions {
+            if definition == null {
+                throw new InvalidOperationException("Selected source union facts cannot contain null definitions.")
+            }
+
+            if definition.DeclaredTypeName == name {
+                AddDistinctSourceTypeCandidate(definition, definition.Base, identities, types)
+            }
+        }
+    }
+
+    // Older mechanical registries expose only aliases and runtime builder names. Keep that bridge
+    // for transition compatibility, but consult it only after no semantic declared-name fact won.
+    func CollectSelectedSourceTypeBridgeCandidates(name: string, exact: bool, identities: List<object>, types: List<Type>) {
+        for pair in Enums {
+            definition := pair.Value
+            if definition == null {
+                throw new InvalidOperationException("Selected source enum facts cannot contain null definitions.")
+            }
+
+            matches := pair.Key == name
+            if exact {
+                matches = matches || TypeFullNameMatches(definition.EnumType, name)
+            } else {
+                matches = matches || TypeDeclarationNameMatches(definition.EnumType, name)
+            }
+            if matches {
+                AddDistinctSourceTypeCandidate(definition, definition.EnumType, identities, types)
+            }
+        }
+
+        for definition in SourceTypeDefinitions {
+            if definition == null {
+                throw new InvalidOperationException("Selected source type facts cannot contain null definitions.")
+            }
+
+            matches := exact
+                ? TypeFullNameMatches(definition.Builder, name)
+                : TypeDeclarationNameMatches(definition.Builder, name)
+            if matches {
+                AddDistinctSourceTypeCandidate(definition, definition.Builder, identities, types)
+            }
+        }
+
+        for definition in SourceUnionDefinitions {
+            if definition == null {
+                throw new InvalidOperationException("Selected source union facts cannot contain null definitions.")
+            }
+
+            matches := exact
+                ? TypeFullNameMatches(definition.Base, name)
+                : TypeDeclarationNameMatches(definition.Base, name)
+            if matches {
+                AddDistinctSourceTypeCandidate(definition, definition.Base, identities, types)
+            }
+        }
+    }
+
+    static func AddDistinctSourceTypeCandidate(identity: object, candidateType: Type, identities: List<object>, types: List<Type>) {
+        index := 0
+        while index < identities.Count {
+            if Object.ReferenceEquals(identities[index], identity) {
+                return
+            }
+
+            index = index + 1
+        }
+
+        identities.Add(identity)
+        types.Add(candidateType)
+    }
+
+    static func TypeFullNameMatches(candidate: Type, name: string): bool {
+        if candidate == null {
+            throw new InvalidOperationException("Selected source type handle cannot be null.")
+        }
+
+        return candidate.FullName == name
+    }
+
+    static func TypeDeclarationNameMatches(candidate: Type, name: string): bool {
+        if candidate == null {
+            throw new InvalidOperationException("Selected source type handle cannot be null.")
+        }
+
+        return candidate.Name == name || candidate.FullName == name
+    }
+
+    static func ValidateTypeParameter(name: string, parameterType: Type) {
+        if name == null || name.Length == 0 || parameterType == null
+            || !parameterType.get_IsGenericParameter() || parameterType.Name != name {
+            throw new InvalidOperationException("Columnar type-parameter facts must map each non-empty name to its exact generic parameter handle.")
+        }
     }
 
     func IsBlocked(name: string): bool {

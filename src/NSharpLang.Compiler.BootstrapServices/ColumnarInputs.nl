@@ -355,6 +355,13 @@ class ColumnarProgramInput {
         return Source
     }
 
+    // The assembly owner asks N# for the semantic declaration identity and then uses the returned
+    // string mechanically as the CLR builder/registry name. Namespace interpretation must never
+    // be reconstructed in C#.
+    public func ExactTypeNameForFile(name: string, sourceFileId: int): string {
+        return bindingScope.ExactTypeNameForFile(name, sourceFileId)
+    }
+
     static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {
         sources := new string[](1)
         fileNames := new string[](1)

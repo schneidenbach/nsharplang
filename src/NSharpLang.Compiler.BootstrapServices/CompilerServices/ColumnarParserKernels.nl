@@ -487,8 +487,16 @@ class ColumnarExpressionNodeKind {
         return 13
     }
 
+    static func NewExpression(): int {
+        return 15
+    }
+
     static func TypeOfExpression(): int {
         return 55
+    }
+
+    static func ArrayLiteralExpression(): int {
+        return 58
     }
 
     static func NameOfExpression(): int {

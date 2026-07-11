@@ -100,7 +100,7 @@ internal sealed class ColumnarIlEmitter
     private readonly IReadOnlyDictionary<string, ColumnarUnionCaseDef> _unionCaseRegistry;
     // Method/type generic parameters visible to this body. Signature resolution already uses these in pass 1;
     // body-side type nodes (`new List<T>()`, typed locals, explicit generic call args) need the same map.
-    private readonly IReadOnlyDictionary<string, Type>? _typeParameters;
+    private readonly Dictionary<string, Type> _typeParameters;
     private readonly IReadOnlyList<string>? _referenceAssemblyPaths;
     // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
     // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
@@ -280,7 +280,10 @@ internal sealed class ColumnarIlEmitter
         _structRegistry = structRegistry;
         _unionRegistry = unionRegistry;
         _unionCaseRegistry = unionCaseRegistry;
-        _typeParameters = typeParameters;
+        _typeParameters = typeParameters as Dictionary<string, Type>
+            ?? (typeParameters == null
+                ? s_noTypeParameters
+                : new Dictionary<string, Type>(typeParameters, StringComparer.Ordinal));
         _referenceAssemblyPaths = referenceAssemblyPaths;
         _currentStruct = currentStruct;
         _enclosingType = enclosingType ?? currentStruct;
@@ -295,9 +298,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     private bool TryResolveBodyType(string canonical, out Type type)
-        => _typeParameters != null
-            ? TryResolveTypeWithTypeParams(canonical, _typeParameters, _enumRegistry, _structRegistry, _unionRegistry, out type)
-            : TryResolveType(canonical, _enumRegistry, _structRegistry, _unionRegistry, out type);
+        => TryResolveTypeWithTypeParams(canonical, _typeParameters, _enumRegistry, _structRegistry, _unionRegistry, out type);
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
     // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
@@ -324,6 +325,8 @@ internal sealed class ColumnarIlEmitter
     private static readonly HashSet<string> s_noEnclosingBindings = new(StringComparer.Ordinal);
     private static readonly IReadOnlyDictionary<Type, Type[]> s_noGenericInterfaceConstraints =
         new Dictionary<Type, Type[]>(0);
+    private static readonly Dictionary<string, Type> s_noTypeParameters =
+        new Dictionary<string, Type>(0, StringComparer.Ordinal);
 
     // Whether `name` is bound ANYWHERE visible to code in this body — its own locals/params/lifted/boxed
     // tiers plus every enclosing binding. Declaring it again is the pipeline's NL316 — decline.
@@ -1041,6 +1044,64 @@ internal sealed class ColumnarIlEmitter
         return delegateCtor != null;
     }
 
+    // A generic parameter token is meaningful only in the metadata owner that DECLARES it: a VAR may be
+    // referenced by methods on its declaring type, while an MVAR may be referenced only by its declaring
+    // method. Synthesized lambda/local-function/display methods are deliberately non-generic, so they must
+    // never inherit an enclosing method's MVAR map (or a VAR from some other TypeBuilder). Reflection.Emit
+    // will accept such foreign handles while building and persist invalid metadata that fails at load.
+    private static bool IsValidSynthesizedMethodSignatureType(Type type, TypeBuilder declaringType)
+    {
+        if (type.IsGenericParameter)
+            return type.DeclaringMethod == null && ReferenceEquals(type.DeclaringType, declaringType);
+        if (type.HasElementType)
+            return IsValidSynthesizedMethodSignatureType(type.GetElementType()!, declaringType);
+        if (!type.IsGenericType)
+            return true;
+        foreach (var argument in type.GetGenericArguments())
+        {
+            if (!IsValidSynthesizedMethodSignatureType(argument, declaringType))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool IsValidSynthesizedMethodSignature(
+        Type returnType, Type[] parameterTypes, TypeBuilder declaringType)
+    {
+        if (!IsValidSynthesizedMethodSignatureType(returnType, declaringType))
+            return false;
+        foreach (var parameterType in parameterTypes)
+        {
+            if (!IsValidSynthesizedMethodSignatureType(parameterType, declaringType))
+                return false;
+        }
+        return true;
+    }
+
+    private static IReadOnlyDictionary<string, Type>? TypeParametersOwnedByType(
+        IReadOnlyDictionary<string, Type> visibleTypeParameters, TypeBuilder declaringType)
+    {
+        Dictionary<string, Type>? owned = null;
+        foreach (var (name, typeParameter) in visibleTypeParameters)
+        {
+            if (!typeParameter.IsGenericParameter
+                || typeParameter.DeclaringMethod != null
+                || !ReferenceEquals(typeParameter.DeclaringType, declaringType))
+                continue;
+            (owned ??= new Dictionary<string, Type>(StringComparer.Ordinal))[name] = typeParameter;
+        }
+        return owned;
+    }
+
+    private static MethodInfo BindMethodToDeclaringTypeGenericContext(
+        TypeBuilder declaringType, MethodInfo method)
+    {
+        var typeParameters = declaringType.GetGenericArguments();
+        return typeParameters.Length == 0
+            ? method
+            : TypeBuilder.GetMethod(declaringType.MakeGenericType(typeParameters), method);
+    }
+
     // A closed instantiation of a USER generic type (Box<int> where Box is an uncreated TypeBuilder).
     // Reflection member queries throw on these — member access goes through the open definition's
     // bookkeeping with rebound tokens, mirroring the previous parity baseline's closed-generic machinery.
@@ -1561,6 +1622,8 @@ internal sealed class ColumnarIlEmitter
             {
                 if (!_currentStruct.IsReference || _isConstructorBody)
                     return false;
+                if (!IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, _currentStruct.Builder))
+                    return false;
                 var instanceLambda = _currentStruct.Builder.DefineMethod(
                     "<Lambda>_" + _lambdaCounter[0]++,
                     MethodAttributes.Private | MethodAttributes.HideBySig, delegateReturnType, signatureTypes);
@@ -1574,14 +1637,19 @@ internal sealed class ColumnarIlEmitter
                     programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                     enclosingBindingNames: VisibleBindingNamesSnapshot(),
                     referenceAssemblyPaths: _referenceAssemblyPaths,
-                    genericInterfaceConstraints: _genericInterfaceConstraints);
+                    genericInterfaceConstraints: _genericInterfaceConstraints,
+                    typeParameters: TypeParametersOwnedByType(_typeParameters, _currentStruct.Builder));
                 if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, delegateReturnType))
                     return DeclineMember("emit.body", "instance lambda body emission declined", bodyNode, "lambda");
                 _il.Emit(OpCodes.Ldarg_0);
-                _il.Emit(OpCodes.Ldftn, instanceLambda);
+                _il.Emit(
+                    OpCodes.Ldftn,
+                    BindMethodToDeclaringTypeGenericContext(_currentStruct.Builder, instanceLambda));
                 _il.Emit(OpCodes.Newobj, delegateCtor);
                 return true;
             }
+            if (!IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, _programType))
+                return false;
             var lambdaMethod = _programType.DefineMethod(
                 "<Lambda>_" + _lambdaCounter[0]++,
                 MethodAttributes.Private | MethodAttributes.Static, delegateReturnType, signatureTypes);
@@ -1620,6 +1688,8 @@ internal sealed class ColumnarIlEmitter
         {
             if (_liftedLocals.TryGetValue(captureName, out var liftedSource))
             {
+                if (!IsValidSynthesizedMethodSignatureType(liftedSource.ValueType, _programType))
+                    return false;
                 boxedNames.Add(captureName);
                 boxedSources.Add(liftedSource);
                 continue;
@@ -1634,7 +1704,7 @@ internal sealed class ColumnarIlEmitter
             // MVAR into the display class's field signature — unencodable CLI metadata that saves but
             // throws TypeLoadException at load (adversarial-review finding, probe-confirmed). Decline.
             if (!IsSupportedType(captureType)
-                || captureType.IsGenericParameter || captureType.ContainsGenericParameters)
+                || !IsValidSynthesizedMethodSignatureType(captureType, _programType))
                 return false;
             snapshotNames.Add(captureName);
             snapshotTypes.Add(captureType);
@@ -1643,6 +1713,8 @@ internal sealed class ColumnarIlEmitter
         var display = moduleBuilder.DefineType(
             "<>c__DisplayClass" + _lambdaCounter[0]++,
             TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+        if (!IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display))
+            return false;
         var displayCtor = display.DefineDefaultConstructor(MethodAttributes.Public);
         // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
         // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
@@ -2040,6 +2112,8 @@ internal sealed class ColumnarIlEmitter
             genericInterfaceConstraints: _genericInterfaceConstraints);
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
             return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda");
+        if (!IsValidSynthesizedMethodSignatureType(bodyType, _programType))
+            return false;
         lambdaIl.Emit(OpCodes.Ret);
         delegateType = bodyType == typeof(void) ? typeof(Action) : typeof(Func<>).MakeGenericType(bodyType);
         if (!IsSupportedDelegateType(delegateType))
@@ -2955,6 +3029,16 @@ internal sealed class ColumnarIlEmitter
             && typeParams.TryGetValue(canonical.Substring(0, canonical.Length - 2), out var elementParam))
         {
             type = elementParam.MakeArrayType();
+            return true;
+        }
+        // Delegate canonicals whose arguments do not depend on the surrounding generic scope remain
+        // ordinary runtime types. Resolve them before the type-parameter-aware generic block; otherwise
+        // a typed lambda local such as `callback: Func<int>` is spuriously rejected merely because its
+        // containing type or method is generic.
+        if ((canonical.StartsWith("Func<", StringComparison.Ordinal)
+             || canonical.StartsWith("Action<", StringComparison.Ordinal))
+            && TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type))
+        {
             return true;
         }
         // A generic shape whose ARGUMENTS may reference the in-scope type parameters (`Box<T>` as a
@@ -4022,10 +4106,11 @@ internal sealed class ColumnarIlEmitter
         for (var e = 0; e < enums.Count; e++)
         {
             var en = enums[e];
+            var exactEnumName = program.ExactTypeNameForFile(en.Name, en.SourceFileId);
             if (en.IsStringBacked)
             {
                 var stringConstants = new Dictionary<string, string>(StringComparer.Ordinal);
-                var tb = module.DefineType(en.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+                var tb = module.DefineType(exactEnumName, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
                 for (var m = 0; m < en.MemberNames.Length; m++)
                 {
                     var memberValue = m < en.MemberStringValues.Length ? en.MemberStringValues[m] : en.MemberNames[m];
@@ -4037,13 +4122,14 @@ internal sealed class ColumnarIlEmitter
                 }
 
                 _ = tb.CreateType();
-                var stringEnumDef = new ColumnarEnumDef(typeof(string), new Dictionary<string, int>(StringComparer.Ordinal), stringConstants);
-                enumRegistry[en.Name] = stringEnumDef;
-                TryRegisterEnumAlias(enumRegistry, en.Name, stringEnumDef);
+                var stringEnumDef = new ColumnarEnumDef(typeof(string), new Dictionary<string, int>(StringComparer.Ordinal),
+                    stringConstants, declaredTypeName: exactEnumName);
+                enumRegistry[exactEnumName] = stringEnumDef;
+                TryRegisterEnumAlias(enumRegistry, exactEnumName, stringEnumDef);
                 continue;
             }
 
-            var eb = module.DefineEnum(en.Name, TypeAttributes.Public, typeof(int));
+            var eb = module.DefineEnum(exactEnumName, TypeAttributes.Public, typeof(int));
             var constants = new Dictionary<string, int>(StringComparer.Ordinal);
             for (var m = 0; m < en.MemberNames.Length; m++)
             {
@@ -4051,9 +4137,9 @@ internal sealed class ColumnarIlEmitter
                 constants[en.MemberNames[m]] = en.MemberValues[m];
             }
             var enumType = eb.CreateType();
-            var enumDef = new ColumnarEnumDef(enumType, constants);
-            enumRegistry[en.Name] = enumDef;
-            TryRegisterEnumAlias(enumRegistry, en.Name, enumDef);
+            var enumDef = new ColumnarEnumDef(enumType, constants, declaredTypeName: exactEnumName);
+            enumRegistry[exactEnumName] = enumDef;
+            TryRegisterEnumAlias(enumRegistry, exactEnumName, enumDef);
         }
 
         // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
@@ -4080,7 +4166,8 @@ internal sealed class ColumnarIlEmitter
             Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         foreach (var iface in interfaces)
         {
-            var interfaceTb = module.DefineType(iface.Name, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var exactInterfaceName = program.ExactTypeNameForFile(iface.Name, iface.SourceFileId);
+            var interfaceTb = module.DefineType(exactInterfaceName, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
             Dictionary<string, Type>? interfaceTypeParams = null;
             if (iface.TypeParamNames is { Length: > 0 })
             {
@@ -4090,13 +4177,13 @@ internal sealed class ColumnarIlEmitter
                     interfaceTypeParams[iface.TypeParamNames[tp]] = declaredParams[tp];
             }
             var interfaceDef = new ColumnarStructDef(interfaceTb, Array.Empty<string>(),
-                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true, declaredTypeName: iface.Name)
+                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true, declaredTypeName: exactInterfaceName)
             {
                 IsInterface = true,
                 GenericParameters = interfaceTypeParams,
             };
-            structRegistry[iface.Name] = interfaceDef;
-            TryRegisterStructAlias(structRegistry, iface.Name, interfaceDef);
+            structRegistry[exactInterfaceName] = interfaceDef;
+            TryRegisterStructAlias(structRegistry, exactInterfaceName, interfaceDef);
             interfaceDefsInOrder.Add(interfaceDef);
         }
 
@@ -4105,12 +4192,13 @@ internal sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
+            var exactStructName = program.ExactTypeNameForFile(st.Name, st.SourceFileId);
             // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
             // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
             // after every type name is in the registry, so field signatures can reference later-declared types.
             var tb = st.IsReference
-                ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
-                : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+                ? module.DefineType(exactStructName, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+                : module.DefineType(exactStructName, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
             if (st.IsRefStruct)
             {
                 var byRefLikeCtor = typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute).GetConstructor(Type.EmptyTypes);
@@ -4133,42 +4221,45 @@ internal sealed class ColumnarIlEmitter
 
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             var newDef = new ColumnarStructDef(tb, Array.Empty<string>(), fields, st.IsReference, st.IsRecord,
-                declaredTypeName: st.Name)
+                declaredTypeName: exactStructName)
             {
                 IsNewtype = st.IsNewtype,
                 GenericParameters = typeGenericParams,
             };
             structBuilders[s] = tb;
             structDefsInOrder[s] = newDef;
-            structRegistry[st.Name] = newDef;
-            TryRegisterStructAlias(structRegistry, st.Name, newDef);
+            structRegistry[exactStructName] = newDef;
+            TryRegisterStructAlias(structRegistry, exactStructName, newDef);
         }
 
         // Union BASE types must be known before struct/record fields resolve: records like
         // `TaskItem { Status: Status }` can reference a union declared in the same package. Cases are populated
         // later, after all struct TypeBuilders are registered, but the field signature only needs the base type.
+        var unionExactNames = new string[unions.Count];
         for (var u = 0; u < unions.Count; u++)
         {
             var un = unions[u];
+            var exactUnionName = program.ExactTypeNameForFile(un.Name, un.SourceFileId);
+            unionExactNames[u] = exactUnionName;
             if (un.IsValueStruct)
             {
                 var structTb = module.DefineType(
-                    un.Name,
+                    exactUnionName,
                     TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
                     typeof(ValueType));
-                var valueStructDef = new ColumnarUnionDef(structTb, 0) { IsValueStruct = true };
-                unionRegistry[un.Name] = valueStructDef;
-                TryRegisterUnionAlias(unionRegistry, un.Name, valueStructDef);
+                var valueStructDef = new ColumnarUnionDef(structTb, 0, declaredTypeName: exactUnionName) { IsValueStruct = true };
+                unionRegistry[exactUnionName] = valueStructDef;
+                TryRegisterUnionAlias(unionRegistry, exactUnionName, valueStructDef);
                 unionBaseBuilders.Add(structTb);
                 continue;
             }
 
-            var baseTb = module.DefineType(un.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
+            var baseTb = module.DefineType(exactUnionName, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
             if (un.TypeParamNames.Length > 0)
                 baseTb.DefineGenericParameters(un.TypeParamNames);
-            var unionDef = new ColumnarUnionDef(baseTb, un.TypeParamNames.Length);
-            unionRegistry[un.Name] = unionDef;
-            TryRegisterUnionAlias(unionRegistry, un.Name, unionDef);
+            var unionDef = new ColumnarUnionDef(baseTb, un.TypeParamNames.Length, declaredTypeName: exactUnionName);
+            unionRegistry[exactUnionName] = unionDef;
+            TryRegisterUnionAlias(unionRegistry, exactUnionName, unionDef);
             unionBaseBuilders.Add(baseTb);
         }
 
@@ -4303,7 +4394,7 @@ internal sealed class ColumnarIlEmitter
         // cycles all decline rather than silently changing type identity or emitting unloadable IL.
         for (var s = 0; s < structs.Count; s++)
         {
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             var seenImplementedInterfaces = new HashSet<TypeBuilder>();
             foreach (var baseName in structs[s].BaseNames)
             {
@@ -4368,7 +4459,7 @@ internal sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
-            var def = structRegistry[st.Name];
+            var def = structDefsInOrder[s];
             var implementedBuilders = new HashSet<TypeBuilder>();
             foreach (var implementedInterface in def.ImplementedInterfaces)
             {
@@ -4397,7 +4488,7 @@ internal sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var depth = 0;
-            for (var d = structRegistry[structs[s].Name].BaseDef; d != null; d = d.BaseDef)
+            for (var d = structDefsInOrder[s].BaseDef; d != null; d = d.BaseDef)
             {
                 depth++;
                 if (depth > structs.Count)
@@ -4419,7 +4510,7 @@ internal sealed class ColumnarIlEmitter
         var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Type BodyReturnType, Type? AsyncReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes, bool IsStatic)>();
         for (var s = 0; s < structs.Count; s++)
         {
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             // Reference-type (record/class) instance methods are supported: the body emit (bare field -> `ldarg.0;
             // ldfld`) is identical to a value type's (ldfld works on both a managed pointer and an object ref), and
             // the instance CALL branches on IsReference (ldloc + callvirt for a ref receiver vs ldloca + call for a
@@ -4617,7 +4708,7 @@ internal sealed class ColumnarIlEmitter
         // (never emit an unloadable assembly).
         for (var s = 0; s < structs.Count; s++)
         {
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             var seenRequiredInterfaces = new HashSet<ColumnarStructDef>();
             if (def.ImplementedInterfaces.Count > 0)
             {
@@ -4679,7 +4770,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (structs[s].Properties.Count == 0)
                 continue;
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             foreach (var prop in structs[s].Properties)
             {
                 if (!TryResolveMemberType(prop.TypeCanonical, def, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
@@ -4753,7 +4844,7 @@ internal sealed class ColumnarIlEmitter
         // modelled, so this backend declines rather than risk a resolution divergence.
         for (var s = 0; s < structs.Count; s++)
         {
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             if (def.BaseDef == null)
                 continue;
             for (var chain = def.BaseDef; chain != null; chain = chain.BaseDef)
@@ -4810,7 +4901,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (structs[s].Constructors.Count == 0)
                 continue;
-            var def = structRegistry[structs[s].Name];
+            var def = structDefsInOrder[s];
             foreach (var ctor in structs[s].Constructors)
             {
                 if (IsZeroParamSynthesizedInitializer(ctor))
@@ -4841,10 +4932,9 @@ internal sealed class ColumnarIlEmitter
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
                     cParamTypeMap[ctor.Body.ParamNames[i]] = pt;
                 }
-                var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
+                var cb = def.DefineUserConstructor(cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts);
                 if (!DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts, enumRegistry))
                     return DeclineStatic("emit.ctor.param-metadata", "constructor parameter metadata could not be emitted", def.Builder.Name + ".constructor");
-                def.Constructors.Add(new ColumnarConstructorDef(cb, cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts));
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
         }
@@ -4866,7 +4956,7 @@ internal sealed class ColumnarIlEmitter
                 var st = structs[s];
                 if (!st.IsReference || HasCallableConstructor(st))
                     continue;
-                var def = structRegistry[st.Name];
+                var def = structDefsInOrder[s];
                 if (def.BaseDef == null && def.InstanceInitializerMethod == null)
                 {
                     def.DefaultCtor = def.Builder.DefineDefaultConstructor(MethodAttributes.Public);
@@ -4890,11 +4980,12 @@ internal sealed class ColumnarIlEmitter
         // (probe-pinned) — parity by rejection. A USER method already named Equals/GetHashCode keeps ownership
         // (the pinned `hsh` behavior): that member's synthesis is skipped and resolution finds the user method
         // as before.
-        foreach (var st in structs)
+        for (var s = 0; s < structs.Count; s++)
         {
+            var st = structs[s];
             if (!st.IsRecord)
                 continue;
-            var def = structRegistry[st.Name];
+            var def = structDefsInOrder[s];
             if (def.GenericParameters != null)
                 continue;
             var fieldsBaked = true;
@@ -4933,6 +5024,7 @@ internal sealed class ColumnarIlEmitter
         for (var u = 0; u < unions.Count; u++)
         {
             var un = unions[u];
+            var exactUnionName = unionExactNames[u];
 
             // VALUE-STRUCT union (mirrors the previous parity baseline's DeclareValueStructUnion): a small, closed, payload-free,
             // non-generic union emits as a SEALED readonly tag struct (over System.ValueType) instead of a class
@@ -4943,7 +5035,7 @@ internal sealed class ColumnarIlEmitter
             // Selected by the N# ColumnarUnionIsValueStructEmittable kernel.
             if (un.IsValueStruct)
             {
-                if (!unionRegistry.TryGetValue(un.Name, out var valueStructDef) || valueStructDef.Base is not TypeBuilder structTb)
+                if (!unionRegistry.TryGetValue(exactUnionName, out var valueStructDef) || valueStructDef.Base is not TypeBuilder structTb)
                     return DeclineStatic("emit.union.predeclare", "value-struct union base was not predeclared for '" + un.Name + "'", un.Name);
                 var readOnlyCtor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes);
                 if (readOnlyCtor != null)
@@ -5002,7 +5094,7 @@ internal sealed class ColumnarIlEmitter
                         ValueStructFactory = factory,
                         ValueStructTagGetter = tagGetter,
                     };
-                    var vsQualified = un.Name + "." + vsCaseName;
+                    var vsQualified = exactUnionName + "." + vsCaseName;
                     valueStructDef.Cases[vsQualified] = valueStructCaseDef;
                     unionCaseRegistry[vsQualified] = valueStructCaseDef;
                     unionCaseBuilders.Add(markerTb);
@@ -5011,7 +5103,7 @@ internal sealed class ColumnarIlEmitter
             }
 
             var isGenericUnion = un.TypeParamNames.Length > 0;
-            if (!unionRegistry.TryGetValue(un.Name, out var unionDef) || unionDef.Base is not TypeBuilder baseTb)
+            if (!unionRegistry.TryGetValue(exactUnionName, out var unionDef) || unionDef.Base is not TypeBuilder baseTb)
                 return DeclineStatic("emit.union.predeclare", "union base was not predeclared for '" + un.Name + "'", un.Name);
             var baseCtor = baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes);
             var bcil = baseCtor.GetILGenerator();
@@ -5065,7 +5157,7 @@ internal sealed class ColumnarIlEmitter
                 ccil.Emit(OpCodes.Ret);
 
                 var caseDef = new ColumnarUnionCaseDef(caseTb, caseCtor, caseFieldNames, caseFields, baseTb);
-                var qualified = un.Name + "." + caseName;
+                var qualified = exactUnionName + "." + caseName;
                 unionDef.Cases[qualified] = caseDef;
                 unionCaseRegistry[qualified] = caseDef;
                 unionCaseBuilders.Add(caseTb);
@@ -5338,6 +5430,8 @@ internal sealed class ColumnarIlEmitter
                         if (!TryResolveType(localFn.ParamCanonicals[lp], enumRegistry, structRegistry, unionRegistry, out localParams[lp]) || !IsSupportedType(localParams[lp]))
                             return false;
                     }
+                    if (!IsValidSynthesizedMethodSignature(localReturn, localParams, type))
+                        return false;
                     var localMethod = type.DefineMethod(
                         "<" + fn.Name + ">g__" + lambdaCounter[0]++,
                         MethodAttributes.Private | MethodAttributes.Static, localReturn, localParams);
@@ -5452,7 +5546,8 @@ internal sealed class ColumnarIlEmitter
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.Interface, enclosingType: job.Interface,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                referenceAssemblyPaths: referenceAssemblyPaths);
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                typeParameters: job.Interface.GenericParameters);
             ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
             try
             {
@@ -5480,7 +5575,8 @@ internal sealed class ColumnarIlEmitter
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isSynthesizedInitializerBody: true,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                referenceAssemblyPaths: referenceAssemblyPaths);
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                typeParameters: job.Struct.GenericParameters);
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
             try
             {
@@ -5510,7 +5606,8 @@ internal sealed class ColumnarIlEmitter
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                 asyncReturnType: job.AsyncReturnType,
                 asyncBareReturnDeclines: job.Method.ReturnCanonical is "Task" or "ValueTask",
-                referenceAssemblyPaths: referenceAssemblyPaths);
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                typeParameters: job.Struct.GenericParameters);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
@@ -5538,7 +5635,8 @@ internal sealed class ColumnarIlEmitter
                 enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isConstructorBody: true, isSynthesizedInitializerBody: job.Ctor.IsSynthesizedInitializer,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                referenceAssemblyPaths: referenceAssemblyPaths);
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                typeParameters: job.Struct.GenericParameters);
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
             try
             {
@@ -9657,6 +9755,7 @@ internal sealed class ColumnarIlEmitter
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
+                _typeParameters,
                 _codePlan,
                 _il,
                 out var nsharpOwned,
@@ -16402,6 +16501,7 @@ internal sealed class ColumnarIlEmitter
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
+                _typeParameters,
                 _codePlan,
                 out var nsharpOwned,
                 out var legacyWholeSubtreePlanning,
@@ -17392,7 +17492,8 @@ internal sealed class ColumnarIlEmitter
             siblingReturnTupleNames: _siblingReturnTupleNames,
             enclosingBindingNames: VisibleBindingNamesSnapshot(),
             referenceAssemblyPaths: _referenceAssemblyPaths,
-            genericInterfaceConstraints: _genericInterfaceConstraints);
+            genericInterfaceConstraints: _genericInterfaceConstraints,
+            typeParameters: _typeParameters);
         return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 1), out returnType)
                && returnType != typeof(void)
                && IsSupportedType(returnType);
@@ -17428,7 +17529,8 @@ internal sealed class ColumnarIlEmitter
             siblingReturnTupleNames: _siblingReturnTupleNames,
             enclosingBindingNames: VisibleBindingNamesSnapshot(),
             referenceAssemblyPaths: _referenceAssemblyPaths,
-            genericInterfaceConstraints: _genericInterfaceConstraints);
+            genericInterfaceConstraints: _genericInterfaceConstraints,
+            typeParameters: _typeParameters);
         return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 0), out returnType)
                && returnType != typeof(void)
                && IsSupportedType(returnType);

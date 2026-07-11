@@ -869,6 +869,12 @@ class ColumnarDirectCallPlanner {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 0), depth + 1)
         }
 
+        if kind == ColumnarExpressionNodeKind.NewExpression()
+            || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(
+                nodes, node, depth)
+        }
+
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }

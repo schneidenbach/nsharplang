@@ -9,28 +9,41 @@ class ColumnarEnumDef {
     enumTypeValue: Type
     constantsValue: Dictionary<string, int>
     stringConstantsValue: Dictionary<string, string>?
+    declaredTypeNameValue: string
 
     EnumType: Type => enumTypeValue
     Constants: Dictionary<string, int> => constantsValue
     StringConstants: Dictionary<string, string>? => stringConstantsValue
     IsStringBacked: bool => stringConstantsValue != null
+    DeclaredTypeName: string => declaredTypeNameValue
 
-    constructor(enumType: Type, constants: Dictionary<string, int>, stringConstants: Dictionary<string, string>? = null) {
+    constructor(enumType: Type, constants: Dictionary<string, int>, stringConstants: Dictionary<string, string>? = null, declaredTypeName: string = "") {
+        if enumType == null || constants == null || declaredTypeName == null {
+            throw new InvalidOperationException(
+                "Source enum definition facts cannot be null.")
+        }
         enumTypeValue = enumType
         constantsValue = constants
         stringConstantsValue = stringConstants
+        declaredTypeNameValue = declaredTypeName
     }
 }
 
 class ColumnarUnionDef {
     Base: TypeBuilder
+    DeclaredTypeName: string
     Cases: Dictionary<string, ColumnarUnionCaseDef>
     TypeParamCount: int
     IsValueStruct: bool
     TagGetter: MethodInfo?
 
-    constructor(baseBuilder: TypeBuilder, typeParamCount: int = 0) {
+    constructor(baseBuilder: TypeBuilder, typeParamCount: int = 0, declaredTypeName: string = "") {
+        if baseBuilder == null || declaredTypeName == null {
+            throw new InvalidOperationException(
+                "Source union definition facts cannot be null.")
+        }
         Base = baseBuilder
+        DeclaredTypeName = declaredTypeName
         Cases = new Dictionary<string, ColumnarUnionCaseDef>(StringComparer.Ordinal)
         TypeParamCount = typeParamCount
         IsValueStruct = false
@@ -259,6 +272,63 @@ class ColumnarStructDef {
         Constructors = new List<ColumnarConstructorDef>()
         InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+    }
+
+    // Define the exact user-constructor handle and its planner-visible signature as one N#
+    // operation. The temporary C# assembly owner may attach parameter metadata and emit the body,
+    // but it cannot construct or partially register semantic constructor facts.
+    func DefineUserConstructor(
+        parameterTypes: Type[],
+        defaultKinds: int[],
+        defaultTexts: string[]): ConstructorBuilder {
+        if parameterTypes == null || defaultKinds == null || defaultTexts == null {
+            throw new InvalidOperationException(
+                "Source constructor definition facts cannot be null.")
+        }
+
+        exactParameterTypes := new Type[](parameterTypes.Length)
+        exactDefaultKinds := new int[](parameterTypes.Length)
+        exactDefaultTexts := new string[](parameterTypes.Length)
+        hasExplicitDefaultColumns := defaultKinds.Length != 0
+            || defaultTexts.Length != 0
+        if hasExplicitDefaultColumns
+            && (defaultKinds.Length != parameterTypes.Length
+                || defaultTexts.Length != parameterTypes.Length) {
+            throw new InvalidOperationException(
+                "Source constructor default facts must match the parameter count.")
+        }
+
+        index := 0
+        while index < parameterTypes.Length {
+            if parameterTypes[index] == null {
+                throw new InvalidOperationException(
+                    "Source constructor parameter types cannot contain null values.")
+            }
+            exactParameterTypes[index] = parameterTypes[index]
+            if hasExplicitDefaultColumns {
+                if defaultTexts[index] == null {
+                    throw new InvalidOperationException(
+                        "Source constructor default texts cannot contain null values.")
+                }
+                exactDefaultKinds[index] = defaultKinds[index]
+                exactDefaultTexts[index] = defaultTexts[index]
+            } else {
+                exactDefaultKinds[index] = -1
+                exactDefaultTexts[index] = ""
+            }
+            index = index + 1
+        }
+
+        builder := Builder.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            exactParameterTypes)
+        Constructors.Add(new ColumnarConstructorDef(
+            builder,
+            exactParameterTypes,
+            exactDefaultKinds,
+            exactDefaultTexts))
+        return builder
     }
 
     func SetFieldOrder(fieldOrder: string[]) {
