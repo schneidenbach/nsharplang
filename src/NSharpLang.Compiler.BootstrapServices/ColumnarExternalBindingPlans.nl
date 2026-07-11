@@ -993,6 +993,7 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ldnull"
             || memberName == "Initobj"
             || memberName == "Ldfld"
+            || memberName == "Ldflda"
             || memberName == "Ldsfld"
             || memberName == "Ldlen"
             || memberName == "Ldelem_U1"
