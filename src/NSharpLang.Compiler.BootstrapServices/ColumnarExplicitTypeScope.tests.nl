@@ -51,6 +51,30 @@ func ExactTypeEmptyBindings(): ColumnarFragmentBindings {
     return ExactTypeBindings(new List<ColumnarStructDef>())
 }
 
+func ExactTypeProgram(
+    sources: string[],
+    fileNames: string[]): ColumnarProgramInput {
+    program := ColumnarProgramInput.CreateFromSourceFiles(
+        ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames),
+        new List<ColumnarFunctionInput>(),
+        ExternalEmptyEnums(),
+        ExternalEmptyStructs(),
+        ExternalEmptyUnions(),
+        ExternalEmptyInterfaces(),
+        null)
+    program.PrepareExternalTypeBindings(null)
+    return program
+}
+
+func ExactTypeResolutionBindings(
+    definitions: IEnumerable<ColumnarStructDef>): ColumnarFragmentBindings {
+    return ColumnarFragmentBindings.CreateTypeResolutionBindings(
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        definitions,
+        new ColumnarUnionDef[](0),
+        new Dictionary<string, Type>(StringComparer.Ordinal))
+}
+
 func ExactTypeAssertResolved(
     scope: ColumnarBindingScopeFacts,
     bindings: ColumnarFragmentBindings,
@@ -270,4 +294,124 @@ test "exact explicit type scope fences visibility collisions missing imports and
     duplicateAlias := ExactTypeSingleScope(
         "import System as Lib\nimport System.Text as Lib\n")
     ExactTypeAssertRejected(duplicateAlias, ExactTypeEmptyBindings(), "int")
+}
+
+test "program exact type resolution selects same short name by source file" {
+    leftBuilder := TypeOfCreateSourceBuilder("Left.Widget", false)
+    rightBuilder := TypeOfCreateSourceBuilder("Right.Widget", false)
+    definitions := new List<ColumnarStructDef>()
+    definitions.Add(ExactTypeDefinition(leftBuilder, "Left.Widget"))
+    definitions.Add(ExactTypeDefinition(rightBuilder, "Right.Widget"))
+    bindings := ExactTypeResolutionBindings(definitions)
+
+    sources := new string[](2)
+    fileNames := new string[](2)
+    sources[0] = "namespace Left\nclass Widget {}\n"
+    sources[1] = "namespace Right\nclass Widget {}\n"
+    fileNames[0] = "exact-program/left.nl"
+    fileNames[1] = "exact-program/right.nl"
+    program := ExactTypeProgram(sources, fileNames)
+
+    left := typeof(object)
+    leftClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        0, "Widget", bindings, out left, out leftClaimed)
+    assert leftClaimed
+    assert ColumnarConstructionPlanner.SameObject(left, leftBuilder)
+
+    right := typeof(object)
+    rightClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        1, "Widget", bindings, out right, out rightClaimed)
+    assert rightClaimed
+    assert ColumnarConstructionPlanner.SameObject(right, rightBuilder)
+}
+
+test "type resolution binding factory copies only live type facts" {
+    genericOwner := TypeOfCreateSourceBuilder(
+        "ExactResolutionBindingOwner", true)
+    genericArguments := genericOwner.GetGenericArguments()
+    assert genericArguments.Length == 1
+    typeParameter := genericArguments[0]
+    typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    typeParameters[typeParameter.Name] = typeParameter
+
+    bindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        new ColumnarStructDef[](0),
+        new ColumnarUnionDef[](0),
+        typeParameters)
+
+    assert bindings.ParameterOrdinals.Count == 0
+    assert bindings.ParameterTypes.Count == 0
+    assert bindings.Locals.Count == 0
+    assert bindings.LiftedLocals.Count == 0
+    assert bindings.BoxedCaptures.Count == 0
+    assert bindings.TupleNames.Count == 0
+    assert bindings.CurrentInstance == null
+    assert bindings.EnclosingTypeDefinition == null
+
+    resolved := typeof(object)
+    assert bindings.TryGetTypeParameter(typeParameter.Name, out resolved)
+    assert ColumnarConstructionPlanner.SameObject(resolved, typeParameter)
+}
+
+test "program exact type resolution preserves runtime and source aliases" {
+    widgetBuilder := TypeOfCreateSourceBuilder("Models.Widget", false)
+    definitions := new List<ColumnarStructDef>()
+    definitions.Add(ExactTypeDefinition(widgetBuilder, "Models.Widget"))
+    bindings := ExactTypeResolutionBindings(definitions)
+
+    sources := new string[](2)
+    fileNames := new string[](2)
+    sources[0] = "namespace Models\nclass Widget {}\n"
+    sources[1] = "namespace Caller\n"
+        + "import Models\n"
+        + "import System.Text as Text\n"
+        + "type SourceAlias = Widget\n"
+        + "type RuntimeAlias = Text.StringBuilder\n"
+        + "type BrokenAlias = List<int>\n"
+    fileNames[0] = "exact-alias-program/models.nl"
+    fileNames[1] = "exact-alias-program/caller.nl"
+    program := ExactTypeProgram(sources, fileNames)
+
+    sourceAlias := typeof(object)
+    sourceClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        1, "SourceAlias", bindings, out sourceAlias, out sourceClaimed)
+    assert sourceClaimed
+    assert ColumnarConstructionPlanner.SameObject(
+        sourceAlias, widgetBuilder)
+
+    runtimeAlias := typeof(object)
+    runtimeClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        1, "RuntimeAlias", bindings, out runtimeAlias, out runtimeClaimed)
+    assert runtimeClaimed
+    assert runtimeAlias == typeof(System.Text.StringBuilder)
+
+    namespaceAlias := typeof(object)
+    namespaceClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        1,
+        "Text.StringBuilder",
+        bindings,
+        out namespaceAlias,
+        out namespaceClaimed)
+    assert namespaceClaimed
+    assert namespaceAlias == typeof(System.Text.StringBuilder)
+
+    rejected := typeof(object)
+    rejectedClaimed := false
+    assert !program.TryResolveExactExplicitTypeForFile(
+        1, "BrokenAlias", bindings, out rejected, out rejectedClaimed)
+    assert rejectedClaimed
+    assert rejected == typeof(object)
+
+    unsupported := typeof(object)
+    unsupportedClaimed := true
+    assert !program.TryResolveExactExplicitTypeForFile(
+        1, "List<int>", bindings, out unsupported, out unsupportedClaimed)
+    assert !unsupportedClaimed
+    assert unsupported == typeof(object)
 }

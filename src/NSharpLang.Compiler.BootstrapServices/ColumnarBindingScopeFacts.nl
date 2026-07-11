@@ -418,7 +418,18 @@ public class ColumnarBindingScopeFacts {
         canonical: string,
         bindings: ColumnarFragmentBindings,
         out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitType(
+            canonical, bindings, out result, out claimed)
+    }
+
+    public func TryResolveExactExplicitType(
+        canonical: string,
+        bindings: ColumnarFragmentBindings,
+        out result: Type,
+        out claimed: bool): bool {
         result = typeof(object)
+        claimed = false
         if canonical == null || bindings == null || !hasActiveFileFacts
             || activeSourceFileId < 0 || !sourceScanComplete {
             return false
@@ -431,7 +442,8 @@ public class ColumnarBindingScopeFacts {
             bindings,
             activeAliases,
             0,
-            out result)
+            out result,
+            out claimed)
     }
 
     func TryResolveExactExplicitTypeAtFile(
@@ -442,7 +454,29 @@ public class ColumnarBindingScopeFacts {
         activeAliases: HashSet<string>,
         depth: int,
         out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitTypeAtFile(
+            sourceFileId,
+            canonical,
+            allowTypeParameters,
+            bindings,
+            activeAliases,
+            depth,
+            out result,
+            out claimed)
+    }
+
+    func TryResolveExactExplicitTypeAtFile(
+        sourceFileId: int,
+        canonical: string,
+        allowTypeParameters: bool,
+        bindings: ColumnarFragmentBindings,
+        activeAliases: HashSet<string>,
+        depth: int,
+        out result: Type,
+        out claimed: bool): bool {
         result = typeof(object)
+        claimed = false
         facts := new ColumnarSourceBindingFacts()
         if depth > 200 || canonical == null || canonical.Length == 0
             || !fileFactsById.TryGetValue(sourceFileId, out facts)
@@ -455,6 +489,7 @@ public class ColumnarBindingScopeFacts {
                 return false
             }
             elementType := typeof(object)
+            elementClaimed := false
             if !TryResolveExactExplicitTypeAtFile(
                     sourceFileId,
                     canonical.Substring(0, canonical.Length - 2),
@@ -462,9 +497,12 @@ public class ColumnarBindingScopeFacts {
                     bindings,
                     activeAliases,
                     depth + 1,
-                    out elementType) {
+                    out elementType,
+                    out elementClaimed) {
+                claimed = elementClaimed
                 return false
             }
+            claimed = elementClaimed
             try {
                 result = elementType.MakeArrayType()
                 return true
@@ -480,6 +518,7 @@ public class ColumnarBindingScopeFacts {
 
         if allowTypeParameters
             && bindings.TryGetTypeParameter(canonical, out result) {
+            claimed = true
             return true
         }
         if TryResolveExplicitBuiltin(canonical, out result) {
@@ -488,6 +527,7 @@ public class ColumnarBindingScopeFacts {
 
         aliasTarget := ""
         if facts.TypeAliasTargets.TryGetValue(canonical, out aliasTarget) {
+            claimed = true
             return TryResolveExplicitAliasTarget(
                 sourceFileId,
                 canonical,
@@ -506,13 +546,15 @@ public class ColumnarBindingScopeFacts {
             if allowTypeParameters
                 && bindings.TryGetTypeParameter(
                     rootName, out rootTypeParameter) {
+                claimed = true
                 return false
             }
             namespaceTarget := ""
             if facts.NamespaceAliasTargets.TryGetValue(
                     rootName, out namespaceTarget) {
+                claimed = true
                 exactAliasedName := namespaceTarget + "." + tailName
-                claimed := false
+                sourceClaimed := false
                 if TryResolveExactSourceBinding(
                         exactAliasedName,
                         true,
@@ -520,10 +562,10 @@ public class ColumnarBindingScopeFacts {
                         activeAliases,
                         depth + 1,
                         out result,
-                        out claimed) {
+                        out sourceClaimed) {
                     return true
                 }
-                if claimed {
+                if sourceClaimed {
                     return false
                 }
                 return TryResolveExactExternalAtFile(
@@ -533,6 +575,7 @@ public class ColumnarBindingScopeFacts {
             aliasedFileId := -1
             if facts.FileAliasSourceFileIds.TryGetValue(
                     rootName, out aliasedFileId) {
+                claimed = true
                 if tailName.Contains(".") || aliasedFileId < 0 {
                     return false
                 }
@@ -547,10 +590,11 @@ public class ColumnarBindingScopeFacts {
             if facts.AliasNames.Contains(rootName)
                 || facts.TypeAliasTargets.ContainsKey(rootName)
                 || facts.DeclaredTypeNames.Contains(rootName) {
+                claimed = true
                 return false
             }
 
-            claimed := false
+            sourceClaimed := false
             requireExported := true
             separator := canonical.Length - 1
             while separator >= 0 && canonical[separator] != '.' {
@@ -567,10 +611,12 @@ public class ColumnarBindingScopeFacts {
                     activeAliases,
                     depth + 1,
                     out result,
-                    out claimed) {
+                    out sourceClaimed) {
+                claimed = true
                 return true
             }
-            if claimed {
+            if sourceClaimed {
+                claimed = true
                 return false
             }
             return TryResolveExactExternalAtFile(
@@ -578,8 +624,9 @@ public class ColumnarBindingScopeFacts {
         }
 
         if facts.DeclaredTypeNames.Contains(canonical) {
+            claimed = true
             exactLocalName := ExactNameInFacts(facts, canonical)
-            claimed := false
+            sourceClaimed := false
             return TryResolveExactSourceBinding(
                 exactLocalName,
                 false,
@@ -587,12 +634,13 @@ public class ColumnarBindingScopeFacts {
                 activeAliases,
                 depth + 1,
                 out result,
-                out claimed)
+                out sourceClaimed)
         }
 
         importedFileId := -1
         if facts.ImportedTypeSourceFileIds.TryGetValue(
                 canonical, out importedFileId) {
+            claimed = true
             if importedFileId < 0 {
                 return false
             }
@@ -606,7 +654,7 @@ public class ColumnarBindingScopeFacts {
         }
 
         currentNamespaceName := ExactNameInFacts(facts, canonical)
-        claimed := false
+        sourceClaimed := false
         if TryResolveExactSourceBinding(
                 currentNamespaceName,
                 false,
@@ -614,10 +662,12 @@ public class ColumnarBindingScopeFacts {
                 activeAliases,
                 depth + 1,
                 out result,
-                out claimed) {
+                out sourceClaimed) {
+            claimed = true
             return true
         }
-        if claimed {
+        if sourceClaimed {
+            claimed = true
             return false
         }
 
@@ -627,6 +677,7 @@ public class ColumnarBindingScopeFacts {
                 + "." + canonical
             if exportedSourceTypeNames.Contains(importedExactName)
                 || exportedSourceTypeAliasNames.Contains(importedExactName) {
+                claimed = true
                 if TryResolveExactSourceBinding(
                         importedExactName,
                         true,
@@ -634,7 +685,7 @@ public class ColumnarBindingScopeFacts {
                         activeAliases,
                         depth + 1,
                         out result,
-                        out claimed) {
+                        out sourceClaimed) {
                     return true
                 }
                 return false
@@ -644,6 +695,7 @@ public class ColumnarBindingScopeFacts {
 
         if exportedSourceTypeNames.Contains(canonical)
             || exportedSourceTypeAliasNames.Contains(canonical) {
+            claimed = true
             if TryResolveExactSourceBinding(
                     canonical,
                     true,
@@ -651,7 +703,7 @@ public class ColumnarBindingScopeFacts {
                     activeAliases,
                     depth + 1,
                     out result,
-                    out claimed) {
+                    out sourceClaimed) {
                 return true
             }
             return false
@@ -659,6 +711,7 @@ public class ColumnarBindingScopeFacts {
 
         // An alias root is a namespace/file owner, not a constructible type by itself.
         if facts.AliasNames.Contains(canonical) {
+            claimed = true
             return false
         }
         if TryResolveExplicitKnownRuntime(canonical, out result) {

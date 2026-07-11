@@ -61,6 +61,45 @@ class ColumnarFragmentBindings {
         this.visibleLocalCallableNames = visibleLocalCallableNames
     }
 
+    // Metadata declaration passes need exact source/runtime type identity without value-flow
+    // bindings. Keep that mechanical bridge narrow: only semantic type facts enter, and every
+    // parameter/local/capture/callable/tuple map is created empty.
+    public static func CreateTypeResolutionBindings(
+        enums: Dictionary<string, ColumnarEnumDef>,
+        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
+        sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>,
+        typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
+        if enums == null || sourceTypeDefinitions == null
+            || sourceUnionDefinitions == null || typeParameters == null {
+            throw new InvalidOperationException(
+                "Columnar type-resolution binding collections cannot be null.")
+        }
+
+        emptyNames := new string[](0)
+        result := new ColumnarFragmentBindings(
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal),
+            new Dictionary<string, LocalBuilder>(StringComparer.Ordinal),
+            enums,
+            emptyNames,
+            emptyNames,
+            emptyNames,
+            emptyNames,
+            emptyNames)
+
+        for pair in typeParameters {
+            ValidateTypeParameter(pair.Key, pair.Value)
+        }
+
+        for pair in typeParameters {
+            result.typeParameters.Add(pair.Key, pair.Value)
+        }
+
+        result.SourceTypeDefinitions = sourceTypeDefinitions
+        result.SourceUnionDefinitions = sourceUnionDefinitions
+        return result
+    }
+
     static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
         emptyNames := new string[](0)
         result := new ColumnarFragmentBindings(parameterOrdinals, parameterTypes, locals, enums, emptyNames, emptyNames, enclosingNames, declaredCallableNames, visibleLocalCallableNames)

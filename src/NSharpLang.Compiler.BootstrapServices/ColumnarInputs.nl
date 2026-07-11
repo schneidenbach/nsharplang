@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
 import System.Collections.Generic
 
 class ColumnarEnumInput {
@@ -360,6 +361,29 @@ class ColumnarProgramInput {
     // be reconstructed in C#.
     public func ExactTypeNameForFile(name: string, sourceFileId: int): string {
         return bindingScope.ExactTypeNameForFile(name, sourceFileId)
+    }
+
+    // Metadata declaration sites do not own a node-table view, so select the same immutable
+    // per-file semantic scope explicitly before resolving a live type handle.
+    public func TryResolveExactExplicitTypeForFile(
+        sourceFileId: int,
+        canonical: string,
+        bindings: ColumnarFragmentBindings,
+        out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitTypeForFile(
+            sourceFileId, canonical, bindings, out result, out claimed)
+    }
+
+    public func TryResolveExactExplicitTypeForFile(
+        sourceFileId: int,
+        canonical: string,
+        bindings: ColumnarFragmentBindings,
+        out result: Type,
+        out claimed: bool): bool {
+        fileScope := bindingScope.ForSourceFile(sourceFileId)
+        return fileScope.TryResolveExactExplicitType(
+            canonical, bindings, out result, out claimed)
     }
 
     static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {
