@@ -1,8 +1,10 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Globalization
 import System.Reflection.Emit
+import System.Text
 import NSharpLang.Compiler
 
 // N# owner for the reflection-free scalar literals admitted by schema v3. Root planning owns
@@ -305,12 +307,39 @@ public class ColumnarScalarLiteralPlanner {
         plan: ColumnarCodePlan,
         out resultType: Type): bool {
         resultType = typeof(string)
+        if text.Length > 0 && text[0] == '$' {
+            return TryAppendZeroHoleInterpolatedString(text, plan)
+        }
         if !IsPlainStringLiteral(text) {
             return false
         }
 
         decoded := StringLiteralDecoder.Decode(text)
         valueIndex := plan.AddString(decoded)
+        plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
+        return true
+    }
+
+    // Interpolation holes remain with the later expression-owner slices. The complete zero-hole
+    // family is a scalar constant: split and decode every normal/raw literal segment before any
+    // plan mutation, then persist the same single ldstr shape as an ordinary string literal.
+    static func TryAppendZeroHoleInterpolatedString(
+        text: string,
+        plan: ColumnarCodePlan): bool {
+        parts := new List<ColumnarInterpolationPart>()
+        if !ColumnarInterpolationSplitter.TrySplit(text, parts) {
+            return false
+        }
+
+        decoded := new StringBuilder()
+        for part in parts {
+            if part.IsHole {
+                return false
+            }
+            decoded.Append(StringLiteralDecoder.DecodeInterpolatedText(text, part.Text))
+        }
+
+        valueIndex := plan.AddString(decoded.ToString())
         plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
         return true
     }

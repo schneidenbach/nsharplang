@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -235,7 +236,11 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.StringOperand() {
             il.Emit(OpCodes.Ldstr, plan.StringValues[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.ArgumentOperand() {
-            il.Emit(OpCodes.Ldarg, (short)plan.ArgumentOrdinals[operandIndex])
+            if opCodeValue == ColumnarCodePlanContract.Ldarga() {
+                il.Emit(OpCodes.Ldarga, (short)plan.ArgumentOrdinals[operandIndex])
+            } else {
+                il.Emit(OpCodes.Ldarg, (short)plan.ArgumentOrdinals[operandIndex])
+            }
         } else if operandKind == ColumnarCodePlanContract.AmbientLocalOperand() {
             EmitLocal(il, opCodeValue, plan.AmbientLocals[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.PlanLocalOperand() {
@@ -261,7 +266,11 @@ public class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Brfalse, labels[operandIndex])
             }
         } else if operandKind == ColumnarCodePlanContract.TypeOperand() {
-            il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
+            if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
+                il.Emit(OpCodes.Ldtoken, plan.Types[operandIndex])
+            } else {
+                il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
+            }
         }
     }
 
@@ -292,6 +301,8 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Not)
         } else if opCodeValue == ColumnarCodePlanContract.Ceq() {
             il.Emit(OpCodes.Ceq)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindRef() {
+            il.Emit(OpCodes.Ldind_Ref)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             il.Emit(OpCodes.Conv_I4)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
@@ -578,17 +589,20 @@ public class ColumnarCodePlanExecutor {
         }
         ValidateStorableType(declaringType, "method receiver", schemaName)
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
+        declaringArguments := DeclaringTypeArguments(declaringType)
         genericArguments := method.GetGenericArguments()
-        returnType := ResolveMethodSignatureType(
+        returnType := ResolveMemberSignatureType(
             signatureMethod.get_ReturnType(),
+            declaringArguments,
             genericArguments,
             schemaName)
         ValidateStorableType(returnType, "method return", schemaName)
         parameters := signatureMethod.GetParameters()
         i := 0
         while i < parameters.Length {
-            parameterType := ResolveMethodSignatureType(
+            parameterType := ResolveMemberSignatureType(
                 parameters[i].get_ParameterType(),
+                declaringArguments,
                 genericArguments,
                 schemaName)
             ValidateStorableType(parameterType, "method argument", schemaName)
@@ -631,9 +645,16 @@ public class ColumnarCodePlanExecutor {
         // TypeBuilder.GetMethod wrapper. Validate it before GetParameters reaches the
         // documented unbaked reflection boundary, so that boundary can never hide a lie.
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
+        declaringType := method.get_DeclaringType()
+        if declaringType == null {
+            throw new InvalidOperationException(
+                schemaName + " declared method has no declaring type.")
+        }
+        declaringArguments := DeclaringTypeArguments(declaringType)
         genericArguments := method.GetGenericArguments()
-        actualReturn := ResolveMethodSignatureType(
+        actualReturn := ResolveMemberSignatureType(
             signatureMethod.get_ReturnType(),
+            declaringArguments,
             genericArguments,
             schemaName)
         if !ExactTypeShapeMatches(
@@ -652,8 +673,9 @@ public class ColumnarCodePlanExecutor {
             }
             i := 0
             while i < actualParameters.Length {
-                actualParameter := ResolveMethodSignatureType(
+                actualParameter := ResolveMemberSignatureType(
                     actualParameters[i].get_ParameterType(),
+                    declaringArguments,
                     genericArguments,
                     schemaName)
                 if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
@@ -687,6 +709,28 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(
                 schemaName
                     + " field handles must have an exact declaring type.")
+        }
+        if plan.FieldUsesDeclaredSignature[fieldIndex] {
+            declaredType := plan.FieldDeclaringTypes[fieldIndex]
+            declaredValueType := plan.FieldValueTypes[fieldIndex]
+            if declaringType != declaredType
+                || field.get_IsStatic() != plan.FieldIsStatic[fieldIndex] {
+                throw new InvalidOperationException(
+                    schemaName + " declared field identity does not match its handle.")
+            }
+            ValidateStorableType(declaredType, "field receiver", schemaName)
+            ValidateStorableType(declaredValueType, "field result", schemaName)
+            actualValueType := ResolveMemberSignatureType(
+                field.get_FieldType(),
+                DeclaringTypeArguments(declaredType),
+                new Type[](0),
+                schemaName)
+            if !ExactTypeShapeMatches(actualValueType, declaredValueType) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " declared field result does not match its inspectable handle.")
+            }
+            return
         }
         ValidateStorableType(declaringType, "field receiver", schemaName)
         ValidateStorableType(field.get_FieldType(), "field result", schemaName)
@@ -1083,10 +1127,10 @@ public class ColumnarCodePlanExecutor {
             return left
         }
         if !left.get_IsValueType() && !right.get_IsValueType() {
-            if left.IsAssignableFrom(right) {
+            if ReferenceAssignableFrom(left, right) {
                 return left
             }
-            if right.IsAssignableFrom(left) {
+            if ReferenceAssignableFrom(right, left) {
                 return right
             }
         }
@@ -1149,11 +1193,19 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
-        } else if opCodeValue == ColumnarCodePlanContract.Ldarg() {
+        } else if opCodeValue == ColumnarCodePlanContract.Ldarg()
+            || opCodeValue == ColumnarCodePlanContract.Ldarga() {
             argumentType := plan.Types[plan.ArgumentTypeIndices[operandIndex]]
+            if opCodeValue == ColumnarCodePlanContract.Ldarga()
+                && plan.ArgumentIsAddress[operandIndex] {
+                throw new InvalidOperationException(
+                    schemaName + " ldarga cannot take the address of a by-reference argument slot.")
+            }
+            isAddress := opCodeValue == ColumnarCodePlanContract.Ldarga()
+                || plan.ArgumentIsAddress[operandIndex]
             state.Push(
                 argumentType,
-                plan.ArgumentIsAddress[operandIndex],
+                isAddress,
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
@@ -1166,9 +1218,16 @@ public class ColumnarCodePlanExecutor {
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {
             ApplyConstructor(plan.Constructors[operandIndex], state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldfld() {
-            ApplyField(plan.Fields[operandIndex], state, schemaName)
+            ApplyField(plan, operandIndex, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
-            ApplyStaticField(plan.Fields[operandIndex], state, schemaName)
+            ApplyStaticField(plan, operandIndex, state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
+            state.Push(
+                typeof(RuntimeTypeHandle),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
@@ -1230,6 +1289,22 @@ public class ColumnarCodePlanExecutor {
             }
             state.Push(
                 typeof(bool),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindRef() {
+            value := state.Pop()
+            if !value.IsAddress
+                || value.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+                || value.ValueType.get_IsValueType()
+                || value.ValueType.get_IsGenericParameter() {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " ldind.ref requires an exact managed address to a reference slot.")
+            }
+            state.Push(
+                value.ValueType,
                 false,
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
@@ -1413,13 +1488,15 @@ public class ColumnarCodePlanExecutor {
         }
 
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
+        declaringArguments := DeclaringTypeArguments(declaringType)
         genericArguments := method.GetGenericArguments()
         parameters := signatureMethod.GetParameters()
         parameterIndex := parameters.Length - 1
         while parameterIndex >= 0 {
             value := state.Pop()
-            parameterType := ResolveMethodSignatureType(
+            parameterType := ResolveMemberSignatureType(
                 parameters[parameterIndex].get_ParameterType(),
+                declaringArguments,
                 genericArguments,
                 schemaName)
             if value.IsAddress
@@ -1445,8 +1522,9 @@ public class ColumnarCodePlanExecutor {
                 schemaName)
         }
         state.Push(
-            ResolveMethodSignatureType(
+            ResolveMemberSignatureType(
                 signatureMethod.get_ReturnType(),
+                declaringArguments,
                 genericArguments,
                 schemaName),
             false,
@@ -1470,24 +1548,35 @@ public class ColumnarCodePlanExecutor {
         return definition
     }
 
-    // MethodBuilderInstantiation intentionally exposes its generic definition's raw
-    // parameter and return shapes when an argument is an unbaked TypeBuilder parameter.
-    // Rebuild the signature from that definition and the constructed handle's exact
-    // arguments so stack validation never depends on Reflection.Emit wrapper identity.
-    static func ResolveMethodSignatureType(
+    static func DeclaringTypeArguments(declaringType: Type): Type[] {
+        if !declaringType.get_IsGenericType() {
+            return new Type[](0)
+        }
+        return declaringType.GetGenericArguments()
+    }
+
+    // Reflection.Emit constructed member wrappers can expose the generic definition's raw
+    // declaring-type and method-type parameters. Rebuild the exact selected signature from
+    // both argument sets so stack validation never depends on wrapper reflection identity.
+    static func ResolveMemberSignatureType(
         signatureType: Type,
+        declaringArguments: Type[],
         methodArguments: Type[],
         schemaName: string): Type {
         if signatureType.get_IsGenericParameter() {
-            if signatureType.get_DeclaringMethod() == null {
-                return signatureType
-            }
             position := signatureType.get_GenericParameterPosition()
-            if position < 0 || position >= methodArguments.Length {
-                throw new InvalidOperationException(
-                    schemaName + " method generic parameter position is invalid.")
+            if signatureType.get_DeclaringMethod() != null {
+                if position < 0 || position >= methodArguments.Length {
+                    throw new InvalidOperationException(
+                        schemaName + " method generic parameter position is invalid.")
+                }
+                return methodArguments[position]
             }
-            return methodArguments[position]
+            if position < 0 || position >= declaringArguments.Length {
+                throw new InvalidOperationException(
+                    schemaName + " declaring-type generic parameter position is invalid.")
+            }
+            return declaringArguments[position]
         }
         if signatureType.get_IsSZArray() {
             elementType := signatureType.GetElementType()
@@ -1495,8 +1584,9 @@ public class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(
                     schemaName + " method array signature has no element type.")
             }
-            return ResolveMethodSignatureType(
+            return ResolveMemberSignatureType(
                 elementType,
+                declaringArguments,
                 methodArguments,
                 schemaName).MakeArrayType()
         }
@@ -1507,8 +1597,9 @@ public class ColumnarCodePlanExecutor {
             resolvedArguments := new Type[](signatureArguments.Length)
             i := 0
             while i < signatureArguments.Length {
-                resolvedArguments[i] = ResolveMethodSignatureType(
+                resolvedArguments[i] = ResolveMemberSignatureType(
                     signatureArguments[i],
+                    declaringArguments,
                     methodArguments,
                     schemaName)
                 i += 1
@@ -1521,8 +1612,9 @@ public class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(
                     schemaName + " compound method signature has no element type.")
             }
-            resolvedElement := ResolveMethodSignatureType(
+            resolvedElement := ResolveMemberSignatureType(
                 compoundElement,
+                declaringArguments,
                 methodArguments,
                 schemaName)
             if !ExactTypeShapeMatches(compoundElement, resolvedElement) {
@@ -1569,15 +1661,23 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func ApplyField(
-        field: FieldInfo,
+        plan: ColumnarCodePlan,
+        fieldIndex: int,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
-        if field.get_IsStatic() {
+        field := plan.Fields[fieldIndex]
+        usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
+        isStatic := usesDeclaredSignature
+            ? plan.FieldIsStatic[fieldIndex]
+            : field.get_IsStatic()
+        if isStatic {
             throw new InvalidOperationException(
                 schemaName + " ldfld handles must name instance fields.")
         }
         receiver := state.Pop()
-        declaringType := field.get_DeclaringType()
+        declaringType := usesDeclaredSignature
+            ? plan.FieldDeclaringTypes[fieldIndex]
+            : field.get_DeclaringType()
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " field has no declaring type.")
         }
@@ -1588,7 +1688,9 @@ public class ColumnarCodePlanExecutor {
             receiver.ValueKind,
             schemaName)
         state.Push(
-            field.get_FieldType(),
+            usesDeclaredSignature
+                ? plan.FieldValueTypes[fieldIndex]
+                : field.get_FieldType(),
             false,
             ColumnarCodePlanStackValueKind.Exact(),
             false,
@@ -1596,15 +1698,23 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func ApplyStaticField(
-        field: FieldInfo,
+        plan: ColumnarCodePlan,
+        fieldIndex: int,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
-        if !field.get_IsStatic() || field.get_IsLiteral() {
+        field := plan.Fields[fieldIndex]
+        usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
+        isStatic := usesDeclaredSignature
+            ? plan.FieldIsStatic[fieldIndex]
+            : field.get_IsStatic()
+        if !isStatic || field.get_IsLiteral() {
             throw new InvalidOperationException(
                 schemaName + " ldsfld handles must name non-literal static fields.")
         }
         state.Push(
-            field.get_FieldType(),
+            usesDeclaredSignature
+                ? plan.FieldValueTypes[fieldIndex]
+                : field.get_FieldType(),
             false,
             ColumnarCodePlanStackValueKind.Exact(),
             false,
@@ -1741,7 +1851,7 @@ public class ColumnarCodePlanExecutor {
         }
         return !expectedType.get_IsValueType()
             && !actualType.get_IsValueType()
-            && expectedType.IsAssignableFrom(actualType)
+            && ReferenceAssignableFrom(expectedType, actualType)
     }
 
     static func IsI8Destination(expectedType: Type): bool {
@@ -1782,6 +1892,45 @@ public class ColumnarCodePlanExecutor {
             i += 1
         }
         return true
+    }
+
+    static func ReferenceAssignableFrom(expectedType: Type, actualType: Type): bool {
+        if ExactTypeShapeMatches(expectedType, actualType) {
+            return true
+        }
+
+        // Reflection.Emit's BCL-headed generic wrappers do not implement IsAssignableFrom.
+        // Instance Count plans deliberately call the IReadOnlyCollection<T> getter on an
+        // IReadOnlyList<T>/IReadOnlySet<T> receiver, so validate that exact interface edge
+        // structurally before consulting ordinary runtime reflection.
+        if expectedType.get_IsGenericType()
+            && actualType.get_IsGenericType()
+            && !expectedType.get_IsGenericTypeDefinition()
+            && !actualType.get_IsGenericTypeDefinition() {
+            expectedDefinition := expectedType.GetGenericTypeDefinition()
+            actualDefinition := actualType.GetGenericTypeDefinition()
+            if expectedDefinition
+                    == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+                && (actualDefinition
+                        == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+                    || actualDefinition
+                        == typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) {
+                expectedArguments := expectedType.GetGenericArguments()
+                actualArguments := actualType.GetGenericArguments()
+                return expectedArguments.Length == 1
+                    && actualArguments.Length == 1
+                    && ExactTypeShapeMatches(
+                        expectedArguments[0], actualArguments[0])
+            }
+        }
+
+        try {
+            return expectedType.IsAssignableFrom(actualType)
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func IsArrayIndex(valueType: Type, valueKind: int, literalKnown: bool): bool {

@@ -505,6 +505,10 @@ public class ColumnarExpressionNodeKind {
         return 13
     }
 
+    public static func TypeOfExpression(): int {
+        return 55
+    }
+
     public static func NameOfExpression(): int {
         return 62
     }

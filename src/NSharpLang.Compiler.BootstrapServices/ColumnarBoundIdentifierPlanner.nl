@@ -290,6 +290,154 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
+    // Member planning needs the semantic receiver type before it chooses a field/getter and,
+    // for source value types, must preserve the original local/argument storage address. Ref/out
+    // parameters remain excluded from ordinary value reads but are valid reference- or value-type receivers.
+    static func TryGetReceiverType(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bindings: ColumnarFragmentBindings,
+        out resultType: Type,
+        out directStorage: bool,
+        out byRefParameter: bool): bool {
+        resultType = typeof(int)
+        directStorage = false
+        byRefParameter = false
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        selection := EmptySelection()
+        if TryResolve(nodes, source, candidate, bindings, out selection) {
+            resultType = selection.ResultType
+            directStorage = selection.Kind == ColumnarBoundIdentifierKind.Local
+                || selection.Kind == ColumnarBoundIdentifierKind.Parameter
+            return true
+        }
+
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression()
+            || nodes.ChildCount(candidate) != 0
+            || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(
+                nodes, source, candidate) {
+            return false
+        }
+        name := nodes.Text(source, candidate)
+        if name.Length == 0
+            || !bindings.ParameterOrdinals.ContainsKey(name)
+            || !bindings.ParameterTypes.ContainsKey(name) {
+            return false
+        }
+        parameterType := bindings.ParameterTypes[name]
+        ordinal := bindings.ParameterOrdinals[name]
+        if parameterType == null || ordinal < 0 || ordinal > 32767 {
+            throw new InvalidOperationException(
+                "Member-receiver parameter facts are invalid.")
+        }
+        if !parameterType.get_IsByRef() {
+            return false
+        }
+        elementType := parameterType.GetElementType()
+        if elementType == null {
+            throw new InvalidOperationException(
+                "A by-reference member receiver has no element type.")
+        }
+        RequireStorableValueType(
+            elementType,
+            "A by-reference member receiver must have a storable element type.")
+        resultType = elementType
+        directStorage = true
+        byRefParameter = true
+        return true
+    }
+
+    // Append a simple receiver. When preserveValueStorage is true, an ordinary source-struct
+    // local/parameter is loaded by managed address (`ldloca`/`ldarga`) and a byref parameter uses
+    // its existing address (`ldarg`). Other bindings keep the ordinary value-read lowering.
+    static func TryAppendReceiver(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bindings: ColumnarFragmentBindings,
+        preserveValueStorage: bool,
+        plan: ColumnarCodePlan,
+        out resultType: Type,
+        out isAddress: bool): bool {
+        resultType = typeof(int)
+        isAddress = false
+        directStorage := false
+        byRefParameter := false
+        if !TryGetReceiverType(
+            nodes,
+            source,
+            node,
+            bindings,
+            out resultType,
+            out directStorage,
+            out byRefParameter) {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+        if preserveValueStorage && resultType.get_IsValueType() {
+            if !directStorage {
+                return false
+            }
+            name := nodes.Text(source, candidate)
+            if bindings.Locals.ContainsKey(name) {
+                localIndex := plan.AddAmbientLocal(bindings.Locals[name])
+                plan.AppendAmbientLocalInstruction(
+                    ColumnarCodePlanContract.Ldloca(), localIndex)
+                isAddress = true
+                return true
+            }
+            if bindings.ParameterOrdinals.ContainsKey(name) {
+                argumentIndex := GetOrAddArgument(
+                    plan,
+                    bindings.ParameterOrdinals[name],
+                    resultType,
+                    byRefParameter)
+                plan.AppendArgumentInstruction(
+                    byRefParameter
+                        ? ColumnarCodePlanContract.Ldarg()
+                        : ColumnarCodePlanContract.Ldarga(),
+                    argumentIndex)
+                isAddress = true
+                return true
+            }
+            return false
+        }
+
+        if byRefParameter {
+            if resultType.get_IsValueType() {
+                return false
+            }
+
+            name := nodes.Text(source, candidate)
+            if !bindings.ParameterOrdinals.ContainsKey(name) {
+                return false
+            }
+            argumentIndex := GetOrAddArgument(
+                plan,
+                bindings.ParameterOrdinals[name],
+                resultType,
+                true)
+            plan.AppendArgumentInstruction(
+                ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            plan.AppendInstructionWithoutOperand(
+                ColumnarCodePlanContract.LdindRef())
+            return true
+        }
+        if !TryAppend(nodes, source, candidate, bindings, plan, out resultType) {
+            return false
+        }
+        return true
+    }
+
     static func TryResolve(
         nodes: ColumnarNodeTable,
         source: string,

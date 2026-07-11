@@ -103,11 +103,13 @@ test "external assembly scan resolves an MSBuild reference-only path to its proj
     runtimeAssembly := typeof(ExternalAssemblyScan).get_Assembly()
     runtimePath := runtimeAssembly.get_Location()
     netDirectory := Path.GetDirectoryName(runtimePath)
-    debugDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(debugDirectory)
+    configurationDirectory := Path.GetDirectoryName(netDirectory)
+    binDirectory := Path.GetDirectoryName(configurationDirectory)
     projectDirectory := Path.GetDirectoryName(binDirectory)
     assert projectDirectory != null
-    referenceDirectory := Path.Combine(projectDirectory, "obj/Debug/net10.0/refint")
+    configurationName := Path.GetFileName(configurationDirectory)
+    targetFrameworkName := Path.GetFileName(netDirectory)
+    referenceDirectory := Path.Combine(projectDirectory, "obj/" + configurationName + "/" + targetFrameworkName + "/refint")
 
     referencePath := Path.Combine(referenceDirectory, Path.GetFileName(runtimePath))
 

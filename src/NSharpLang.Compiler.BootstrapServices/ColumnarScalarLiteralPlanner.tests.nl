@@ -281,6 +281,28 @@ test "scalar literal planner decodes ordinary strings and preserves triple strin
     assert raw.StringValues[raw.OperandIndices[0]] == "slash\\n"
 }
 
+test "scalar literal planner folds the complete zero-hole interpolated family" {
+    quote := "\""
+    interpolated := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$" + quote + "line\\n{{value}}" + quote))
+    assert interpolated.ResultType == typeof(string)
+    assert interpolated.OperationCount == 1
+    assert interpolated.StringCount == 1
+    assert interpolated.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert interpolated.StringValues[interpolated.OperandIndices[0]] == "line\n{value}"
+
+    triple := quote + quote + quote
+    raw := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$" + triple + "slash\\n{{value}}" + triple))
+    assert raw.StringValues[raw.OperandIndices[0]] == "slash\\n{value}"
+
+    empty := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.StringLiteralExpression(), "$" + quote + quote))
+    assert empty.StringValues[empty.OperandIndices[0]] == ""
+}
+
 test "scalar literal planner facades report the sealed exact type" {
     tree := ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.IntLiteralExpression(),
@@ -361,9 +383,11 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     quote := "\""
     triple := quote + quote + quote
     ColumnarScalarPlannerDeclines(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), "$" + quote + "x" + quote)
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$" + quote + "{value}" + quote)
     ColumnarScalarPlannerDeclines(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), "$" + triple + "x" + triple)
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$" + triple + "{value}" + triple)
     ColumnarScalarPlannerDeclines(
         ColumnarExpressionNodeKind.StringLiteralExpression(), quote + "unterminated")
     ColumnarScalarPlannerDeclines(
@@ -468,6 +492,13 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     assert floatingAtomic.DoubleCount == 1
     assert floatingAtomic.SingleCount == 0
     assert floatingAtomic.DoubleValues[0] == 99.0
+
+    hole := ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.StringLiteralExpression(), "$\"{value}\"")
+    assert !ColumnarScalarPlannerTryAppend(hole, atomic)
+    assert atomic.OperationCount == 1
+    assert atomic.Int32Count == 1
+    assert atomic.StringCount == 0
 
     v2 := new ColumnarCodePlan()
     v2.PrepareV2()

@@ -168,6 +168,39 @@ func ExecutorV3StringPlan(value: string): ColumnarCodePlan {
     return plan
 }
 
+func ExecutorV3TypeTokenPlan(targetType: Type): ColumnarCodePlan {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(RuntimeTypeHandle)
+    getTypeFromHandle := ExecutorRequiredMethod(
+        typeof(Type), "GetTypeFromHandle", parameterTypes)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1126, 0)
+    typeIndex := plan.AddType(targetType)
+    methodIndex := plan.AddMethod(getTypeFromHandle)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), typeIndex)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.CompleteFragment(root, typeof(Type))
+    plan.CompleteV3(typeof(Type))
+    return plan
+}
+
+func ExecutorV3ReferenceIndirectPlan(
+    argumentTypeValue: Type,
+    isAddress: bool): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1125, 0)
+    argumentType := plan.AddType(argumentTypeValue)
+    argument := plan.AddArgument(0, argumentType, isAddress)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    plan.CompleteFragment(root, argumentTypeValue)
+    plan.CompleteV3(argumentTypeValue)
+    return plan
+}
+
 func ExecutorV3I8MergePlan(resultType: Type): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
     plan.PrepareV3()
@@ -492,6 +525,116 @@ test "schema v2 argument address facts admit exact value receivers" {
     ExecutorSetObject(arguments, 0, indexValue)
     assert ExecutorRunRecursivePlan(plan, typeof(int), parameterTypes, arguments) == "2"
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v2 ldarga executes exact declared value receiver fields" {
+    tupleType := typeof(ValueTuple<int, int>)
+    item1 := ExecutorRequiredField(tupleType, "Item1")
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 10074, 0)
+    tupleTypeIndex := plan.AddType(tupleType)
+    receiver := plan.AddArgument(0, tupleTypeIndex, false)
+    field := plan.AddFieldWithSignature(
+        item1, tupleType, typeof(int), false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), receiver)
+    plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), field)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV2(typeof(int))
+    ColumnarCodePlanExecutor.Validate(plan)
+
+    constructorTypes := new Type[](2)
+    constructorTypes[0] = typeof(int)
+    constructorTypes[1] = typeof(int)
+    constructor := ExecutorRequiredConstructor(tupleType, constructorTypes)
+    constructorArguments := new object[](2)
+    ExecutorSetObject(constructorArguments, 0, 42)
+    ExecutorSetObject(constructorArguments, 1, 7)
+    tupleValue := constructor.Invoke(constructorArguments)
+    if tupleValue == null {
+        throw new InvalidOperationException("Required ValueTuple value was not constructed.")
+    }
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = tupleType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, tupleValue)
+    assert ExecutorRunRecursivePlan(plan, typeof(int), parameterTypes, arguments) == "42"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v2 executor rejects corrupt declared field and ldarga facts" {
+    tupleType := typeof(ValueTuple<int, int>)
+    item1 := ExecutorRequiredField(tupleType, "Item1")
+
+    wrongResult := new ColumnarCodePlan()
+    wrongResult.PrepareV2()
+    resultRoot := wrongResult.BeginFragment(-1, 10075, 0)
+    tupleTypeIndex := wrongResult.AddType(tupleType)
+    tupleArgument := wrongResult.AddArgument(0, tupleTypeIndex, false)
+    wrongResultField := wrongResult.AddFieldWithSignature(
+        item1, tupleType, typeof(string), false)
+    wrongResult.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), tupleArgument)
+    wrongResult.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), wrongResultField)
+    wrongResult.CompleteFragment(resultRoot, typeof(string))
+    wrongResult.CompleteV2(typeof(string))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongResult)
+    }
+
+    wrongDeclaring := new ColumnarCodePlan()
+    wrongDeclaring.PrepareV2()
+    declaringRoot := wrongDeclaring.BeginFragment(-1, 10076, 0)
+    stringTypeIndex := wrongDeclaring.AddType(typeof(string))
+    stringArgument := wrongDeclaring.AddArgument(0, stringTypeIndex, false)
+    wrongDeclaringField := wrongDeclaring.AddFieldWithSignature(
+        item1, typeof(string), typeof(int), false)
+    wrongDeclaring.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), stringArgument)
+    wrongDeclaring.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), wrongDeclaringField)
+    wrongDeclaring.CompleteFragment(declaringRoot, typeof(int))
+    wrongDeclaring.CompleteV2(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongDeclaring)
+    }
+
+    wrongStatic := new ColumnarCodePlan()
+    wrongStatic.PrepareV2()
+    staticRoot := wrongStatic.BeginFragment(-1, 10077, 0)
+    staticTupleType := wrongStatic.AddType(tupleType)
+    staticTupleArgument := wrongStatic.AddArgument(0, staticTupleType, false)
+    staticField := wrongStatic.AddFieldWithSignature(
+        item1, tupleType, typeof(int), true)
+    wrongStatic.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), staticTupleArgument)
+    wrongStatic.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), staticField)
+    wrongStatic.CompleteFragment(staticRoot, typeof(int))
+    wrongStatic.CompleteV2(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongStatic)
+    }
+
+    wrongAddress := new ColumnarCodePlan()
+    wrongAddress.PrepareV2()
+    addressRoot := wrongAddress.BeginFragment(-1, 10078, 0)
+    addressTupleType := wrongAddress.AddType(tupleType)
+    addressArgument := wrongAddress.AddArgument(0, addressTupleType, false)
+    addressField := wrongAddress.AddFieldWithSignature(
+        item1, tupleType, typeof(int), false)
+    wrongAddress.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), addressArgument)
+    wrongAddress.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), addressField)
+    wrongAddress.CompleteFragment(addressRoot, typeof(int))
+    wrongAddress.CompleteV2(typeof(int))
+    wrongAddress.ArgumentIsAddress[0] = true
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongAddress)
+    }
 }
 
 test "schema v2 executor rejects corrupt declared method facts" {
@@ -1168,6 +1311,29 @@ test "schema v2 executor rejects void and by-reference reflection signatures" {
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(byRefPlan) }
 }
 
+test "schema v3 executor validates and persists exact type tokens" {
+    plan := ExecutorV3TypeTokenPlan(typeof(string))
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert plan.Types[plan.OperandIndices[0]] == typeof(string)
+    assert ExecutorRunV3ScalarPlan(plan, typeof(Type)) == "System.String"
+
+    wrongSignature := ExecutorV3TypeTokenPlan(typeof(string))
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(Type)
+    wrongSignature.Methods[0] = ExecutorRequiredMethod(
+        typeof(Type), "GetTypeCode", parameterTypes)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongSignature)
+    }
+
+    wrongOperand := ExecutorV3TypeTokenPlan(typeof(string))
+    wrongOperand.OperandIndices[0] = wrongOperand.TypeCount
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongOperand)
+    }
+}
+
 test "schema v2 executor rejects definitions and substitutes foreign open arguments by target position" {
     definition := typeof(RuntimeHelpers).GetMethod("GetSubArray")
     if definition == null {
@@ -1513,6 +1679,7 @@ test "schema v3 unary opcodes have exact identities and remain version isolated"
     assert ColumnarCodePlanContract.Neg() == 101
     assert ColumnarCodePlanContract.Not() == 102
     assert ColumnarCodePlanContract.Ceq() == -511
+    assert ColumnarCodePlanContract.LdindRef() == 80
 
     v2Builder := new ColumnarCodePlan()
     v2Builder.PrepareV2()
@@ -1524,6 +1691,68 @@ test "schema v3 unary opcodes have exact identities and remain version isolated"
     smuggled := ExecutorConstantPlan(typeof(int))
     smuggled.OpCodeValues[0] = ColumnarCodePlanContract.Neg()
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(smuggled) }
+}
+
+test "schema v3 ldarg dereferences exact managed reference slots" {
+    plan := ExecutorV3ReferenceIndirectPlan(typeof(string), true)
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.ArgumentIsAddress[0]
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    byRefString := Type.GetType("System.String&")
+    if byRefString == null {
+        throw new InvalidOperationException("Required String managed-address type was not created.")
+    }
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefString
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, "dereferenced")
+    assert ExecutorRunRecursivePlan(
+        plan, typeof(string), parameterTypes, arguments) == "dereferenced"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v3 ldarga addresses an ordinary reference slot before ldind.ref" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1126, 0)
+    stringType := plan.AddType(typeof(string))
+    argument := plan.AddArgument(0, stringType, false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    plan.CompleteFragment(root, typeof(string))
+    plan.CompleteV3(typeof(string))
+    ColumnarCodePlanExecutor.Validate(plan)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, "addressed")
+    assert ExecutorRunRecursivePlan(
+        plan, typeof(string), parameterTypes, arguments) == "addressed"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v3 ldind.ref rejects value slots and corrupt address facts purely" {
+    ordinaryReference := ExecutorV3ReferenceIndirectPlan(typeof(string), false)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(ordinaryReference)
+    }
+    assert ordinaryReference.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    valueAddress := ExecutorV3ReferenceIndirectPlan(typeof(int), true)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(valueAddress)
+    }
+    assert valueAddress.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    corruptAddress := ExecutorV3ReferenceIndirectPlan(typeof(string), true)
+    corruptAddress.ArgumentIsAddress[0] = false
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(corruptAddress)
+    }
+    assert corruptAddress.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
 
 test "schema v3 executor rejects invalid unary stack categories before emission" {

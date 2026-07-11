@@ -1,0 +1,755 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Reflection
+import System.Reflection.Emit
+
+enum ColumnarInstanceMemberKind {
+    None,
+    Field,
+    Property
+}
+
+class ColumnarInstanceMemberSelection {
+    Kind: ColumnarInstanceMemberKind
+    ReceiverIsReference: bool
+    PreserveDirectValueStorage: bool
+    DeclaringType: Type
+    ResultType: Type
+    Field: FieldInfo?
+    Getter: MethodInfo?
+
+    constructor(kind: ColumnarInstanceMemberKind, receiverIsReference: bool, preserveDirectValueStorage: bool, declaringType: Type, resultType: Type, field: FieldInfo?, getter: MethodInfo?) {
+        Kind = kind
+        ReceiverIsReference = receiverIsReference
+        PreserveDirectValueStorage = preserveDirectValueStorage
+        DeclaringType = declaringType
+        ResultType = resultType
+        Field = field
+        Getter = getter
+    }
+}
+
+// Direct production owner for one statically-bound instance field or zero-arity readable
+// property. The range/index orchestrator supplies callback-free receiver fragments; this owner
+// chooses the exact source/runtime member, semantic result, receiver address form, and opcode.
+class ColumnarInstanceMemberPlanner {
+    static func MayPlanRoot(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    }
+
+    // A claim is terminal even when member selection later rejects a static, inaccessible,
+    // malformed, or unknown member. Unknown receiver expressions remain with later ownership
+    // slices; no receiver is emitted merely to discover that this owner declines.
+    static func ClaimsRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
+        if nodes == null || source == null || bindings == null {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
+            return false
+        }
+
+        receiverType := typeof(int)
+        _directStorage := false
+        _byRefParameter := false
+        receiver := nodes.Child(candidate, 0)
+        if ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, receiver, bindings, out receiverType, out _directStorage, out _byRefParameter) {
+            return CanOwnReceiver(receiverType, bindings)
+        }
+
+        if !TryGetComposedReceiverType(nodes, source, receiver, bindings, out receiverType) {
+            return false
+        }
+
+        return CanOwnReceiver(receiverType, bindings)
+    }
+
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
+            resultType = typeof(int)
+            return false
+        }
+
+        ColumnarCodePlanExecutor.Execute(plan, il)
+        resultType = RequiredResultType(plan)
+        return true
+    }
+
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
+            resultType = typeof(int)
+            return false
+        }
+
+        resultType = RequiredResultType(plan)
+        return true
+    }
+
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+        ValidateInputs(nodes, source, node, bindings, plan)
+        plan.PrepareV3()
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return plan.Status
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), candidate)
+
+            resultType := typeof(int)
+            if !TryAppend(nodes, source, candidate, bindings, plan, fragment, out resultType) {
+                plan.Rollback(checkpoint)
+                return plan.Status
+            }
+
+            plan.CompleteFragment(fragment, resultType)
+            plan.CompleteV3(resultType)
+            return plan.Status
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
+            return false
+        }
+
+        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Instance-member append requires an open schema-v3 plan.")
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            receiver := nodes.Child(node, 0)
+            memberName := RewriteTupleMemberName(nodes, source, receiver, nodes.Text(source, node), bindings)
+
+            receiverType := typeof(int)
+            directStorage := false
+            byRefParameter := false
+            boundReceiver := ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, receiver, bindings, out receiverType, out directStorage, out byRefParameter)
+
+            selection := EmptySelection()
+            if boundReceiver {
+                if !TrySelect(receiverType, memberName, bindings, out selection) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                preserveAddress := !selection.ReceiverIsReference && directStorage && (selection.PreserveDirectValueStorage || byRefParameter)
+
+                receiverIsAddress := false
+                if preserveAddress {
+                    if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiver, bindings, true, plan, out receiverType, out receiverIsAddress) || !receiverIsAddress {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+                } else {
+                    receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(UnwrapParentheses(nodes, receiver)), UnwrapParentheses(nodes, receiver))
+
+                    if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiver, bindings, false, plan, out receiverType, out receiverIsAddress) || receiverIsAddress {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    plan.CompleteFragment(receiverFragment, receiverType)
+                    if !selection.ReceiverIsReference {
+                        AppendTemporaryAddress(plan, receiverType)
+                    }
+                }
+            } else {
+                receiverNode := UnwrapParentheses(nodes, receiver)
+                if receiverNode < 0 {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(receiverNode), receiverNode)
+
+                if !TryAppendComposedReceiver(nodes, source, receiverNode, bindings, plan, out receiverType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                plan.CompleteFragment(receiverFragment, receiverType)
+                if !TrySelect(receiverType, memberName, bindings, out selection) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                if !selection.ReceiverIsReference {
+                    AppendTemporaryAddress(plan, receiverType)
+                }
+            }
+
+            AppendSelection(plan, selection)
+            resultType = selection.ResultType
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    static func TryGetComposedReceiverType(nodes: ColumnarNodeTable, source: string, receiver: int, bindings: ColumnarFragmentBindings, out receiverType: Type): bool {
+        receiverType = typeof(int)
+        receiverNode := UnwrapParentheses(nodes, receiver)
+        if receiverNode < 0 {
+            return false
+        }
+
+        scratch := new ColumnarCodePlan()
+        kind := nodes.Kind(receiverNode)
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return ColumnarExternalStaticMemberPlanner.TryGetType(nodes, source, receiverNode, bindings, scratch, out receiverType)
+        }
+
+        if IsScalarLiteralKind(kind) {
+            return ColumnarScalarLiteralPlanner.TryGetType(nodes, source, receiverNode, scratch, out receiverType)
+        }
+
+        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+            return ColumnarNameOfPlanner.TryGetType(nodes, source, receiverNode, scratch, out receiverType)
+        }
+
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return ColumnarTypeOfPlanner.TryGetType(nodes, source, receiverNode, bindings, scratch, out receiverType)
+        }
+
+        return false
+    }
+
+    static func TryAppendComposedReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out receiverType: Type): bool {
+        receiverType = typeof(int)
+        kind := nodes.Kind(receiverNode)
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, source, receiverNode, bindings, plan, out receiverType)
+        }
+
+        if IsScalarLiteralKind(kind) {
+            return ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, receiverNode, plan, out receiverType)
+        }
+
+        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+            return ColumnarNameOfPlanner.TryAppendNameOf(nodes, source, receiverNode, plan, out receiverType)
+        }
+
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, source, receiverNode, bindings, plan, out receiverType)
+        }
+
+        return false
+    }
+
+    static func IsScalarLiteralKind(kind: int): bool {
+        return kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
+    }
+
+    static func CanOwnReceiver(receiverType: Type, bindings: ColumnarFragmentBindings): bool {
+        source := EmptySelection()
+        if TryClassifySource(receiverType, bindings, out source) {
+            return true
+        }
+
+        return ColumnarRuntimeInstanceMemberResolver.CanOwnReceiver(receiverType)
+    }
+
+    static func TrySelect(receiverType: Type, memberName: string, bindings: ColumnarFragmentBindings, out selection: ColumnarInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        sourceClass := EmptySelection()
+        if TryClassifySource(receiverType, bindings, out sourceClass) {
+            return TrySelectSource(receiverType, memberName, bindings, sourceClass, out selection)
+        }
+
+        runtime := ColumnarRuntimeInstanceMemberSelection.Empty()
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelect(receiverType, memberName, out runtime) {
+            return false
+        }
+
+        selection = new ColumnarInstanceMemberSelection(runtime.IsField ? ColumnarInstanceMemberKind.Field : ColumnarInstanceMemberKind.Property, runtime.ReceiverIsReference, false, runtime.DeclaringType, runtime.ResultType, runtime.Field, runtime.Getter)
+
+        return true
+    }
+
+    // Classification returns a sentinel selection carrying only the receiver shape and whether
+    // the legacy addressable source-local semantics apply. Member lookup remains separate so a
+    // missing/static/inaccessible member is still a terminal owned decline.
+    static func TryClassifySource(receiverType: Type, bindings: ColumnarFragmentBindings, out classification: ColumnarInstanceMemberSelection): bool {
+        classification = EmptySelection()
+        selected: ColumnarStructDef? = null
+        closed := false
+        for candidate in bindings.SourceTypeDefinitions {
+            if candidate == null || candidate.Builder == null {
+                throw new InvalidOperationException("Source instance-member definitions cannot be null.")
+            }
+
+            candidateType: Type = candidate.Builder
+            matches := false
+            if candidateType == receiverType {
+                matches = true
+            }
+
+            candidateClosed := false
+            if !matches && receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == candidateType {
+                matches = true
+                candidateClosed = true
+            }
+
+            if matches {
+                if selected != null && selected != candidate {
+                    throw new InvalidOperationException("One exact receiver type cannot map to two source definitions.")
+                }
+
+                selected = candidate
+                closed = candidateClosed
+            }
+        }
+
+        if selected != null {
+            if receiverType.get_IsValueType() == selected.IsReference {
+                throw new InvalidOperationException("Source instance-member reference facts do not match the receiver type.")
+            }
+
+            classification = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.None, selected.IsReference, !closed, selected.Builder, typeof(int), null, null)
+
+            return true
+        }
+
+        selectedFacts := bindings.CurrentInstance
+        if selectedFacts == null || selectedFacts.ExactType != receiverType {
+            return false
+        }
+
+        if receiverType.get_IsValueType() == selectedFacts.IsReference {
+            throw new InvalidOperationException("Exact instance-member facts do not match their receiver type.")
+        }
+
+        if selectedFacts.SourceDefinition != null {
+            throw new InvalidOperationException("Current source instance facts must be present in the live source definition registry.")
+        }
+
+        classification = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.None, selectedFacts.IsReference, true, receiverType, typeof(int), null, null)
+
+        return true
+    }
+
+    static func TrySelectSource(receiverType: Type, memberName: string, bindings: ColumnarFragmentBindings, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        source: ColumnarStructDef? = null
+        closed := false
+        for candidate in bindings.SourceTypeDefinitions {
+            candidateType: Type = candidate.Builder
+            if candidateType == receiverType {
+                source = candidate
+            } else if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == candidateType {
+                source = candidate
+                closed = true
+            }
+        }
+
+        if source != null {
+            return TrySelectSourceDefinition(receiverType, memberName, source, closed, classification, out selection)
+        }
+
+        facts := bindings.CurrentInstance
+        if facts != null && facts.ExactType == receiverType {
+            return TrySelectExactFacts(receiverType, memberName, facts, classification, out selection)
+        }
+
+        throw new InvalidOperationException("Classified source instance facts disappeared during member selection.")
+    }
+
+    static func TrySelectSourceDefinition(receiverType: Type, memberName: string, root: ColumnarStructDef, closed: bool, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        if memberName.Length == 0 {
+            return false
+        }
+
+        ValidateSourceHierarchy(root, closed)
+        arguments := closed ? receiverType.GetGenericArguments() : new Type[](0)
+        current: ColumnarStructDef? = root
+        found := false
+        foundStatic := false
+        foundField: FieldInfo? = null
+        foundProperty: ColumnarPropertyDef? = null
+        foundDeclaring := typeof(object)
+        while current != null {
+            localField := current.Fields.ContainsKey(memberName)
+            localProperty := current.Properties.ContainsKey(memberName)
+            localStaticField := current.StaticFields.ContainsKey(memberName)
+            localStaticProperty := current.StaticProperties.ContainsKey(memberName)
+            declarationCount := (localField ? 1 : 0) + (localProperty ? 1 : 0) + (localStaticField ? 1 : 0) + (localStaticProperty ? 1 : 0)
+
+            if declarationCount > 1 || declarationCount > 0 && (found || foundStatic) {
+                throw new InvalidOperationException("Source member declarations cannot shadow another member in their hierarchy.")
+            }
+
+            if declarationCount > 0 {
+                found = localField || localProperty
+                foundStatic = localStaticField || localStaticProperty
+                foundDeclaring = current.Builder
+                if localField {
+                    foundField = current.Fields[memberName]
+                } else if localProperty {
+                    foundProperty = current.Properties[memberName]
+                }
+            }
+
+            // Closed user-generic access historically owns only its declaration. Generic base
+            // construction is rejected earlier and must not be guessed here.
+            if closed {
+                current = null
+            } else {
+                current = current.BaseDef
+            }
+        }
+
+        if foundStatic || !found {
+            return false
+        }
+
+        if foundField != null {
+            field := foundField
+            if field.get_IsStatic() || field.get_IsLiteral() || field.get_DeclaringType() != foundDeclaring {
+                throw new InvalidOperationException("Source instance field facts do not identify exact storage.")
+            }
+
+            if !field.get_IsPublic() {
+                return false
+            }
+
+            resultType := field.get_FieldType()
+            declaringType := foundDeclaring
+            selectedField := field
+            if closed {
+                selectedField = RebindField(receiverType, field)
+                declaringType = receiverType
+                resultType = SubstituteTypeArguments(resultType, arguments)
+            }
+
+            if !IsStorableResult(resultType) {
+                return false
+            }
+
+            selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Field, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, declaringType, resultType, selectedField, null)
+
+            return true
+        }
+
+        property := foundProperty
+        if property == null || property.Getter == null || property.PropertyType == null {
+            throw new InvalidOperationException("Source instance property facts cannot be null.")
+        }
+
+        getter: MethodInfo = property.Getter
+        if getter.get_IsStatic() || getter.get_DeclaringType() != foundDeclaring || getter.get_ReturnType() != property.PropertyType || property.GetterParameterCount != 0 {
+            throw new InvalidOperationException("Source instance property facts do not identify an exact zero-arity getter.")
+        }
+
+        if !getter.get_IsPublic() {
+            return false
+        }
+
+        propertyType := property.PropertyType
+        declaringPropertyType := foundDeclaring
+        selectedGetter := getter
+        if closed {
+            selectedGetter = RebindMethod(receiverType, getter)
+            declaringPropertyType = receiverType
+            propertyType = SubstituteTypeArguments(propertyType, arguments)
+        }
+
+        if !IsStorableResult(propertyType) {
+            return false
+        }
+
+        selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, declaringPropertyType, propertyType, null, selectedGetter)
+
+        return true
+    }
+
+    static func TrySelectExactFacts(receiverType: Type, memberName: string, root: ColumnarCurrentInstanceFacts, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        ValidateExactHierarchy(root)
+        current: ColumnarCurrentInstanceFacts? = root
+        foundField: FieldInfo? = null
+        foundProperty: ColumnarCurrentPropertyFact? = null
+        foundDeclaring := typeof(object)
+        found := false
+        while current != null {
+            if current.SourceDefinition != null {
+                throw new InvalidOperationException("Exact instance-member facts cannot mix source definitions into their hierarchy.")
+            }
+
+            localField := current.Fields.ContainsKey(memberName)
+            localProperty := current.Properties.ContainsKey(memberName)
+            declarationCount := (localField ? 1 : 0) + (localProperty ? 1 : 0)
+            if declarationCount > 1 || declarationCount > 0 && found {
+                throw new InvalidOperationException("Exact member facts cannot shadow another member in their hierarchy.")
+            }
+
+            if declarationCount > 0 {
+                found = true
+                foundDeclaring = current.ExactType
+                if localField {
+                    foundField = current.Fields[memberName]
+                } else {
+                    foundProperty = current.Properties[memberName]
+                }
+            }
+
+            current = current.BaseFacts
+        }
+
+        if !found {
+            return false
+        }
+
+        if foundField != null {
+            field := foundField
+            if field.get_IsStatic() || field.get_IsLiteral() || field.get_DeclaringType() != foundDeclaring {
+                throw new InvalidOperationException("Exact instance field facts do not identify exact storage.")
+            }
+
+            if !field.get_IsPublic() || !IsStorableResult(field.get_FieldType()) {
+                return false
+            }
+
+            selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Field, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, foundDeclaring, field.get_FieldType(), field, null)
+
+            return true
+        }
+
+        property := foundProperty
+        if property == null || property.Getter == null || property.PropertyType == null {
+            throw new InvalidOperationException("Exact instance property facts cannot be null.")
+        }
+
+        getter := property.Getter
+        if getter.get_IsStatic() || getter.get_DeclaringType() != foundDeclaring || getter.get_ReturnType() != property.PropertyType || property.GetterParameterCount != 0 || getter.GetParameters().Length != 0 {
+            throw new InvalidOperationException("Exact instance property facts do not identify an exact zero-arity getter.")
+        }
+
+        if !getter.get_IsPublic() || !IsStorableResult(property.PropertyType) {
+            return false
+        }
+
+        selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, foundDeclaring, property.PropertyType, null, getter)
+
+        return true
+    }
+
+    static func ValidateSourceHierarchy(root: ColumnarStructDef, closed: bool) {
+        if closed {
+            return
+        }
+
+        slow: ColumnarStructDef? = root
+        fast: ColumnarStructDef? = root
+        while fast != null && fast.BaseDef != null {
+            if slow != null {
+                slow = slow.BaseDef
+            }
+
+            next := fast.BaseDef
+            if next == null {
+                return
+            }
+
+            fast = next.BaseDef
+            if slow != null && slow == fast {
+                throw new InvalidOperationException("Source instance-member hierarchy contains a cycle.")
+            }
+        }
+    }
+
+    static func ValidateExactHierarchy(root: ColumnarCurrentInstanceFacts) {
+        slow: ColumnarCurrentInstanceFacts? = root
+        fast: ColumnarCurrentInstanceFacts? = root
+        while fast != null && fast.BaseFacts != null {
+            if slow != null {
+                slow = slow.BaseFacts
+            }
+
+            next := fast.BaseFacts
+            if next == null {
+                return
+            }
+
+            fast = next.BaseFacts
+            if slow != null && slow == fast {
+                throw new InvalidOperationException("Exact instance-member hierarchy contains a cycle.")
+            }
+        }
+    }
+
+    static func AppendSelection(plan: ColumnarCodePlan, selection: ColumnarInstanceMemberSelection) {
+        if selection.Kind == ColumnarInstanceMemberKind.Field {
+            field := selection.Field
+            if field == null {
+                throw new InvalidOperationException("Selected instance field has no exact handle.")
+            }
+
+            fieldIndex := plan.AddFieldWithSignature(field, selection.DeclaringType, selection.ResultType, false)
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
+
+            return
+        }
+
+        if selection.Kind != ColumnarInstanceMemberKind.Property || selection.Getter == null {
+            throw new InvalidOperationException("Selected instance property has no exact getter.")
+        }
+
+        getter := selection.Getter
+        methodIndex := plan.AddMethodWithSignature(getter, selection.DeclaringType, new Type[](0), selection.ResultType, false, getter.get_IsAbstract())
+
+        plan.AppendMethodInstruction(selection.ReceiverIsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+    }
+
+    static func AppendTemporaryAddress(plan: ColumnarCodePlan, receiverType: Type) {
+        typeIndex := plan.AddType(receiverType)
+        localIndex := plan.DeclarePlanLocal(typeIndex)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+    }
+
+    static func RewriteTupleMemberName(nodes: ColumnarNodeTable, source: string, receiver: int, memberName: string, bindings: ColumnarFragmentBindings): string {
+        candidate := UnwrapParentheses(nodes, receiver)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+            return memberName
+        }
+
+        receiverName := nodes.Text(source, candidate)
+        if !bindings.TupleNames.ContainsKey(receiverName) {
+            return memberName
+        }
+
+        names := bindings.TupleNames[receiverName]
+        i := 0
+        while i < names.Length {
+            if String.Equals(names[i], memberName, StringComparison.Ordinal) {
+                return "Item" + (i + 1).ToString()
+            }
+
+            i += 1
+        }
+
+        return memberName
+    }
+
+    static func SubstituteTypeArguments(signatureType: Type, arguments: Type[]): Type {
+        if signatureType.get_IsGenericParameter() && signatureType.get_DeclaringMethod() == null {
+            position := signatureType.get_GenericParameterPosition()
+            if position < 0 || position >= arguments.Length {
+                throw new InvalidOperationException("Source member generic parameter position is invalid.")
+            }
+
+            return arguments[position]
+        }
+
+        if signatureType.get_IsSZArray() {
+            element := signatureType.GetElementType()
+            if element == null {
+                throw new InvalidOperationException("Source member array signature has no element type.")
+            }
+
+            return SubstituteTypeArguments(element, arguments).MakeArrayType()
+        }
+
+        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
+            definition := signatureType.GetGenericTypeDefinition()
+            rawArguments := signatureType.GetGenericArguments()
+            resolved := new Type[](rawArguments.Length)
+            i := 0
+            while i < rawArguments.Length {
+                resolved[i] = SubstituteTypeArguments(rawArguments[i], arguments)
+                i += 1
+            }
+
+            return definition.MakeGenericType(resolved)
+        }
+
+        if signatureType.get_HasElementType() {
+            element := signatureType.GetElementType()
+            if element == null {
+                throw new InvalidOperationException("Source member compound signature has no element type.")
+            }
+
+            if SubstituteTypeArguments(element, arguments) != element {
+                throw new InvalidOperationException("Source member compound signature substitution is unsupported.")
+            }
+        }
+
+        return signatureType
+    }
+
+    static func RebindField(receiverType: Type, field: FieldInfo): FieldInfo {
+        rebound := TypeBuilder.GetField(receiverType, field)
+        if rebound == null {
+            throw new InvalidOperationException("TypeBuilder.GetField returned no exact instance field.")
+        }
+
+        return rebound
+    }
+
+    static func RebindMethod(receiverType: Type, method: MethodInfo): MethodInfo {
+        rebound := TypeBuilder.GetMethod(receiverType, method)
+        if rebound == null {
+            throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact instance getter.")
+        }
+
+        return rebound
+    }
+
+    static func IsStorableResult(resultType: Type): bool {
+        return resultType != null && resultType.FullName != "System.Void" && !resultType.get_IsByRef() && !resultType.get_IsGenericTypeDefinition()
+    }
+
+    static func EmptySelection(): ColumnarInstanceMemberSelection {
+        return new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.None, false, false, typeof(object), typeof(int), null, null)
+    }
+
+    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
+        depth := 0
+        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+            if depth > 200 || nodes.ChildCount(node) != 1 {
+                return -1
+            }
+
+            node = nodes.Child(node, 0)
+            depth += 1
+        }
+
+        return node
+    }
+
+    static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
+        if nodes == null || source == null || bindings == null || plan == null {
+            throw new InvalidOperationException("Instance-member planning inputs cannot be null.")
+        }
+
+        if node < 0 || node >= nodes.Kinds.Length {
+            throw new InvalidOperationException("Instance-member planning received an invalid root node index.")
+        }
+    }
+
+    static func RequiredResultType(plan: ColumnarCodePlan): Type {
+        resultType := plan.ResultType
+        if resultType == null {
+            throw new InvalidOperationException("Planned instance-member expression has no result type.")
+        }
+
+        return resultType
+    }
+}

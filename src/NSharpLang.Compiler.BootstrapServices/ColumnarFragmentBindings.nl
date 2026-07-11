@@ -15,6 +15,14 @@ class ColumnarFragmentBindings {
     public LiftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     public BoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
     public CurrentInstance: ColumnarCurrentInstanceFacts?
+    // The production emitter passes this live view. Registry aliases may expose the same
+    // definition more than once, so member selection deduplicates by definition identity.
+    public SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
+    // Union aliases may likewise expose the same definition more than once. Type-expression
+    // owners consume the live builders and deduplicate by base identity.
+    public SourceUnionDefinitions: IEnumerable<ColumnarUnionDef>
+    // CLR ValueTuple erases element names; N# consumes the live per-binding name metadata.
+    public TupleNames: Dictionary<string, string[]>
     liftedNames: IEnumerable<string>
     boxedNames: IEnumerable<string>
     enclosingNames: IEnumerable<string>
@@ -44,6 +52,9 @@ class ColumnarFragmentBindings {
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CurrentInstance = null
+        SourceTypeDefinitions = new List<ColumnarStructDef>()
+        SourceUnionDefinitions = new List<ColumnarUnionDef>()
+        TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
         this.liftedNames = liftedNames
         this.boxedNames = boxedNames
         this.enclosingNames = enclosingNames
@@ -59,6 +70,9 @@ class ColumnarFragmentBindings {
         liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
         boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?,
         currentInstance: ColumnarStructDef?,
+        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
+        sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>,
+        tupleNames: Dictionary<string, string[]>,
         enclosingNames: IEnumerable<string>,
         declaredCallableNames: IEnumerable<string>,
         visibleLocalCallableNames: IEnumerable<string>): ColumnarFragmentBindings {
@@ -73,8 +87,10 @@ class ColumnarFragmentBindings {
             enclosingNames,
             declaredCallableNames,
             visibleLocalCallableNames)
-        if liftedLocals == null {
-            throw new InvalidOperationException("Lifted-local binding facts cannot be null.")
+        if liftedLocals == null || sourceTypeDefinitions == null
+            || sourceUnionDefinitions == null || tupleNames == null {
+            throw new InvalidOperationException(
+                "Columnar recursive binding collections cannot be null.")
         }
         result.LiftedLocals = liftedLocals
         if boxedCaptures != null {
@@ -84,6 +100,9 @@ class ColumnarFragmentBindings {
             result.CurrentInstance =
                 ColumnarCurrentInstanceFacts.FromSourceDefinition(currentInstance)
         }
+        result.SourceTypeDefinitions = sourceTypeDefinitions
+        result.SourceUnionDefinitions = sourceUnionDefinitions
+        result.TupleNames = tupleNames
         return result
     }
 

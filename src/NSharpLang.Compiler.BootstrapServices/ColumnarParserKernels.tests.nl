@@ -144,6 +144,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarExpressionNodeKind.FloatLiteralExpression() == 1
     assert ColumnarExpressionNodeKind.CharLiteralExpression() == 2
     assert ColumnarExpressionNodeKind.StringLiteralExpression() == 3
+    assert ColumnarExpressionNodeKind.TypeOfExpression() == 55
     assert ColumnarExpressionNodeKind.BoolLiteralExpression() == 4
     assert ColumnarExpressionNodeKind.NullLiteralExpression() == 5
 

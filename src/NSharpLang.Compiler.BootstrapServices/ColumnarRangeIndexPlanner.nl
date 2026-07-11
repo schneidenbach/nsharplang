@@ -22,15 +22,18 @@ public class ColumnarRangeIndexPlanner {
         liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
         boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?,
         currentInstance: ColumnarStructDef?,
+        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
+        sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>,
+        tupleNames: Dictionary<string, string[]>,
         enclosingNames: IEnumerable<string>,
         siblingNames: IEnumerable<string>,
         visibleLocalFunctionNames: IEnumerable<string>,
         plan: ColumnarCodePlan,
         il: ILGenerator,
-        out boundIdentifierOwned: bool,
+        out nsharpOwned: bool,
         out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
-        boundIdentifierOwned = false
+        nsharpOwned = false
         resultType = typeof(int)
         if !FacadeRootMayNeedFacts(nodes, source, node) {
             plan.PrepareV3()
@@ -45,18 +48,36 @@ public class ColumnarRangeIndexPlanner {
             liftedLocals,
             boxedCaptures,
             currentInstance,
+            sourceTypeDefinitions,
+            sourceUnionDefinitions,
+            tupleNames,
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = true
+            return ColumnarTypeOfPlanner.TryEmit(
+                nodes, source, node, bindings, plan, il, out resultType)
+        }
         if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
-            boundIdentifierOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
+            nsharpOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
                 nodes, source, node, bindings)
             return ColumnarBoundIdentifierPlanner.TryEmit(
                 nodes, source, node, bindings, plan, il, out resultType)
         }
         if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
-            return ColumnarExternalStaticMemberPlanner.TryEmit(
-                nodes, source, node, bindings, plan, il, out resultType)
+            if ColumnarExternalStaticMemberPlanner.TryEmit(
+                nodes, source, node, bindings, plan, il, out resultType) {
+                return true
+            }
+        }
+        if ColumnarInstanceMemberPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = ColumnarInstanceMemberPlanner.ClaimsRoot(
+                nodes, source, node, bindings)
+            if nsharpOwned {
+                return ColumnarInstanceMemberPlanner.TryEmit(
+                    nodes, source, node, bindings, plan, il, out resultType)
+            }
         }
         if !FacadeRootMayBeOwned(nodes, source, node, bindings) {
             plan.PrepareV3()
@@ -77,14 +98,17 @@ public class ColumnarRangeIndexPlanner {
         liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
         boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?,
         currentInstance: ColumnarStructDef?,
+        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
+        sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>,
+        tupleNames: Dictionary<string, string[]>,
         enclosingNames: IEnumerable<string>,
         siblingNames: IEnumerable<string>,
         visibleLocalFunctionNames: IEnumerable<string>,
         plan: ColumnarCodePlan,
-        out boundIdentifierOwned: bool,
+        out nsharpOwned: bool,
         out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
-        boundIdentifierOwned = false
+        nsharpOwned = false
         resultType = typeof(int)
         if !FacadeRootMayNeedFacts(nodes, source, node) {
             plan.PrepareV3()
@@ -99,18 +123,36 @@ public class ColumnarRangeIndexPlanner {
             liftedLocals,
             boxedCaptures,
             currentInstance,
+            sourceTypeDefinitions,
+            sourceUnionDefinitions,
+            tupleNames,
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = true
+            return ColumnarTypeOfPlanner.TryGetType(
+                nodes, source, node, bindings, plan, out resultType)
+        }
         if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
-            boundIdentifierOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
+            nsharpOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
                 nodes, source, node, bindings)
             return ColumnarBoundIdentifierPlanner.TryGetType(
                 nodes, source, node, bindings, plan, out resultType)
         }
         if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
-            return ColumnarExternalStaticMemberPlanner.TryGetType(
-                nodes, source, node, bindings, plan, out resultType)
+            if ColumnarExternalStaticMemberPlanner.TryGetType(
+                nodes, source, node, bindings, plan, out resultType) {
+                return true
+            }
+        }
+        if ColumnarInstanceMemberPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = ColumnarInstanceMemberPlanner.ClaimsRoot(
+                nodes, source, node, bindings)
+            if nsharpOwned {
+                return ColumnarInstanceMemberPlanner.TryGetType(
+                    nodes, source, node, bindings, plan, out resultType)
+            }
         }
         if !FacadeRootMayBeOwned(nodes, source, node, bindings) {
             plan.PrepareV3()
@@ -226,6 +268,9 @@ public class ColumnarRangeIndexPlanner {
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return true
+        }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             return true
         }
@@ -257,6 +302,9 @@ public class ColumnarRangeIndexPlanner {
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             return nodes.ChildCount(node) == 0
+        }
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return nodes.ChildCount(node) == 1
         }
         if kind == ColumnarExpressionNodeKind.TernaryExpression()
             && nodes.ChildCount(node) == 3 {
@@ -317,6 +365,21 @@ public class ColumnarRangeIndexPlanner {
             return ColumnarBoundIdentifierPlanner.TryGetBoundType(
                     nodes, source, node, bindings, out resultType)
                 && (resultType == typeof(Index) || resultType == typeof(Range))
+        }
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression()
+            && nodes.ChildCount(node) == 1 {
+            memberPlan := new ColumnarCodePlan()
+            memberType := typeof(int)
+            return ColumnarInstanceMemberPlanner.ClaimsRoot(
+                    nodes, source, node, bindings)
+                && ColumnarInstanceMemberPlanner.TryGetType(
+                    nodes,
+                    source,
+                    node,
+                    bindings,
+                    memberPlan,
+                    out memberType)
+                && (memberType == typeof(Index) || memberType == typeof(Range))
         }
         if kind == ColumnarExpressionNodeKind.TernaryExpression()
             && nodes.ChildCount(node) == 3 {
@@ -388,6 +451,9 @@ public class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.NameOfExpression() {
             planned = ColumnarNameOfPlanner.TryAppendNameOf(
                 nodes, source, node, plan, out resultType)
+        } else if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            planned = ColumnarTypeOfPlanner.TryAppendTypeOf(
+                nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
@@ -398,6 +464,16 @@ public class ColumnarRangeIndexPlanner {
             if !planned {
                 planned = ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(
                     nodes, source, node, bindings, plan, out resultType)
+            }
+            if !planned {
+                planned = ColumnarInstanceMemberPlanner.TryAppend(
+                    nodes,
+                    source,
+                    node,
+                    bindings,
+                    plan,
+                    fragment,
+                    out resultType)
             }
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression() {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(

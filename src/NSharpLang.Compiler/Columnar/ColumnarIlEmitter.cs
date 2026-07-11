@@ -9650,15 +9650,18 @@ internal sealed class ColumnarIlEmitter
                 _liftedLocals,
                 _boxedCaptures,
                 _currentStruct,
+                _structRegistry.Values,
+                _unionRegistry.Values,
+                _tupleNamesByVariable,
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
                 _codePlan,
                 _il,
-                out var boundIdentifierOwned,
+                out var nsharpOwned,
                 out type))
             return true;
-        if (boundIdentifierOwned)
+        if (nsharpOwned)
             return false;
         switch (_nodes.Kind(idx))
         {
@@ -9734,18 +9737,6 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var awaitableType))
                     return false;
                 return TryEmitBlockingAwait(awaitableType, out type);
-            }
-
-            case 55: // TypeOfExpression [typeRoot] — `typeof(Type)`: resolve the embedded TYPE subtree and load
-            {        // the runtime System.Type via RuntimeTypeHandle, matching the CLR lowering used by C#.
-                if (_nodes.ChildCount(idx) != 1
-                    || !TryBuildTypeNodeCanonical(Child(idx, 0), out var typeOfCanonical)
-                    || !TryResolveType(typeOfCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var typeOfTarget))
-                    return false;
-                _il.Emit(OpCodes.Ldtoken, typeOfTarget);
-                _il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), new[] { typeof(RuntimeTypeHandle) })!);
-                type = typeof(Type);
-                return true;
             }
 
             case 57: // CheckedContextExpression [value] — `checked(expr)` / `unchecked(expr)`.
@@ -10352,7 +10343,9 @@ internal sealed class ColumnarIlEmitter
                 // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
                 // decline early without emitting the receiver); the actual element is still gated by GetField below.
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
-                if (TryResolveMemberWriteChain(Child(idx, 0), out var directReadChain)
+                var directReadReceiver = UnwrapParenthesizedNode(Child(idx, 0));
+                if (_nodes.Kind(directReadReceiver) == 8
+                    && TryResolveMemberWriteChain(directReadReceiver, out var directReadChain)
                     && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
                     && FindDefByBuilder(directReadOwnerTb) is { } directReadOwnerDef)
                 {
@@ -10378,14 +10371,6 @@ internal sealed class ColumnarIlEmitter
                     if (!EmitExpression(Child(idx, 0), out var structReceiverType))
                     {
                         return false;
-                    }
-                    // `e.Message` on an Exception-derived receiver (the typed-catch bound variable's main
-                    // use) — callvirt get_Message, exactly the property get the pipeline binds.
-                    if (member == "Message" && typeof(Exception).IsAssignableFrom(structReceiverType))
-                    {
-                        _il.Emit(OpCodes.Callvirt, typeof(Exception).GetProperty(nameof(Exception.Message))!.GetGetMethod()!);
-                        type = typeof(string);
-                        return true;
                     }
                     if (structReceiverType == typeof(Version) && member is "Major" or "Minor" or "Build" or "Revision")
                     {
@@ -10477,16 +10462,6 @@ internal sealed class ColumnarIlEmitter
                     {
                         _il.Emit(OpCodes.Callvirt, bclPropertyRead.GetMethod!);
                         type = bclPropertyRead.PropertyType;
-                        return true;
-                    }
-                    if (structReceiverType.FullName == "Microsoft.AspNetCore.Builder.WebApplication"
-                        && member == "Environment")
-                    {
-                        var property = structReceiverType.GetProperty("Environment", BindingFlags.Public | BindingFlags.Instance);
-                        if (property?.GetMethod == null)
-                            return false;
-                        _il.Emit(OpCodes.Callvirt, property.GetMethod);
-                        type = property.PropertyType;
                         return true;
                     }
                     if (IsSupportedNullable(structReceiverType) && member is "HasValue" or "Value")
@@ -16444,14 +16419,17 @@ internal sealed class ColumnarIlEmitter
                 _liftedLocals,
                 _boxedCaptures,
                 _currentStruct,
+                _structRegistry.Values,
+                _unionRegistry.Values,
+                _tupleNamesByVariable,
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
                 _codePlan,
-                out var boundIdentifierOwned,
+                out var nsharpOwned,
                 out type))
             return true;
-        if (boundIdentifierOwned)
+        if (nsharpOwned)
             return false;
         switch (_nodes.Kind(node))
         {
@@ -16550,16 +16528,6 @@ internal sealed class ColumnarIlEmitter
                 return (TryResolveBuiltin(castTargetName, out type)
                         || TryResolveType(castTargetName, _enumRegistry, _structRegistry, _unionRegistry, out type))
                        && IsSupportedType(type);
-            }
-            case 55:
-            {
-                if (_nodes.ChildCount(node) != 1
-                    || !TryBuildTypeNodeCanonical(Child(node, 0), out var typeOfCanonical)
-                    || !TryResolveType(typeOfCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var typeOfTarget)
-                    || !IsSupportedType(typeOfTarget))
-                    return false;
-                type = typeof(Type);
-                return true;
             }
             case 9:
             {
@@ -17133,12 +17101,6 @@ internal sealed class ColumnarIlEmitter
     private bool TryGetPreflightMemberAccessType(int node, out Type type)
     {
         type = null!;
-        if (TryResolveMemberWriteChain(node, out var chain))
-        {
-            type = chain.ReceiverType;
-            return true;
-        }
-
         var receiver = Child(node, 0);
         var member = Text(node);
         if (TryGetPreflightExpressionType(receiver, out var resultReceiverType)
@@ -20153,8 +20115,8 @@ internal sealed class ColumnarIlEmitter
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
     // (identifier-chain holes only — anything richer declines) and mirror the
-    // legacy emitter's EmitInterpolatedString exactly: empty/NO-hole literals constant-fold to the
-    // concatenated DECODED text (`ldstr`); otherwise the DefaultInterpolatedStringHandler lowering —
+    // legacy emitter's formatted-hole lowering exactly. Empty/NO-hole literals are terminally
+    // owned by the N# scalar planner; remaining literals use DefaultInterpolatedStringHandler —
     // ctor(literalLength = sum of DECODED text lengths, formattedCount), AppendLiteral per text
     // segment, AppendFormatted per hole (string holes use the (string) overload, format clauses the
     // generic (T, string), the rest the generic (T)), then ToStringAndClear. Hole chains resolve
@@ -20177,14 +20139,7 @@ internal sealed class ColumnarIlEmitter
                 formattedCount++;
         }
         if (formattedCount == 0)
-        {
-            var folded = new System.Text.StringBuilder();
-            foreach (var part in parts)
-                folded.Append(NSharpLang.Compiler.StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text));
-            _il.Emit(OpCodes.Ldstr, folded.ToString());
-            type = typeof(string);
-            return true;
-        }
+            return false; // The N# scalar owner is terminal for the complete zero-hole family.
         // Resolve every hole BEFORE any emission.
         var holePlans = new List<ColumnarInterpolationHolePlan>(formattedCount);
         var literalLength = 0;

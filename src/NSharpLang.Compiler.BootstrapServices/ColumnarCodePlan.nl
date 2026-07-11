@@ -74,6 +74,7 @@ public class ColumnarCodePlanContract {
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
+    public static func LdindRef(): short { return 80 }
     public static func Neg(): short { return 101 }
     public static func Not(): short { return 102 }
     public static func ConvI4(): short { return 105 }
@@ -92,10 +93,12 @@ public class ColumnarCodePlanContract {
     public static func LdelemR8(): short { return 153 }
     public static func LdelemRef(): short { return 154 }
     public static func Ldelem(): short { return 163 }
+    public static func Ldtoken(): short { return 208 }
     public static func Ceq(): short { return -511 }
 
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
     public static func Ldarg(): short { return -503 }
+    public static func Ldarga(): short { return -502 }
     public static func Ldloc(): short { return -500 }
     public static func Ldloca(): short { return -499 }
     public static func Stloc(): short { return -498 }
@@ -127,6 +130,7 @@ public class ColumnarCodePlanContract {
         return opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()
+            || opCodeValue == LdindRef()
     }
 
     public static func IsLocalOpcode(opCodeValue: short): bool {
@@ -237,6 +241,9 @@ public class ColumnarCodePlan {
     public ArgumentCount: int
     public ArgumentOrdinals: int[]
     public ArgumentTypeIndices: int[]
+    // Describes the argument slot itself: true only when ldarg already yields a managed
+    // address (a by-reference parameter or value-type instance receiver). It is deliberately
+    // false for an ordinary value slot selected by ldarga; the opcode creates that address.
     public ArgumentIsAddress: bool[]
     public AmbientLocalCount: int
     public AmbientLocals: LocalBuilder[]
@@ -252,6 +259,10 @@ public class ColumnarCodePlan {
     public Constructors: ConstructorInfo[]
     public FieldCount: int
     public Fields: FieldInfo[]
+    public FieldUsesDeclaredSignature: bool[]
+    public FieldDeclaringTypes: Type[]
+    public FieldValueTypes: Type[]
+    public FieldIsStatic: bool[]
 
     public PlanLocalCount: int
     public PlanLocalTypeIndices: int[]
@@ -318,6 +329,10 @@ public class ColumnarCodePlan {
         Constructors = new ConstructorInfo[](0)
         FieldCount = 0
         Fields = new FieldInfo[](0)
+        FieldUsesDeclaredSignature = new bool[](0)
+        FieldDeclaringTypes = new Type[](0)
+        FieldValueTypes = new Type[](0)
+        FieldIsStatic = new bool[](0)
 
         PlanLocalCount = 0
         PlanLocalTypeIndices = new int[](0)
@@ -572,6 +587,36 @@ public class ColumnarCodePlan {
         EnsureFieldCapacity(FieldCount + 1)
         index := FieldCount
         Fields[index] = value
+        FieldUsesDeclaredSignature[index] = false
+        FieldCount = FieldCount + 1
+        return index
+    }
+
+    // Reflection.Emit wrappers for fields on a constructed TypeBuilder can expose the open
+    // definition's field type. Carry the planner-owned declaring and value types alongside the
+    // exact rebound handle so validation and stack simulation use the constructed signature.
+    public func AddFieldWithSignature(
+        value: FieldInfo,
+        declaringType: Type,
+        valueType: Type,
+        isStatic: bool): int {
+        EnsureV2Building()
+        if value == null {
+            throw new ArgumentNullException("value")
+        }
+        if declaringType == null {
+            throw new ArgumentNullException("declaringType")
+        }
+        if valueType == null {
+            throw new ArgumentNullException("valueType")
+        }
+        EnsureFieldCapacity(FieldCount + 1)
+        index := FieldCount
+        Fields[index] = value
+        FieldUsesDeclaredSignature[index] = true
+        FieldDeclaringTypes[index] = declaringType
+        FieldValueTypes[index] = valueType
+        FieldIsStatic[index] = isStatic
         FieldCount = FieldCount + 1
         return index
     }
@@ -734,7 +779,9 @@ public class ColumnarCodePlan {
 
     public func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
-        if opCodeValue != ColumnarCodePlanContract.Ldelem()
+        if (opCodeValue != ColumnarCodePlanContract.Ldelem()
+                && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                    || opCodeValue != ColumnarCodePlanContract.Ldtoken()))
             || typeIndex < 0
             || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
@@ -748,9 +795,12 @@ public class ColumnarCodePlan {
 
     public func AppendArgumentInstruction(opCodeValue: short, argumentIndex: int) {
         EnsureV2Building()
-        if opCodeValue != ColumnarCodePlanContract.Ldarg()
+        if (opCodeValue != ColumnarCodePlanContract.Ldarg()
+                && opCodeValue != ColumnarCodePlanContract.Ldarga())
             || argumentIndex < 0
-            || argumentIndex >= ArgumentCount {
+            || argumentIndex >= ArgumentCount
+            || (opCodeValue == ColumnarCodePlanContract.Ldarga()
+                && ArgumentIsAddress[argumentIndex]) {
             throw new InvalidOperationException("The opcode does not use this argument pool entry.")
         }
         AppendV2Row(
@@ -1354,6 +1404,14 @@ public class ColumnarCodePlan {
             || Constructors.Length < ConstructorCount
             || Fields == null
             || Fields.Length < FieldCount
+            || FieldUsesDeclaredSignature == null
+            || FieldUsesDeclaredSignature.Length < FieldCount
+            || FieldDeclaringTypes == null
+            || FieldDeclaringTypes.Length < FieldCount
+            || FieldValueTypes == null
+            || FieldValueTypes.Length < FieldCount
+            || FieldIsStatic == null
+            || FieldIsStatic.Length < FieldCount
             || PlanLocalTypeIndices == null
             || PlanLocalTypeIndices.Length < PlanLocalCount {
             return false
@@ -1404,6 +1462,10 @@ public class ColumnarCodePlan {
         i = 0
         while i < FieldCount {
             if Fields[i] == null { return false }
+            if FieldUsesDeclaredSignature[i]
+                && (FieldDeclaringTypes[i] == null || FieldValueTypes[i] == null) {
+                return false
+            }
             i += 1
         }
         i = 0
@@ -1586,10 +1648,13 @@ public class ColumnarCodePlan {
                 && operandIndex >= 0
                 && operandIndex < StringCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldarg() {
+        if opCodeValue == ColumnarCodePlanContract.Ldarg()
+            || opCodeValue == ColumnarCodePlanContract.Ldarga() {
             return operandKind == ColumnarCodePlanContract.ArgumentOperand()
                 && operandIndex >= 0
                 && operandIndex < ArgumentCount
+                && (opCodeValue != ColumnarCodePlanContract.Ldarga()
+                    || !ArgumentIsAddress[operandIndex])
         }
         if ColumnarCodePlanContract.IsLocalOpcode(opCodeValue) {
             return (operandKind == ColumnarCodePlanContract.AmbientLocalOperand()
@@ -1623,7 +1688,9 @@ public class ColumnarCodePlan {
                 && operandIndex >= 0
                 && operandIndex < LabelCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldelem() {
+        if opCodeValue == ColumnarCodePlanContract.Ldelem()
+            || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+                && opCodeValue == ColumnarCodePlanContract.Ldtoken()) {
             return operandKind == ColumnarCodePlanContract.TypeOperand()
                 && operandIndex >= 0
                 && operandIndex < TypeCount
@@ -1761,10 +1828,20 @@ public class ColumnarCodePlan {
     }
 
     func EnsureFieldCapacity(minimum: int) {
-        if Fields == null || Fields.Length < minimum {
-            Fields = GrowFieldArray(
-                Fields,
-                NextCapacity(Fields == null ? 0 : Fields.Length, minimum))
+        if Fields == null || Fields.Length < minimum
+            || FieldUsesDeclaredSignature == null
+            || FieldUsesDeclaredSignature.Length < minimum
+            || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < minimum
+            || FieldValueTypes == null || FieldValueTypes.Length < minimum
+            || FieldIsStatic == null || FieldIsStatic.Length < minimum {
+            capacity := NextCapacity(Fields == null ? 0 : Fields.Length, minimum)
+            Fields = GrowFieldArray(Fields, capacity)
+            FieldUsesDeclaredSignature = GrowBoolArray(
+                FieldUsesDeclaredSignature,
+                capacity)
+            FieldDeclaringTypes = GrowTypeArray(FieldDeclaringTypes, capacity)
+            FieldValueTypes = GrowTypeArray(FieldValueTypes, capacity)
+            FieldIsStatic = GrowBoolArray(FieldIsStatic, capacity)
         }
     }
 

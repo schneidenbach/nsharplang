@@ -204,6 +204,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.LdcI4_8() == 30
     assert ColumnarCodePlanContract.LdcI4() == 32
     assert ColumnarCodePlanContract.Ldarg() == -503
+    assert ColumnarCodePlanContract.Ldarga() == -502
     assert ColumnarCodePlanContract.Ldloc() == -500
     assert ColumnarCodePlanContract.Ldloca() == -499
     assert ColumnarCodePlanContract.Stloc() == -498
@@ -225,6 +226,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.LdelemR8() == 153
     assert ColumnarCodePlanContract.LdelemRef() == 154
     assert ColumnarCodePlanContract.Ldelem() == 163
+    assert ColumnarCodePlanContract.Ldtoken() == 208
 }
 
 test "schema v2 lifecycle is explicit sealed and one shot" {
@@ -374,6 +376,11 @@ test "schema v2 carries selected argument type method constructor and field pool
     assert plan.MethodIsAbstract.Length >= 8
     assert plan.Constructors.Length >= 8
     assert plan.Fields.Length >= 8
+    assert plan.FieldUsesDeclaredSignature.Length >= 8
+    assert plan.FieldDeclaringTypes.Length >= 8
+    assert plan.FieldValueTypes.Length >= 8
+    assert plan.FieldIsStatic.Length >= 8
+    assert !plan.FieldUsesDeclaredSignature[7]
     assert plan.OperationKinds[20] == ColumnarCodePlanContract.MarkLabelOperation()
 }
 
@@ -384,6 +391,7 @@ test "schema v2 append APIs reject mismatched or unavailable operands" {
     typeIndex := plan.AddType(typeof(int))
     intIndex := plan.AddInt32(200)
     argumentIndex := plan.AddArgument(0, typeIndex)
+    addressArgumentIndex := plan.AddArgument(1, typeIndex, true)
     labelIndex := plan.DefineLabel()
 
     assert throws InvalidOperationException {
@@ -393,8 +401,17 @@ test "schema v2 append APIs reject mismatched or unavailable operands" {
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldloc(), argumentIndex)
     }
     assert throws InvalidOperationException {
+        plan.AppendArgumentInstruction(
+            ColumnarCodePlanContract.Ldarga(), addressArgumentIndex)
+    }
+    assert throws InvalidOperationException {
         plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldelem(), typeIndex + 1)
     }
+    operationCountBeforeLdtoken := plan.OperationCount
+    assert throws InvalidOperationException {
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), typeIndex)
+    }
+    assert plan.OperationCount == operationCountBeforeLdtoken
     assert throws InvalidOperationException {
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), labelIndex + 1)
     }
@@ -406,6 +423,57 @@ test "schema v2 append APIs reject mismatched or unavailable operands" {
     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
     plan.CompleteFragment(root, typeof(int))
     plan.CompleteV2(typeof(int))
+}
+
+test "schema v3 admits exact ldtoken type operands only" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 501, 0)
+    typeIndex := plan.AddType(typeof(string))
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), typeIndex)
+    plan.CompleteFragment(root, typeof(RuntimeTypeHandle))
+    plan.CompleteV3(typeof(RuntimeTypeHandle))
+    plan.ValidateSealedStructure()
+
+    assert plan.OperandKinds[0] == ColumnarCodePlanContract.TypeOperand()
+    assert plan.OperandIndices[0] == typeIndex
+
+    invalid := new ColumnarCodePlan()
+    invalid.PrepareV3()
+    invalid.BeginFragment(-1, 502, 0)
+    invalidType := invalid.AddType(typeof(string))
+    operationCountBeforeWrongOpcode := invalid.OperationCount
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(ColumnarCodePlanContract.Call(), invalidType)
+    }
+    assert invalid.OperationCount == operationCountBeforeWrongOpcode
+    operationCountBeforeWrongIndex := invalid.OperationCount
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), invalidType + 1)
+    }
+    assert invalid.OperationCount == operationCountBeforeWrongIndex
+}
+
+test "sealed recursive schemas reject ldtoken version and operand corruption" {
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    v2Root := schemaV2.BeginFragment(-1, 503, 0)
+    v2Type := schemaV2.AddType(typeof(int))
+    schemaV2.AppendTypeInstruction(ColumnarCodePlanContract.Ldelem(), v2Type)
+    schemaV2.CompleteFragment(v2Root, typeof(int))
+    schemaV2.CompleteV2(typeof(int))
+    schemaV2.OpCodeValues[0] = ColumnarCodePlanContract.Ldtoken()
+    assert throws InvalidOperationException { schemaV2.ValidateSealedStructure() }
+
+    wrongOperand := new ColumnarCodePlan()
+    wrongOperand.PrepareV3()
+    v3Root := wrongOperand.BeginFragment(-1, 504, 0)
+    v3Type := wrongOperand.AddType(typeof(string))
+    wrongOperand.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), v3Type)
+    wrongOperand.CompleteFragment(v3Root, typeof(RuntimeTypeHandle))
+    wrongOperand.CompleteV3(typeof(RuntimeTypeHandle))
+    wrongOperand.OperandKinds[0] = ColumnarCodePlanContract.Int32Operand()
+    assert throws InvalidOperationException { wrongOperand.ValidateSealedStructure() }
 }
 
 test "schema v2 checkpoint rollback removes recursive partial state transactionally" {
@@ -700,6 +768,7 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert ColumnarCodePlanContract.Neg() == 101
     assert ColumnarCodePlanContract.Not() == 102
     assert ColumnarCodePlanContract.Ceq() == -511
+    assert ColumnarCodePlanContract.LdindRef() == 80
     assert ColumnarCodePlanContract.Int64Operand() == 10
     assert ColumnarCodePlanContract.SingleOperand() == 11
     assert ColumnarCodePlanContract.DoubleOperand() == 12
@@ -728,6 +797,55 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert plan.SingleValues != null
     assert plan.DoubleValues != null
     assert plan.StringValues != null
+}
+
+test "schema v3 carries exact managed-address arguments into ldind.ref" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1215, 0)
+    stringType := plan.AddType(typeof(string))
+    addressArgument := plan.AddArgument(0, stringType, true)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), addressArgument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    plan.CompleteFragment(root, typeof(string))
+    plan.CompleteV3(typeof(string))
+    plan.ValidateSealedStructure()
+
+    assert plan.ArgumentIsAddress[0]
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OperandKinds[0] == ColumnarCodePlanContract.ArgumentOperand()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdindRef()
+    assert plan.OperandKinds[1] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[1] == -1
+}
+
+test "ldind.ref remains scalar-only and rejected appends are atomic" {
+    recursive := new ColumnarCodePlan()
+    recursive.PrepareV2()
+    recursive.BeginFragment(-1, 1216, 0)
+    stringType := recursive.AddType(typeof(string))
+    addressArgument := recursive.AddArgument(0, stringType, true)
+    recursive.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), addressArgument)
+    operationCount := recursive.OperationCount
+
+    assert throws InvalidOperationException {
+        recursive.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    }
+    assert recursive.OperationCount == operationCount
+
+    smuggled := new ColumnarCodePlan()
+    smuggled.PrepareV3()
+    root := smuggled.BeginFragment(-1, 1217, 0)
+    smuggledStringType := smuggled.AddType(typeof(string))
+    smuggledArgument := smuggled.AddArgument(0, smuggledStringType, true)
+    smuggled.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), smuggledArgument)
+    smuggled.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    smuggled.CompleteFragment(root, typeof(string))
+    smuggled.CompleteV3(typeof(string))
+    smuggled.SchemaVersion = ColumnarCodePlanContract.RecursiveSchemaVersion()
+    assert throws InvalidOperationException { smuggled.ValidateSealedStructure() }
 }
 
 test "schema v3 grows every scalar pool without losing values" {
@@ -1066,6 +1184,34 @@ test "schema v2 carries argument address and exact declared method columns" {
     assert !plan.MethodIsAbstract[0]
 }
 
+test "schema v2 carries ldarga and exact declared field columns" {
+    tupleType := typeof(ValueTuple<int, int>)
+    field := tupleType.GetField("Item1")
+    if field == null {
+        throw new InvalidOperationException("Required ValueTuple.Item1 field was not found.")
+    }
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 1213, 0)
+    receiverType := plan.AddType(tupleType)
+    receiver := plan.AddArgument(0, receiverType, false)
+    fieldIndex := plan.AddFieldWithSignature(
+        field, tupleType, typeof(int), false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), receiver)
+    plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV2(typeof(int))
+    plan.ValidateSealedStructure()
+
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarga()
+    assert !plan.ArgumentIsAddress[0]
+    assert plan.FieldUsesDeclaredSignature[0]
+    assert plan.FieldDeclaringTypes[0] == tupleType
+    assert plan.FieldValueTypes[0] == typeof(int)
+    assert !plan.FieldIsStatic[0]
+}
+
 test "schema v2 rejects malformed argument address and declared method columns" {
     noTypes := new Type[](0)
     getter := typeof(string).GetMethod("get_Length", noTypes)
@@ -1104,6 +1250,29 @@ test "schema v2 rejects malformed argument address and declared method columns" 
     missingSignature.CompleteV2(typeof(int))
     missingSignature.MethodParameterTypes = null
     assert throws InvalidOperationException { missingSignature.ValidateSealedStructure() }
+
+    tupleType := typeof(ValueTuple<int, int>)
+    field := tupleType.GetField("Item1")
+    if field == null {
+        throw new InvalidOperationException("Required ValueTuple.Item1 field was not found.")
+    }
+    missingFieldSignature := new ColumnarCodePlan()
+    missingFieldSignature.PrepareV2()
+    fieldRoot := missingFieldSignature.BeginFragment(-1, 1214, 0)
+    tupleTypeIndex := missingFieldSignature.AddType(tupleType)
+    tupleArgument := missingFieldSignature.AddArgument(0, tupleTypeIndex, false)
+    fieldIndex := missingFieldSignature.AddFieldWithSignature(
+        field, tupleType, typeof(int), false)
+    missingFieldSignature.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), tupleArgument)
+    missingFieldSignature.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), fieldIndex)
+    missingFieldSignature.CompleteFragment(fieldRoot, typeof(int))
+    missingFieldSignature.CompleteV2(typeof(int))
+    missingFieldSignature.FieldValueTypes = null
+    assert throws InvalidOperationException {
+        missingFieldSignature.ValidateSealedStructure()
+    }
 }
 
 test "schema v2 exact declared method API rejects null signature facts" {
@@ -1111,6 +1280,10 @@ test "schema v2 exact declared method API rejects null signature facts" {
     getter := typeof(string).GetMethod("get_Length", noTypes)
     if getter == null {
         throw new InvalidOperationException("Required String.Length getter was not found.")
+    }
+    field := typeof(ValueTuple<int, int>).GetField("Item1")
+    if field == null {
+        throw new InvalidOperationException("Required ValueTuple.Item1 field was not found.")
     }
 
     plan := new ColumnarCodePlan()
@@ -1126,5 +1299,14 @@ test "schema v2 exact declared method API rejects null signature facts" {
     }
     assert throws ArgumentNullException {
         plan.AddMethodWithSignature(getter, typeof(string), noTypes, null, false, false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddFieldWithSignature(null, typeof(ValueTuple<int, int>), typeof(int), false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddFieldWithSignature(field, null, typeof(int), false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddFieldWithSignature(field, typeof(ValueTuple<int, int>), null, false)
     }
 }
