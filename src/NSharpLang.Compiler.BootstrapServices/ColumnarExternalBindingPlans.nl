@@ -542,6 +542,13 @@ public class ColumnarExternalBindingPlans {
         }
 
         if receiver == "System.Type" {
+            if memberName == "GetMethods" && count == 0 {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.MethodInfo[]")
+            }
             if memberName == "GetType" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }
@@ -786,9 +793,23 @@ public class ColumnarExternalBindingPlans {
             }
         }
 
-        if receiver == "System.Reflection.ParameterInfo"
-            && memberName == "get_ParameterType" && count == 0 {
-            return VirtualCall(receiver, memberName, Empty(), "System.Type")
+        if receiver == "System.Reflection.ParameterInfo" {
+            if memberName == "get_ParameterType" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
+            if memberName == "get_IsOptional" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "IsDefined"
+                && count == 2
+                && argumentTypeNames[0] == "System.Type"
+                && argumentTypeNames[1] == "System.Boolean" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Two("System.Type", "System.Boolean"),
+                    "System.Boolean")
+            }
         }
 
         if receiver == "System.Diagnostics.Process" {

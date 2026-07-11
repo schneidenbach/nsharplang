@@ -304,6 +304,11 @@ test "source property metadata owns exact TypeBuilder method definition" {
 test "recursive code plans own exact type and local facts" {
     noArguments := new string[](0)
     AssertVirtualCall("System.Type", "GetType", noArguments, "System.Type")
+    AssertVirtualCall(
+        "System.Type",
+        "GetMethods",
+        noArguments,
+        "System.Reflection.MethodInfo[]")
     AssertVirtualCall("System.Type", "get_BaseType", noArguments, "System.Type")
     AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
@@ -456,6 +461,19 @@ test "recursive executor owns exact reflection signature facts" {
         "get_ParameterType",
         noArguments,
         "System.Type")
+    AssertVirtualCall(
+        "System.Reflection.ParameterInfo",
+        "get_IsOptional",
+        noArguments,
+        "System.Boolean")
+    parameterAttributeArguments := new string[](2)
+    parameterAttributeArguments[0] = "System.Type"
+    parameterAttributeArguments[1] = "System.Boolean"
+    AssertVirtualCall(
+        "System.Reflection.ParameterInfo",
+        "IsDefined",
+        parameterAttributeArguments,
+        "System.Boolean")
 }
 
 test "range code plans own the short IL argument operand" {
