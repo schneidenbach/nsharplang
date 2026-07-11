@@ -899,6 +899,7 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ldc_R4"
             || memberName == "Ldc_R8"
             || memberName == "Ldstr"
+            || memberName == "Ldtoken"
             || memberName == "Stloc"
             || memberName == "Ldloc"
             || memberName == "Ldloca"
