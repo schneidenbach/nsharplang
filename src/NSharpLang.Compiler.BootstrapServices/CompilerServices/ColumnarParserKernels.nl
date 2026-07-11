@@ -8529,9 +8529,6 @@ func ParseColumnarNativeImportInfoInto(source: string, tokenKinds: int[], tokenS
     return 1
 }
 
-    return false
-}
-
 func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
     if result.Values.Length < 2 || pos < 0 || pos >= count || tokens.Kinds[pos] != 0 {
         return -1
