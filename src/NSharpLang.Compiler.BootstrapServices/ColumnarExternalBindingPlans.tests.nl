@@ -137,6 +137,7 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Range", "System.Range")
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
+    AssertRuntimeType("MethodAttributes", "System.Reflection.MethodAttributes")
     AssertRuntimeType("AssemblyName", "System.Reflection.AssemblyName")
     AssertRuntimeType("DynamicMethod", "System.Reflection.Emit.DynamicMethod")
 
@@ -263,6 +264,35 @@ test "range code plans own exact reflection handle calls" {
         "System.Reflection.MethodInfo")
 }
 
+test "source property metadata owns exact TypeBuilder method definition" {
+    arguments := new string[](4)
+    arguments[0] = "System.String"
+    arguments[1] = "System.Reflection.MethodAttributes"
+    arguments[2] = "System.Type"
+    arguments[3] = "System.Type[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineMethod",
+        arguments,
+        "System.Reflection.Emit.MethodBuilder")
+
+    wrongAttributes := new string[](4)
+    wrongAttributes[0] = "System.String"
+    wrongAttributes[1] = "System.Int32"
+    wrongAttributes[2] = "System.Type"
+    wrongAttributes[3] = "System.Type[]"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineMethod",
+        wrongAttributes).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "TypeBuilder", "DefineMethod", arguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "defineMethod",
+        arguments).IsSupported
+}
+
 test "recursive code plans own exact type and local facts" {
     noArguments := new string[](0)
     AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
@@ -275,6 +305,11 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "GetGenericArguments", noArguments, "System.Type[]")
     AssertVirtualCall("System.Type", "get_IsGenericTypeDefinition", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsGenericType", noArguments, "System.Boolean")
+    AssertVirtualCall("System.Type", "get_HasElementType", noArguments, "System.Boolean")
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "HasElementType", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "Type", "get_HasElementType", noArguments).IsSupported
     AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_GenericParameterPosition", noArguments, "System.Int32")
     AssertVirtualCall(
@@ -496,6 +531,44 @@ test "static call plans own exact CLR overloads" {
         "System.Boolean")
 }
 
+test "static call plans own exact TypeBuilder member rebinding overloads" {
+    fieldArguments := new string[](2)
+    fieldArguments[0] = "System.Type"
+    fieldArguments[1] = "System.Reflection.FieldInfo"
+    AssertStaticCall(
+        "TypeBuilder",
+        "GetField",
+        fieldArguments,
+        fieldArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.FieldInfo")
+    AssertStaticCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "GetField",
+        fieldArguments,
+        fieldArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.FieldInfo")
+
+    methodArguments := new string[](2)
+    methodArguments[0] = "System.Type"
+    methodArguments[1] = "System.Reflection.MethodInfo"
+    AssertStaticCall(
+        "TypeBuilder",
+        "GetMethod",
+        methodArguments,
+        methodArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.MethodInfo")
+    AssertStaticCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "GetMethod",
+        methodArguments,
+        methodArguments,
+        "System.Reflection.Emit.TypeBuilder",
+        "System.Reflection.MethodInfo")
+}
+
 test "external binding scopes own exact assembly type discovery calls" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
@@ -601,4 +674,36 @@ test "static call plans decline aliases signatures and arity outside the contrac
         "Double",
         "TryParse",
         wrongDoubleTryParseArguments).IsSupported
+}
+
+test "TypeBuilder member rebinding plans decline every near miss" {
+    fieldArguments := new string[](2)
+    fieldArguments[0] = "System.Type"
+    fieldArguments[1] = "System.Reflection.FieldInfo"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "typebuilder", "GetField", fieldArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "getField", fieldArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "GetField", new string[](1)).IsSupported
+
+    builderFieldArguments := new string[](2)
+    builderFieldArguments[0] = "System.Type"
+    builderFieldArguments[1] = "System.Reflection.Emit.FieldBuilder"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "GetField", builderFieldArguments).IsSupported
+
+    swappedFieldArguments := new string[](2)
+    swappedFieldArguments[0] = "System.Reflection.FieldInfo"
+    swappedFieldArguments[1] = "System.Type"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "GetField", swappedFieldArguments).IsSupported
+
+    wrongMethodArguments := new string[](2)
+    wrongMethodArguments[0] = "System.Type"
+    wrongMethodArguments[1] = "System.Reflection.MethodBase"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "GetMethod", wrongMethodArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "TypeBuilder", "GetConstructor", wrongMethodArguments).IsSupported
 }

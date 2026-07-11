@@ -296,6 +296,8 @@ test "schema v2 grows every value column without losing flat ownership facts" {
     assert plan.OperationOwnerFragmentIndices.Length >= plan.OperationCount
     assert plan.FragmentKinds.Length >= plan.FragmentCount
     assert plan.ArgumentOrdinals[11] == 11
+    assert plan.ArgumentIsAddress.Length >= plan.ArgumentCount
+    assert !plan.ArgumentIsAddress[11]
     assert plan.FragmentKinds[12] == 311
     assert plan.FragmentSourceNodeIndices[12] == 12
     assert plan.OperationOwnerFragmentIndices[12] == 12
@@ -364,6 +366,12 @@ test "schema v2 carries selected argument type method constructor and field pool
     assert plan.ConstructorCount == 8
     assert plan.FieldCount == 8
     assert plan.Methods.Length >= 8
+    assert plan.MethodUsesDeclaredSignature.Length >= 8
+    assert plan.MethodDeclaringTypes.Length >= 8
+    assert plan.MethodReturnTypes.Length >= 8
+    assert plan.MethodParameterTypes.Length >= 8
+    assert plan.MethodIsStatic.Length >= 8
+    assert plan.MethodIsAbstract.Length >= 8
     assert plan.Constructors.Length >= 8
     assert plan.Fields.Length >= 8
     assert plan.OperationKinds[20] == ColumnarCodePlanContract.MarkLabelOperation()
@@ -1021,4 +1029,102 @@ test "schema completion entrypoints cannot cross-seal versions" {
 
     v3 := OpenV3CodePlan()
     assert throws InvalidOperationException { v3.CompleteV2(typeof(int)) }
+}
+
+test "schema v2 carries argument address and exact declared method columns" {
+    noTypes := new Type[](0)
+    getter := typeof(string).GetMethod("get_Length", noTypes)
+    if getter == null {
+        throw new InvalidOperationException("Required String.Length getter was not found.")
+    }
+
+    suppliedParameters := new Type[](0)
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 1210, 0)
+    stringType := plan.AddType(typeof(string))
+    argument := plan.AddArgument(0, stringType, false)
+    methodIndex := plan.AddMethodWithSignature(
+        getter,
+        typeof(string),
+        suppliedParameters,
+        typeof(int),
+        false,
+        false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV2(typeof(int))
+    plan.ValidateSealedStructure()
+
+    assert !plan.ArgumentIsAddress[0]
+    assert plan.MethodUsesDeclaredSignature[0]
+    assert plan.MethodDeclaringTypes[0] == typeof(string)
+    assert plan.MethodReturnTypes[0] == typeof(int)
+    assert plan.MethodParameterTypes[0].Length == 0
+    assert !plan.MethodIsStatic[0]
+    assert !plan.MethodIsAbstract[0]
+}
+
+test "schema v2 rejects malformed argument address and declared method columns" {
+    noTypes := new Type[](0)
+    getter := typeof(string).GetMethod("get_Length", noTypes)
+    if getter == null {
+        throw new InvalidOperationException("Required String.Length getter was not found.")
+    }
+
+    missingAddress := new ColumnarCodePlan()
+    missingAddress.PrepareV2()
+    addressRoot := missingAddress.BeginFragment(-1, 1211, 0)
+    stringType := missingAddress.AddType(typeof(string))
+    argument := missingAddress.AddArgument(0, stringType)
+    missingAddress.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    missingAddress.CompleteFragment(addressRoot, typeof(string))
+    missingAddress.CompleteV2(typeof(string))
+    missingAddress.ArgumentIsAddress = null
+    assert throws InvalidOperationException { missingAddress.ValidateSealedStructure() }
+
+    missingSignature := new ColumnarCodePlan()
+    missingSignature.PrepareV2()
+    signatureRoot := missingSignature.BeginFragment(-1, 1212, 0)
+    signatureStringType := missingSignature.AddType(typeof(string))
+    signatureArgument := missingSignature.AddArgument(0, signatureStringType)
+    signatureMethod := missingSignature.AddMethodWithSignature(
+        getter,
+        typeof(string),
+        noTypes,
+        typeof(int),
+        false,
+        false)
+    missingSignature.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), signatureArgument)
+    missingSignature.AppendMethodInstruction(
+        ColumnarCodePlanContract.Callvirt(), signatureMethod)
+    missingSignature.CompleteFragment(signatureRoot, typeof(int))
+    missingSignature.CompleteV2(typeof(int))
+    missingSignature.MethodParameterTypes = null
+    assert throws InvalidOperationException { missingSignature.ValidateSealedStructure() }
+}
+
+test "schema v2 exact declared method API rejects null signature facts" {
+    noTypes := new Type[](0)
+    getter := typeof(string).GetMethod("get_Length", noTypes)
+    if getter == null {
+        throw new InvalidOperationException("Required String.Length getter was not found.")
+    }
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    assert throws ArgumentNullException {
+        plan.AddMethodWithSignature(null, typeof(string), noTypes, typeof(int), false, false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddMethodWithSignature(getter, null, noTypes, typeof(int), false, false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddMethodWithSignature(getter, typeof(string), null, typeof(int), false, false)
+    }
+    assert throws ArgumentNullException {
+        plan.AddMethodWithSignature(getter, typeof(string), noTypes, null, false, false)
+    }
 }

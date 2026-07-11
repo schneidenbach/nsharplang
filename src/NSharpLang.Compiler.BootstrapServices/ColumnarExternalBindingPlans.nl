@@ -87,6 +87,9 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.Emit.Label"
         } else if canonical == "MethodInfo" || canonical == "System.Reflection.MethodInfo" {
             runtimeTypeName = "System.Reflection.MethodInfo"
+        } else if canonical == "MethodAttributes"
+            || canonical == "System.Reflection.MethodAttributes" {
+            runtimeTypeName = "System.Reflection.MethodAttributes"
         } else if canonical == "MethodBase" || canonical == "System.Reflection.MethodBase" {
             runtimeTypeName = "System.Reflection.MethodBase"
         } else if canonical == "FieldInfo" || canonical == "System.Reflection.FieldInfo" {
@@ -138,6 +141,7 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.Emit.OpCodes"
             || name == "System.Reflection.Emit.Label"
             || name == "System.Reflection.MethodInfo"
+            || name == "System.Reflection.MethodAttributes"
             || name == "System.Reflection.MethodBase"
             || name == "System.Reflection.FieldInfo"
             || name == "System.Reflection.PropertyInfo"
@@ -442,6 +446,30 @@ public class ColumnarExternalBindingPlans {
                 "System.Type")
         }
 
+        if typeName == "TypeBuilder"
+            || typeName == "System.Reflection.Emit.TypeBuilder" {
+            if memberName == "GetField"
+                && count == 2
+                && argumentTypeNames[0] == "System.Type"
+                && argumentTypeNames[1] == "System.Reflection.FieldInfo" {
+                return StaticCall(
+                    "System.Reflection.Emit.TypeBuilder",
+                    memberName,
+                    Two("System.Type", "System.Reflection.FieldInfo"),
+                    "System.Reflection.FieldInfo")
+            }
+            if memberName == "GetMethod"
+                && count == 2
+                && argumentTypeNames[0] == "System.Type"
+                && argumentTypeNames[1] == "System.Reflection.MethodInfo" {
+                return StaticCall(
+                    "System.Reflection.Emit.TypeBuilder",
+                    memberName,
+                    Two("System.Type", "System.Reflection.MethodInfo"),
+                    "System.Reflection.MethodInfo")
+            }
+        }
+
         if typeName == "Int32" || typeName == "int" {
             if memberName == "Parse"
                 && count == 1
@@ -544,6 +572,7 @@ public class ColumnarExternalBindingPlans {
                     || memberName == "get_IsGenericParameter"
                     || memberName == "get_IsGenericType"
                     || memberName == "get_IsGenericTypeDefinition"
+                    || memberName == "get_HasElementType"
                     || memberName == "get_IsAbstract")
                 && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
@@ -569,6 +598,20 @@ public class ColumnarExternalBindingPlans {
                 && argumentTypeNames[0] == "System.Type" {
                 return VirtualCall(receiver, memberName, One("System.Type"), "System.Boolean")
             }
+        }
+
+        if receiver == "System.Reflection.Emit.TypeBuilder"
+            && memberName == "DefineMethod"
+            && count == 4
+            && argumentTypeNames[0] == "System.String"
+            && argumentTypeNames[1] == "System.Reflection.MethodAttributes"
+            && argumentTypeNames[2] == "System.Type"
+            && argumentTypeNames[3] == "System.Type[]" {
+            return VirtualCall(
+                receiver,
+                memberName,
+                argumentTypeNames,
+                "System.Reflection.Emit.MethodBuilder")
         }
 
         if receiver == "System.Reflection.Emit.LocalBuilder"

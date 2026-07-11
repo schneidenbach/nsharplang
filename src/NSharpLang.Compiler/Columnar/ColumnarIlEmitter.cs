@@ -17,115 +17,6 @@ using YamlParser = YamlDotNet.Core.IParser;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
-/// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
-/// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
-/// against the builder handles directly — never <c>GetField</c>, which throws on an un-finalized TypeBuilder). Built
-/// in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>.
-/// </summary>
-internal sealed class ColumnarStructDef
-{
-    internal ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference, bool isRecord = false)
-    {
-        Builder = builder;
-        FieldOrder = fieldOrder;
-        Fields = fields;
-        IsReference = isReference;
-        IsRecord = isRecord;
-    }
-
-    internal TypeBuilder Builder { get; }
-    internal string[] FieldOrder { get; private set; }
-    internal Dictionary<string, FieldBuilder> Fields { get; }
-    internal HashSet<string> NullableFields { get; } = new(StringComparer.Ordinal);
-    internal void SetFieldOrder(string[] fieldOrder) => FieldOrder = fieldOrder;
-    // Generic type parameters declared on this type (`class Box<T>` → "T" → its builder), or null for a
-    // non-generic type. Member signatures and bodies resolve these names FIRST (before registries/builtins);
-    // closed instantiations (`Box<int>`) MakeGenericType the Builder and rebind member tokens via
-    // TypeBuilder.GetField/GetConstructor/GetMethod (reflection member queries throw on
-    // TypeBuilderInstantiation — the same machinery the previous parity baseline uses).
-    internal Dictionary<string, Type>? GenericParameters { get; set; }
-    // True for a RECORD or CLASS (a reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
-    internal bool IsReference { get; }
-    // True for a RECORD specifically — records can never be BASE types (the legacy emitter emits them sealed) and record
-    // inheritance is unmodelled; PASS 0a' declines both shapes.
-    internal bool IsRecord { get; }
-    // True for a synthesized NEWTYPE record struct (`type X = newtype T`): call-style
-    // construction (`X(42)`) resolves to its single-parameter constructor — newtypes only,
-    // matching the legacy emitter's RecordsTopLevelNewtypeNames gate.
-    internal bool IsNewtype { get; init; }
-    // True for an INTERFACE (defined Public|Interface|Abstract; Methods hold its ABSTRACT member
-    // declarations; no fields/ctors). Living in the struct registry makes interface-typed
-    // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
-    // EXISTING machinery; object-init declines via the null DefaultCtor, PASS 0d/0e skip it.
-    internal bool IsInterface { get; init; }
-    // Interfaces this interface EXTENDS. For an implementer, ImplementedInterfaces records the directly named
-    // interfaces and this list lets lookup/completeness/upcasts walk inherited interface slots without duplicating
-    // those MethodBuilders on the derived interface.
-    internal List<ColumnarStructDef> InterfaceBases { get; } = new();
-    // Direct interfaces this type IMPLEMENTS (`class C: IShape, IDisposable` — colon-list names reclassified in
-    // PASS 0a' when they resolve to interface defs). Every direct and inherited interface member must be matched
-    // by name+signature (completeness checked in PASS 0b — the pipeline emits an UNLOADABLE assembly for missing
-    // members, known defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
-    // + DefineMethodOverride, mirroring the legacy emitter's DeclareMethod.
-    internal List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
-    internal List<Type> ImplementedInterfaceTypes { get; } = new();
-    internal List<Type> ExternalInterfaces { get; } = new();
-    // Interface method names declared with a default body. Implementers are not required to override these slots;
-    // if they do, override binding still wires the implementing method to the interface method.
-    internal HashSet<string> DefaultInterfaceMethodNames { get; } = new(StringComparer.Ordinal);
-    // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
-    // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
-    // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
-    // type or a type with user ctors.
-    internal ConstructorBuilder? DefaultCtor { get; set; }
-    // The declared BASE class's def (`class D: Base`), or null. Reference types only; set in PASS 0a'. Member
-    // resolution (fields/methods/properties) walks this chain, nearest declaration first (modelling method hiding).
-    internal ColumnarStructDef? BaseDef { get; set; }
-    // Instance methods declared on this struct. Methods keeps the first declaration for name-existence checks and
-    // non-overloaded interface helpers; MethodOverloads carries the full overload set for receiver call binding.
-    // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
-    internal Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
-    internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> MethodOverloads { get; } = new(StringComparer.Ordinal);
-    // STATIC methods declared on this type, by name -> the declared overloads (distinct PARAM COUNT only; the N#
-    // struct parser declines same-name/same-arity static overload sets before rows reach this pass). Resolved by
-    // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
-    // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
-    internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
-    // STATIC fields declared on this type, by name -> the FieldBuilder. CLR-static (ldsfld/stsfld); excluded from
-    // FieldOrder/Fields so object-init and positional construction never see them. Resolved by `TypeName.field`
-    // (chain-walked) and by bare names inside INSTANCE member bodies only (the pipeline's pinned asymmetry).
-    internal Dictionary<string, FieldBuilder> StaticFields { get; } = new(StringComparer.Ordinal);
-    // STATIC computed properties, by name -> (static get_Name, static set_Name or null, property type). Resolved
-    // by `TypeName.Name` reads (`call get_Name`) / writes (`call set_Name`, chain-walked) and by bare READS inside
-    // INSTANCE member bodies (after instance members and static fields).
-    internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> StaticProperties { get; } = new(StringComparer.Ordinal);
-    // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder, its param types, and any
-    // default-argument literals captured from the declaration. Positional construction `new T(args)` matches a ctor by
-    // provided args plus trailing defaults. Empty when the type has no user ctor (then DefaultCtor drives object-init).
-    // A type with >=1 user ctor has NO DefaultCtor (object-init on it declines).
-    internal List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)> Constructors { get; } = new();
-    // Private instance method synthesized from instance field initializers. Constructors call this immediately after
-    // the base/sibling constructor chain, before the user body. It is never a public construction candidate.
-    internal MethodBuilder? InstanceInitializerMethod { get; set; }
-    // Own fields definitely assigned by the synthesized instance-initializer method. Reference constructor validation
-    // treats these like top-level constructor assignments because every non-delegating constructor calls the method
-    // before user body emission, and delegating constructors call a sibling that does.
-    internal HashSet<string> InstanceInitializerFields { get; } = new(StringComparer.Ordinal);
-    // Computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the set_Name setter MethodBuilder or null,
-    // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
-    // setter exists) to `callvirt set_Name`.
-    internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
-    // The SYNTHESIZED value-semantics members on a RECORD (the legacy emitter generates them only on records — a class
-    // `.Equals` is its NL103): Equals(object) (null-check + isinst + per-field EqualityComparer<T>.Default),
-    // GetHashCode (the 17/23 accumulator), and the `<Clone>$` MemberwiseClone wrapper `with` lowers through.
-    // Null when the record's fields prevent the synthesis (builder-typed/generic field types) or the type is
-    // generic — `.Equals`/`.GetHashCode`/`with` then decline.
-    internal MethodBuilder? RecordEquals { get; set; }
-    internal MethodBuilder? RecordGetHashCode { get; set; }
-    internal MethodBuilder? RecordClone { get; set; }
-}
-
-/// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
 /// drive IL emission END-TO-END with no object AST: for a single trivial function it emits a real .NET assembly
 /// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
@@ -346,7 +237,7 @@ internal sealed class ColumnarIlEmitter
         TypeBuilder? programType = null,
         int[]? lambdaCounter = null,
         List<TypeBuilder>? displayClasses = null,
-        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null,
+        Dictionary<string, (FieldInfo BoxField, Type ValueType)>? boxedCaptures = null,
         Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null,
         Dictionary<int, string>? declaredLocalFuncNodes = null,
         IEnumerable<string>? visibleLocalFuncs = null,
@@ -514,7 +405,7 @@ internal sealed class ColumnarIlEmitter
     // In a CLOSURE emitter: captured-and-lifted names -> the display field holding the shared box. Reads
     // emit `ldarg.0; ldfld boxField; ldfld Value`, writes `ldarg.0; ldfld boxField; <v>; stfld Value` —
     // checked before every other resolution tier (a boxed name is never also a lambda param or local).
-    private readonly Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? _boxedCaptures;
+    private readonly Dictionary<string, (FieldInfo BoxField, Type ValueType)>? _boxedCaptures;
 
     // The types the type-aware emitter currently handles: int/bool/long/uint/ulong scalars, plus a
     // single-dimension ARRAY of a supported element type (e.g. int[], uint[], long[], ulong[]). (Mixed
@@ -1292,32 +1183,35 @@ internal sealed class ColumnarIlEmitter
     private static void AddInstanceMethod(
         ColumnarStructDef def,
         string name,
-        (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        ColumnarInstanceMethodDef method)
     {
         if (!def.Methods.ContainsKey(name))
             def.Methods[name] = method;
         if (!def.MethodOverloads.TryGetValue(name, out var overloads))
         {
-            overloads = new List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>();
+            overloads = new List<ColumnarInstanceMethodDef>();
             def.MethodOverloads[name] = overloads;
         }
         overloads.Add(method);
     }
 
-    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, out ColumnarInstanceMethodDef method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
-            if (d.Methods.TryGetValue(name, out method))
+            if (d.Methods.TryGetValue(name, out var found))
+            {
+                method = found;
                 return true;
+            }
             if (d.IsInterface && TryFindMethodOnInterfaceBases(d, name, out method))
                 return true;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
-    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, int argCount, out ColumnarInstanceMethodDef method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
@@ -1335,26 +1229,29 @@ internal sealed class ColumnarIlEmitter
             if (d.IsInterface && TryFindMethodOnInterfaceBases(d, name, argCount, out method))
                 return true;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
     private static bool TryFindMethodOnInterfaceBases(
-        ColumnarStructDef def, string name, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        ColumnarStructDef def, string name, out ColumnarInstanceMethodDef method)
     {
         foreach (var baseInterface in def.InterfaceBases)
         {
-            if (baseInterface.Methods.TryGetValue(name, out method))
+            if (baseInterface.Methods.TryGetValue(name, out var found))
+            {
+                method = found;
                 return true;
+            }
             if (TryFindMethodOnInterfaceBases(baseInterface, name, out method))
                 return true;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
     private static bool TryFindMethodOnInterfaceBases(
-        ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        ColumnarStructDef def, string name, int argCount, out ColumnarInstanceMethodDef method)
     {
         foreach (var baseInterface in def.InterfaceBases)
         {
@@ -1372,7 +1269,7 @@ internal sealed class ColumnarIlEmitter
             if (TryFindMethodOnInterfaceBases(baseInterface, name, argCount, out method))
                 return true;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
@@ -1401,14 +1298,17 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private static bool TryFindPropertyOnChain(ColumnarStructDef def, string name, out (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType) property)
+    private static bool TryFindPropertyOnChain(ColumnarStructDef def, string name, out ColumnarPropertyDef property)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
-            if (d.Properties.TryGetValue(name, out property))
+            if (d.Properties.TryGetValue(name, out var found))
+            {
+                property = found;
                 return true;
+            }
         }
-        property = default;
+        property = null!;
         return false;
     }
 
@@ -1751,7 +1651,7 @@ internal sealed class ColumnarIlEmitter
         var displayFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
         for (var f = 0; f < snapshotNames.Count; f++)
             displayFields[snapshotNames[f]] = display.DefineField(snapshotNames[f], snapshotTypes[f], FieldAttributes.Public);
-        var boxedCaptureMap = new Dictionary<string, (FieldBuilder BoxField, Type ValueType)>(StringComparer.Ordinal);
+        var boxedCaptureMap = new Dictionary<string, (FieldInfo BoxField, Type ValueType)>(StringComparer.Ordinal);
         var boxedFields = new FieldBuilder[boxedNames.Count];
         for (var b = 0; b < boxedNames.Count; b++)
         {
@@ -1759,7 +1659,8 @@ internal sealed class ColumnarIlEmitter
             boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public);
             boxedCaptureMap[boxedNames[b]] = (boxedFields[b], boxedSources[b].ValueType);
         }
-        var displayDef = new ColumnarStructDef(display, snapshotNames.ToArray(), displayFields, isReference: true);
+        var displayDef = new ColumnarStructDef(
+            display, snapshotNames.ToArray(), displayFields, isReference: true, isClosureDisplay: true);
         // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
         // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
         // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
@@ -2369,7 +2270,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool TryEmitStaticExpandedParamsCall(
         int callIdx,
-        (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) target,
+        ColumnarStaticMethodDef target,
         out Type type)
     {
         type = null!;
@@ -2819,7 +2720,7 @@ internal sealed class ColumnarIlEmitter
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
     // is a managed pointer -> `call`.
-    private bool EmitImplicitThisCall(int callIdx, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method, out Type type)
+    private bool EmitImplicitThisCall(int callIdx, ColumnarInstanceMethodDef method, out Type type)
     {
         type = null!;
         var argCount = _nodes.ChildCount(callIdx) - 1;
@@ -2851,14 +2752,17 @@ internal sealed class ColumnarIlEmitter
 
     // Resolve a STATIC PROPERTY on `def`'s chain by name, nearest declaration first (`Derived.X` binds a
     // base-declared static property — the fixed legacy emitter chain-walks its get_X/set_X exactly like static fields).
-    private static bool TryFindStaticPropertyOnChain(ColumnarStructDef def, string name, out (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType) property)
+    private static bool TryFindStaticPropertyOnChain(ColumnarStructDef def, string name, out ColumnarPropertyDef property)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
-            if (d.StaticProperties.TryGetValue(name, out property))
+            if (d.StaticProperties.TryGetValue(name, out var found))
+            {
+                property = found;
                 return true;
+            }
         }
-        property = default;
+        property = null!;
         return false;
     }
 
@@ -2867,7 +2771,7 @@ internal sealed class ColumnarIlEmitter
     // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
     // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
     // the emit site (a mismatch declines because implicit conversions are not modelled here).
-    private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
+    private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out ColumnarStaticMethodDef method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
@@ -2882,25 +2786,25 @@ internal sealed class ColumnarIlEmitter
                 }
             }
         }
-        method = default;
+        method = null!;
         return false;
     }
 
-    private bool TryFindStaticExpandedParamsMethodOnChain(ColumnarStructDef def, string name, int callIdx, out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
+    private bool TryFindStaticExpandedParamsMethodOnChain(ColumnarStructDef def, string name, int callIdx, out ColumnarStaticMethodDef method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
             if (!d.StaticMethods.TryGetValue(name, out var overloads))
                 continue;
             var selected = false;
-            method = default;
+            method = null!;
             foreach (var candidate in overloads)
             {
                 if (!ShouldUseExpandedParamsCall(callIdx, candidate.ParamTypes, candidate.ParamModifierKinds))
                     continue;
                 if (selected)
                 {
-                    method = default;
+                    method = null!;
                     return false;
                 }
                 method = candidate;
@@ -2909,7 +2813,7 @@ internal sealed class ColumnarIlEmitter
             if (selected)
                 return true;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
@@ -2952,7 +2856,7 @@ internal sealed class ColumnarIlEmitter
         Type source,
         Type target,
         string methodName,
-        out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
+        out ColumnarStaticMethodDef method)
     {
         if (FindDefByType(source) is { } sourceDef
             && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method))
@@ -2967,7 +2871,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        method = default;
+        method = null!;
         return false;
     }
 
@@ -2976,7 +2880,7 @@ internal sealed class ColumnarIlEmitter
         Type source,
         Type target,
         string methodName,
-        out (MethodBuilder Builder, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType) method)
+        out ColumnarStaticMethodDef method)
     {
         for (var d = def; d != null; d = d.BaseDef)
         {
@@ -2994,7 +2898,7 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        method = default;
+        method = null!;
         return false;
     }
 
@@ -4310,7 +4214,7 @@ internal sealed class ColumnarIlEmitter
                     memberReturn, memberParams);
                 if (!DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
                     return false;
-                AddInstanceMethod(interfaceDef, iface.MethodNames[m], (abstractMethod, memberParams, memberReturn));
+                AddInstanceMethod(interfaceDef, iface.MethodNames[m], new ColumnarInstanceMethodDef(abstractMethod, memberParams, memberReturn));
                 if (hasDefaultBody)
                 {
                     interfaceDef.DefaultInterfaceMethodNames.Add(iface.MethodNames[m]);
@@ -4552,7 +4456,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     if (!def.StaticMethods.TryGetValue(m.Name, out var overloads))
                     {
-                        overloads = new List<(MethodBuilder, Type[], int[], Type)>();
+                        overloads = new List<ColumnarStaticMethodDef>();
                         def.StaticMethods[m.Name] = overloads;
                     }
                     var staticMethodAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig;
@@ -4584,14 +4488,14 @@ internal sealed class ColumnarIlEmitter
                         pmb.SetImplementationFlags(pmb.GetMethodImplementationFlags() | MethodImplAttributes.PreserveSig);
                         if (!DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
                             return false;
-                        overloads.Add((pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
+                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
                         continue;
                     }
 
                     var smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes);
                     if (!DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, enumRegistry))
                         return false;
-                    overloads.Add((smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
+                    overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
                     structMethodJobs.Add((def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, sParamTypeMap, true));
                     continue;
                 }
@@ -4696,7 +4600,7 @@ internal sealed class ColumnarIlEmitter
                     foreach (var overriddenExternalInterfaceMethod in overriddenExternalInterfaceMethods)
                         def.Builder.DefineMethodOverride(mb, overriddenExternalInterfaceMethod);
                 }
-                AddInstanceMethod(def, m.Name, (mb, mParamTypes, mSignatureReturn));
+                AddInstanceMethod(def, m.Name, new ColumnarInstanceMethodDef(mb, mParamTypes, mSignatureReturn));
                 structMethodJobs.Add((def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, mParamTypeMap, false));
             }
         }
@@ -4780,42 +4684,58 @@ internal sealed class ColumnarIlEmitter
                     // is arg 0 (no implicit `this`). The bodies are STATIC contexts (PASS 2 runs them with
                     // `_currentStruct` null), so a bare backing-field reference inside an accessor declines
                     // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
-                    var staticGetter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
+                    var staticAccessorAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName;
+                    var staticAccessors = ColumnarPropertyDef.Define(
+                        def.Builder,
+                        "get_" + prop.Name,
+                        staticAccessorAttributes,
+                        propType,
+                        prop.Setter != null ? "set_" + prop.Name : null,
+                        staticAccessorAttributes);
+                    var staticGetter = staticAccessors.Getter;
                     structMethodJobs.Add((def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), true));
                     var staticProperty = def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes);
                     staticProperty.SetGetMethod(staticGetter);
-                    MethodBuilder? staticSetter = null;
+                    var staticSetter = staticAccessors.Setter;
                     if (prop.Setter != null)
                     {
-                        staticSetter = def.Builder.DefineMethod("set_" + prop.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName, typeof(void), new[] { propType });
-                        if (!DefineMethodParameterMetadata(staticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                        var exactStaticSetter = staticSetter!;
+                        if (!DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
                             return false;
                         var staticSetOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 0 };
                         var staticSetParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
-                        structMethodJobs.Add((def, prop.Setter, staticSetter, typeof(void), typeof(void), null, staticSetOrdinals, staticSetParamTypes, true));
-                        staticProperty.SetSetMethod(staticSetter);
+                        structMethodJobs.Add((def, prop.Setter, exactStaticSetter, typeof(void), typeof(void), null, staticSetOrdinals, staticSetParamTypes, true));
+                        staticProperty.SetSetMethod(exactStaticSetter);
                     }
-                    def.StaticProperties[prop.Name] = (staticGetter, staticSetter, propType);
+                    def.StaticProperties[prop.Name] = staticAccessors;
                     continue;
                 }
-                var getter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
+                var accessorAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName;
+                var accessors = ColumnarPropertyDef.Define(
+                    def.Builder,
+                    "get_" + prop.Name,
+                    accessorAttributes,
+                    propType,
+                    prop.Setter != null ? "set_" + prop.Name : null,
+                    accessorAttributes);
+                var getter = accessors.Getter;
                 structMethodJobs.Add((def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), false));
                 var property = def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes);
                 property.SetGetMethod(getter);
-                MethodBuilder? setter = null;
+                var setter = accessors.Setter;
                 if (prop.Setter != null)
                 {
-                    setter = def.Builder.DefineMethod("set_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, typeof(void), new[] { propType });
-                    if (!DefineMethodParameterMetadata(setter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
+                    var exactSetter = setter!;
+                    if (!DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), enumRegistry))
                         return false;
                     // The setter's `value` parameter is arg 1 (arg 0 = this); its body assigns fields via the
                     // reference-type field-write path. Emitted via structMethodJobs (a void method).
                     var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 1 };
                     var setParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
-                    structMethodJobs.Add((def, prop.Setter, setter, typeof(void), typeof(void), null, setOrdinals, setParamTypes, false));
-                    property.SetSetMethod(setter);
+                    structMethodJobs.Add((def, prop.Setter, exactSetter, typeof(void), typeof(void), null, setOrdinals, setParamTypes, false));
+                    property.SetSetMethod(exactSetter);
                 }
-                def.Properties[prop.Name] = (getter, setter, propType);
+                def.Properties[prop.Name] = accessors;
             }
         }
 
@@ -4918,7 +4838,7 @@ internal sealed class ColumnarIlEmitter
                 var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
                 if (!DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts, enumRegistry))
                     return DeclineStatic("emit.ctor.param-metadata", "constructor parameter metadata could not be emitted", def.Builder.Name + ".constructor");
-                def.Constructors.Add((cb, cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts));
+                def.Constructors.Add(new ColumnarConstructorDef(cb, cParamTypes, ctor.ParamDefaultKinds, ctor.ParamDefaultTexts));
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
         }
@@ -9727,98 +9647,35 @@ internal sealed class ColumnarIlEmitter
                 _paramTypes,
                 _locals,
                 _enumRegistry,
-                _liftedLocals.Keys,
-                _boxedCaptures?.Keys,
+                _liftedLocals,
+                _boxedCaptures,
+                _currentStruct,
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
                 _codePlan,
                 _il,
+                out var boundIdentifierOwned,
                 out type))
             return true;
+        if (boundIdentifierOwned)
+            return false;
         switch (_nodes.Kind(idx))
         {
-            case 6: // Identifier — a `:=` local (ldloc, type = LocalType) or a parameter (ldarg, type from the
-                    // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
+            case 6: // N# owns ordinary lexical/current-instance reads. The mechanical host retains only
+                    // address dereference for ref/out parameters plus the separate bare-static fallback.
             {
                 var name = Text(idx);
-                if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, idx))
-                {
-                    if (_currentStruct == null)
-                        return false;
-                    if (TryFindFieldOnChain(_currentStruct, name, out var explicitThisField))
-                    {
-                        _il.Emit(OpCodes.Ldarg_0);
-                        _il.Emit(OpCodes.Ldfld, explicitThisField);
-                        type = explicitThisField.FieldType;
-                        return true;
-                    }
-                    if (TryFindPropertyOnChain(_currentStruct, name, out var explicitThisProperty))
-                    {
-                        _il.Emit(OpCodes.Ldarg_0);
-                        _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, explicitThisProperty.Getter);
-                        type = explicitThisProperty.PropertyType;
-                        return true;
-                    }
-                    return false;
-                }
-                // L3b: a BOXED capture (in a closure body) or a LIFTED local/param reads through the shared
-                // StrongBox's Value — checked before every other tier (a lifted name's plain slot is dead).
-                if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out var boxedRead))
-                {
-                    _il.Emit(OpCodes.Ldarg_0);
-                    _il.Emit(OpCodes.Ldfld, boxedRead.BoxField);
-                    _il.Emit(OpCodes.Ldfld, StrongBoxValueField(boxedRead.ValueType));
-                    type = boxedRead.ValueType;
-                    return true;
-                }
-                if (_liftedLocals.TryGetValue(name, out var liftedRead))
-                {
-                    _il.Emit(OpCodes.Ldloc, liftedRead.Box);
-                    _il.Emit(OpCodes.Ldfld, StrongBoxValueField(liftedRead.ValueType));
-                    type = liftedRead.ValueType;
-                    return true;
-                }
-                if (_locals.TryGetValue(name, out var local))
-                {
-                    _il.Emit(OpCodes.Ldloc, local);
-                    type = local.LocalType;
-                    return true;
-                }
-
                 if (_paramOrdinals.TryGetValue(name, out var ordinal))
                 {
                     var paramType = _paramTypes[name];
-                    EmitLoadArgument(ordinal);
                     if (paramType.IsByRef)
                     {
+                        EmitLoadArgument(ordinal);
                         type = paramType.GetElementType()!;
                         EmitLoadByRefElement(type);
+                        return true;
                     }
-                    else
-                    {
-                        type = paramType;
-                    }
-                    return true;
-                }
-
-                // Inside a struct INSTANCE method, a bare name that is neither a local nor a param falls back to a
-                // FIELD of the current struct (`this.field`): `this` is arg 0, so emit `ldarg.0; ldfld <FieldBuilder>`.
-                // (Checked AFTER locals/params so a local/param correctly shadows a field.) Resolution walks the
-                // BASE chain (nearest first) so a derived member may read an INHERITED field.
-                if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, name, out var thisField))
-                {
-                    _il.Emit(OpCodes.Ldarg_0);
-                    _il.Emit(OpCodes.Ldfld, thisField);
-                    type = thisField.FieldType;
-                    return true;
-                }
-                if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, name, out var thisProperty))
-                {
-                    _il.Emit(OpCodes.Ldarg_0);
-                    _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, thisProperty.Getter);
-                    type = thisProperty.PropertyType;
-                    return true;
                 }
 
                 // Bare STATIC-member read inside an INSTANCE member body. The N# pipeline's pinned ASYMMETRY: bare
@@ -16156,7 +16013,7 @@ internal sealed class ColumnarIlEmitter
         chosenParamTypes = null!;
         chosenDefaultKinds = null!;
         chosenDefaultTexts = null!;
-        var candidates = new List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)>();
+        var candidates = new List<ColumnarConstructorDef>();
         foreach (var ctor in def.Constructors)
         {
             if (ctor.ParamTypes.Length < argCount)
@@ -16175,7 +16032,7 @@ internal sealed class ColumnarIlEmitter
         }
         if (candidates.Count == 0)
             return false;
-        var exactCandidates = new List<(ConstructorBuilder Builder, Type[] ParamTypes, int[] DefaultKinds, string?[] DefaultTexts)>();
+        var exactCandidates = new List<ColumnarConstructorDef>();
         foreach (var candidate in candidates)
         {
             if (candidate.ParamTypes.Length == argCount)
@@ -16584,14 +16441,18 @@ internal sealed class ColumnarIlEmitter
                 _paramTypes,
                 _locals,
                 _enumRegistry,
-                _liftedLocals.Keys,
-                _boxedCaptures?.Keys,
+                _liftedLocals,
+                _boxedCaptures,
+                _currentStruct,
                 _enclosingBindingNames,
                 _siblings.Keys,
                 _visibleLocalFuncs,
                 _codePlan,
+                out var boundIdentifierOwned,
                 out type))
             return true;
+        if (boundIdentifierOwned)
+            return false;
         switch (_nodes.Kind(node))
         {
             case 0:
@@ -16628,25 +16489,12 @@ internal sealed class ColumnarIlEmitter
             case 6:
             {
                 var name = Text(node);
-                var isExplicitThis = ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node);
-                if (!isExplicitThis && _locals.TryGetValue(name, out var local))
-                {
-                    type = local.LocalType;
-                    return true;
-                }
-                if (!isExplicitThis && _paramTypes.TryGetValue(name, out var paramType) && _paramOrdinals.ContainsKey(name))
+                if (!ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node)
+                    && _paramTypes.TryGetValue(name, out var paramType)
+                    && _paramOrdinals.ContainsKey(name)
+                    && paramType.IsByRef)
                 {
                     type = paramType;
-                    return true;
-                }
-                if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, name, out var thisField))
-                {
-                    type = thisField.FieldType;
-                    return true;
-                }
-                if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, name, out var thisProperty))
-                {
-                    type = thisProperty.PropertyType;
                     return true;
                 }
                 return false;
@@ -19228,7 +19076,7 @@ internal sealed class ColumnarIlEmitter
         ColumnarStructDef def,
         string name,
         int callIdx,
-        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+        out ColumnarInstanceMethodDef method)
     {
         var argCount = _nodes.ChildCount(callIdx) - 1;
         for (var d = def; d != null; d = d.BaseDef)
@@ -19242,7 +19090,7 @@ internal sealed class ColumnarIlEmitter
             if (hadArityMatch)
                 return false;
         }
-        method = default;
+        method = null!;
         return false;
     }
 
@@ -19251,7 +19099,7 @@ internal sealed class ColumnarIlEmitter
         string name,
         int callIdx,
         int argCount,
-        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method,
+        out ColumnarInstanceMethodDef method,
         out bool hadArityMatch)
     {
         foreach (var baseInterface in def.InterfaceBases)
@@ -19265,7 +19113,7 @@ internal sealed class ColumnarIlEmitter
             if (hadArityMatch)
                 return false;
         }
-        method = default;
+        method = null!;
         hadArityMatch = false;
         return false;
     }
@@ -19275,16 +19123,16 @@ internal sealed class ColumnarIlEmitter
         string name,
         int callIdx,
         int argCount,
-        out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method,
+        out ColumnarInstanceMethodDef method,
         out bool hadArityMatch)
     {
-        method = default;
+        method = null!;
         hadArityMatch = false;
         if (!def.MethodOverloads.TryGetValue(name, out var overloads))
             return false;
 
         var arityMatches = 0;
-        (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) soleArityMatch = default;
+        ColumnarInstanceMethodDef? soleArityMatch = null;
         foreach (var candidate in overloads)
         {
             if (candidate.ParamTypes.Length != argCount)
@@ -19298,7 +19146,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (arityMatches == 1)
         {
-            method = soleArityMatch;
+            method = soleArityMatch!;
             return true;
         }
 
@@ -19310,7 +19158,7 @@ internal sealed class ColumnarIlEmitter
                 continue;
             if (selected)
             {
-                method = default;
+                method = null!;
                 return false;
             }
             method = candidate;
@@ -20049,7 +19897,7 @@ internal sealed class ColumnarIlEmitter
     private static bool ClosedInterfaceMethodMatches(
         Type closedInterfaceType,
         ColumnarStructDef openInterfaceDef,
-        (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) member,
+        ColumnarInstanceMethodDef member,
         Type returnType,
         Type[] paramTypes)
     {

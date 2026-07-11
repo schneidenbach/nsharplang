@@ -237,10 +237,17 @@ public class ColumnarCodePlan {
     public ArgumentCount: int
     public ArgumentOrdinals: int[]
     public ArgumentTypeIndices: int[]
+    public ArgumentIsAddress: bool[]
     public AmbientLocalCount: int
     public AmbientLocals: LocalBuilder[]
     public MethodCount: int
     public Methods: MethodInfo[]
+    public MethodUsesDeclaredSignature: bool[]
+    public MethodDeclaringTypes: Type[]
+    public MethodReturnTypes: Type[]
+    public MethodParameterTypes: Type[][]
+    public MethodIsStatic: bool[]
+    public MethodIsAbstract: bool[]
     public ConstructorCount: int
     public Constructors: ConstructorInfo[]
     public FieldCount: int
@@ -296,10 +303,17 @@ public class ColumnarCodePlan {
         ArgumentCount = 0
         ArgumentOrdinals = new int[](0)
         ArgumentTypeIndices = new int[](0)
+        ArgumentIsAddress = new bool[](0)
         AmbientLocalCount = 0
         AmbientLocals = new LocalBuilder[](0)
         MethodCount = 0
         Methods = new MethodInfo[](0)
+        MethodUsesDeclaredSignature = new bool[](0)
+        MethodDeclaringTypes = new Type[](0)
+        MethodReturnTypes = new Type[](0)
+        MethodParameterTypes = new Type[][](0)
+        MethodIsStatic = new bool[](0)
+        MethodIsAbstract = new bool[](0)
         ConstructorCount = 0
         Constructors = new ConstructorInfo[](0)
         FieldCount = 0
@@ -451,6 +465,10 @@ public class ColumnarCodePlan {
     }
 
     public func AddArgument(ordinal: int, typeIndex: int): int {
+        return AddArgument(ordinal, typeIndex, false)
+    }
+
+    public func AddArgument(ordinal: int, typeIndex: int, isAddress: bool): int {
         EnsureV2Building()
         if ordinal < 0 || ordinal > 32767 || typeIndex < 0 || typeIndex >= TypeCount {
             throw new ArgumentOutOfRangeException("ordinal")
@@ -459,6 +477,7 @@ public class ColumnarCodePlan {
         index := ArgumentCount
         ArgumentOrdinals[index] = ordinal
         ArgumentTypeIndices[index] = typeIndex
+        ArgumentIsAddress[index] = isAddress
         ArgumentCount = ArgumentCount + 1
         return index
     }
@@ -483,6 +502,52 @@ public class ColumnarCodePlan {
         EnsureMethodCapacity(MethodCount + 1)
         index := MethodCount
         Methods[index] = value
+        MethodUsesDeclaredSignature[index] = false
+        MethodCount = MethodCount + 1
+        return index
+    }
+
+    // Reflection.Emit MethodBuilder does not expose GetParameters until its owner has been
+    // baked. The planner already owns the exact selected signature, so carry that declaration
+    // alongside the handle instead of reflecting an unavailable parameter shape.
+    public func AddMethodWithSignature(
+        value: MethodInfo,
+        declaringType: Type,
+        parameterTypes: Type[],
+        returnType: Type,
+        isStatic: bool,
+        isAbstract: bool): int {
+        EnsureV2Building()
+        if value == null {
+            throw new ArgumentNullException("value")
+        }
+        if declaringType == null {
+            throw new ArgumentNullException("declaringType")
+        }
+        if parameterTypes == null {
+            throw new ArgumentNullException("parameterTypes")
+        }
+        if returnType == null {
+            throw new ArgumentNullException("returnType")
+        }
+        exactParameterTypes := new Type[](parameterTypes.Length)
+        parameterIndex := 0
+        while parameterIndex < parameterTypes.Length {
+            if parameterTypes[parameterIndex] == null {
+                throw new ArgumentNullException("parameterTypes")
+            }
+            exactParameterTypes[parameterIndex] = parameterTypes[parameterIndex]
+            parameterIndex += 1
+        }
+        EnsureMethodCapacity(MethodCount + 1)
+        index := MethodCount
+        Methods[index] = value
+        MethodUsesDeclaredSignature[index] = true
+        MethodDeclaringTypes[index] = declaringType
+        MethodReturnTypes[index] = returnType
+        MethodParameterTypes[index] = exactParameterTypes
+        MethodIsStatic[index] = isStatic
+        MethodIsAbstract[index] = isAbstract
         MethodCount = MethodCount + 1
         return index
     }
@@ -1265,12 +1330,26 @@ public class ColumnarCodePlan {
             || Int32Values.Length < Int32Count
             || ArgumentOrdinals == null
             || ArgumentTypeIndices == null
+            || ArgumentIsAddress == null
             || ArgumentOrdinals.Length < ArgumentCount
             || ArgumentTypeIndices.Length < ArgumentCount
+            || ArgumentIsAddress.Length < ArgumentCount
             || AmbientLocals == null
             || AmbientLocals.Length < AmbientLocalCount
             || Methods == null
             || Methods.Length < MethodCount
+            || MethodUsesDeclaredSignature == null
+            || MethodUsesDeclaredSignature.Length < MethodCount
+            || MethodDeclaringTypes == null
+            || MethodDeclaringTypes.Length < MethodCount
+            || MethodReturnTypes == null
+            || MethodReturnTypes.Length < MethodCount
+            || MethodParameterTypes == null
+            || MethodParameterTypes.Length < MethodCount
+            || MethodIsStatic == null
+            || MethodIsStatic.Length < MethodCount
+            || MethodIsAbstract == null
+            || MethodIsAbstract.Length < MethodCount
             || Constructors == null
             || Constructors.Length < ConstructorCount
             || Fields == null
@@ -1303,6 +1382,18 @@ public class ColumnarCodePlan {
         i = 0
         while i < MethodCount {
             if Methods[i] == null { return false }
+            if MethodUsesDeclaredSignature[i] {
+                if MethodDeclaringTypes[i] == null
+                    || MethodReturnTypes[i] == null
+                    || MethodParameterTypes[i] == null {
+                    return false
+                }
+                parameterIndex := 0
+                while parameterIndex < MethodParameterTypes[i].Length {
+                    if MethodParameterTypes[i][parameterIndex] == null { return false }
+                    parameterIndex += 1
+                }
+            }
             i += 1
         }
         i = 0
@@ -1620,12 +1711,14 @@ public class ColumnarCodePlan {
 
     func EnsureArgumentCapacity(minimum: int) {
         if ArgumentOrdinals == null || ArgumentOrdinals.Length < minimum
-            || ArgumentTypeIndices == null || ArgumentTypeIndices.Length < minimum {
+            || ArgumentTypeIndices == null || ArgumentTypeIndices.Length < minimum
+            || ArgumentIsAddress == null || ArgumentIsAddress.Length < minimum {
             capacity := NextCapacity(
                 ArgumentOrdinals == null ? 0 : ArgumentOrdinals.Length,
                 minimum)
             ArgumentOrdinals = GrowIntArray(ArgumentOrdinals, capacity)
             ArgumentTypeIndices = GrowIntArray(ArgumentTypeIndices, capacity)
+            ArgumentIsAddress = GrowBoolArray(ArgumentIsAddress, capacity)
         }
     }
 
@@ -1638,10 +1731,24 @@ public class ColumnarCodePlan {
     }
 
     func EnsureMethodCapacity(minimum: int) {
-        if Methods == null || Methods.Length < minimum {
-            Methods = GrowMethodArray(
-                Methods,
-                NextCapacity(Methods == null ? 0 : Methods.Length, minimum))
+        if Methods == null || Methods.Length < minimum
+            || MethodUsesDeclaredSignature == null
+            || MethodUsesDeclaredSignature.Length < minimum
+            || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < minimum
+            || MethodReturnTypes == null || MethodReturnTypes.Length < minimum
+            || MethodParameterTypes == null || MethodParameterTypes.Length < minimum
+            || MethodIsStatic == null || MethodIsStatic.Length < minimum
+            || MethodIsAbstract == null || MethodIsAbstract.Length < minimum {
+            capacity := NextCapacity(Methods == null ? 0 : Methods.Length, minimum)
+            Methods = GrowMethodArray(Methods, capacity)
+            MethodUsesDeclaredSignature = GrowBoolArray(
+                MethodUsesDeclaredSignature,
+                capacity)
+            MethodDeclaringTypes = GrowTypeArray(MethodDeclaringTypes, capacity)
+            MethodReturnTypes = GrowTypeArray(MethodReturnTypes, capacity)
+            MethodParameterTypes = GrowTypeArrayArray(MethodParameterTypes, capacity)
+            MethodIsStatic = GrowBoolArray(MethodIsStatic, capacity)
+            MethodIsAbstract = GrowBoolArray(MethodIsAbstract, capacity)
         }
     }
 
@@ -1817,6 +1924,19 @@ public class ColumnarCodePlan {
 
     static func GrowTypeArray(values: Type[], capacity: int): Type[] {
         result := new Type[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowTypeArrayArray(values: Type[][], capacity: int): Type[][] {
+        result := new Type[][](capacity)
         if values != null {
             count := values.Length < capacity ? values.Length : capacity
             i := 0

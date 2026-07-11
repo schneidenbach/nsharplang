@@ -514,7 +514,7 @@ public class ColumnarCodePlanExecutor {
 
         i = 0
         while i < plan.MethodCount {
-            ValidateMethod(plan.Methods[i], schemaName)
+            ValidateMethod(plan, i, schemaName)
             i += 1
         }
         i = 0
@@ -524,7 +524,7 @@ public class ColumnarCodePlanExecutor {
         }
         i = 0
         while i < plan.FieldCount {
-            ValidateField(plan.Fields[i], schemaName)
+            ValidateField(plan, i, schemaName)
             i += 1
         }
         i = 0
@@ -534,7 +534,8 @@ public class ColumnarCodePlanExecutor {
         }
     }
 
-    static func ValidateMethod(method: MethodInfo, schemaName: string) {
+    static func ValidateMethod(plan: ColumnarCodePlan, methodIndex: int, schemaName: string) {
+        method := plan.Methods[methodIndex]
         if method.get_IsGenericMethodDefinition() {
             throw new InvalidOperationException(
                 schemaName + " method handles cannot be generic method definitions.")
@@ -548,6 +549,32 @@ public class ColumnarCodePlanExecutor {
         if declaringType == null {
             throw new InvalidOperationException(
                 schemaName + " methods must have an exact declaring type.")
+        }
+        if plan.MethodUsesDeclaredSignature[methodIndex] {
+            declaredType := plan.MethodDeclaringTypes[methodIndex]
+            if declaringType != declaredType
+                || method.get_IsStatic() != plan.MethodIsStatic[methodIndex]
+                || method.get_IsAbstract() != plan.MethodIsAbstract[methodIndex] {
+                throw new InvalidOperationException(
+                    schemaName + " declared method identity does not match its handle.")
+            }
+            ValidateStorableType(declaredType, "method receiver", schemaName)
+            ValidateStorableType(
+                plan.MethodReturnTypes[methodIndex],
+                "method return",
+                schemaName)
+            declaredParameters := plan.MethodParameterTypes[methodIndex]
+            declaredIndex := 0
+            while declaredIndex < declaredParameters.Length {
+                ValidateStorableType(
+                    declaredParameters[declaredIndex],
+                    "method argument",
+                    schemaName)
+                declaredIndex += 1
+            }
+            ValidateDeclaredMethodSignatureIfAvailable(
+                plan, methodIndex, method, schemaName)
+            return
         }
         ValidateStorableType(declaringType, "method receiver", schemaName)
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
@@ -595,7 +622,62 @@ public class ColumnarCodePlanExecutor {
         }
     }
 
-    static func ValidateField(field: FieldInfo, schemaName: string) {
+    static func ValidateDeclaredMethodSignatureIfAvailable(
+        plan: ColumnarCodePlan,
+        methodIndex: int,
+        method: MethodInfo,
+        schemaName: string) {
+        // ReturnType is available on both an unbaked MethodBuilder and its exact
+        // TypeBuilder.GetMethod wrapper. Validate it before GetParameters reaches the
+        // documented unbaked reflection boundary, so that boundary can never hide a lie.
+        signatureMethod := GetMethodSignatureDefinition(method, schemaName)
+        genericArguments := method.GetGenericArguments()
+        actualReturn := ResolveMethodSignatureType(
+            signatureMethod.get_ReturnType(),
+            genericArguments,
+            schemaName)
+        if !ExactTypeShapeMatches(
+            actualReturn, plan.MethodReturnTypes[methodIndex]) {
+            throw new InvalidOperationException(
+                schemaName
+                    + " declared method return does not match its inspectable handle.")
+        }
+        try {
+            actualParameters := signatureMethod.GetParameters()
+            declaredParameters := plan.MethodParameterTypes[methodIndex]
+            if actualParameters.Length != declaredParameters.Length {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " declared method arity does not match its inspectable handle.")
+            }
+            i := 0
+            while i < actualParameters.Length {
+                actualParameter := ResolveMethodSignatureType(
+                    actualParameters[i].get_ParameterType(),
+                    genericArguments,
+                    schemaName)
+                if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
+                    throw new InvalidOperationException(
+                        schemaName
+                            + " declared method parameter does not match its inspectable handle.")
+                }
+                i += 1
+            }
+        } catch ex: NotSupportedException {
+            // An unbaked MethodBuilder has exact identity but exposes no reflection signature.
+            // Its planner-owned declaration is the only available signature source.
+            return
+        } catch ex: NotImplementedException {
+            // Some Reflection.Emit implementations report the same unbaked limitation here.
+            return
+        }
+    }
+
+    static func ValidateField(
+        plan: ColumnarCodePlan,
+        fieldIndex: int,
+        schemaName: string) {
+        field := plan.Fields[fieldIndex]
         if field.get_IsLiteral() {
             throw new InvalidOperationException(
                 schemaName + " field handles cannot name literal fields without storage.")
@@ -1071,7 +1153,7 @@ public class ColumnarCodePlanExecutor {
             argumentType := plan.Types[plan.ArgumentTypeIndices[operandIndex]]
             state.Push(
                 argumentType,
-                false,
+                plan.ArgumentIsAddress[operandIndex],
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
@@ -1080,7 +1162,7 @@ public class ColumnarCodePlanExecutor {
             ApplyLocal(plan, operationIndex, opCodeValue, localType, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Call()
             || opCodeValue == ColumnarCodePlanContract.Callvirt() {
-            ApplyMethodCall(plan.Methods[operandIndex], opCodeValue, state, schemaName)
+            ApplyMethodCall(plan, operandIndex, opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {
             ApplyConstructor(plan.Constructors[operandIndex], state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldfld() {
@@ -1264,12 +1346,19 @@ public class ColumnarCodePlanExecutor {
     }
 
     static func ApplyMethodCall(
-        method: MethodInfo,
+        plan: ColumnarCodePlan,
+        methodIndex: int,
         opCodeValue: short,
         state: ColumnarCodePlanStackState,
         schemaName: string) {
-        isStatic := method.get_IsStatic()
-        declaringType := method.get_DeclaringType()
+        method := plan.Methods[methodIndex]
+        usesDeclaredSignature := plan.MethodUsesDeclaredSignature[methodIndex]
+        isStatic := usesDeclaredSignature
+            ? plan.MethodIsStatic[methodIndex]
+            : method.get_IsStatic()
+        declaringType := usesDeclaredSignature
+            ? plan.MethodDeclaringTypes[methodIndex]
+            : method.get_DeclaringType()
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " call method has no declaring type.")
         }
@@ -1278,9 +1367,49 @@ public class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(
                 schemaName + " callvirt requires a reference-type instance method.")
         }
-        if opCodeValue == ColumnarCodePlanContract.Call() && method.get_IsAbstract() {
+        isAbstract := usesDeclaredSignature
+            ? plan.MethodIsAbstract[methodIndex]
+            : method.get_IsAbstract()
+        if opCodeValue == ColumnarCodePlanContract.Call() && isAbstract {
             throw new InvalidOperationException(
                 schemaName + " call cannot target an abstract method.")
+        }
+
+        if usesDeclaredSignature {
+            parameters := plan.MethodParameterTypes[methodIndex]
+            parameterIndex := parameters.Length - 1
+            while parameterIndex >= 0 {
+                value := state.Pop()
+                parameterType := parameters[parameterIndex]
+                if value.IsAddress
+                    || !IsStackCompatible(
+                        parameterType,
+                        value.ValueType,
+                        value.ValueKind,
+                        value.LiteralKnown,
+                        value.LiteralValue) {
+                    throw new InvalidOperationException(
+                        schemaName + " call argument does not match its exact parameter type.")
+                }
+                parameterIndex -= 1
+            }
+
+            if !isStatic {
+                receiver := state.Pop()
+                ValidateReceiver(
+                    declaringType,
+                    receiver.ValueType,
+                    receiver.IsAddress,
+                    receiver.ValueKind,
+                    schemaName)
+            }
+            state.Push(
+                plan.MethodReturnTypes[methodIndex],
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+            return
         }
 
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
@@ -1386,8 +1515,12 @@ public class ColumnarCodePlanExecutor {
             }
             return definition.MakeGenericType(resolvedArguments)
         }
-        compoundElement := signatureType.GetElementType()
-        if compoundElement != null {
+        if signatureType.get_HasElementType() {
+            compoundElement := signatureType.GetElementType()
+            if compoundElement == null {
+                throw new InvalidOperationException(
+                    schemaName + " compound method signature has no element type.")
+            }
             resolvedElement := ResolveMethodSignatureType(
                 compoundElement,
                 methodArguments,

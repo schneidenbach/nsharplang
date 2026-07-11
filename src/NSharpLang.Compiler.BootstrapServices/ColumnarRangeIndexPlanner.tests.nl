@@ -133,6 +133,14 @@ func ColumnarRangePlannerAddParameter(
     bindings.ParameterTypes[name] = parameterType
 }
 
+func ColumnarRangePlannerEmptyLiftedFacts(): Dictionary<string, (Box: System.Reflection.Emit.LocalBuilder, ValueType: Type)> {
+    return new Dictionary<string, (Box: System.Reflection.Emit.LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
+}
+
+func ColumnarRangePlannerEmptyBoxedFacts(): Dictionary<string, (BoxField: System.Reflection.FieldInfo, ValueType: Type)> {
+    return new Dictionary<string, (BoxField: System.Reflection.FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
+}
+
 func ColumnarRangePlannerAddNumericEnum(
     bindings: ColumnarFragmentBindings,
     name: string) {
@@ -1109,11 +1117,12 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
     parameterTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
     locals := new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal)
     enums := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
-    lifted := new HashSet<string>(StringComparer.Ordinal)
+    lifted := ColumnarRangePlannerEmptyLiftedFacts()
     enclosing := new HashSet<string>(StringComparer.Ordinal)
     siblings := new HashSet<string>(StringComparer.Ordinal)
     visibleLocals := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
+    identifierOwned := false
     resultType := typeof(int)
 
     assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
@@ -1126,11 +1135,14 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
         enums,
         lifted,
         null,
+        null,
         enclosing,
         siblings,
         visibleLocals,
         plan,
+        out identifierOwned,
         out resultType)
+    assert !identifierOwned
     assert resultType == typeof(Index)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
     ColumnarCodePlanExecutor.Validate(plan)
@@ -1139,6 +1151,7 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
 test "range planner raw-facts facades gate ordinary int indexing before facts handles or IL" {
     tree := ColumnarRangePlannerOrdinaryLiteralAccess()
     typePlan := new ColumnarCodePlan()
+    typeIdentifierOwned := false
     typeResult := typeof(object)
     assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
         tree.Nodes,
@@ -1153,11 +1166,15 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
         null,
         null,
         null,
+        null,
         typePlan,
+        out typeIdentifierOwned,
         out typeResult)
+    assert !typeIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(typePlan)
 
     emitPlan := new ColumnarCodePlan()
+    emitIdentifierOwned := false
     emitResult := typeof(object)
     assert !ColumnarRangeIndexPlanner.TryEmitFromFacts(
         tree.Nodes,
@@ -1172,31 +1189,40 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
         null,
         null,
         null,
+        null,
         emitPlan,
         null,
+        out emitIdentifierOwned,
         out emitResult)
+    assert !emitIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(emitPlan)
 
     identifierTree := ColumnarRangePlannerDirectAccess()
+    identifierOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
     identifierTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+    identifierOrdinals["selector"] = 1
     identifierTypes["selector"] = typeof(int)
     identifierPlan := new ColumnarCodePlan()
+    identifierOwned := false
     identifierResult := typeof(object)
     assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
         identifierTree.Nodes,
         identifierTree.Source,
         identifierTree.Root,
-        null,
+        identifierOrdinals,
         identifierTypes,
+        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        ColumnarRangePlannerEmptyLiftedFacts(),
         null,
         null,
-        null,
-        null,
-        null,
-        null,
-        null,
+        new HashSet<string>(StringComparer.Ordinal),
+        new HashSet<string>(StringComparer.Ordinal),
+        new HashSet<string>(StringComparer.Ordinal),
         identifierPlan,
+        out identifierOwned,
         out identifierResult)
+    assert !identifierOwned
     ColumnarRangePlannerAssertEmptyRollback(identifierPlan)
 }
 
@@ -1210,6 +1236,7 @@ test "range planner raw-facts facade admits an ordinary child beneath an owned r
     parameterTypes["counts"] = typeof(int[])
     emptyNames := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
+    identifierOwned := false
     resultType := typeof(object)
 
     assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
@@ -1220,13 +1247,16 @@ test "range planner raw-facts facade admits an ordinary child beneath an owned r
         parameterTypes,
         new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
         new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        emptyNames,
+        ColumnarRangePlannerEmptyLiftedFacts(),
+        null,
         null,
         emptyNames,
         emptyNames,
         emptyNames,
         plan,
+        out identifierOwned,
         out resultType)
+    assert !identifierOwned
     assert resultType == typeof(int)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[3] == ColumnarCodePlanContract.LdelemI4()
@@ -1243,6 +1273,7 @@ test "range planner raw-facts selector gate recognizes direct Range parameters" 
     parameterTypes["selector"] = typeof(Range)
     emptyNames := new HashSet<string>(StringComparer.Ordinal)
     plan := new ColumnarCodePlan()
+    identifierOwned := false
     resultType := typeof(int)
 
     assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
@@ -1253,13 +1284,16 @@ test "range planner raw-facts selector gate recognizes direct Range parameters" 
         parameterTypes,
         new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal),
         new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-        emptyNames,
+        ColumnarRangePlannerEmptyLiftedFacts(),
+        null,
         null,
         emptyNames,
         emptyNames,
         emptyNames,
         plan,
+        out identifierOwned,
         out resultType)
+    assert !identifierOwned
     assert resultType == typeof(string)
     ColumnarCodePlanExecutor.Validate(plan)
 }

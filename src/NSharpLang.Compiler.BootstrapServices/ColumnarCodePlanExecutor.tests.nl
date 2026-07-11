@@ -220,6 +220,35 @@ func ExecutorRunV3ScalarPlan(plan: ColumnarCodePlan, resultType: Type): string {
     return result.ToString() ?? ""
 }
 
+func ExecutorRunRecursivePlan(
+    plan: ColumnarCodePlan,
+    resultType: Type,
+    parameterTypes: Type[],
+    arguments: object[]): string {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    constructorInfo := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if constructorInfo == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    constructorArguments := new object[](3)
+    ExecutorSetObject(constructorArguments, 0, "NSharpRecursiveCodePlan")
+    ExecutorSetObject(constructorArguments, 1, resultType)
+    ExecutorSetObject(constructorArguments, 2, parameterTypes)
+    dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
+    il := dynamicMethod.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    target: object? = null
+    result := dynamicMethod.Invoke(target, arguments)
+    if result == null {
+        throw new InvalidOperationException("Recursive DynamicMethod returned null unexpectedly.")
+    }
+    return result.ToString() ?? ""
+}
+
 test "schema v2 executor accepts exact literal fragment categories without erasing loaded types" {
     intPlan := ExecutorConstantPlan(typeof(int))
     boolPlan := ExecutorConstantPlan(typeof(bool))
@@ -385,6 +414,143 @@ test "schema v2 executor accepts exact static reference and value receiver calls
     valueCall.CompleteFragment(valueRoot, typeof(int))
     valueCall.CompleteV2(typeof(int))
     ColumnarCodePlanExecutor.Validate(valueCall)
+}
+
+test "schema v2 executor executes an exact declared method signature" {
+    noTypes := new Type[](0)
+    stringLength := ExecutorRequiredMethod(typeof(string), "get_Length", noTypes)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 10070, 0)
+    stringType := plan.AddType(typeof(string))
+    argument := plan.AddArgument(0, stringType)
+    methodIndex := plan.AddMethodWithSignature(
+        stringLength,
+        typeof(string),
+        noTypes,
+        typeof(int),
+        false,
+        false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV2(typeof(int))
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, "declared")
+    assert ExecutorRunRecursivePlan(plan, typeof(int), parameterTypes, arguments) == "8"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v2 argument address facts admit exact value receivers" {
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    indexMethod := ExecutorRequiredMethod(typeof(Index), "GetOffset", oneInt)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    root := plan.BeginFragment(-1, 10071, 0)
+    indexType := plan.AddType(typeof(Index))
+    argument := plan.AddArgument(0, indexType, true)
+    methodIndex := plan.AddMethodWithSignature(
+        indexMethod,
+        typeof(Index),
+        oneInt,
+        typeof(int),
+        false,
+        false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_8())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV2(typeof(int))
+    ColumnarCodePlanExecutor.Validate(plan)
+
+    assert plan.ArgumentIsAddress[0]
+
+    constructorTypes := new Type[](2)
+    constructorTypes[0] = typeof(int)
+    constructorTypes[1] = typeof(bool)
+    indexConstructor := ExecutorRequiredConstructor(typeof(Index), constructorTypes)
+    constructorArguments := new object[](2)
+    ExecutorSetObject(constructorArguments, 0, 2)
+    ExecutorSetObject(constructorArguments, 1, false)
+    indexValue := indexConstructor.Invoke(constructorArguments)
+    if indexValue == null {
+        throw new InvalidOperationException("Required Index value was not constructed.")
+    }
+    byRefValue := Type.GetType("System.Index&")
+    if byRefValue == null {
+        throw new InvalidOperationException("Required Index managed-address type was not created.")
+    }
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefValue
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, indexValue)
+    assert ExecutorRunRecursivePlan(plan, typeof(int), parameterTypes, arguments) == "2"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v2 executor rejects corrupt declared method facts" {
+    noTypes := new Type[](0)
+    stringLength := ExecutorRequiredMethod(typeof(string), "get_Length", noTypes)
+
+    wrongIdentity := new ColumnarCodePlan()
+    wrongIdentity.PrepareV2()
+    identityRoot := wrongIdentity.BeginFragment(-1, 10072, 0)
+    stringType := wrongIdentity.AddType(typeof(string))
+    argument := wrongIdentity.AddArgument(0, stringType)
+    getter := wrongIdentity.AddMethodWithSignature(
+        stringLength,
+        typeof(string),
+        noTypes,
+        typeof(int),
+        false,
+        false)
+    wrongIdentity.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    wrongIdentity.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), getter)
+    wrongIdentity.CompleteFragment(identityRoot, typeof(int))
+    wrongIdentity.CompleteV2(typeof(int))
+    wrongIdentity.MethodIsStatic[0] = true
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongIdentity)
+    }
+    wrongIdentity.MethodIsStatic[0] = false
+    wrongIdentity.MethodReturnTypes[0] = typeof(string)
+    wrongIdentity.FragmentResultTypes[0] = typeof(string)
+    wrongIdentity.ResultType = typeof(string)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongIdentity)
+    }
+
+    missingArgument := new ColumnarCodePlan()
+    missingArgument.PrepareV2()
+    argumentRoot := missingArgument.BeginFragment(-1, 10073, 0)
+    missingStringType := missingArgument.AddType(typeof(string))
+    missingString := missingArgument.AddArgument(0, missingStringType)
+    declaredParameterTypes := new Type[](1)
+    declaredParameterTypes[0] = typeof(int)
+    missingGetter := missingArgument.AddMethodWithSignature(
+        stringLength,
+        typeof(string),
+        declaredParameterTypes,
+        typeof(int),
+        false,
+        false)
+    missingArgument.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), missingString)
+    missingArgument.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_0())
+    missingArgument.AppendMethodInstruction(
+        ColumnarCodePlanContract.Callvirt(), missingGetter)
+    missingArgument.CompleteFragment(argumentRoot, typeof(int))
+    missingArgument.CompleteV2(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(missingArgument)
+    }
 }
 
 test "schema v2 executor accepts exact newobj local and field semantics" {

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import System.Reflection.Emit
 
 // Callback-free owner for System.Index/System.Range construction and Index/Range reads over
@@ -18,17 +19,20 @@ public class ColumnarRangeIndexPlanner {
         parameterTypes: Dictionary<string, Type>,
         locals: Dictionary<string, LocalBuilder>,
         enums: Dictionary<string, ColumnarEnumDef>,
-        liftedNames: IEnumerable<string>,
-        boxedNames: IEnumerable<string>?,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?,
+        currentInstance: ColumnarStructDef?,
         enclosingNames: IEnumerable<string>,
         siblingNames: IEnumerable<string>,
         visibleLocalFunctionNames: IEnumerable<string>,
         plan: ColumnarCodePlan,
         il: ILGenerator,
+        out boundIdentifierOwned: bool,
         out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
+        boundIdentifierOwned = false
         resultType = typeof(int)
-        if !FacadeRootMayBeOwned(nodes, source, node, parameterTypes, locals) {
+        if !FacadeRootMayNeedFacts(nodes, source, node) {
             plan.PrepareV3()
             return false
         }
@@ -38,14 +42,25 @@ public class ColumnarRangeIndexPlanner {
             parameterTypes,
             locals,
             enums,
-            liftedNames,
-            boxedNames,
+            liftedLocals,
+            boxedCaptures,
+            currentInstance,
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
+            boundIdentifierOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
+                nodes, source, node, bindings)
+            return ColumnarBoundIdentifierPlanner.TryEmit(
+                nodes, source, node, bindings, plan, il, out resultType)
+        }
         if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
             return ColumnarExternalStaticMemberPlanner.TryEmit(
                 nodes, source, node, bindings, plan, il, out resultType)
+        }
+        if !FacadeRootMayBeOwned(nodes, source, node, bindings) {
+            plan.PrepareV3()
+            return false
         }
         handles := ColumnarRangeIndexHandles.Resolve()
         return TryEmit(nodes, source, node, bindings, handles, plan, il, out resultType)
@@ -59,16 +74,19 @@ public class ColumnarRangeIndexPlanner {
         parameterTypes: Dictionary<string, Type>,
         locals: Dictionary<string, LocalBuilder>,
         enums: Dictionary<string, ColumnarEnumDef>,
-        liftedNames: IEnumerable<string>,
-        boxedNames: IEnumerable<string>?,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?,
+        currentInstance: ColumnarStructDef?,
         enclosingNames: IEnumerable<string>,
         siblingNames: IEnumerable<string>,
         visibleLocalFunctionNames: IEnumerable<string>,
         plan: ColumnarCodePlan,
+        out boundIdentifierOwned: bool,
         out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
+        boundIdentifierOwned = false
         resultType = typeof(int)
-        if !FacadeRootMayBeOwned(nodes, source, node, parameterTypes, locals) {
+        if !FacadeRootMayNeedFacts(nodes, source, node) {
             plan.PrepareV3()
             return false
         }
@@ -78,14 +96,25 @@ public class ColumnarRangeIndexPlanner {
             parameterTypes,
             locals,
             enums,
-            liftedNames,
-            boxedNames,
+            liftedLocals,
+            boxedCaptures,
+            currentInstance,
             enclosingNames,
             siblingNames,
             visibleLocalFunctionNames)
+        if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
+            boundIdentifierOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(
+                nodes, source, node, bindings)
+            return ColumnarBoundIdentifierPlanner.TryGetType(
+                nodes, source, node, bindings, plan, out resultType)
+        }
         if ColumnarExternalStaticMemberPlanner.MayPlanRoot(nodes, node) {
             return ColumnarExternalStaticMemberPlanner.TryGetType(
                 nodes, source, node, bindings, plan, out resultType)
+        }
+        if !FacadeRootMayBeOwned(nodes, source, node, bindings) {
+            plan.PrepareV3()
+            return false
         }
         handles := ColumnarRangeIndexHandles.Resolve()
         return TryGetType(nodes, source, node, bindings, handles, plan, out resultType)
@@ -150,15 +179,20 @@ public class ColumnarRangeIndexPlanner {
         }
 
         checkpoint := plan.CreateCheckpoint()
-        resultType := typeof(int)
-        if !TryPlanValue(nodes, source, candidate, bindings, handles, plan, -1, 0, out resultType)
-            || !RootResultMatches(nodes, source, candidate, resultType) {
-            plan.Rollback(checkpoint)
-            return plan.Status
-        }
+        try {
+            resultType := typeof(int)
+            if !TryPlanValue(nodes, source, candidate, bindings, handles, plan, -1, 0, out resultType)
+                || !RootResultMatches(nodes, source, candidate, resultType) {
+                plan.Rollback(checkpoint)
+                return plan.Status
+            }
 
-        plan.CompleteV3(resultType)
-        return plan.Status
+            plan.CompleteV3(resultType)
+            return plan.Status
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
     }
 
     static func ValidateFacadeRootInputs(
@@ -174,12 +208,10 @@ public class ColumnarRangeIndexPlanner {
         }
     }
 
-    static func FacadeRootMayBeOwned(
+    static func FacadeRootMayNeedFacts(
         nodes: ColumnarNodeTable,
         source: string,
-        node: int,
-        parameterTypes: Dictionary<string, Type>,
-        locals: Dictionary<string, LocalBuilder>): bool {
+        node: int): bool {
         node = UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
@@ -194,25 +226,20 @@ public class ColumnarRangeIndexPlanner {
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            return true
+        }
         if kind != ColumnarExpressionNodeKind.IndexAccessExpression()
             || nodes.ChildCount(node) != 2 {
             return false
         }
-        return FacadeSelectorMayProduceIndexOrRange(
-            nodes,
-            source,
-            nodes.Child(node, 1),
-            parameterTypes,
-            locals,
-            0)
+        return FacadeSelectorMayNeedFacts(nodes, source, nodes.Child(node, 1), 0)
     }
 
-    static func FacadeSelectorMayProduceIndexOrRange(
+    static func FacadeSelectorMayNeedFacts(
         nodes: ColumnarNodeTable,
         source: string,
         node: int,
-        parameterTypes: Dictionary<string, Type>,
-        locals: Dictionary<string, LocalBuilder>,
         depth: int): bool {
         if depth > 200 {
             return false
@@ -229,32 +256,74 @@ public class ColumnarRangeIndexPlanner {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            if nodes.ChildCount(node) != 0 {
-                return false
-            }
-            name := nodes.Text(source, node)
-            if locals != null && locals.ContainsKey(name) {
-                local := locals[name]
-                if local == null {
-                    return true
-                }
-                localType := local.get_LocalType()
-                return localType == typeof(Index) || localType == typeof(Range)
-            }
-            if parameterTypes != null && parameterTypes.ContainsKey(name) {
-                parameterType := parameterTypes[name]
-                return parameterType == null
-                    || parameterType == typeof(Index)
-                    || parameterType == typeof(Range)
-            }
+            return nodes.ChildCount(node) == 0
+        }
+        if kind == ColumnarExpressionNodeKind.TernaryExpression()
+            && nodes.ChildCount(node) == 3 {
+            return FacadeSelectorMayNeedFacts(
+                    nodes, source, nodes.Child(node, 1), depth + 1)
+                && FacadeSelectorMayNeedFacts(
+                    nodes, source, nodes.Child(node, 2), depth + 1)
+        }
+        return false
+    }
+
+    static func FacadeRootMayBeOwned(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bindings: ColumnarFragmentBindings): bool {
+        node = UnwrapParentheses(nodes, node)
+        if node < 0 || node >= nodes.Kinds.Length {
             return false
+        }
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+            return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
+        }
+        if kind != ColumnarExpressionNodeKind.IndexAccessExpression()
+            || nodes.ChildCount(node) != 2 {
+            return false
+        }
+        return FacadeSelectorMayProduceIndexOrRange(
+            nodes, source, nodes.Child(node, 1), bindings, 0)
+    }
+
+    static func FacadeSelectorMayProduceIndexOrRange(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bindings: ColumnarFragmentBindings,
+        depth: int): bool {
+        if depth > 200 {
+            return false
+        }
+        node = UnwrapParentheses(nodes, node)
+        if node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+            return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
+        }
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            resultType := typeof(int)
+            return ColumnarBoundIdentifierPlanner.TryGetBoundType(
+                    nodes, source, node, bindings, out resultType)
+                && (resultType == typeof(Index) || resultType == typeof(Range))
         }
         if kind == ColumnarExpressionNodeKind.TernaryExpression()
             && nodes.ChildCount(node) == 3 {
             return FacadeSelectorMayProduceIndexOrRange(
-                    nodes, source, nodes.Child(node, 1), parameterTypes, locals, depth + 1)
+                    nodes, source, nodes.Child(node, 1), bindings, depth + 1)
                 && FacadeSelectorMayProduceIndexOrRange(
-                    nodes, source, nodes.Child(node, 2), parameterTypes, locals, depth + 1)
+                    nodes, source, nodes.Child(node, 2), bindings, depth + 1)
         }
         return false
     }
@@ -322,7 +391,8 @@ public class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            planned = TryPlanIdentifier(nodes, source, node, bindings, plan, out resultType)
+            planned = ColumnarBoundIdentifierPlanner.TryAppend(
+                nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)
             if !planned {
@@ -385,67 +455,6 @@ public class ColumnarRangeIndexPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
             return true
         }
-        return false
-    }
-
-    static func TryPlanIdentifier(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
-        resultType = typeof(int)
-        if nodes.ChildCount(node) != 0 {
-            return false
-        }
-        name := nodes.Text(source, node)
-        if name.Length == 0
-            || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node)
-            || bindings.IsBlocked(name) {
-            return false
-        }
-
-        hasLocal := bindings.Locals.ContainsKey(name)
-        hasOrdinal := bindings.ParameterOrdinals.ContainsKey(name)
-        hasParameterType := bindings.ParameterTypes.ContainsKey(name)
-        if hasLocal && (hasOrdinal || hasParameterType) {
-            throw new InvalidOperationException(
-                "Range/index binding facts contain overlapping local and parameter names.")
-        }
-
-        if hasLocal {
-            local := bindings.Locals[name]
-            if local == null {
-                throw new InvalidOperationException("Range/index local binding cannot be null.")
-            }
-            localType := local.get_LocalType()
-            if localType == null || localType.get_IsByRef() {
-                return false
-            }
-            localIndex := plan.AddAmbientLocal(local)
-            plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
-            resultType = localType
-            return true
-        }
-
-        if hasOrdinal != hasParameterType {
-            throw new InvalidOperationException(
-                "Range/index parameter ordinals and types must contain identical names.")
-        }
-        if hasOrdinal {
-            ordinal := bindings.ParameterOrdinals[name]
-            parameterType := bindings.ParameterTypes[name]
-            if parameterType == null || parameterType.get_IsByRef() {
-                return false
-            }
-            typeIndex := plan.AddType(parameterType)
-            argumentIndex := plan.AddArgument(ordinal, typeIndex)
-            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            resultType = parameterType
-            return true
-        }
-
         return false
     }
 
