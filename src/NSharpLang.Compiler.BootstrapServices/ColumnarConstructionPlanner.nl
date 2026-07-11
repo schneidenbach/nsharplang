@@ -262,8 +262,20 @@ class ColumnarConstructionPlanner {
         canonical := ""
         targetType := typeof(object)
         if !TryBuildTypeCanonical(
-                nodes, source, typeNode, 0, out canonical)
-            || !TryResolveExactType(
+                nodes, source, typeNode, 0, out canonical) {
+            return false
+        }
+
+        // A union CASE spelling is not itself a declared type, so exact type resolution correctly
+        // rejects it. Detect its semantically selected union owner first and leave the whole subtree
+        // with the retained union-case emitter.
+        if IsRetainedSourceUnionCase(
+                nodes, canonical, bindings) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+        if !TryResolveExactType(
                 nodes, canonical, bindings, out targetType) {
             return false
         }
@@ -547,7 +559,7 @@ class ColumnarConstructionPlanner {
 
         selected: ColumnarConstructorDef? = null
         if !TrySelectSourceConstructor(
-                definition, argumentTypes, argumentFacts, bindings,
+                nodes, definition, argumentTypes, argumentFacts, bindings,
                 out selected)
             || selected == null {
             return false
@@ -564,6 +576,7 @@ class ColumnarConstructionPlanner {
         defaultIndex := argumentCount
         while defaultIndex < selected.ParamTypes.Length {
             if !TryAppendConstructorDefault(
+                    nodes,
                     plan,
                     selected.ParamTypes[defaultIndex],
                     selected.DefaultKinds[defaultIndex],
@@ -666,6 +679,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func TrySelectSourceConstructor(
+        nodes: ColumnarNodeTable,
         definition: ColumnarStructDef,
         argumentTypes: Type[],
         argumentFacts: ColumnarDirectCallArgumentFacts,
@@ -682,6 +696,7 @@ class ColumnarConstructionPlanner {
             defaultIndex := argumentTypes.Length
             while defaultIndex < candidate.ParamTypes.Length {
                 if !CanUseConstructorDefault(
+                        nodes,
                         candidate.ParamTypes[defaultIndex],
                         candidate.DefaultKinds[defaultIndex],
                         candidate.DefaultTexts[defaultIndex],
@@ -932,6 +947,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func CanUseConstructorDefault(
+        nodes: ColumnarNodeTable,
         expectedType: Type,
         defaultKind: int,
         defaultText: string,
@@ -957,19 +973,20 @@ class ColumnarConstructionPlanner {
         stringValue := ""
         intValue := 0
         return TryResolveStringEnumDefault(
-                expectedType, defaultText, bindings, out stringValue)
+                nodes, expectedType, defaultText, bindings, out stringValue)
             || TryResolveNumericEnumDefault(
-                expectedType, defaultText, bindings, out intValue)
+                nodes, expectedType, defaultText, bindings, out intValue)
     }
 
     static func TryAppendConstructorDefault(
+        nodes: ColumnarNodeTable,
         plan: ColumnarCodePlan,
         expectedType: Type,
         defaultKind: int,
         defaultText: string,
         bindings: ColumnarFragmentBindings): bool {
         if !CanUseConstructorDefault(
-                expectedType, defaultKind, defaultText, bindings) {
+                nodes, expectedType, defaultKind, defaultText, bindings) {
             return false
         }
         if defaultKind == 46 {
@@ -1007,7 +1024,7 @@ class ColumnarConstructionPlanner {
 
         stringValue := ""
         if TryResolveStringEnumDefault(
-                expectedType, defaultText, bindings, out stringValue) {
+                nodes, expectedType, defaultText, bindings, out stringValue) {
             valueIndex := plan.AddString(stringValue)
             plan.AppendStringInstruction(
                 ColumnarCodePlanContract.Ldstr(), valueIndex)
@@ -1015,7 +1032,7 @@ class ColumnarConstructionPlanner {
         }
         intValue := 0
         if TryResolveNumericEnumDefault(
-                expectedType, defaultText, bindings, out intValue) {
+                nodes, expectedType, defaultText, bindings, out intValue) {
             valueIndex := plan.AddInt32(intValue)
             plan.AppendInt32Instruction(
                 ColumnarCodePlanContract.LdcI4(), valueIndex)
@@ -1025,6 +1042,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func TryResolveStringEnumDefault(
+        nodes: ColumnarNodeTable,
         expectedType: Type,
         defaultText: string,
         bindings: ColumnarFragmentBindings,
@@ -1033,8 +1051,22 @@ class ColumnarConstructionPlanner {
         ownerName := ""
         memberName := ""
         if !TrySplitDefaultMember(
-                defaultText, out ownerName, out memberName)
-            || !bindings.Enums.ContainsKey(ownerName) {
+                defaultText, out ownerName, out memberName) {
+            return false
+        }
+
+        ownerType := typeof(object)
+        resolvedByScope := false
+        if !TryResolveConstructorDefaultOwner(
+                nodes, expectedType, ownerName, bindings,
+                out ownerType, out resolvedByScope) {
+            return false
+        }
+        if resolvedByScope {
+            return TryResolveBoundStringEnumMember(
+                nodes, ownerName, ownerType, memberName, bindings, out value)
+        }
+        if !bindings.Enums.ContainsKey(ownerName) {
             return false
         }
         definition := bindings.Enums[ownerName]
@@ -1050,6 +1082,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func TryResolveNumericEnumDefault(
+        nodes: ColumnarNodeTable,
         expectedType: Type,
         defaultText: string,
         bindings: ColumnarFragmentBindings,
@@ -1061,6 +1094,24 @@ class ColumnarConstructionPlanner {
                 defaultText, out ownerName, out memberName) {
             return false
         }
+
+        ownerType := typeof(object)
+        resolvedByScope := false
+        if !TryResolveConstructorDefaultOwner(
+                nodes, expectedType, ownerName, bindings,
+                out ownerType, out resolvedByScope) {
+            return false
+        }
+        if resolvedByScope {
+            if TryResolveBoundNumericEnumMember(
+                    nodes, ownerName, ownerType, memberName,
+                    bindings, out value) {
+                return true
+            }
+            return TryResolveRuntimeEnumMember(
+                ownerType, memberName, out value)
+        }
+
         if bindings.Enums.ContainsKey(ownerName) {
             definition := bindings.Enums[ownerName]
             if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
@@ -1071,17 +1122,146 @@ class ColumnarConstructionPlanner {
             }
         }
 
-        if expectedType is TypeBuilder
-            || expectedType.GetType().FullName
+        if expectedType.Name != ownerName
+            && expectedType.FullName != ownerName {
+            return false
+        }
+        return TryResolveRuntimeEnumMember(
+            expectedType, memberName, out value)
+    }
+
+    static func TryResolveConstructorDefaultOwner(
+        nodes: ColumnarNodeTable,
+        expectedType: Type,
+        ownerName: string,
+        bindings: ColumnarFragmentBindings,
+        out ownerType: Type,
+        out resolvedByScope: bool): bool {
+        ownerType = expectedType
+        resolvedByScope = false
+        scope := nodes.BindingScope
+        if scope == null {
+            return true
+        }
+
+        claimed := false
+        resolvedType := typeof(object)
+        if scope.TryResolveExactExplicitType(
+                ownerName, bindings, out resolvedType, out claimed) {
+            resolvedByScope = true
+            ownerType = resolvedType
+            return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                resolvedType, expectedType)
+        }
+        if claimed {
+            resolvedByScope = true
+            return false
+        }
+        return true
+    }
+
+    static func TryResolveBoundStringEnumMember(
+        nodes: ColumnarNodeTable,
+        ownerName: string,
+        ownerType: Type,
+        memberName: string,
+        bindings: ColumnarFragmentBindings,
+        out value: string): bool {
+        value = ""
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            constants := definition.StringConstants
+            if constants == null
+                || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                    definition.EnumType, ownerType)
+                || !ExactScopeSelectsEnumDefinition(
+                    nodes, ownerName, definition, bindings)
+                || !constants.ContainsKey(memberName) {
+                continue
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null || selected.StringConstants == null {
+            return false
+        }
+        value = selected.StringConstants[memberName]
+        return true
+    }
+
+    static func TryResolveBoundNumericEnumMember(
+        nodes: ColumnarNodeTable,
+        ownerName: string,
+        ownerType: Type,
+        memberName: string,
+        bindings: ColumnarFragmentBindings,
+        out value: int): bool {
+        value = 0
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                    definition.EnumType, ownerType)
+                || !ExactScopeSelectsEnumDefinition(
+                    nodes, ownerName, definition, bindings)
+                || !definition.Constants.ContainsKey(memberName) {
+                continue
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null {
+            return false
+        }
+        value = selected.Constants[memberName]
+        return true
+    }
+
+    static func ExactScopeSelectsEnumDefinition(
+        nodes: ColumnarNodeTable,
+        ownerName: string,
+        definition: ColumnarEnumDef,
+        bindings: ColumnarFragmentBindings): bool {
+        scope := nodes.BindingScope
+        if scope == null {
+            return true
+        }
+        if definition.DeclaredTypeName == null
+            || definition.DeclaredTypeName.Length == 0 {
+            return false
+        }
+        candidateBindings :=
+            bindings.CreateSingleEnumTypeResolutionBindings(definition)
+        candidateType := typeof(object)
+        claimed := false
+        return scope.TryResolveExactExplicitType(
+                ownerName,
+                candidateBindings,
+                out candidateType,
+                out claimed)
+            && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                candidateType, definition.EnumType)
+    }
+
+    static func TryResolveRuntimeEnumMember(
+        enumType: Type,
+        memberName: string,
+        out value: int): bool {
+        value = 0
+        if enumType is TypeBuilder
+            || enumType.GetType().FullName
                 == "System.Reflection.Emit.EnumBuilder"
-            || !expectedType.get_IsEnum()
-            || (expectedType.Name != ownerName
-                && expectedType.FullName != ownerName)
-            || !Enum.IsDefined(expectedType, memberName) {
+            || !enumType.get_IsEnum()
+            || !Enum.IsDefined(enumType, memberName) {
             return false
         }
         value = Convert.ToInt32(
-            Enum.Parse(expectedType, memberName),
+            Enum.Parse(enumType, memberName),
             CultureInfo.InvariantCulture)
         return true
     }
@@ -1163,6 +1343,22 @@ class ColumnarConstructionPlanner {
         return scope != null
             && scope.TryResolveExactExplicitType(
                 canonical, bindings, out resultType)
+    }
+
+    static func IsRetainedSourceUnionCase(
+        nodes: ColumnarNodeTable,
+        canonical: string,
+        bindings: ColumnarFragmentBindings): bool {
+        ownerCanonical := ""
+        caseName := ""
+        if !TrySplitDefaultMember(
+                canonical, out ownerCanonical, out caseName) {
+            return false
+        }
+        ownerType := typeof(object)
+        return TryResolveExactType(
+                nodes, ownerCanonical, bindings, out ownerType)
+            && IsSourceUnionType(ownerType, bindings)
     }
 
     // The immutable node context records the lexical type-parameter names even when a corrupt

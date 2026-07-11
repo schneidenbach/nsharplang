@@ -10953,6 +10953,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
             defaultKind := tokens.Kinds[pos]
             defaultStart := tokens.Starts[pos]
             defaultLength := tokens.ValueLengths[pos]
+            defaultTokenStart := pos
             defaultTokenCount := 0
             defaultDepth := 0
             keepSkipping := true
@@ -10978,7 +10979,12 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
                 }
             }
 
-            if defaultTokenCount != 1 || !ConstructorSignatureDefaultKindSupported(defaultKind) {
+            if defaultTokenCount == 1 && ConstructorSignatureDefaultKindSupported(defaultKind) {
+                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            } else if FunctionSignatureDefaultDottedNameSupported(tokens, defaultTokenStart, pos) {
+                defaultKind = FunctionSignatureDefaultMemberAccessKind()
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
+            } else {
                 return -1
             }
 

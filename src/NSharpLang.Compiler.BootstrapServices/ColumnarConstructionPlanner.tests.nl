@@ -5,6 +5,16 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+enum ConstructionPlannerDefaultState {
+    Unknown,
+    Ready
+}
+
+enum ConstructionPlannerOtherDefaultState {
+    Unknown,
+    Ready
+}
+
 
 func ConstructionNewTree(
     typeName: string,
@@ -278,6 +288,26 @@ func ConstructionStampScope(
         new string[](0),
         ExternalEmptyStructs(),
         null)
+}
+
+func ConstructionStampScopeFromFiles(
+    tree: ColumnarRangePlannerTestTree,
+    sources: string[],
+    fileNames: string[],
+    activeSourceFileId: int) {
+    scope := ColumnarBindingScopeFacts.Create(
+        ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames),
+        ExternalEmptyEnums(),
+        ExternalEmptyStructs(),
+        ExternalEmptyUnions(),
+        ExternalEmptyInterfaces(),
+        null)
+    scope.PrepareExternalTypeBindings(null)
+    tree.Nodes.SetBindingContext(
+        scope.ForSourceFile(activeSourceFileId),
+        "",
+        new string[](0),
+        new string[](0))
 }
 
 func ConstructionStampScopeWithTypeParameters(
@@ -698,6 +728,157 @@ test "construction planner emits supported source constructor defaults in declar
         plan.Constructors[0], constructor)
 }
 
+test "construction planner emits dotted enum member constructor defaults" {
+    owner := ConstructionSourceDefinition(
+        "ConstructionEnumDefaultOwner", true)
+    parameters := new Type[](2)
+    parameters[0] = typeof(int)
+    parameters[1] = typeof(ConstructionPlannerDefaultState)
+    defaultKinds := ConstructionDefaults(2)
+    defaultTexts := ConstructionDefaultTexts(2)
+    defaultKinds[1] = 1000
+    defaultTexts[1] = "ConstructionPlannerDefaultState.Ready"
+    constructor := owner.DefineUserConstructor(
+        parameters, defaultKinds, defaultTexts)
+
+    constants := new Dictionary<string, int>(StringComparer.Ordinal)
+    constants["Unknown"] = 0
+    constants["Ready"] = 1
+    bindings := ConstructionBindings(SourceCallDefinitions(owner))
+    bindings.Enums["ConstructionPlannerDefaultState"] =
+        new ColumnarEnumDef(
+            typeof(ConstructionPlannerDefaultState), constants)
+
+    tree := ConstructionNewTree(
+        "ConstructionEnumDefaultOwner",
+        ConstructionOneText("5"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()))
+    ConstructionStampScope(
+        tree, "class ConstructionEnumDefaultOwner {}")
+    plan := ConstructionPlan(tree, bindings)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4()
+    assert plan.Int32Values[plan.OperandIndices[1]] == 1
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Newobj()
+    assert ColumnarConstructionPlanner.SameObject(
+        plan.Constructors[0], constructor)
+}
+
+test "construction planner resolves aliased enum defaults before registry short names" {
+    owner := ConstructionSourceDefinition(
+        "ConstructionAliasEnumDefaultOwner", true)
+    parameters := new Type[](2)
+    parameters[0] = typeof(int)
+    parameters[1] = typeof(ConstructionPlannerDefaultState)
+    defaultKinds := ConstructionDefaults(2)
+    defaultTexts := ConstructionDefaultTexts(2)
+    defaultKinds[1] = 1000
+    defaultTexts[1] = "R.State.Ready"
+    owner.DefineUserConstructor(
+        parameters, defaultKinds, defaultTexts)
+
+    leftConstants := new Dictionary<string, int>(StringComparer.Ordinal)
+    leftConstants["Ready"] = 1
+    leftDefinition := new ColumnarEnumDef(
+        typeof(ConstructionPlannerOtherDefaultState),
+        leftConstants,
+        null,
+        "Left.State")
+    rightConstants := new Dictionary<string, int>(StringComparer.Ordinal)
+    rightConstants["Ready"] = 1
+    rightDefinition := new ColumnarEnumDef(
+        typeof(ConstructionPlannerDefaultState),
+        rightConstants,
+        null,
+        "Right.State")
+
+    bindings := ConstructionBindings(SourceCallDefinitions(owner))
+    bindings.Enums["State"] = leftDefinition
+    bindings.Enums["Left.State"] = leftDefinition
+    bindings.Enums["Right.State"] = rightDefinition
+
+    sources := new string[](3)
+    fileNames := new string[](3)
+    sources[0] = "namespace Left\nenum State { Ready }\n"
+    sources[1] = "namespace Right\nenum State { Ready }\n"
+    sources[2] = "namespace Caller\nimport Left\nimport Right as R\nclass ConstructionAliasEnumDefaultOwner {}\n"
+    fileNames[0] = "left-state.nl"
+    fileNames[1] = "right-state.nl"
+    fileNames[2] = "enum-default-caller.nl"
+
+    tree := ConstructionNewTree(
+        "ConstructionAliasEnumDefaultOwner",
+        ConstructionOneText("5"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()))
+    ConstructionStampScopeFromFiles(tree, sources, fileNames, 2)
+    plan := ConstructionPlan(tree, bindings)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4()
+    assert plan.Int32Values[plan.OperandIndices[1]] == 1
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Newobj()
+}
+
+test "construction planner preserves aliased string enum default identity after CLR erasure" {
+    owner := ConstructionSourceDefinition(
+        "ConstructionStringEnumDefaultOwner", true)
+    parameters := new Type[](2)
+    parameters[0] = typeof(int)
+    parameters[1] = typeof(string)
+    defaultKinds := ConstructionDefaults(2)
+    defaultTexts := ConstructionDefaultTexts(2)
+    defaultKinds[1] = 1000
+    defaultTexts[1] = "R.State.Ready"
+    owner.DefineUserConstructor(
+        parameters, defaultKinds, defaultTexts)
+
+    leftStrings := new Dictionary<string, string>(StringComparer.Ordinal)
+    leftStrings["Ready"] = "left"
+    leftDefinition := new ColumnarEnumDef(
+        typeof(string),
+        new Dictionary<string, int>(StringComparer.Ordinal),
+        leftStrings,
+        "Left.State")
+    rightStrings := new Dictionary<string, string>(StringComparer.Ordinal)
+    rightStrings["Ready"] = "right"
+    rightDefinition := new ColumnarEnumDef(
+        typeof(string),
+        new Dictionary<string, int>(StringComparer.Ordinal),
+        rightStrings,
+        "Right.State")
+
+    bindings := ConstructionBindings(SourceCallDefinitions(owner))
+    bindings.Enums["State"] = leftDefinition
+    bindings.Enums["Left.State"] = leftDefinition
+    bindings.Enums["Right.State"] = rightDefinition
+
+    sources := new string[](3)
+    fileNames := new string[](3)
+    sources[0] = "namespace Left\nenum State: string { Ready = \"left\" }\n"
+    sources[1] = "namespace Right\nenum State: string { Ready = \"right\" }\n"
+    sources[2] = "namespace Caller\nimport Left\nimport Right as R\nclass ConstructionStringEnumDefaultOwner {}\n"
+    fileNames[0] = "left-string-state.nl"
+    fileNames[1] = "right-string-state.nl"
+    fileNames[2] = "string-enum-default-caller.nl"
+
+    tree := ConstructionNewTree(
+        "ConstructionStringEnumDefaultOwner",
+        ConstructionOneText("5"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()))
+    ConstructionStampScopeFromFiles(tree, sources, fileNames, 2)
+    plan := ConstructionPlan(tree, bindings)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldstr()
+    assert plan.StringValues[plan.OperandIndices[1]] == "right"
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Newobj()
+}
+
 test "construction planner uses unique compatibility and rejects ambiguity and sole mismatch" {
     unique := ConstructionSourceDefinition(
         "ConstructionUniqueOwner", true)
@@ -1037,6 +1218,19 @@ test "construction planner fences source unions and unsupported runtime construc
     legacy := false
     _unionPlan := ConstructionRejected(
         unionTree, unionBindings, out ownership, out legacy)
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacy
+
+    unionCaseTree := ConstructionNewTree(
+        "ConstructionUnion.Value",
+        ConstructionOneText("1"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()))
+    ConstructionStampScope(
+        unionCaseTree,
+        "union ConstructionUnion { Value { number: int } }")
+    _unionCasePlan := ConstructionRejected(
+        unionCaseTree, unionBindings, out ownership, out legacy)
     assert ownership == ColumnarDirectCallOwnership.NotOwned
     assert legacy
 

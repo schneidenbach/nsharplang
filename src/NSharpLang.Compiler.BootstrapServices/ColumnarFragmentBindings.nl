@@ -100,6 +100,29 @@ class ColumnarFragmentBindings {
         return result
     }
 
+    // Erased source types (notably string-backed enums) cannot be distinguished by CLR Type.
+    // Exact-scope consumers can probe one semantic enum definition at a time without exposing
+    // or reconstructing this binding set's live type-parameter handles.
+    func CreateSingleEnumTypeResolutionBindings(
+        definition: ColumnarEnumDef): ColumnarFragmentBindings {
+        if definition == null || definition.DeclaredTypeName == null
+            || definition.DeclaredTypeName.Length == 0 {
+            throw new InvalidOperationException(
+                "Exact enum-definition selection requires a declared type name.")
+        }
+        enums := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
+        enums[definition.DeclaredTypeName] = definition
+        copiedTypeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+        for pair in typeParameters {
+            copiedTypeParameters[pair.Key] = pair.Value
+        }
+        return CreateTypeResolutionBindings(
+            enums,
+            new ColumnarStructDef[](0),
+            new ColumnarUnionDef[](0),
+            copiedTypeParameters)
+    }
+
     static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
         emptyNames := new string[](0)
         result := new ColumnarFragmentBindings(parameterOrdinals, parameterTypes, locals, enums, emptyNames, emptyNames, enclosingNames, declaredCallableNames, visibleLocalCallableNames)

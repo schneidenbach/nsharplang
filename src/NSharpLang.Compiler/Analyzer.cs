@@ -21654,7 +21654,8 @@ public class Analyzer : IDisposable
                 var reportedSoaDefaultParameterDiagnostic = ReportSoaDefaultParameterValueIfNeeded(param);
 
                 // Validate that default value is a compile-time constant
-                if (!reportedSoaDefaultParameterDiagnostic && !IsValidDefaultValue(param.DefaultValue!))
+                if (!reportedSoaDefaultParameterDiagnostic
+                    && !IsValidDefaultValue(param.DefaultValue!, param.Type))
                 {
                     var (defaultLine, defaultColumn, defaultLength) = GetExpressionDiagnosticSpan(param.DefaultValue!);
                     Error(ErrorCode.InvalidDefaultParameterValue,
@@ -21718,7 +21719,7 @@ public class Analyzer : IDisposable
         return (line, column, Math.Max(1, parameter.Name.Length));
     }
 
-    private bool IsValidDefaultValue(Expression expr)
+    private bool IsValidDefaultValue(Expression expr, TypeReference expectedType)
     {
         return expr switch
         {
@@ -21729,10 +21730,36 @@ public class Analyzer : IDisposable
             StringLiteralExpression => true,
             NullLiteralExpression => true,
 
-            UnaryExpression unary when IsValidDefaultValue(unary.Operand) => true,
-            BinaryExpression binary when IsValidDefaultValue(binary.Left) && IsValidDefaultValue(binary.Right) => true,
-            ArrayLiteralExpression arrayLit => arrayLit.Elements.All(IsValidDefaultValue),
+            MemberAccessExpression memberAccess when IsMatchingEnumMemberDefault(memberAccess, expectedType) => true,
+            UnaryExpression unary when IsValidDefaultValue(unary.Operand, expectedType) => true,
+            BinaryExpression binary when IsValidDefaultValue(binary.Left, expectedType)
+                                                && IsValidDefaultValue(binary.Right, expectedType) => true,
+            ArrayLiteralExpression arrayLit => arrayLit.Elements.All(element => IsValidDefaultValue(element, expectedType)),
 
+            _ => false
+        };
+    }
+
+    private bool IsMatchingEnumMemberDefault(MemberAccessExpression memberAccess, TypeReference expectedType)
+    {
+        if (memberAccess.IsNullConditional
+            || !TryGetQualifiedAttributeName(memberAccess.Object, out var ownerName))
+        {
+            return false;
+        }
+
+        var ownerType = ResolveTypeAlias(ResolveSimpleType(ownerName));
+        var resolvedExpectedType = ResolveTypeAlias(GetNonNullableType(ResolveDeclaredType(expectedType)));
+        if (!TypesEqual(ownerType, resolvedExpectedType))
+        {
+            return false;
+        }
+
+        return ownerType switch
+        {
+            EnumTypeInfo sourceEnum => HasSourceEnumMember(sourceEnum, memberAccess.MemberName),
+            ReflectionTypeInfo { Type: var runtimeEnum } when IsRuntimeEnumType(runtimeEnum)
+                => HasRuntimeEnumMember(runtimeEnum, memberAccess.MemberName),
             _ => false
         };
     }

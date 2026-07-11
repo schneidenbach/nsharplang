@@ -75,6 +75,74 @@ class ColumnarNumericLiteralParseProbe {
     }
 }
 
+class ColumnarConstructorDefaultParseProbe {
+    ParamCount: int
+    ParamNameTexts: string[]
+    ParamTypeTexts: string[]
+    ArgKinds: int[]
+    ArgTexts: string[]
+    Result: int[]
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        ParamNameTexts = new string[](capacity)
+        ParamTypeTexts = new string[](capacity)
+        ArgKinds = new int[](capacity)
+        argStarts := new int[](capacity)
+        argLengths := new int[](capacity)
+        ArgTexts = new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStarts := new int[](capacity)
+        childCounts := new int[](capacity)
+        childIndices := new int[](capacity * 4)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        Result = new int[](6)
+
+        ParamCount = ParseColumnarConstructorInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            0,
+            ParamNameTexts,
+            ParamTypeTexts,
+            ArgKinds,
+            argStarts,
+            argLengths,
+            ArgTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            Result)
+    }
+}
+
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
     probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression())
@@ -126,6 +194,22 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarPrimaryConstructorLiteralExpressionKind(44) == ColumnarExpressionNodeKind.BoolLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(45) == ColumnarExpressionNodeKind.BoolLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(46) == ColumnarExpressionNodeKind.NullLiteralExpression()
+}
+
+test "constructor parser preserves dotted enum member defaults" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "constructor(count: int, day: System.DayOfWeek = System.DayOfWeek.Friday) {}")
+
+    assert probe.ParamCount == 2
+    assert probe.Result[2] == 2
+    assert probe.ParamNameTexts[0] == "count"
+    assert probe.ParamNameTexts[1] == "day"
+    assert probe.ParamTypeTexts[0] == "int"
+    assert probe.ParamTypeTexts[1] == "System.DayOfWeek"
+    assert probe.ArgKinds[0] == -1
+    assert probe.ArgTexts[0] == ""
+    assert probe.ArgKinds[1] == 1000
+    assert probe.ArgTexts[1] == "System.DayOfWeek.Friday"
 }
 
 test "columnar decimal literal spans preserve separators and value" {
