@@ -549,6 +549,13 @@ public class ColumnarExternalBindingPlans {
                     Empty(),
                     "System.Reflection.MethodInfo[]")
             }
+            if memberName == "GetConstructors" && count == 0 {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    Empty(),
+                    "System.Reflection.ConstructorInfo[]")
+            }
             if memberName == "GetType" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type")
             }

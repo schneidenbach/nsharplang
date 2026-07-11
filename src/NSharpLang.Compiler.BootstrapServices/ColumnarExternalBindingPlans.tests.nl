@@ -311,6 +311,11 @@ test "recursive code plans own exact type and local facts" {
         "GetMethods",
         noArguments,
         "System.Reflection.MethodInfo[]")
+    AssertVirtualCall(
+        "System.Type",
+        "GetConstructors",
+        noArguments,
+        "System.Reflection.ConstructorInfo[]")
     AssertVirtualCall("System.Type", "get_BaseType", noArguments, "System.Type")
     AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
