@@ -347,7 +347,7 @@ public class ColumnarCodePlanExecutor {
     static func ValidateRecursiveSemantics(plan: ColumnarCodePlan, scalarSchema: bool) {
         schemaName := scalarSchema ? "Schema-v3" : "Schema-v2"
         schemaNameLower := scalarSchema ? "schema-v3" : "schema-v2"
-        ValidateValuePools(plan, schemaName)
+        ValidateValuePools(plan, schemaName, scalarSchema)
         // Labels have no backing schema column. Prove their maximum count before allocating any
         // label-indexed validation state: each valid label consumes one mark row and at least one
         // distinct branch row.
@@ -478,7 +478,10 @@ public class ColumnarCodePlanExecutor {
             schemaNameLower)
     }
 
-    static func ValidateValuePools(plan: ColumnarCodePlan, schemaName: string) {
+    static func ValidateValuePools(
+        plan: ColumnarCodePlan,
+        schemaName: string,
+        allowVoidMethodReturns: bool) {
         i := 0
         while i < plan.TypeCount {
             ValidateStorableType(plan.Types[i], "type pool", schemaName)
@@ -525,7 +528,7 @@ public class ColumnarCodePlanExecutor {
 
         i = 0
         while i < plan.MethodCount {
-            ValidateMethod(plan, i, schemaName)
+            ValidateMethod(plan, i, schemaName, allowVoidMethodReturns)
             i += 1
         }
         i = 0
@@ -540,12 +543,24 @@ public class ColumnarCodePlanExecutor {
         }
         i = 0
         while i < plan.FragmentCount {
-            ValidateStorableType(plan.FragmentResultTypes[i], "fragment result", schemaName)
+            if IsVoidType(plan.FragmentResultTypes[i]) {
+                if !allowVoidMethodReturns || i != 0 {
+                    throw new InvalidOperationException(
+                        schemaName + " only permits void on the root fragment result.")
+                }
+            } else {
+                ValidateStorableType(
+                    plan.FragmentResultTypes[i], "fragment result", schemaName)
+            }
             i += 1
         }
     }
 
-    static func ValidateMethod(plan: ColumnarCodePlan, methodIndex: int, schemaName: string) {
+    static func ValidateMethod(
+        plan: ColumnarCodePlan,
+        methodIndex: int,
+        schemaName: string,
+        allowVoidReturn: bool) {
         method := plan.Methods[methodIndex]
         if method.get_IsGenericMethodDefinition() {
             throw new InvalidOperationException(
@@ -570,10 +585,8 @@ public class ColumnarCodePlanExecutor {
                     schemaName + " declared method identity does not match its handle.")
             }
             ValidateStorableType(declaredType, "method receiver", schemaName)
-            ValidateStorableType(
-                plan.MethodReturnTypes[methodIndex],
-                "method return",
-                schemaName)
+            ValidateMethodReturnType(
+                plan.MethodReturnTypes[methodIndex], schemaName, allowVoidReturn)
             declaredParameters := plan.MethodParameterTypes[methodIndex]
             declaredIndex := 0
             while declaredIndex < declaredParameters.Length {
@@ -596,7 +609,7 @@ public class ColumnarCodePlanExecutor {
             declaringArguments,
             genericArguments,
             schemaName)
-        ValidateStorableType(returnType, "method return", schemaName)
+        ValidateMethodReturnType(returnType, schemaName, allowVoidReturn)
         parameters := signatureMethod.GetParameters()
         i := 0
         while i < parameters.Length {
@@ -752,6 +765,24 @@ public class ColumnarCodePlanExecutor {
         }
     }
 
+    static func ValidateMethodReturnType(
+        valueType: Type,
+        schemaName: string,
+        allowVoidReturn: bool) {
+        if IsVoidType(valueType) {
+            if !allowVoidReturn {
+                throw new InvalidOperationException(
+                    schemaName + " method return types cannot be void.")
+            }
+            return
+        }
+        ValidateStorableType(valueType, "method return", schemaName)
+    }
+
+    static func IsVoidType(valueType: Type): bool {
+        return valueType.FullName == "System.Void"
+    }
+
     static func ValidateAllUsed(used: bool[], poolName: string, schemaName: string) {
         i := 0
         while i < used.Length {
@@ -861,6 +892,14 @@ public class ColumnarCodePlanExecutor {
             schemaNameLower)
 
         rootExit := states[plan.OperationCount]
+        if IsVoidType(plan.ResultType) {
+            if rootExit.Count != 0 || rootExit.Head != null {
+                throw new InvalidOperationException(
+                    schemaName + " void root execution must leave an empty stack.")
+            }
+            return
+        }
+
         rootValue := rootExit.Head
         if rootExit.Count != 1
             || rootValue == null
@@ -912,6 +951,19 @@ public class ColumnarCodePlanExecutor {
             }
             entryCount := fragmentEntryCounts[fragmentIndex]
             resultValue := exitState.Head
+            resultType := plan.FragmentResultTypes[fragmentIndex]
+            if IsVoidType(resultType) {
+                if fragmentIndex != 0
+                    || !fragmentEntryCaptured[fragmentIndex]
+                    || exitState.Count != entryCount
+                    || resultValue != fragmentEntryHeads[fragmentIndex] {
+                    throw new InvalidOperationException(
+                        "A " + schemaNameLower
+                            + " void root fragment must add no stack values.")
+                }
+                fragmentIndex = endingFragmentNext[fragmentIndex]
+                continue
+            }
             if !fragmentEntryCaptured[fragmentIndex]
                 || resultValue == null
                 || exitState.Count != entryCount + 1
@@ -920,7 +972,6 @@ public class ColumnarCodePlanExecutor {
                     "Every " + schemaNameLower
                         + " fragment must add exactly one reachable stack value.")
             }
-            resultType := plan.FragmentResultTypes[fragmentIndex]
             if resultValue.IsAddress
                 || !IsStackCompatible(
                     resultType,
@@ -1214,7 +1265,8 @@ public class ColumnarCodePlanExecutor {
             ApplyLocal(plan, operationIndex, opCodeValue, localType, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Call()
             || opCodeValue == ColumnarCodePlanContract.Callvirt() {
-            ApplyMethodCall(plan, operandIndex, opCodeValue, state, schemaName)
+            ApplyMethodCall(
+                plan, operationIndex, operandIndex, opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {
             ApplyConstructor(plan.Constructors[operandIndex], state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldfld() {
@@ -1422,6 +1474,7 @@ public class ColumnarCodePlanExecutor {
 
     static func ApplyMethodCall(
         plan: ColumnarCodePlan,
+        operationIndex: int,
         methodIndex: int,
         opCodeValue: short,
         state: ColumnarCodePlanStackState,
@@ -1478,12 +1531,9 @@ public class ColumnarCodePlanExecutor {
                     receiver.ValueKind,
                     schemaName)
             }
-            state.Push(
-                plan.MethodReturnTypes[methodIndex],
-                false,
-                ColumnarCodePlanStackValueKind.Exact(),
-                false,
-                0)
+            declaredReturnType := plan.MethodReturnTypes[methodIndex]
+            ApplyMethodReturn(
+                plan, operationIndex, declaredReturnType, state, schemaName)
             return
         }
 
@@ -1521,12 +1571,31 @@ public class ColumnarCodePlanExecutor {
                 receiver.ValueKind,
                 schemaName)
         }
+        returnType := ResolveMemberSignatureType(
+            signatureMethod.get_ReturnType(),
+            declaringArguments,
+            genericArguments,
+            schemaName)
+        ApplyMethodReturn(plan, operationIndex, returnType, state, schemaName)
+    }
+
+    static func ApplyMethodReturn(
+        plan: ColumnarCodePlan,
+        operationIndex: int,
+        returnType: Type,
+        state: ColumnarCodePlanStackState,
+        schemaName: string) {
+        if IsVoidType(returnType) {
+            ownerFragment := plan.OperationOwnerFragmentIndices[operationIndex]
+            if ownerFragment != 0
+                || !IsVoidType(plan.FragmentResultTypes[ownerFragment]) {
+                throw new InvalidOperationException(
+                    schemaName + " void calls must be the schema-v3 root expression.")
+            }
+            return
+        }
         state.Push(
-            ResolveMemberSignatureType(
-                signatureMethod.get_ReturnType(),
-                declaringArguments,
-                genericArguments,
-                schemaName),
+            returnType,
             false,
             ColumnarCodePlanStackValueKind.Exact(),
             false,

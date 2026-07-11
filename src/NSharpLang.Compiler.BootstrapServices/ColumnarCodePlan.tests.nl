@@ -1,6 +1,11 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Reflection
+
+public class ColumnarCodePlanVoidProbe {
+    public static func Nothing() {}
+}
 
 func ValidBooleanCodePlan(): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
@@ -195,6 +200,30 @@ func ValidNestedV2CodePlan(): ColumnarCodePlan {
 
     plan.CompleteFragment(root, typeof(int))
     plan.CompleteV2(typeof(int))
+    return plan
+}
+
+func CodePlanRequiredParameterlessVoidMethod(): MethodInfo {
+    method := typeof(ColumnarCodePlanVoidProbe).GetMethod("Nothing")
+    if method == null {
+        throw new InvalidOperationException(
+            "Required parameterless void method was not found.")
+    }
+    return method
+}
+
+func CodePlanVoidType(): Type {
+    return CodePlanRequiredParameterlessVoidMethod().get_ReturnType()
+}
+
+func ValidV3VoidCodePlan(): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 103, 0)
+    method := plan.AddMethod(CodePlanRequiredParameterlessVoidMethod())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), method)
+    plan.CompleteFragment(root, CodePlanVoidType())
+    plan.CompleteV3(CodePlanVoidType())
     return plan
 }
 
@@ -452,6 +481,66 @@ test "schema v3 admits exact ldtoken type operands only" {
         invalid.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), invalidType + 1)
     }
     assert invalid.OperationCount == operationCountBeforeWrongIndex
+}
+
+test "schema v3 structure admits void only as the root fragment result" {
+    valid := ValidV3VoidCodePlan()
+    valid.ValidateSealedStructure()
+    assert valid.ResultType == CodePlanVoidType()
+    assert valid.FragmentResultTypes[0] == CodePlanVoidType()
+
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    v2Root := schemaV2.BeginFragment(-1, 505, 0)
+    v2Method := schemaV2.AddMethod(CodePlanRequiredParameterlessVoidMethod())
+    schemaV2.AppendMethodInstruction(ColumnarCodePlanContract.Call(), v2Method)
+    assert throws InvalidOperationException {
+        schemaV2.CompleteFragment(v2Root, CodePlanVoidType())
+    }
+    assert !schemaV2.FragmentCompleted[v2Root]
+
+    nested := new ColumnarCodePlan()
+    nested.PrepareV3()
+    nestedRoot := nested.BeginFragment(-1, 506, 0)
+    nestedChild := nested.BeginFragment(nestedRoot, 507, 1)
+    nestedMethod := nested.AddMethod(CodePlanRequiredParameterlessVoidMethod())
+    nested.AppendMethodInstruction(ColumnarCodePlanContract.Call(), nestedMethod)
+    assert throws InvalidOperationException {
+        nested.CompleteFragment(nestedChild, CodePlanVoidType())
+    }
+    assert !nested.FragmentCompleted[nestedChild]
+}
+
+test "sealed schema v3 rejects corrupt void fragment and root result relationships" {
+    voidRootWithNonvoidResult := ValidV3VoidCodePlan()
+    voidRootWithNonvoidResult.ResultType = typeof(int)
+    assert throws InvalidOperationException {
+        voidRootWithNonvoidResult.ValidateSealedStructure()
+    }
+
+    nonvoidRootWithVoidResult := new ColumnarCodePlan()
+    nonvoidRootWithVoidResult.PrepareV3()
+    nonvoidRoot := nonvoidRootWithVoidResult.BeginFragment(-1, 508, 0)
+    nonvoidRootWithVoidResult.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    nonvoidRootWithVoidResult.CompleteFragment(nonvoidRoot, typeof(int))
+    nonvoidRootWithVoidResult.CompleteV3(typeof(int))
+    nonvoidRootWithVoidResult.ResultType = CodePlanVoidType()
+    assert throws InvalidOperationException {
+        nonvoidRootWithVoidResult.ValidateSealedStructure()
+    }
+
+    nestedVoid := new ColumnarCodePlan()
+    nestedVoid.PrepareV3()
+    root := nestedVoid.BeginFragment(-1, 509, 0)
+    nestedVoid.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    child := nestedVoid.BeginFragment(root, 510, 1)
+    nestedVoid.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    nestedVoid.CompleteFragment(child, typeof(int))
+    nestedVoid.CompleteFragment(root, typeof(int))
+    nestedVoid.CompleteV3(typeof(int))
+    nestedVoid.FragmentResultTypes[child] = CodePlanVoidType()
+    assert throws InvalidOperationException { nestedVoid.ValidateSealedStructure() }
 }
 
 test "sealed recursive schemas reject ldtoken version and operand corruption" {

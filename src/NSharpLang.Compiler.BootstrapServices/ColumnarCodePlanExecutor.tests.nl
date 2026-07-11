@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
@@ -16,6 +17,7 @@ public class ColumnarExecutorProbeMethods {
     public static func IdentityInt(value: int): int { return value }
     public static func IdentityLong(value: long): long { return value }
     public static func Nothing() {}
+    public static func RecordStatic(target: List<int>) { target.Add(41) }
 }
 
 func ExecutorRequiredMethod(owner: Type, name: string, parameters: Type[]): MethodInfo {
@@ -24,6 +26,12 @@ func ExecutorRequiredMethod(owner: Type, name: string, parameters: Type[]): Meth
         throw new InvalidOperationException("Required executor probe method was not found: " + name)
     }
     return method
+}
+
+func ExecutorVoidType(): Type {
+    noTypes := new Type[](0)
+    return ExecutorRequiredMethod(
+        typeof(ColumnarExecutorProbeMethods), "Nothing", noTypes).get_ReturnType()
 }
 
 func ExecutorRequiredConstructor(owner: Type, parameters: Type[]): ConstructorInfo {
@@ -186,6 +194,50 @@ func ExecutorV3TypeTokenPlan(targetType: Type): ColumnarCodePlan {
     return plan
 }
 
+func ExecutorV3DeclaredStaticVoidPlan(): ColumnarCodePlan {
+    oneList := new Type[](1)
+    oneList[0] = typeof(List<int>)
+    method := ExecutorRequiredMethod(
+        typeof(ColumnarExecutorProbeMethods), "RecordStatic", oneList)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1127, 0)
+    listType := plan.AddType(typeof(List<int>))
+    argument := plan.AddArgument(0, listType)
+    methodIndex := plan.AddMethodWithSignature(
+        method,
+        typeof(ColumnarExecutorProbeMethods),
+        oneList,
+        ExecutorVoidType(),
+        true,
+        false)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.CompleteFragment(root, ExecutorVoidType())
+    plan.CompleteV3(ExecutorVoidType())
+    return plan
+}
+
+func ExecutorV3ReferenceInstanceVoidPlan(): ColumnarCodePlan {
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    method := ExecutorRequiredMethod(typeof(List<int>), "Add", oneInt)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1128, 0)
+    listType := plan.AddType(typeof(List<int>))
+    argument := plan.AddArgument(0, listType)
+    methodIndex := plan.AddMethod(method)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+    plan.CompleteFragment(root, ExecutorVoidType())
+    plan.CompleteV3(ExecutorVoidType())
+    return plan
+}
+
 func ExecutorV3ReferenceIndirectPlan(
     argumentTypeValue: Type,
     isAddress: bool): ColumnarCodePlan {
@@ -251,6 +303,33 @@ func ExecutorRunV3ScalarPlan(plan: ColumnarCodePlan, resultType: Type): string {
         throw new InvalidOperationException("Scalar DynamicMethod returned null unexpectedly.")
     }
     return result.ToString() ?? ""
+}
+
+func ExecutorRunV3VoidPlan(
+    plan: ColumnarCodePlan,
+    parameterTypes: Type[],
+    arguments: object[]) {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    constructorInfo := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if constructorInfo == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    constructorArguments := new object[](3)
+    ExecutorSetObject(constructorArguments, 0, "NSharpV3VoidCall")
+    ExecutorSetObject(constructorArguments, 1, ExecutorVoidType())
+    ExecutorSetObject(constructorArguments, 2, parameterTypes)
+    dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
+    il := dynamicMethod.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    target: object? = null
+    result := dynamicMethod.Invoke(target, arguments)
+    if result != null {
+        throw new InvalidOperationException("Void DynamicMethod returned a value unexpectedly.")
+    }
 }
 
 func ExecutorRunRecursivePlan(
@@ -1296,6 +1375,8 @@ test "schema v2 executor rejects void and by-reference reflection signatures" {
     voidPlan.CompleteFragment(voidRoot, typeof(int))
     voidPlan.CompleteV2(typeof(int))
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(voidPlan) }
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Execute(voidPlan, null) }
+    assert voidPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 
     oneInt := new Type[](1)
     oneInt[0] = typeof(int)
@@ -1651,6 +1732,187 @@ test "schema v3 executor validates before null IL and does not consume" {
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Execute(plan, null) }
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
     ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "schema v3 executor emits static and reference instance void calls" {
+    staticPlan := ExecutorV3DeclaredStaticVoidPlan()
+    ColumnarCodePlanExecutor.Validate(staticPlan)
+    assert staticPlan.TypeCount == 1
+    assert staticPlan.Types[0] == typeof(List<int>)
+    assert staticPlan.MethodReturnTypes[0] == ExecutorVoidType()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Execute(staticPlan, null)
+    }
+    assert staticPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    staticTarget := new List<int>()
+    staticParameters := new Type[](1)
+    staticParameters[0] = typeof(List<int>)
+    staticArguments := new object[](1)
+    ExecutorSetObject(staticArguments, 0, staticTarget)
+    ExecutorRunV3VoidPlan(staticPlan, staticParameters, staticArguments)
+    assert staticTarget.Count == 1
+    assert staticTarget[0] == 41
+    assert staticPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    instancePlan := ExecutorV3ReferenceInstanceVoidPlan()
+    ColumnarCodePlanExecutor.Validate(instancePlan)
+    assert instancePlan.Methods[0].get_ReturnType() == ExecutorVoidType()
+    instanceTarget := new List<int>()
+    instanceParameters := new Type[](1)
+    instanceParameters[0] = typeof(List<int>)
+    instanceArguments := new object[](1)
+    ExecutorSetObject(instanceArguments, 0, instanceTarget)
+    ExecutorRunV3VoidPlan(instancePlan, instanceParameters, instanceArguments)
+    assert instanceTarget.Count == 1
+    assert instanceTarget[0] == 1
+    assert instancePlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v3 executor rejects mismatched roots and nested void calls" {
+    oneList := new Type[](1)
+    oneList[0] = typeof(List<int>)
+    recordStatic := ExecutorRequiredMethod(
+        typeof(ColumnarExecutorProbeMethods), "RecordStatic", oneList)
+
+    voidCallWithValueRoot := new ColumnarCodePlan()
+    voidCallWithValueRoot.PrepareV3()
+    valueRoot := voidCallWithValueRoot.BeginFragment(-1, 1129, 0)
+    valueListType := voidCallWithValueRoot.AddType(typeof(List<int>))
+    valueArgument := voidCallWithValueRoot.AddArgument(0, valueListType)
+    voidMethod := voidCallWithValueRoot.AddMethod(recordStatic)
+    voidCallWithValueRoot.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), valueArgument)
+    voidCallWithValueRoot.AppendMethodInstruction(
+        ColumnarCodePlanContract.Call(), voidMethod)
+    voidCallWithValueRoot.CompleteFragment(valueRoot, typeof(int))
+    voidCallWithValueRoot.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidCallWithValueRoot)
+    }
+
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    identityInt := ExecutorRequiredMethod(
+        typeof(ColumnarExecutorProbeMethods), "IdentityInt", oneInt)
+    valueCallWithVoidRoot := new ColumnarCodePlan()
+    valueCallWithVoidRoot.PrepareV3()
+    voidRoot := valueCallWithVoidRoot.BeginFragment(-1, 1130, 0)
+    valueMethod := valueCallWithVoidRoot.AddMethod(identityInt)
+    valueCallWithVoidRoot.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    valueCallWithVoidRoot.AppendMethodInstruction(
+        ColumnarCodePlanContract.Call(), valueMethod)
+    valueCallWithVoidRoot.CompleteFragment(voidRoot, ExecutorVoidType())
+    valueCallWithVoidRoot.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(valueCallWithVoidRoot)
+    }
+
+    nestedVoidCall := new ColumnarCodePlan()
+    nestedVoidCall.PrepareV3()
+    nestedRoot := nestedVoidCall.BeginFragment(-1, 1131, 0)
+    nestedIntType := nestedVoidCall.AddType(typeof(int))
+    nestedLocal := nestedVoidCall.DeclarePlanLocal(nestedIntType)
+    nestedVoidCall.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    nestedVoidCall.AppendPlanLocalInstruction(
+        ColumnarCodePlanContract.Stloc(), nestedLocal)
+    nestedChild := nestedVoidCall.BeginFragment(nestedRoot, 1132, 1)
+    nestedListType := nestedVoidCall.AddType(typeof(List<int>))
+    nestedArgument := nestedVoidCall.AddArgument(0, nestedListType)
+    nestedMethod := nestedVoidCall.AddMethod(recordStatic)
+    nestedVoidCall.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), nestedArgument)
+    nestedVoidCall.AppendMethodInstruction(
+        ColumnarCodePlanContract.Call(), nestedMethod)
+    nestedVoidCall.CompleteFragment(nestedChild, typeof(int))
+    nestedVoidCall.CompleteFragment(nestedRoot, ExecutorVoidType())
+    nestedVoidCall.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(nestedVoidCall)
+    }
+}
+
+test "schema v3 executor rejects corrupt void method declarations before emission" {
+    voidDeclaredAsValue := ExecutorV3DeclaredStaticVoidPlan()
+    voidDeclaredAsValue.MethodReturnTypes[0] = typeof(int)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Execute(voidDeclaredAsValue, null)
+    }
+    assert voidDeclaredAsValue.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    voidParameter := ExecutorV3DeclaredStaticVoidPlan()
+    voidParameter.MethodParameterTypes[0][0] = ExecutorVoidType()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidParameter)
+    }
+
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    identityInt := ExecutorRequiredMethod(
+        typeof(ColumnarExecutorProbeMethods), "IdentityInt", oneInt)
+    valueDeclaredAsVoid := new ColumnarCodePlan()
+    valueDeclaredAsVoid.PrepareV3()
+    root := valueDeclaredAsVoid.BeginFragment(-1, 1133, 0)
+    method := valueDeclaredAsVoid.AddMethodWithSignature(
+        identityInt,
+        typeof(ColumnarExecutorProbeMethods),
+        oneInt,
+        ExecutorVoidType(),
+        true,
+        false)
+    valueDeclaredAsVoid.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    valueDeclaredAsVoid.AppendMethodInstruction(ColumnarCodePlanContract.Call(), method)
+    valueDeclaredAsVoid.CompleteFragment(root, ExecutorVoidType())
+    valueDeclaredAsVoid.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(valueDeclaredAsVoid)
+    }
+}
+
+test "schema v3 keeps void out of type argument local and field storage" {
+    voidArgument := new ColumnarCodePlan()
+    voidArgument.PrepareV3()
+    argumentRoot := voidArgument.BeginFragment(-1, 1134, 0)
+    voidArgumentType := voidArgument.AddType(ExecutorVoidType())
+    argument := voidArgument.AddArgument(0, voidArgumentType)
+    voidArgument.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    voidArgument.CompleteFragment(argumentRoot, ExecutorVoidType())
+    voidArgument.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidArgument)
+    }
+
+    voidLocal := new ColumnarCodePlan()
+    voidLocal.PrepareV3()
+    localRoot := voidLocal.BeginFragment(-1, 1135, 0)
+    voidLocalType := voidLocal.AddType(ExecutorVoidType())
+    local := voidLocal.DeclarePlanLocal(voidLocalType)
+    voidLocal.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    voidLocal.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+    voidLocal.CompleteFragment(localRoot, ExecutorVoidType())
+    voidLocal.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidLocal)
+    }
+
+    tupleType := typeof(ValueTuple<int, int>)
+    item1 := ExecutorRequiredField(tupleType, "Item1")
+    voidField := new ColumnarCodePlan()
+    voidField.PrepareV3()
+    fieldRoot := voidField.BeginFragment(-1, 1136, 0)
+    tupleTypeIndex := voidField.AddType(tupleType)
+    receiver := voidField.AddArgument(0, tupleTypeIndex, true)
+    field := voidField.AddFieldWithSignature(
+        item1, tupleType, ExecutorVoidType(), false)
+    voidField.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiver)
+    voidField.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), field)
+    voidField.CompleteFragment(fieldRoot, ExecutorVoidType())
+    voidField.CompleteV3(ExecutorVoidType())
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidField)
+    }
 }
 
 test "schema v3 executor emits every scalar constant through DynamicMethod" {

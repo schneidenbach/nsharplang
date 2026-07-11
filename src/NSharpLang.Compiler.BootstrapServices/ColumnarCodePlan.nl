@@ -685,6 +685,13 @@ public class ColumnarCodePlan {
             || fragmentIndex >= FragmentCount {
             throw new InvalidOperationException("Code-plan fragments must complete in nesting order.")
         }
+        if resultType.FullName == "System.Void" {
+            if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                || fragmentIndex != 0 {
+                throw new InvalidOperationException(
+                    "Only a schema-v3 root code-plan fragment can declare a void result.")
+            }
+        }
 
         FragmentOperationCounts[fragmentIndex] =
             OperationCount - FragmentOperationStarts[fragmentIndex]
@@ -1292,7 +1299,7 @@ public class ColumnarCodePlan {
             || !HasNoV3State()
             || !HasValidV3Pools()
             || !HasValidV2ColumnsAndPools()
-            || !HasValidV2Fragments(expectedResultType)
+            || !HasValidV2Fragments(expectedResultType, false)
             || !HasValidV2Rows() {
             return false
         }
@@ -1313,7 +1320,7 @@ public class ColumnarCodePlan {
             || expectedResultType == null
             || !HasValidV3Pools()
             || !HasValidV2ColumnsAndPools()
-            || !HasValidV2Fragments(expectedResultType)
+            || !HasValidV2Fragments(expectedResultType, true)
             || !HasValidV2Rows() {
             return false
         }
@@ -1478,7 +1485,7 @@ public class ColumnarCodePlan {
         return true
     }
 
-    func HasValidV2Fragments(expectedResultType: Type): bool {
+    func HasValidV2Fragments(expectedResultType: Type, allowVoidRoot: bool): bool {
         if FragmentOperationStarts == null
             || FragmentOperationCounts == null
             || FragmentParentIndices == null
@@ -1496,7 +1503,8 @@ public class ColumnarCodePlan {
             || FragmentParentIndices[0] != -1
             || FragmentOperationStarts[0] != 0
             || FragmentOperationCounts[0] != OperationCount
-            || FragmentResultTypes[0] != expectedResultType {
+            || FragmentResultTypes[0] != expectedResultType
+            || (expectedResultType.FullName == "System.Void" && !allowVoidRoot) {
             return false
         }
 
@@ -1514,6 +1522,8 @@ public class ColumnarCodePlan {
                 || FragmentResultTypes[i] == null
                 || FragmentResultTypes[i]
                     == ColumnarCodePlanContract.UnsealedFragmentResultType()
+                || (FragmentResultTypes[i].FullName == "System.Void"
+                    && (!allowVoidRoot || i != 0))
                 || FragmentKinds[i] < 0
                 || FragmentSourceNodeIndices[i] < 0
                 || start < 0
