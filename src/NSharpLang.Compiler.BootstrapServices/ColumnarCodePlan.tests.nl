@@ -493,6 +493,259 @@ test "schema v3 admits exact ldtoken type operands only" {
     assert invalid.OperationCount == operationCountBeforeWrongIndex
 }
 
+test "schema v3 admits exact array allocation duplication and store rows" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 520, 0)
+    typeIndex := plan.AddType(typeof(int))
+
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), typeIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI1())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI2())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI8())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR4())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR8())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemRef())
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), typeIndex)
+    plan.CompleteFragment(root, typeof(int[]))
+    plan.CompleteV3(typeof(int[]))
+    plan.ValidateSealedStructure()
+
+    assert plan.OperationCount == 10
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Newarr()
+    assert plan.OperandKinds[0] == ColumnarCodePlanContract.TypeOperand()
+    assert plan.OperandIndices[0] == typeIndex
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Dup()
+    assert plan.OperandKinds[1] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[1] == -1
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.StelemI1()
+    assert plan.OperandKinds[2] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[2] == -1
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.StelemI2()
+    assert plan.OperandKinds[3] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[3] == -1
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.StelemI4()
+    assert plan.OperandKinds[4] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[4] == -1
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.StelemI8()
+    assert plan.OperandKinds[5] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[5] == -1
+    assert plan.OpCodeValues[6] == ColumnarCodePlanContract.StelemR4()
+    assert plan.OperandKinds[6] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[6] == -1
+    assert plan.OpCodeValues[7] == ColumnarCodePlanContract.StelemR8()
+    assert plan.OperandKinds[7] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[7] == -1
+    assert plan.OpCodeValues[8] == ColumnarCodePlanContract.StelemRef()
+    assert plan.OperandKinds[8] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[8] == -1
+    assert plan.OpCodeValues[9] == ColumnarCodePlanContract.Stelem()
+    assert plan.OperandKinds[9] == ColumnarCodePlanContract.TypeOperand()
+    assert plan.OperandIndices[9] == typeIndex
+
+    invalid := new ColumnarCodePlan()
+    invalid.PrepareV3()
+    invalid.BeginFragment(-1, 521, 0)
+    invalidType := invalid.AddType(typeof(int))
+    operationCount := invalid.OperationCount
+    assert throws InvalidOperationException {
+        invalid.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Newarr())
+    }
+    assert throws InvalidOperationException {
+        invalid.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Stelem())
+    }
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(ColumnarCodePlanContract.Dup(), invalidType)
+    }
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(ColumnarCodePlanContract.StelemI4(), invalidType)
+    }
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(
+            ColumnarCodePlanContract.Newarr(), invalidType + 1)
+    }
+    assert throws InvalidOperationException {
+        invalid.AppendTypeInstruction(
+            ColumnarCodePlanContract.Stelem(), invalidType + 1)
+    }
+    assert invalid.OperationCount == operationCount
+}
+
+test "schema v1 and v2 fence schema v3 array rows from append and tamper paths" {
+    schemaV1 := new ColumnarCodePlan()
+    schemaV1.Prepare()
+    assert throws InvalidOperationException {
+        schemaV1.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    }
+    assert throws InvalidOperationException {
+        schemaV1.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), 0)
+    }
+    assert schemaV1.OperationCount == 0
+    schemaV1.AppendInstruction(ColumnarCodePlanContract.LdcI4_1())
+    schemaV1.CompleteBoolean()
+
+    tamperedV1 := ValidBooleanCodePlan()
+    tamperedV1.OpCodeValues[0] = ColumnarCodePlanContract.Dup()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(tamperedV1)
+    }
+    tamperedV1.OpCodeValues[0] = ColumnarCodePlanContract.LdcI4_1()
+    ColumnarCodePlanExecutor.Validate(tamperedV1)
+    tamperedV1.OpCodeValues[0] = ColumnarCodePlanContract.Newarr()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(tamperedV1)
+    }
+    tamperedV1.OpCodeValues[0] = ColumnarCodePlanContract.LdcI4_1()
+    ColumnarCodePlanExecutor.Validate(tamperedV1)
+
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    v2Root := schemaV2.BeginFragment(-1, 522, 0)
+    v2Type := schemaV2.AddType(typeof(int))
+    operationCount := schemaV2.OperationCount
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI1())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI2())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI8())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR4())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR8())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemRef())
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), v2Type)
+    }
+    assert throws InvalidOperationException {
+        schemaV2.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), v2Type)
+    }
+    assert schemaV2.OperationCount == operationCount
+    schemaV2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    schemaV2.CompleteFragment(v2Root, typeof(int))
+    schemaV2.CompleteV2(typeof(int))
+    schemaV2.ValidateSealedStructure()
+
+    tamperedNoOperandV2 := ValidV2CodePlan()
+    tamperedNoOperandV2.OpCodeValues[0] = ColumnarCodePlanContract.Dup()
+    assert throws InvalidOperationException {
+        tamperedNoOperandV2.ValidateSealedStructure()
+    }
+    tamperedNoOperandV2.OpCodeValues[0] = ColumnarCodePlanContract.LdcI4_0()
+    tamperedNoOperandV2.ValidateSealedStructure()
+    tamperedNoOperandV2.OpCodeValues[0] = ColumnarCodePlanContract.StelemRef()
+    assert throws InvalidOperationException {
+        tamperedNoOperandV2.ValidateSealedStructure()
+    }
+    tamperedNoOperandV2.OpCodeValues[0] = ColumnarCodePlanContract.LdcI4_0()
+    tamperedNoOperandV2.ValidateSealedStructure()
+
+    tamperedTypeV2 := new ColumnarCodePlan()
+    tamperedTypeV2.PrepareV2()
+    tamperedRoot := tamperedTypeV2.BeginFragment(-1, 523, 0)
+    tamperedType := tamperedTypeV2.AddType(typeof(int))
+    tamperedTypeV2.AppendTypeInstruction(
+        ColumnarCodePlanContract.Ldelem(), tamperedType)
+    tamperedTypeV2.CompleteFragment(tamperedRoot, typeof(int))
+    tamperedTypeV2.CompleteV2(typeof(int))
+    tamperedTypeV2.OpCodeValues[0] = ColumnarCodePlanContract.Newarr()
+    assert throws InvalidOperationException {
+        tamperedTypeV2.ValidateSealedStructure()
+    }
+    tamperedTypeV2.OpCodeValues[0] = ColumnarCodePlanContract.Ldelem()
+    tamperedTypeV2.ValidateSealedStructure()
+    tamperedTypeV2.OpCodeValues[0] = ColumnarCodePlanContract.Stelem()
+    assert throws InvalidOperationException {
+        tamperedTypeV2.ValidateSealedStructure()
+    }
+    tamperedTypeV2.OpCodeValues[0] = ColumnarCodePlanContract.Ldelem()
+    tamperedTypeV2.ValidateSealedStructure()
+}
+
+test "schema v3 checkpoint rollback removes array rows and type operands transactionally" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 524, 0)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    checkpoint := plan.CreateCheckpoint()
+
+    typeIndex := plan.AddType(typeof(int))
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), typeIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), typeIndex)
+    assert plan.OperationCount == 5
+    assert plan.TypeCount == 1
+
+    plan.Rollback(checkpoint)
+    assert plan.OperationCount == 1
+    assert plan.TypeCount == 0
+    assert !plan.FragmentCompleted[root]
+
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+    plan.ValidateSealedStructure()
+}
+
+test "schema v3 rejects corrupt array opcode and operand pairings purely" {
+    typed := new ColumnarCodePlan()
+    typed.PrepareV3()
+    typedRoot := typed.BeginFragment(-1, 525, 0)
+    typedIndex := typed.AddType(typeof(int))
+    typed.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), typedIndex)
+    typed.CompleteFragment(typedRoot, typeof(int[]))
+    typed.CompleteV3(typeof(int[]))
+
+    typed.OperandKinds[0] = ColumnarCodePlanContract.NoOperand()
+    typed.OperandIndices[0] = -1
+    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    typed.OperandKinds[0] = ColumnarCodePlanContract.TypeOperand()
+    typed.OperandIndices[0] = typedIndex
+    typed.ValidateSealedStructure()
+    typed.OperandIndices[0] = typedIndex + 1
+    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    typed.OperandIndices[0] = typedIndex
+    typed.ValidateSealedStructure()
+    typed.OpCodeValues[0] = ColumnarCodePlanContract.Dup()
+    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    typed.OpCodeValues[0] = ColumnarCodePlanContract.Newarr()
+    typed.ValidateSealedStructure()
+
+    fixed := new ColumnarCodePlan()
+    fixed.PrepareV3()
+    fixedRoot := fixed.BeginFragment(-1, 526, 0)
+    fixedType := fixed.AddType(typeof(int))
+    fixed.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    fixed.CompleteFragment(fixedRoot, typeof(int))
+    fixed.CompleteV3(typeof(int))
+
+    fixed.OperandKinds[0] = ColumnarCodePlanContract.TypeOperand()
+    fixed.OperandIndices[0] = fixedType
+    assert throws InvalidOperationException { fixed.ValidateSealedStructure() }
+    fixed.OperandKinds[0] = ColumnarCodePlanContract.NoOperand()
+    fixed.OperandIndices[0] = -1
+    fixed.ValidateSealedStructure()
+    fixed.OpCodeValues[0] = ColumnarCodePlanContract.Stelem()
+    assert throws InvalidOperationException { fixed.ValidateSealedStructure() }
+    fixed.OpCodeValues[0] = ColumnarCodePlanContract.StelemI4()
+    fixed.ValidateSealedStructure()
+}
+
 test "schema v3 structure admits void only as the root fragment result" {
     valid := ValidV3VoidCodePlan()
     valid.ValidateSealedStructure()

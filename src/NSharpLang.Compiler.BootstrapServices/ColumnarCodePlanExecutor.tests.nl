@@ -361,6 +361,103 @@ func ExecutorRunRecursivePlan(
     return result.ToString() ?? ""
 }
 
+func ExecutorV3ArrayStorePlan(
+    elementType: Type,
+    storeOpCode: short,
+    typedStore: bool): ColumnarCodePlan {
+    arrayType := elementType.MakeArrayType()
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1200, 0)
+    elementTypeIndex := plan.AddType(elementType)
+    argument := plan.AddArgument(0, elementTypeIndex)
+
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementTypeIndex)
+    duplicate := plan.BeginFragment(root, 1201, 1)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.CompleteFragment(duplicate, arrayType)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    if typedStore {
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), elementTypeIndex)
+    } else {
+        plan.AppendInstructionWithoutOperand(storeOpCode)
+    }
+
+    plan.CompleteFragment(root, arrayType)
+    plan.CompleteV3(arrayType)
+    return plan
+}
+
+func ExecutorRunArrayPlan(
+    plan: ColumnarCodePlan,
+    resultType: Type,
+    parameterTypes: Type[],
+    arguments: object[]): string {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    constructorInfo := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if constructorInfo == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    constructorArguments := new object[](3)
+    ExecutorSetObject(constructorArguments, 0, "NSharpV3ArrayPlan")
+    ExecutorSetObject(constructorArguments, 1, resultType)
+    ExecutorSetObject(constructorArguments, 2, parameterTypes)
+    dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
+    il := dynamicMethod.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    target: object? = null
+    result := dynamicMethod.Invoke(target, arguments)
+    if result == null {
+        throw new InvalidOperationException("Array DynamicMethod returned null unexpectedly.")
+    }
+    values := result as System.Collections.IList
+    if values == null {
+        throw new InvalidOperationException("Array DynamicMethod did not return an IList array.")
+    }
+    summary := values.Count.ToString()
+    if values.Count == 0 {
+        return summary
+    }
+    stored := values[0]
+    if stored == null {
+        return summary + ":<null>"
+    }
+    return summary + ":" + stored.ToString()
+}
+
+func ExecutorAssertV3ArrayStore(
+    elementType: Type,
+    storeOpCode: short,
+    typedStore: bool,
+    value: object,
+    expectedText: string) {
+    plan := ExecutorV3ArrayStorePlan(elementType, storeOpCode, typedStore)
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = elementType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, value)
+    summary := ExecutorRunArrayPlan(
+        plan,
+        elementType.MakeArrayType(),
+        parameterTypes,
+        arguments)
+    assert summary == "1:" + expectedText
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Execute(plan, null)
+    }
+}
+
 test "schema v2 executor accepts exact literal fragment categories without erasing loaded types" {
     intPlan := ExecutorConstantPlan(typeof(int))
     boolPlan := ExecutorConstantPlan(typeof(bool))
@@ -2104,4 +2201,305 @@ test "schema v3 executor rejects invalid unary stack categories before emission"
     underflow.CompleteFragment(underflowRoot, typeof(int))
     underflow.CompleteV3(typeof(int))
     assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(underflow) }
+}
+
+test "schema v3 executor persists newarr dup and every stelem form through DynamicMethod" {
+    ExecutorAssertV3ArrayStore(
+        typeof(bool), ColumnarCodePlanContract.StelemI1(), false, true, "True")
+    ExecutorAssertV3ArrayStore(
+        typeof(char), ColumnarCodePlanContract.StelemI2(), false, (char)81, "Q")
+    ExecutorAssertV3ArrayStore(
+        typeof(int), ColumnarCodePlanContract.StelemI4(), false, 41, "41")
+    ExecutorAssertV3ArrayStore(
+        typeof(uint), ColumnarCodePlanContract.StelemI4(), false, (uint)42, "42")
+    ExecutorAssertV3ArrayStore(
+        typeof(long), ColumnarCodePlanContract.StelemI8(), false, (long)43, "43")
+    ExecutorAssertV3ArrayStore(
+        typeof(ulong), ColumnarCodePlanContract.StelemI8(), false, (ulong)44, "44")
+    ExecutorAssertV3ArrayStore(
+        typeof(float), ColumnarCodePlanContract.StelemR4(), false, (float)45, "45")
+    ExecutorAssertV3ArrayStore(
+        typeof(double), ColumnarCodePlanContract.StelemR8(), false, (double)46, "46")
+    ExecutorAssertV3ArrayStore(
+        typeof(string), ColumnarCodePlanContract.StelemRef(), false, "forty-seven", "forty-seven")
+    ExecutorAssertV3ArrayStore(
+        typeof(byte), ColumnarCodePlanContract.Stelem(), true, (byte)48, "48")
+    ExecutorAssertV3ArrayStore(
+        typeof(ColumnarExecutorProbeEnum),
+        ColumnarCodePlanContract.Stelem(),
+        true,
+        ColumnarExecutorProbeEnum.One,
+        "One")
+}
+
+test "schema v3 newarr accepts an exact Int32 length and consumes once" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1202, 0)
+    intType := plan.AddType(typeof(int))
+    stringType := plan.AddType(typeof(string))
+    length := plan.AddArgument(0, intType)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), length)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), stringType)
+    plan.CompleteFragment(root, typeof(string[]))
+    plan.CompleteV3(typeof(string[]))
+
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, 3)
+    summary := ExecutorRunArrayPlan(plan, typeof(string[]), parameterTypes, arguments)
+    assert summary == "3:<null>"
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v3 nested dup preserves fresh generic SZ-array wrapper identity" {
+    genericParameter := ExecutorOpenGenericParameter()
+    childArrayShape := genericParameter.MakeArrayType()
+    rootArrayShape := genericParameter.MakeArrayType()
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1203, 0)
+    elementType := plan.AddType(genericParameter)
+    value := plan.AddArgument(0, elementType)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementType)
+    duplicate := plan.BeginFragment(root, 1204, 1)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.CompleteFragment(duplicate, childArrayShape)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), value)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), elementType)
+    plan.CompleteFragment(root, rootArrayShape)
+    plan.CompleteV3(rootArrayShape)
+
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 typed stelem validates an unbaked source value array structurally" {
+    sourceDefinition := SourceCallDefinition("ExecutorUnbakedArrayValue", false)
+    sourceType: Type = sourceDefinition.Builder
+    childArrayShape := sourceType.MakeArrayType()
+    rootArrayShape := sourceType.MakeArrayType()
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1211, 0)
+    elementType := plan.AddType(sourceType)
+    value := plan.AddArgument(0, elementType)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementType)
+    duplicate := plan.BeginFragment(root, 1212, 1)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.CompleteFragment(duplicate, childArrayShape)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), value)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), elementType)
+    plan.CompleteFragment(root, rootArrayShape)
+    plan.CompleteV3(rootArrayShape)
+
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert sourceType.get_IsValueType()
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects corrupt dup and newarr stack semantics purely" {
+    emptyDup := new ColumnarCodePlan()
+    emptyDup.PrepareV3()
+    emptyDupRoot := emptyDup.BeginFragment(-1, 1205, 0)
+    emptyDup.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    emptyDup.CompleteFragment(emptyDupRoot, typeof(int))
+    emptyDup.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(emptyDup) }
+    assert emptyDup.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    badLength := new ColumnarCodePlan()
+    badLength.PrepareV3()
+    badLengthRoot := badLength.BeginFragment(-1, 1206, 0)
+    boolType := badLength.AddType(typeof(bool))
+    elementType := badLength.AddType(typeof(string))
+    boolLength := badLength.AddArgument(0, boolType)
+    badLength.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), boolLength)
+    badLength.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementType)
+    badLength.CompleteFragment(badLengthRoot, typeof(string[]))
+    badLength.CompleteV3(typeof(string[]))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badLength) }
+    assert badLength.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects corrupt fixed and typed stelem element contracts" {
+    wrongFixed := ExecutorV3ArrayStorePlan(
+        typeof(int), ColumnarCodePlanContract.StelemI4(), false)
+    assert wrongFixed.OperationCount == 6
+    wrongFixed.OpCodeValues[5] = ColumnarCodePlanContract.StelemI1()
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(wrongFixed) }
+
+    wrongReference := ExecutorV3ArrayStorePlan(
+        typeof(int), ColumnarCodePlanContract.StelemI4(), false)
+    wrongReference.OpCodeValues[5] = ColumnarCodePlanContract.StelemRef()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongReference)
+    }
+
+    wrongTyped := new ColumnarCodePlan()
+    wrongTyped.PrepareV3()
+    wrongTypedRoot := wrongTyped.BeginFragment(-1, 1207, 0)
+    intType := wrongTyped.AddType(typeof(int))
+    uintType := wrongTyped.AddType(typeof(uint))
+    intValue := wrongTyped.AddArgument(0, intType)
+    wrongTyped.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    wrongTyped.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), intType)
+    wrongTyped.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    wrongTyped.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    wrongTyped.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), intValue)
+    wrongTyped.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), uintType)
+    wrongTyped.CompleteFragment(wrongTypedRoot, typeof(int[]))
+    wrongTyped.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(wrongTyped) }
+
+    assert wrongFixed.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert wrongReference.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert wrongTyped.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects missing dup and incomplete stelem stacks" {
+    missingDup := new ColumnarCodePlan()
+    missingDup.PrepareV3()
+    missingDupRoot := missingDup.BeginFragment(-1, 1213, 0)
+    elementType := missingDup.AddType(typeof(int))
+    missingDup.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    missingDup.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementType)
+    missingDup.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    missingDup.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    missingDup.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    missingDup.CompleteFragment(missingDupRoot, typeof(int[]))
+    missingDup.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(missingDup) }
+
+    incompleteStore := new ColumnarCodePlan()
+    incompleteStore.PrepareV3()
+    incompleteRoot := incompleteStore.BeginFragment(-1, 1214, 0)
+    incompleteStore.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    incompleteStore.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    incompleteStore.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    incompleteStore.CompleteFragment(incompleteRoot, typeof(int))
+    incompleteStore.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(incompleteStore)
+    }
+
+    assert missingDup.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert incompleteStore.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects corrupt stelem array index and value slots" {
+    badArray := new ColumnarCodePlan()
+    badArray.PrepareV3()
+    badArrayRoot := badArray.BeginFragment(-1, 1208, 0)
+    badArrayIntType := badArray.AddType(typeof(int))
+    notAnArray := badArray.AddArgument(0, badArrayIntType)
+    badArray.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), notAnArray)
+    badArray.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    badArray.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badArray.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    badArray.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    badArray.CompleteFragment(badArrayRoot, typeof(int))
+    badArray.CompleteV3(typeof(int))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badArray) }
+
+    badIndex := new ColumnarCodePlan()
+    badIndex.PrepareV3()
+    badIndexRoot := badIndex.BeginFragment(-1, 1209, 0)
+    indexElementType := badIndex.AddType(typeof(int))
+    boolType := badIndex.AddType(typeof(bool))
+    boolIndex := badIndex.AddArgument(0, boolType)
+    intValue := badIndex.AddArgument(1, indexElementType)
+    badIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badIndex.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), indexElementType)
+    badIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    badIndex.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), boolIndex)
+    badIndex.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), intValue)
+    badIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    badIndex.CompleteFragment(badIndexRoot, typeof(int[]))
+    badIndex.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badIndex) }
+
+    badValue := new ColumnarCodePlan()
+    badValue.PrepareV3()
+    badValueRoot := badValue.BeginFragment(-1, 1210, 0)
+    valueElementType := badValue.AddType(typeof(int))
+    badValueBoolType := badValue.AddType(typeof(bool))
+    boolValue := badValue.AddArgument(0, badValueBoolType)
+    badValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    badValue.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), valueElementType)
+    badValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    badValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    badValue.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), boolValue)
+    badValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    badValue.CompleteFragment(badValueRoot, typeof(int[]))
+    badValue.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(badValue) }
+
+    assert badArray.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert badIndex.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert badValue.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 array rows reject managed addresses in length index and value slots" {
+    addressLength := new ColumnarCodePlan()
+    addressLength.PrepareV3()
+    addressLengthRoot := addressLength.BeginFragment(-1, 1215, 0)
+    lengthType := addressLength.AddType(typeof(int))
+    lengthElementType := addressLength.AddType(typeof(string))
+    length := addressLength.AddArgument(0, lengthType)
+    addressLength.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), length)
+    addressLength.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), lengthElementType)
+    addressLength.CompleteFragment(addressLengthRoot, typeof(string[]))
+    addressLength.CompleteV3(typeof(string[]))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(addressLength)
+    }
+
+    addressIndex := new ColumnarCodePlan()
+    addressIndex.PrepareV3()
+    addressIndexRoot := addressIndex.BeginFragment(-1, 1216, 0)
+    indexElementType := addressIndex.AddType(typeof(int))
+    index := addressIndex.AddArgument(0, indexElementType)
+    addressIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    addressIndex.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), indexElementType)
+    addressIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    addressIndex.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), index)
+    addressIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    addressIndex.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    addressIndex.CompleteFragment(addressIndexRoot, typeof(int[]))
+    addressIndex.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(addressIndex)
+    }
+
+    addressValue := new ColumnarCodePlan()
+    addressValue.PrepareV3()
+    addressValueRoot := addressValue.BeginFragment(-1, 1217, 0)
+    valueElementType := addressValue.AddType(typeof(int))
+    value := addressValue.AddArgument(0, valueElementType)
+    addressValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    addressValue.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), valueElementType)
+    addressValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    addressValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    addressValue.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), value)
+    addressValue.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    addressValue.CompleteFragment(addressValueRoot, typeof(int[]))
+    addressValue.CompleteV3(typeof(int[]))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(addressValue)
+    }
+
+    assert addressLength.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert addressIndex.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert addressValue.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }

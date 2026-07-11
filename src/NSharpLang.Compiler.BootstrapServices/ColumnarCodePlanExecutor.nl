@@ -276,6 +276,10 @@ public class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Box, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
+                il.Emit(OpCodes.Newarr, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Stelem() {
+                il.Emit(OpCodes.Stelem, plan.Types[operandIndex])
             } else {
                 il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
             }
@@ -305,6 +309,8 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ldc_I4_7)
         } else if opCodeValue == ColumnarCodePlanContract.LdcI4_8() {
             il.Emit(OpCodes.Ldc_I4_8)
+        } else if opCodeValue == ColumnarCodePlanContract.Dup() {
+            il.Emit(OpCodes.Dup)
         } else if opCodeValue == ColumnarCodePlanContract.Neg() {
             il.Emit(OpCodes.Neg)
         } else if opCodeValue == ColumnarCodePlanContract.Not() {
@@ -339,6 +345,20 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ldelem_R8)
         } else if opCodeValue == ColumnarCodePlanContract.LdelemRef() {
             il.Emit(OpCodes.Ldelem_Ref)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemI1() {
+            il.Emit(OpCodes.Stelem_I1)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemI2() {
+            il.Emit(OpCodes.Stelem_I2)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemI4() {
+            il.Emit(OpCodes.Stelem_I4)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemI8() {
+            il.Emit(OpCodes.Stelem_I8)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemR4() {
+            il.Emit(OpCodes.Stelem_R4)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemR8() {
+            il.Emit(OpCodes.Stelem_R8)
+        } else if opCodeValue == ColumnarCodePlanContract.StelemRef() {
+            il.Emit(OpCodes.Stelem_Ref)
         }
     }
 
@@ -1394,6 +1414,20 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Dup() {
+            // Do not pop and recreate the original. The duplicate points at the existing head,
+            // preserving the persistent tail identity captured by an enclosing fragment.
+            value := state.Head
+            if value == null {
+                throw new InvalidOperationException(
+                    schemaName + " dup requires one evaluation-stack value.")
+            }
+            state.Push(
+                value.ValueType,
+                value.IsAddress,
+                value.ValueKind,
+                value.LiteralKnown,
+                value.LiteralValue)
         } else if opCodeValue == ColumnarCodePlanContract.Ldarg()
             || opCodeValue == ColumnarCodePlanContract.Ldarga() {
             argumentType := plan.Types[plan.ArgumentTypeIndices[operandIndex]]
@@ -1629,6 +1663,24 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.NativeUnsigned(),
                 false,
                 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
+            lengthValue := state.Pop()
+            if lengthValue.IsAddress
+                || !IsArrayIndex(
+                    lengthValue.ValueType,
+                    lengthValue.ValueKind,
+                    lengthValue.LiteralKnown) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " newarr requires an exact Int32 or literal I4 length.")
+            }
+            elementType := plan.Types[operandIndex]
+            state.Push(
+                elementType.MakeArrayType(),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.Ldelem()
             || opCodeValue == ColumnarCodePlanContract.LdelemU1()
             || opCodeValue == ColumnarCodePlanContract.LdelemU2()
@@ -1647,6 +1699,29 @@ public class ColumnarCodePlanExecutor {
                     schemaName)
             } else {
                 ApplyArrayElementLoad(
+                    opCodeValue,
+                    typeof(object),
+                    false,
+                    state,
+                    schemaName)
+            }
+        } else if opCodeValue == ColumnarCodePlanContract.Stelem()
+            || opCodeValue == ColumnarCodePlanContract.StelemI1()
+            || opCodeValue == ColumnarCodePlanContract.StelemI2()
+            || opCodeValue == ColumnarCodePlanContract.StelemI4()
+            || opCodeValue == ColumnarCodePlanContract.StelemI8()
+            || opCodeValue == ColumnarCodePlanContract.StelemR4()
+            || opCodeValue == ColumnarCodePlanContract.StelemR8()
+            || opCodeValue == ColumnarCodePlanContract.StelemRef() {
+            if opCodeValue == ColumnarCodePlanContract.Stelem() {
+                ApplyArrayElementStore(
+                    opCodeValue,
+                    plan.Types[operandIndex],
+                    true,
+                    state,
+                    schemaName)
+            } else {
+                ApplyArrayElementStore(
                     opCodeValue,
                     typeof(object),
                     false,
@@ -2144,6 +2219,53 @@ public class ColumnarCodePlanExecutor {
             0)
     }
 
+    static func ApplyArrayElementStore(
+        opCodeValue: short,
+        requestedType: Type,
+        hasRequestedType: bool,
+        state: ColumnarCodePlanStackState,
+        schemaName: string) {
+        value := state.Pop()
+        indexValue := state.Pop()
+        arrayValue := state.Pop()
+
+        if indexValue.IsAddress
+            || !IsArrayIndex(
+                indexValue.ValueType,
+                indexValue.ValueKind,
+                indexValue.LiteralKnown) {
+            throw new InvalidOperationException(
+                schemaName
+                    + " array element stores require exact Int32 or literal I4 index.")
+        }
+        elementType := RequireSzArray(
+            arrayValue.ValueType,
+            arrayValue.IsAddress,
+            schemaName)
+
+        if opCodeValue == ColumnarCodePlanContract.Stelem() {
+            if !hasRequestedType || !ExactTypeShapeMatches(requestedType, elementType) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " stelem type operands must exactly match the array element type.")
+            }
+        } else if !TypedStoreOpcodeMatches(opCodeValue, elementType) {
+            throw new InvalidOperationException(
+                schemaName + " typed stelem opcode does not match the array element type.")
+        }
+
+        if value.IsAddress
+            || !IsStackCompatible(
+                elementType,
+                value.ValueType,
+                value.ValueKind,
+                value.LiteralKnown,
+                value.LiteralValue) {
+            throw new InvalidOperationException(
+                schemaName + " stelem value does not match the array element type.")
+        }
+    }
+
     static func RequireSzArray(
         arrayType: Type,
         isAddress: bool,
@@ -2185,6 +2307,32 @@ public class ColumnarCodePlanExecutor {
             return elementType == typeof(double)
         }
         if opCodeValue == ColumnarCodePlanContract.LdelemRef() {
+            return !elementType.get_IsValueType()
+                && !elementType.get_IsGenericParameter()
+        }
+        return false
+    }
+
+    static func TypedStoreOpcodeMatches(opCodeValue: short, elementType: Type): bool {
+        if opCodeValue == ColumnarCodePlanContract.StelemI1() {
+            return elementType == typeof(bool)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemI2() {
+            return elementType == typeof(char)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemI4() {
+            return elementType == typeof(int) || elementType == typeof(uint)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemI8() {
+            return elementType == typeof(long) || elementType == typeof(ulong)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemR4() {
+            return elementType == typeof(float)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemR8() {
+            return elementType == typeof(double)
+        }
+        if opCodeValue == ColumnarCodePlanContract.StelemRef() {
             return !elementType.get_IsValueType()
                 && !elementType.get_IsGenericParameter()
         }

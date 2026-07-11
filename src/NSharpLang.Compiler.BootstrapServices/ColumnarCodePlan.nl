@@ -145,6 +145,7 @@ public class ColumnarCodePlanContract {
 
     public static func IsScalarNoOperandOpcode(opCodeValue: short): bool {
         return opCodeValue == Ldnull()
+            || opCodeValue == Dup()
             || opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()
@@ -152,6 +153,13 @@ public class ColumnarCodePlanContract {
             || opCodeValue == ConvI8()
             || opCodeValue == ConvR4()
             || opCodeValue == ConvR8()
+            || opCodeValue == StelemI1()
+            || opCodeValue == StelemI2()
+            || opCodeValue == StelemI4()
+            || opCodeValue == StelemI8()
+            || opCodeValue == StelemR4()
+            || opCodeValue == StelemR8()
+            || opCodeValue == StelemRef()
     }
 
     public static func IsLocalOpcode(opCodeValue: short): bool {
@@ -854,7 +862,9 @@ public class ColumnarCodePlan {
                 && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
                     || (opCodeValue != ColumnarCodePlanContract.Ldtoken()
                         && opCodeValue != ColumnarCodePlanContract.Box()
-                        && opCodeValue != ColumnarCodePlanContract.Initobj())))
+                        && opCodeValue != ColumnarCodePlanContract.Initobj()
+                        && opCodeValue != ColumnarCodePlanContract.Newarr()
+                        && opCodeValue != ColumnarCodePlanContract.Stelem())))
             || typeIndex < 0
             || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
@@ -1787,7 +1797,9 @@ public class ColumnarCodePlan {
             || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
                 && (opCodeValue == ColumnarCodePlanContract.Ldtoken()
                     || opCodeValue == ColumnarCodePlanContract.Box()
-                    || opCodeValue == ColumnarCodePlanContract.Initobj())) {
+                    || opCodeValue == ColumnarCodePlanContract.Initobj()
+                    || opCodeValue == ColumnarCodePlanContract.Newarr()
+                    || opCodeValue == ColumnarCodePlanContract.Stelem())) {
             return operandKind == ColumnarCodePlanContract.TypeOperand()
                 && operandIndex >= 0
                 && operandIndex < TypeCount
