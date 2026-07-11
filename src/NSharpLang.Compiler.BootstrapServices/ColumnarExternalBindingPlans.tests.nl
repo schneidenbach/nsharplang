@@ -159,6 +159,7 @@ test "range code plans own exact runtime type identities" {
     AssertRuntimeType("ParameterInfo", "System.Reflection.ParameterInfo")
     AssertRuntimeType("MethodBase", "System.Reflection.MethodBase")
     AssertRuntimeType("MethodAttributes", "System.Reflection.MethodAttributes")
+    AssertRuntimeType("CallingConventions", "System.Reflection.CallingConventions")
     AssertRuntimeType("AssemblyName", "System.Reflection.AssemblyName")
     AssertRuntimeType("DynamicMethod", "System.Reflection.Emit.DynamicMethod")
 
@@ -312,6 +313,29 @@ test "source property metadata owns exact TypeBuilder method definition" {
         "System.Reflection.Emit.TypeBuilder",
         "defineMethod",
         arguments).IsSupported
+}
+
+test "source constructor metadata owns exact TypeBuilder constructor definition" {
+    arguments := new string[](3)
+    arguments[0] = "System.Reflection.MethodAttributes"
+    arguments[1] = "System.Reflection.CallingConventions"
+    arguments[2] = "System.Type[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineConstructor",
+        arguments,
+        "System.Reflection.Emit.ConstructorBuilder")
+
+    wrongConvention := new string[](3)
+    wrongConvention[0] = "System.Reflection.MethodAttributes"
+    wrongConvention[1] = "System.Int32"
+    wrongConvention[2] = "System.Type[]"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineConstructor",
+        wrongConvention).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "TypeBuilder", "DefineConstructor", arguments).IsSupported
 }
 
 test "recursive code plans own exact type and local facts" {
