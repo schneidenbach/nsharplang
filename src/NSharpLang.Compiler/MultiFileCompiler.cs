@@ -37,11 +37,9 @@ public class MultiFileCompiler
     private readonly HashSet<string> _resolvedFileImportDiagnosticKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly PerformanceFactStore _performanceFacts = new();
 
-    /// <summary>
-    /// Public read-only accessors for code intelligence tooling.
+    /// <summary>Public read-only accessors for code intelligence tooling.
     /// These expose the intermediate products of compilation (ASTs, semantic models)
-    /// without requiring IL emission.
-    /// </summary>
+    /// without requiring IL emission.</summary>
     public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
     public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
     public Analyzer SharedAnalyzer => _sharedAnalyzer;
@@ -57,17 +55,13 @@ public class MultiFileCompiler
     /// </summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
-    /// <summary>
-    /// Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
-    /// source position. Populated by <see cref="CompileForAnalysis"/> and <see cref="CompileToIlAssembly"/>.
-    /// </summary>
+    /// <summary>Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
+    /// source position. Populated by <see cref="CompileForAnalysis"/> and <see cref="CompileToIlAssembly"/>.</summary>
     public PerformanceFactStore PerformanceFacts => _performanceFacts;
 
     private SystemsReport _systemsReport = SystemsReport.Empty(null);
 
-    /// <summary>
-    /// Systems N# effect/policy report discovered during analysis.
-    /// </summary>
+    /// <summary>Systems N# effect/policy report discovered during analysis.</summary>
     public SystemsReport SystemsReport => _systemsReport;
 
     /// <summary>
@@ -179,9 +173,7 @@ public class MultiFileCompiler
         }
     }
 
-    /// <summary>
-    /// Pass 1: Parse all source files into ASTs
-    /// </summary>
+    /// <summary>Pass 1: Parse all source files into ASTs</summary>
     private void ParseAllFiles()
     {
         foreach (var sourceFile in _sourceFiles)
@@ -279,11 +271,9 @@ public class MultiFileCompiler
             return CodeIntelligenceTextUtilities.GetSourceLine(ReadSourceText(filePath), line);
     }
 
-    /// <summary>
-    /// Pass 2: Analyze all files with complete symbol table
+    /// <summary>Pass 2: Analyze all files with complete symbol table.
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
-    /// This prevents the performance issue of reloading assemblies for each file.
-    /// </summary>
+    /// This prevents the performance issue of reloading assemblies for each file.</summary>
     private void AnalyzeAllFiles()
     {
         _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts);
@@ -432,7 +422,7 @@ public class MultiFileCompiler
         {
             ReadAllSourceTexts();
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
-            if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
+            if (!EmitOnWideStackThread(assemblyName, outputPath))
             {
                 var decline = BuildColumnarDeclineDiagnostic();
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
@@ -476,7 +466,7 @@ public class MultiFileCompiler
 
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
-            if (!TryEmitWithColumnarBackend(assemblyName, outputPath))
+            if (!EmitOnWideStackThread(assemblyName, outputPath))
             {
                 var decline = BuildColumnarDeclineDiagnostic();
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
@@ -525,6 +515,23 @@ public class MultiFileCompiler
             return false;
         File.WriteAllBytes(outputPath, assembly);
         return true;
+    }
+
+    // MSBuild task threads have ~256 KB stacks and the emitter's per-node recursion frames are large,
+    // so columnar emission runs on a dedicated 64 MB wide-stack thread for deterministic headroom.
+    private bool EmitOnWideStackThread(string assemblyName, string outputPath)
+    {
+        var emitted = false;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? captured = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try { emitted = TryEmitWithColumnarBackend(assemblyName, outputPath); }
+            catch (Exception ex) { captured = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
+        }, 64 * 1024 * 1024) { IsBackground = true, Name = "nsharp-columnar-emit" };
+        thread.Start();
+        thread.Join();
+        captured?.Throw();
+        return emitted;
     }
 
     private bool RequiresColumnarSoaEmission()
