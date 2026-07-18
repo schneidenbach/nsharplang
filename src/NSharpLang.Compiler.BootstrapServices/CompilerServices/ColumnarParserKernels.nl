@@ -495,6 +495,10 @@ class ColumnarExpressionNodeKind {
         return 15
     }
 
+    static func CastExpression(): int {
+        return 16
+    }
+
     static func ObjectInitializerExpression(): int {
         return 36
     }

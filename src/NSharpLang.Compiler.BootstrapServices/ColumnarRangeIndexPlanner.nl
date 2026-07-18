@@ -474,6 +474,8 @@ class ColumnarRangeIndexPlanner {
             if !planned {
                 planned = TryPlanFromEnd(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             }
+        } else if kind == ColumnarExpressionNodeKind.CastExpression() {
+            planned = TryPlanNumericCast(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.RangeExpression() {
             planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.TernaryExpression() {
@@ -538,6 +540,154 @@ class ColumnarRangeIndexPlanner {
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
         resultType = enumType
         return true
+    }
+
+    // Explicit numeric cast `(<builtin>) operand` — the Conv-opcode slice of the legacy case-16
+    // table. Children are [typeRoot, operand]; the type root must be a Simple type reference whose
+    // name is one of the eleven castable numeric builtins (decimal stays legacy-owned: it converts
+    // through System.Decimal operator statics, not conv opcodes, exactly like enum, user-defined,
+    // reference, and interface casts). The opcode is TARGET-driven and mirrors the legacy emitter
+    // exactly, including its i4-slot no-ops: an int/uint target over an i4-slot source emits no
+    // instruction, so that shape is claimable only for int/char literal operands, whose known
+    // literal value the fragment boundary can refine; an exact-typed i4-slot source declines.
+    static func TryPlanNumericCast(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        resultType = typeof(int)
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        if nodes.ChildCount(node) != 2 {
+            return false
+        }
+
+        typeNode := nodes.Child(node, 0)
+        // Type-reference nodes use the type-kernel encoding: 0 = SimpleTypeReference. Generic,
+        // array, nullable, and every other type form stays with the legacy cast owner.
+        if typeNode < 0 || typeNode >= nodes.Kinds.Length || nodes.Kind(typeNode) != 0 {
+            return false
+        }
+
+        targetType := typeof(int)
+        if !TryResolveNumericCastTarget(nodes.Text(source, typeNode), out targetType) {
+            return false
+        }
+
+        operandNode := UnwrapParentheses(nodes, nodes.Child(node, 1))
+        if operandNode < 0 || operandNode >= nodes.Kinds.Length {
+            return false
+        }
+
+        // The i4-slot no-op branch: an int/uint target over an int or char literal emits only the
+        // literal itself. Plan the literal directly into this open cast fragment so its known
+        // Int32 value survives to the fragment boundary, which refines it to the declared target.
+        if (targetType == typeof(int) || targetType == typeof(uint))
+            && IsI4LiteralOperand(nodes, source, operandNode) {
+            operandType := typeof(int)
+            if !ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, operandNode, plan, out operandType) {
+                return false
+            }
+            if operandType != typeof(int) && operandType != typeof(char) {
+                return false
+            }
+            resultType = targetType
+            return true
+        }
+
+        operandType := typeof(int)
+        if !TryAppendPlannableValue(nodes, source, operandNode, bindings, handles, plan, fragment, depth + 1, out operandType, out nestedOwnership) {
+            return false
+        }
+
+        if !ColumnarNumericFacts.IsCastableScalar(operandType) || operandType == typeof(decimal) {
+            return false
+        }
+
+        // An identity cast emits nothing, which would seal this cast fragment over exactly its
+        // operand child fragment's rows — a shape the plan schema forbids. Identity casts over
+        // literal operands ride the direct-literal path above; every other identity stays with
+        // the legacy owner.
+        if operandType == targetType {
+            return false
+        }
+
+        // The legacy target-driven opcode table. A non-identity ushort target shares conv.u2 with
+        // char but the validation stack models conv.u2 as char, so that form stays legacy-owned.
+        if targetType == typeof(double) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvR8())
+        } else if targetType == typeof(float) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvR4())
+        } else if targetType == typeof(long) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI8())
+        } else if targetType == typeof(ulong) {
+            // N# unchecked: int sign-extends, uint zero-extends — exactly the legacy selection.
+            if operandType == typeof(uint) {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU8())
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI8())
+            }
+        } else if targetType == typeof(char) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU2())
+        } else if targetType == typeof(byte) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU1())
+        } else if targetType == typeof(sbyte) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI1())
+        } else if targetType == typeof(short) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI2())
+        } else if (targetType == typeof(int) || targetType == typeof(uint))
+            && (operandType == typeof(long) || operandType == typeof(ulong)
+                || operandType == typeof(double) || operandType == typeof(float)) {
+            if targetType == typeof(uint) {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU4())
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+            }
+        } else {
+            // int/uint targets over exact i4-slot sources are the legacy no-op branch (no opcode,
+            // reinterpreted slot); without a known literal the fragment boundary cannot prove the
+            // reinterpretation, so the whole cast stays legacy-owned.
+            return false
+        }
+
+        resultType = targetType
+        return true
+    }
+
+    // The eleven builtin numeric cast targets the Conv-opcode table serves. decimal is excluded
+    // by scope ruling; bool, string, object, and every non-numeric builtin never reach this arm.
+    static func TryResolveNumericCastTarget(name: string, out targetType: Type): bool {
+        targetType = typeof(int)
+        if name == "int" { targetType = typeof(int) }
+        else if name == "long" { targetType = typeof(long) }
+        else if name == "uint" { targetType = typeof(uint) }
+        else if name == "ulong" { targetType = typeof(ulong) }
+        else if name == "short" { targetType = typeof(short) }
+        else if name == "ushort" { targetType = typeof(ushort) }
+        else if name == "byte" { targetType = typeof(byte) }
+        else if name == "sbyte" { targetType = typeof(sbyte) }
+        else if name == "char" { targetType = typeof(char) }
+        else if name == "float" { targetType = typeof(float) }
+        else if name == "double" { targetType = typeof(double) }
+        else { return false }
+        return true
+    }
+
+    // An operand whose literal lowering is a single known Int32 stack value: a char literal, or an
+    // int literal with no suffix (an l/u/m suffix selects the Int64, UInt64, or Decimal lowering).
+    static func IsI4LiteralOperand(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        kind := nodes.Kind(node)
+        if nodes.ChildCount(node) != 0 {
+            return false
+        }
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression() {
+            return true
+        }
+        if kind != ColumnarExpressionNodeKind.IntLiteralExpression() {
+            return false
+        }
+        text := nodes.Text(source, node)
+        if text.Length == 0 {
+            return false
+        }
+        last := text[text.Length - 1]
+        return last != 'l' && last != 'L' && last != 'u' && last != 'U'
+            && last != 'm' && last != 'M'
     }
 
     static func TryPlanFromEnd(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {

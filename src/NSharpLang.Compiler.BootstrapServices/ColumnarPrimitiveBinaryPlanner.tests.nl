@@ -1130,3 +1130,213 @@ test "primitive binary planner declines mixed pairs boolean and non numeric rela
     PrimitiveBinaryDeclines("left * missing", partialBindings)
     PrimitiveBinaryDeclines("left < missing", partialBindings)
 }
+
+func PrimitiveBinaryExecuteOneParameter(
+    plan: ColumnarCodePlan,
+    resultType: Type,
+    parameterType: Type,
+    parameterValue: object): string {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = parameterType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, parameterValue)
+    return ExecutorRunRecursivePlan(
+        plan, resultType, parameterTypes, arguments)
+}
+
+test "primitive binary planner owns numeric cast operands per admitted target" {
+    // The flagship no-op shape: an int literal reinterpreted as uint emits NO conversion opcode,
+    // exactly like the legacy case-16 i4-slot branch. The known literal survives to the cast
+    // fragment boundary, which refines it to the declared uint.
+    literalBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(literalBindings, "left", 0, typeof(uint))
+    uintLiteralPlan := PrimitiveBinaryPlan("left == (uint)42", literalBindings)
+    assert uintLiteralPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        uintLiteralPlan, ColumnarCodePlanContract.ConvU4()) == 0
+    assert PrimitiveBinaryOpcodeCount(
+        uintLiteralPlan, ColumnarCodePlanContract.ConvI4()) == 0
+    assert PrimitiveBinaryOpcodeCount(
+        uintLiteralPlan, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        uintLiteralPlan, typeof(bool), typeof(uint), (uint)42) == "True"
+
+    // A char literal reinterpreted as int is the same no-op branch.
+    intCharBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(intCharBindings, "left", 0, typeof(int))
+    intCharPlan := PrimitiveBinaryPlan("(int)'a' == left", intCharBindings)
+    assert intCharPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        intCharPlan, ColumnarCodePlanContract.ConvI4()) == 0
+    assert PrimitiveBinaryExecuteOneParameter(
+        intCharPlan, typeof(bool), typeof(int), 97) == "True"
+
+    // Widening to long always emits conv.i8.
+    longBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(longBindings, "left", 0, typeof(int))
+    longPlan := PrimitiveBinaryPlan("(long)left + 1L", longBindings)
+    assert longPlan.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        longPlan, ColumnarCodePlanContract.ConvI8()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        longPlan, typeof(long), typeof(int), 41) == "42"
+
+    // The ulong target keeps the legacy source-driven selection: uint zero-extends via conv.u8,
+    // int sign-extends via conv.i8.
+    ulongFromUintBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(ulongFromUintBindings, "left", 0, typeof(uint))
+    ulongFromUintPlan := PrimitiveBinaryPlan("(ulong)left + 2UL", ulongFromUintBindings)
+    assert ulongFromUintPlan.ResultType == typeof(ulong)
+    assert PrimitiveBinaryOpcodeCount(
+        ulongFromUintPlan, ColumnarCodePlanContract.ConvU8()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        ulongFromUintPlan, typeof(ulong), typeof(uint), (uint)40) == "42"
+
+    ulongFromIntBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(ulongFromIntBindings, "left", 0, typeof(int))
+    ulongFromIntPlan := PrimitiveBinaryPlan("(ulong)left + 2UL", ulongFromIntBindings)
+    assert PrimitiveBinaryOpcodeCount(
+        ulongFromIntPlan, ColumnarCodePlanContract.ConvU8()) == 0
+    assert PrimitiveBinaryOpcodeCount(
+        ulongFromIntPlan, ColumnarCodePlanContract.ConvI8()) == 1
+
+    // char casts truncate via conv.u2 and participate in the promoted equality family.
+    charBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(charBindings, "left", 0, typeof(int))
+    charPlan := PrimitiveBinaryPlan("(char)left == 'a'", charBindings)
+    assert charPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        charPlan, ColumnarCodePlanContract.ConvU2()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        charPlan, typeof(bool), typeof(int), 97) == "True"
+
+    // Small-int truncations select conv.u1/conv.i1/conv.i2 and promote back to int arithmetic.
+    byteBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(byteBindings, "left", 0, typeof(int))
+    bytePlan := PrimitiveBinaryPlan("(byte)left + 1", byteBindings)
+    assert bytePlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        bytePlan, ColumnarCodePlanContract.ConvU1()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        bytePlan, typeof(int), typeof(int), 300) == "45"
+
+    sbytePlan := PrimitiveBinaryPlan("(sbyte)left + 1", byteBindings)
+    assert PrimitiveBinaryOpcodeCount(
+        sbytePlan, ColumnarCodePlanContract.ConvI1()) == 1
+
+    shortPlan := PrimitiveBinaryPlan("(short)left * 2", byteBindings)
+    assert shortPlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        shortPlan, ColumnarCodePlanContract.ConvI2()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        shortPlan, typeof(int), typeof(int), 10) == "20"
+
+    // Floating targets widen via conv.r8/conv.r4; i8/r8 sources narrow to int via conv.i4.
+    doubleBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(doubleBindings, "left", 0, typeof(int))
+    doublePlan := PrimitiveBinaryPlan("(double)left < 4.5", doubleBindings)
+    assert doublePlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        doublePlan, ColumnarCodePlanContract.ConvR8()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        doublePlan, typeof(bool), typeof(int), 4) == "True"
+
+    floatPlan := PrimitiveBinaryPlan("(float)left + 1.5f", doubleBindings)
+    assert floatPlan.ResultType == typeof(float)
+    assert PrimitiveBinaryOpcodeCount(
+        floatPlan, ColumnarCodePlanContract.ConvR4()) == 1
+
+    truncateBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(truncateBindings, "left", 0, typeof(double))
+    truncatePlan := PrimitiveBinaryPlan("(int)left + 1", truncateBindings)
+    assert truncatePlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        truncatePlan, ColumnarCodePlanContract.ConvI4()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        truncatePlan, typeof(int), typeof(double), 41.9) == "42"
+
+    uintNarrowBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(uintNarrowBindings, "left", 0, typeof(long))
+    ColumnarRangePlannerAddParameter(uintNarrowBindings, "right", 1, typeof(uint))
+    uintNarrowPlan := PrimitiveBinaryPlan("(uint)left == right", uintNarrowBindings)
+    assert uintNarrowPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        uintNarrowPlan, ColumnarCodePlanContract.ConvU4()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        uintNarrowPlan, typeof(bool), typeof(long), typeof(uint),
+        5L, (uint)5) == "True"
+
+    // A literal identity cast rides the direct-literal path and emits no conversion opcode.
+    identityBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(identityBindings, "left", 0, typeof(int))
+    identityPlan := PrimitiveBinaryPlan("(int)41 + left", identityBindings)
+    assert identityPlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        identityPlan, ColumnarCodePlanContract.ConvI4()) == 0
+    assert PrimitiveBinaryExecuteOneParameter(
+        identityPlan, typeof(int), typeof(int), 1) == "42"
+}
+
+test "primitive binary planner owns decimal literal operands" {
+    decimalBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(decimalBindings, "left", 0, typeof(decimal))
+    comparePlan := PrimitiveBinaryPlan("left == 24.5m", decimalBindings)
+    assert comparePlan.ResultType == typeof(bool)
+    assert comparePlan.ConstructorCount == 1
+    decimalConstructor := comparePlan.Constructors[0]
+    assert decimalConstructor.get_DeclaringType() == typeof(decimal)
+    constructorParameters := decimalConstructor.GetParameters()
+    assert constructorParameters.Length == 5
+    assert constructorParameters[0].get_ParameterType() == typeof(int)
+    assert constructorParameters[3].get_ParameterType() == typeof(bool)
+    assert constructorParameters[4].get_ParameterType() == typeof(byte)
+    assert PrimitiveBinaryExecuteOneParameter(
+        comparePlan, typeof(bool), typeof(decimal), 24.5m) == "True"
+
+    additionPlan := PrimitiveBinaryPlan(
+        "1.5m + 2.5m", ColumnarRangePlannerEmptyBindings())
+    assert additionPlan.ResultType == typeof(decimal)
+    assert additionPlan.ConstructorCount == 2
+    assert ExecutorRunV3ScalarPlan(additionPlan, typeof(decimal))
+        == (1.5m + 2.5m).ToString()
+
+    integerFormPlan := PrimitiveBinaryPlan(
+        "5m + 2m", ColumnarRangePlannerEmptyBindings())
+    assert integerFormPlan.ResultType == typeof(decimal)
+    assert ExecutorRunV3ScalarPlan(integerFormPlan, typeof(decimal))
+        == (5m + 2m).ToString()
+
+    negativeScalePlan := PrimitiveBinaryPlan(
+        "left < 0.5m", decimalBindings)
+    assert negativeScalePlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryExecuteOneParameter(
+        negativeScalePlan, typeof(bool), typeof(decimal), 0.25m) == "True"
+}
+
+test "primitive binary planner declines legacy-owned cast forms atomically" {
+    intPair := PrimitiveBinaryPairBindings(typeof(int), typeof(int))
+
+    // An exact-typed i4-slot source under an int/uint target is the legacy no-op branch: without
+    // a known literal the fragment boundary cannot prove the reinterpretation.
+    uintNoOp := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(uintNoOp, "left", 0, typeof(uint))
+    ColumnarRangePlannerAddParameter(uintNoOp, "right", 1, typeof(int))
+    PrimitiveBinaryDeclines("left == (uint)right", uintNoOp)
+
+    // Non-numeric targets, decimal targets, and non-identity ushort targets stay legacy-owned.
+    boolPair := PrimitiveBinaryParameterBindings(typeof(bool))
+    PrimitiveBinaryDeclines("left == (bool)right", boolPair)
+    PrimitiveBinaryDeclines("(decimal)left + 1m", intPair)
+    PrimitiveBinaryDeclines("(ushort)left + right", intPair)
+    PrimitiveBinaryDeclines("(string)left == right", intPair)
+
+    // A decimal source never reaches a conv opcode.
+    decimalSource := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(decimalSource, "left", 0, typeof(decimal))
+    ColumnarRangePlannerAddParameter(decimalSource, "right", 1, typeof(int))
+    PrimitiveBinaryDeclines("(int)left + right", decimalSource)
+
+    // An identity cast over a non-literal operand emits nothing, which the plan schema cannot
+    // represent as its own fragment; the legacy owner keeps serving it.
+    PrimitiveBinaryDeclines("(int)left + right", intPair)
+}

@@ -940,6 +940,13 @@ class ColumnarDirectCallPlanner {
                 nodes, node, depth)
         }
 
+        // A cast's first child is a TYPE subtree in the type-kernel encoding, so only the operand
+        // participates in expression-syntax admission.
+        if kind == ColumnarExpressionNodeKind.CastExpression() {
+            return nodes.ChildCount(node) == 2
+                && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
+        }
+
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }

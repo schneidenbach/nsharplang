@@ -204,6 +204,54 @@ test "schema v3 admits conversion and box rows without widening v1 or v2" {
     }
 }
 
+func ConversionFromArgumentPlan(sourceType: Type, opCodeValue: short, resultType: Type): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1220, 0)
+    sourceIndex := plan.AddType(sourceType)
+    argument := plan.AddArgument(0, sourceIndex)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendInstructionWithoutOperand(opCodeValue)
+    plan.CompleteFragment(root, resultType)
+    plan.CompleteV3(resultType)
+    return plan
+}
+
+test "schema v3 admits the explicit-cast conversion opcodes over castable scalars" {
+    // Narrowing/reinterpreting conversions from an Int32-slot literal.
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI1(), typeof(sbyte)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI2(), typeof(short)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU1(), typeof(byte)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU2(), typeof(char)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU4(), typeof(uint)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU8(), typeof(ulong)))
+
+    // The shared widening arms now admit the full castable-scalar source set explicit casts need:
+    // UInt32 -> Int64, Int64 -> Int32, and Double -> Single all validate.
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvI8(), typeof(long)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvI4(), typeof(int)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvU4(), typeof(uint)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvU8(), typeof(ulong)))
+    ColumnarCodePlanExecutor.Validate(
+        ConversionFromArgumentPlan(typeof(double), ColumnarCodePlanContract.ConvR4(), typeof(float)))
+
+    // A managed reference is still outside every conversion arm's admitted set.
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(
+            ConversionFromArgumentPlan(typeof(string), ColumnarCodePlanContract.ConvU2(), typeof(char)))
+    }
+}
+
 test "schema v3 conversion plans execute through their persisted rows" {
     i8 := ConversionFromI4Plan(ColumnarCodePlanContract.ConvI8(), typeof(long))
 
@@ -325,18 +373,21 @@ test "schema v3 rejects malformed box rows and incompatible box values before em
 }
 
 test "schema v3 rejects conversion widening outside the admitted argument set" {
-    uintToLong := new ColumnarCodePlan()
-    uintToLong.PrepareV3()
-    uintRoot := uintToLong.BeginFragment(-1, 1210, 0)
-    uintType := uintToLong.AddType(typeof(uint))
-    uintArgument := uintToLong.AddArgument(0, uintType)
-    uintToLong.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), uintArgument)
+    // decimal is never a conv-opcode operand: it converts through its System.Decimal operator
+    // statics. (Numeric scalars such as UInt32 ARE admitted now that explicit casts share these
+    // conversion arms; see the companion admit test.)
+    decimalToLong := new ColumnarCodePlan()
+    decimalToLong.PrepareV3()
+    decimalRoot := decimalToLong.BeginFragment(-1, 1210, 0)
+    decimalType := decimalToLong.AddType(typeof(decimal))
+    decimalArgument := decimalToLong.AddArgument(0, decimalType)
+    decimalToLong.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), decimalArgument)
 
-    uintToLong.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI8())
-    uintToLong.CompleteFragment(uintRoot, typeof(long))
-    uintToLong.CompleteV3(typeof(long))
+    decimalToLong.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI8())
+    decimalToLong.CompleteFragment(decimalRoot, typeof(long))
+    decimalToLong.CompleteV3(typeof(long))
     assert throws InvalidOperationException {
-        ColumnarCodePlanExecutor.Validate(uintToLong)
+        ColumnarCodePlanExecutor.Validate(decimalToLong)
     }
 
     stringToDouble := new ColumnarCodePlan()

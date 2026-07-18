@@ -422,6 +422,18 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Conv_R4)
         } else if opCodeValue == ColumnarCodePlanContract.ConvR8() {
             il.Emit(OpCodes.Conv_R8)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI1() {
+            il.Emit(OpCodes.Conv_I1)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI2() {
+            il.Emit(OpCodes.Conv_I2)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU1() {
+            il.Emit(OpCodes.Conv_U1)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU2() {
+            il.Emit(OpCodes.Conv_U2)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU4() {
+            il.Emit(OpCodes.Conv_U4)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU8() {
+            il.Emit(OpCodes.Conv_U8)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
             il.Emit(OpCodes.Ldlen)
         } else if opCodeValue == ColumnarCodePlanContract.LdelemU1() {
@@ -1980,10 +1992,12 @@ public class ColumnarCodePlanExecutor {
                     schemaName
                         + " conv.i8 requires an exact int-promotable scalar.")
             }
+            // conv.i8 produces an int64 stack slot whose signedness is contextual, exactly like
+            // ldc.i8: the consuming fragment boundary refines it to its declared long or ulong.
             state.Push(
                 typeof(long),
                 false,
-                ColumnarCodePlanStackValueKind.Exact(),
+                ColumnarCodePlanStackValueKind.I8Slot(),
                 false,
                 0)
         } else if opCodeValue == ColumnarCodePlanContract.ConvR4() {
@@ -2012,6 +2026,36 @@ public class ColumnarCodePlanExecutor {
                 typeof(double),
                 false,
                 ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI1() {
+            PushCastConversion(state, schemaName, "conv.i1", typeof(sbyte))
+        } else if opCodeValue == ColumnarCodePlanContract.ConvI2() {
+            PushCastConversion(state, schemaName, "conv.i2", typeof(short))
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU1() {
+            PushCastConversion(state, schemaName, "conv.u1", typeof(byte))
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU2() {
+            // conv.u2 lowers both `(char)` and `(ushort)` truncations. Both are Int32-promotable
+            // and IL-identical; the exact declared target flows through the planner's result type.
+            PushCastConversion(state, schemaName, "conv.u2", typeof(char))
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU4() {
+            PushCastConversion(state, schemaName, "conv.u4", typeof(uint))
+        } else if opCodeValue == ColumnarCodePlanContract.ConvU8() {
+            value := state.Pop()
+            if value.IsAddress
+                || !CanConvertCastScalar(
+                    value.ValueType,
+                    value.ValueKind,
+                    value.LiteralKnown) {
+                throw new InvalidOperationException(
+                    schemaName + " conv.u8 requires an exact numeric scalar operand.")
+            }
+            // conv.u8 produces an int64 stack slot whose signedness is contextual, exactly like
+            // ldc.i8: the consuming fragment boundary refines it to its declared long or ulong.
+            state.Push(
+                typeof(long),
+                false,
+                ColumnarCodePlanStackValueKind.I8Slot(),
                 false,
                 0)
         } else if opCodeValue == ColumnarCodePlanContract.Ldlen() {
@@ -3124,16 +3168,39 @@ public class ColumnarCodePlanExecutor {
                 && valueType == typeof(bool))
     }
 
+    // Pop one castable scalar and push the exact narrowing/reinterpreting target of a conv opcode.
+    static func PushCastConversion(
+        state: ColumnarCodePlanStackState,
+        schemaName: string,
+        opcodeName: string,
+        targetType: Type) {
+        value := state.Pop()
+        if value.IsAddress
+            || !CanConvertCastScalar(
+                value.ValueType,
+                value.ValueKind,
+                value.LiteralKnown) {
+            throw new InvalidOperationException(
+                schemaName
+                    + " "
+                    + opcodeName
+                    + " requires an exact numeric scalar operand.")
+        }
+        state.Push(
+            targetType,
+            false,
+            ColumnarCodePlanStackValueKind.Exact(),
+            false,
+            0)
+    }
+
+    // conv.i4 consumes any numeric scalar on the CIL stack. The range/index owner only ever feeds
+    // the i4-slot set; the explicit-cast owner also narrows Int64/UInt64/Single/Double down to Int32.
     static func CanConvertToI4(valueType: Type, valueKind: int, literalKnown: bool): bool {
         return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown)
             || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned()
             || (valueKind == ColumnarCodePlanStackValueKind.Exact()
-                && (valueType == typeof(int)
-                    || valueType == typeof(byte)
-                    || valueType == typeof(sbyte)
-                    || valueType == typeof(short)
-                    || valueType == typeof(ushort)
-                    || valueType == typeof(char)
+                && (IsCastableScalarStackType(valueType)
                     || (valueType.get_IsEnum()
                         && valueType.GetEnumUnderlyingType() == typeof(int))))
     }
@@ -3141,22 +3208,49 @@ public class ColumnarCodePlanExecutor {
     static func CanWidenToI8(valueType: Type, valueKind: int): bool {
         return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
             || (valueKind == ColumnarCodePlanStackValueKind.Exact()
-                && ColumnarNumericFacts.IsIntPromotable(valueType))
+                && IsCastableScalarStackType(valueType))
     }
 
     static func CanWidenToR4(valueType: Type, valueKind: int): bool {
         return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
             || (valueKind == ColumnarCodePlanStackValueKind.Exact()
-                && (ColumnarNumericFacts.IsIntPromotable(valueType)
-                    || valueType == typeof(long)))
+                && IsCastableScalarStackType(valueType))
     }
 
     static func CanWidenToR8(valueType: Type, valueKind: int): bool {
         return valueKind == ColumnarCodePlanStackValueKind.LiteralI4()
             || (valueKind == ColumnarCodePlanStackValueKind.Exact()
-                && (ColumnarNumericFacts.IsIntPromotable(valueType)
-                    || valueType == typeof(long)
-                    || valueType == typeof(float)))
+                && IsCastableScalarStackType(valueType))
+    }
+
+    // The exact numeric scalars an explicit-cast conversion opcode may consume. decimal never
+    // reaches a conv opcode: it converts through its System.Decimal operator statics instead.
+    static func IsCastableScalarStackType(valueType: Type): bool {
+        return valueType == typeof(int)
+            || valueType == typeof(long)
+            || valueType == typeof(uint)
+            || valueType == typeof(ulong)
+            || valueType == typeof(short)
+            || valueType == typeof(ushort)
+            || valueType == typeof(byte)
+            || valueType == typeof(sbyte)
+            || valueType == typeof(char)
+            || valueType == typeof(float)
+            || valueType == typeof(double)
+    }
+
+    // A conv arm accepts a literal I4, a native length, or an exact numeric scalar (or an
+    // i4-underlying enum, whose stack value is its Int32). decimal is excluded by design.
+    static func CanConvertCastScalar(
+        valueType: Type,
+        valueKind: int,
+        literalKnown: bool): bool {
+        return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown)
+            || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned()
+            || (valueKind == ColumnarCodePlanStackValueKind.Exact()
+                && (IsCastableScalarStackType(valueType)
+                    || (valueType.get_IsEnum()
+                        && valueType.GetEnumUnderlyingType() == typeof(int))))
     }
 
     static func IsLiteralI4Destination(

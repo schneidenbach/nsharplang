@@ -571,6 +571,31 @@ public class ColumnarExternalBindingPlans {
             }
         }
 
+        if typeName == "Decimal" || typeName == "decimal" {
+            // The decimal-literal owner parses with the invariant Number style and reads the four
+            // GetBits words to lower a `System.Decimal(int,int,int,bool,byte)` construction.
+            if memberName == "TryParse"
+                && count == 3
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Globalization.CultureInfo"
+                && argumentTypeNames[2] == "System.Decimal&" {
+                return StaticCall(
+                    "System.Decimal",
+                    memberName,
+                    Three("System.String", "System.IFormatProvider", "System.Decimal&"),
+                    "System.Boolean")
+            }
+            if memberName == "GetBits"
+                && count == 1
+                && argumentTypeNames[0] == "System.Decimal" {
+                return StaticCall(
+                    "System.Decimal",
+                    memberName,
+                    One("System.Decimal"),
+                    "System.Int32[]")
+            }
+        }
+
         return NoCall()
     }
 
@@ -1065,10 +1090,16 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Cgt_Un"
             || memberName == "Clt"
             || memberName == "Clt_Un"
+            || memberName == "Conv_I1"
+            || memberName == "Conv_I2"
             || memberName == "Conv_I4"
             || memberName == "Conv_I8"
             || memberName == "Conv_R4"
             || memberName == "Conv_R8"
+            || memberName == "Conv_U1"
+            || memberName == "Conv_U2"
+            || memberName == "Conv_U4"
+            || memberName == "Conv_U8"
             || memberName == "Box"
             || memberName == "Castclass"
             || memberName == "Ldnull"

@@ -234,3 +234,73 @@ func SizedArrayLength(a: int, b: int): int {
 func ArithmeticChain(a: int, b: int, c: int): int {
     return a * b + c - a
 }
+
+// --- Cast operands inside binaries: the Conv-opcode slice of the case-16 table ---
+func UintLiteralEquals(x: uint): bool {
+    return x == (uint)42
+}
+
+func IntCharLiteralEquals(i: int): bool {
+    return (int)'a' == i
+}
+
+func LongCastAdd(i: int): long {
+    return (long)i + 1L
+}
+
+func UlongCastFromUint(u: uint): ulong {
+    return (ulong)u + 2UL
+}
+
+func UlongCastFromInt(i: int): ulong {
+    return (ulong)i + 2UL
+}
+
+func CharCastEquals(i: int): bool {
+    return (char)i == 'a'
+}
+
+func ByteCastAdd(i: int): int {
+    return (byte)i + 1
+}
+
+func SbyteCastAdd(i: int): int {
+    return (sbyte)i + 1
+}
+
+func ShortCastMultiply(i: int): int {
+    return (short)i * 2
+}
+
+func DoubleCastLess(i: int): bool {
+    return (double)i < 4.5
+}
+
+func FloatCastAdd(i: int): float {
+    return (float)i + 1.5f
+}
+
+func IntCastTruncate(d: double): int {
+    return (int)d + 1
+}
+
+func UintCastNarrow(l: long, r: uint): bool {
+    return (uint)l == r
+}
+
+// --- Decimal literal operands inside binaries ---
+func DecimalLiteralEquals(d: decimal): bool {
+    return d == 24.5m
+}
+
+func DecimalLiteralAdd(): decimal {
+    return 1.5m + 2.5m
+}
+
+func DecimalIntegerLiteralAdd(): decimal {
+    return 5m + 2m
+}
+
+func DecimalLiteralCompare(d: decimal): bool {
+    return d < 0.5m
+}

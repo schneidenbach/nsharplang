@@ -93,10 +93,19 @@ public class ColumnarCodePlanContract {
     public static func ShrUn(): short { return 100 }
     public static func Neg(): short { return 101 }
     public static func Not(): short { return 102 }
+    // Explicit numeric-cast conversions carry their single-byte CIL encodings, exactly like the
+    // widening conversions the range/index and primitive-binary owners already emit.
+    public static func ConvI1(): short { return 103 }
+    public static func ConvI2(): short { return 104 }
     public static func ConvI4(): short { return 105 }
     public static func ConvI8(): short { return 106 }
     public static func ConvR4(): short { return 107 }
     public static func ConvR8(): short { return 108 }
+    public static func ConvU4(): short { return 109 }
+    public static func ConvU8(): short { return 110 }
+    // conv.u2 (0xD1) and conv.u1 (0xD2) are single-byte opcodes whose OpCode.Value stays positive.
+    public static func ConvU2(): short { return 209 }
+    public static func ConvU1(): short { return 210 }
     public static func Callvirt(): short { return 111 }
     public static func Ldstr(): short { return 114 }
     public static func Newobj(): short { return 115 }
@@ -204,6 +213,12 @@ public class ColumnarCodePlanContract {
             || opCodeValue == ConvI8()
             || opCodeValue == ConvR4()
             || opCodeValue == ConvR8()
+            || opCodeValue == ConvI1()
+            || opCodeValue == ConvI2()
+            || opCodeValue == ConvU4()
+            || opCodeValue == ConvU8()
+            || opCodeValue == ConvU2()
+            || opCodeValue == ConvU1()
             || opCodeValue == StelemI1()
             || opCodeValue == StelemI2()
             || opCodeValue == StelemI4()

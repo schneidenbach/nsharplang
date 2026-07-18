@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Globalization
+import System.Reflection
 import System.Reflection.Emit
 import System.Text
 import NSharpLang.Compiler
@@ -84,6 +85,15 @@ public class ColumnarScalarLiteralPlanner {
         }
 
         kind := nodes.Kind(node)
+        // Decimal literals (`5m`, `2.5m`) arrive as an Int or Float literal token whose text carries
+        // the `m`/`M` suffix. They lower to the System.Decimal(int,int,int,bool,byte) constructor,
+        // exactly like the legacy TryEmitDecimalLiteral path, rather than an ldc numeric constant.
+        if (kind == ColumnarExpressionNodeKind.IntLiteralExpression()
+                || kind == ColumnarExpressionNodeKind.FloatLiteralExpression())
+            && text.Length > 0
+            && (text[text.Length - 1] == 'm' || text[text.Length - 1] == 'M') {
+            return TryAppendDecimal(text.Substring(0, text.Length - 1), plan, out resultType)
+        }
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
             return TryAppendInteger(text, plan, out resultType)
         }
@@ -207,6 +217,66 @@ public class ColumnarScalarLiteralPlanner {
         valueIndex := plan.AddDouble(value)
         plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), valueIndex)
         return true
+    }
+
+    // Lower a decimal literal body (the token text with its `m`/`M` suffix already removed) exactly
+    // like the legacy TryEmitDecimalLiteral path: strip digit separators, parse with the invariant
+    // culture's Number style, then push the three GetBits magnitude words plus the sign flag and
+    // scale and construct through the canonical System.Decimal(int, int, int, bool, byte)
+    // constructor. Malformed text declines mutation-free.
+    static func TryAppendDecimal(
+        body: string,
+        plan: ColumnarCodePlan,
+        out resultType: Type): bool {
+        resultType = typeof(decimal)
+        parsed := (decimal)0
+        if !Decimal.TryParse(body.Replace("_", ""), CultureInfo.InvariantCulture, out parsed) {
+            return false
+        }
+
+        bits := Decimal.GetBits(parsed)
+        if bits.Length != 4 {
+            return false
+        }
+
+        lo := bits[0]
+        mid := bits[1]
+        high := bits[2]
+        flags := bits[3]
+        isNegative := 0
+        if flags < 0 {
+            isNegative = 1
+        }
+        scale := (flags >> 16) & 255
+
+        AppendLdcI4(plan, lo)
+        AppendLdcI4(plan, mid)
+        AppendLdcI4(plan, high)
+        AppendLdcI4(plan, isNegative)
+        AppendLdcI4(plan, scale)
+        constructorIndex := plan.AddConstructor(RequiredDecimalBitsConstructor())
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func AppendLdcI4(plan: ColumnarCodePlan, value: int) {
+        valueIndex := plan.AddInt32(value)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+    }
+
+    static func RequiredDecimalBitsConstructor(): ConstructorInfo {
+        parameterTypes := new Type[](5)
+        parameterTypes[0] = typeof(int)
+        parameterTypes[1] = typeof(int)
+        parameterTypes[2] = typeof(int)
+        parameterTypes[3] = typeof(bool)
+        parameterTypes[4] = typeof(byte)
+        constructor := typeof(decimal).GetConstructor(parameterTypes)
+        if constructor == null {
+            throw new InvalidOperationException(
+                "Required System.Decimal(int, int, int, bool, byte) constructor was not found.")
+        }
+        return constructor
     }
 
     // kind 0 = unsuffixed Int32, 1 = signed Int64 (L), 2 = UInt64 (UL/LU).

@@ -111,6 +111,36 @@ test "checked and unchecked forms compute non overflowing values" {
     assert checkedLong == 42L
 }
 
+test "cast operands inside binaries execute through the product route" {
+    assert UintLiteralEquals((uint)42)
+    assert !UintLiteralEquals((uint)7)
+    assert IntCharLiteralEquals(97)
+    assert !IntCharLiteralEquals(98)
+    assert LongCastAdd(41) == 42L
+    assert UlongCastFromUint((uint)40) == (ulong)42
+    assert UlongCastFromInt(40) == (ulong)42
+    assert CharCastEquals(97)
+    assert !CharCastEquals(98)
+    assert ByteCastAdd(300) == 45
+    assert SbyteCastAdd(41) == 42
+    assert ShortCastMultiply(10) == 20
+    assert DoubleCastLess(4)
+    assert !DoubleCastLess(5)
+    assert FloatCastAdd(2) == 3.5f
+    assert IntCastTruncate(41.9) == 42
+    assert UintCastNarrow(5L, (uint)5)
+    assert !UintCastNarrow(6L, (uint)5)
+}
+
+test "decimal literal operands inside binaries execute through the product route" {
+    assert DecimalLiteralEquals(24.5m)
+    assert !DecimalLiteralEquals(24.25m)
+    assert DecimalLiteralAdd() == 4.0m
+    assert DecimalIntegerLiteralAdd() == 7m
+    assert DecimalLiteralCompare(0.25m)
+    assert !DecimalLiteralCompare(0.75m)
+}
+
 test "operators nested inside index and constructor expressions execute" {
     values := [10, 20, 30, 40, 50]
     summedIndex := IndexBySum(values, 1, 2)

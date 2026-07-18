@@ -198,6 +198,50 @@ test "scalar literal planner owns invariant double and single families" {
     ColumnarScalarPlannerAssertSingle("16777217.0f", 16777216.0f)
 }
 
+func ColumnarScalarPlannerAssertDecimal(kind: int, text: string, expected: decimal) {
+    tree := ColumnarScalarPlannerTree(kind, text)
+    plan := ColumnarScalarPlannerPlan(tree)
+    assert plan.ResultType == typeof(decimal)
+    // Five ldc.i4 words (lo, mid, high, sign, scale) plus the canonical bits constructor.
+    assert plan.OperationCount == 6
+    assert plan.FragmentCount == 1
+    assert plan.Int32Count == 5
+    assert plan.ConstructorCount == 1
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Newobj()
+    bitsConstructor := plan.Constructors[0]
+    assert bitsConstructor.get_DeclaringType() == typeof(decimal)
+    bitsParameters := bitsConstructor.GetParameters()
+    assert bitsParameters.Length == 5
+    assert bitsParameters[0].get_ParameterType() == typeof(int)
+    assert bitsParameters[1].get_ParameterType() == typeof(int)
+    assert bitsParameters[2].get_ParameterType() == typeof(int)
+    assert bitsParameters[3].get_ParameterType() == typeof(bool)
+    assert bitsParameters[4].get_ParameterType() == typeof(byte)
+    assert ExecutorRunV3ScalarPlan(plan, typeof(decimal)) == expected.ToString()
+}
+
+test "scalar literal planner owns integer and fractional decimal literals" {
+    // `5m` arrives as an Int literal token; `2.5m` as a Float literal token. Both lower to the
+    // exact legacy shape: ldc.i4 x5 + newobj Decimal(int, int, int, bool, byte).
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.IntLiteralExpression(), "5m", 5m)
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.IntLiteralExpression(), "5M", 5m)
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "2.5m", 2.5m)
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "24.5m", 24.5m)
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1_000.2_5m", 1000.25m)
+    // The scale survives exactly: 5.00m prints its two fractional digits.
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(), "5.00m", 5.00m)
+    ColumnarScalarPlannerAssertDecimal(
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "79228162514264337593543950335m",
+        79228162514264337593543950335m)
+}
+
 test "scalar literal planner preserves TryParse overflow and narrowing bounds" {
     maxDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.FloatLiteralExpression(),
@@ -393,14 +437,16 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     ColumnarScalarPlannerDeclines(
         ColumnarExpressionNodeKind.StringLiteralExpression(), triple + "short")
 
+    // Decimal literal text (`1.25m`) is now owned by the decimal-constructor lowering; only its
+    // malformed forms remain rejections (see the decimal-literal ownership test).
     invalidFloating := new string[](13)
     invalidFloating[0] = ""
     invalidFloating[1] = "f"
     invalidFloating[2] = "d"
     invalidFloating[3] = "1.25ff"
     invalidFloating[4] = "1.25fd"
-    invalidFloating[5] = "1.25m"
-    invalidFloating[6] = "1.25M"
+    invalidFloating[5] = "1.2.5m"
+    invalidFloating[6] = "m"
     invalidFloating[7] = "1e"
     invalidFloating[8] = "1e+"
     invalidFloating[9] = "."
