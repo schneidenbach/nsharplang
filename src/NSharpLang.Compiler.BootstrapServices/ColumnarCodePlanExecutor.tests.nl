@@ -2918,3 +2918,356 @@ test "schema v3 array rows reject managed addresses in length index and value sl
     assert addressIndex.Lifecycle == ColumnarCodePlanLifecycle.Sealed
     assert addressValue.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
+
+func ExecutorV3BinaryPairPlan(
+    leftType: Type,
+    rightType: Type,
+    resultType: Type,
+    opCode: short): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1160, 0)
+    leftTypeIndex := plan.AddType(leftType)
+    rightTypeIndex := plan.AddType(rightType)
+    leftArgument := plan.AddArgument(0, leftTypeIndex, false)
+    rightArgument := plan.AddArgument(1, rightTypeIndex, false)
+    left := plan.BeginFragment(root, 6, 1)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), leftArgument)
+    plan.CompleteFragment(left, leftType)
+    right := plan.BeginFragment(root, 6, 2)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), rightArgument)
+    plan.CompleteFragment(right, rightType)
+    plan.AppendInstructionWithoutOperand(opCode)
+    plan.CompleteFragment(root, resultType)
+    plan.CompleteV3(resultType)
+    return plan
+}
+
+func ExecutorAssertBinaryValidates(
+    opCode: short,
+    leftType: Type,
+    rightType: Type,
+    resultType: Type) {
+    plan := ExecutorV3BinaryPairPlan(leftType, rightType, resultType, opCode)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+func ExecutorAssertBinaryRejected(
+    opCode: short,
+    leftType: Type,
+    rightType: Type,
+    resultType: Type) {
+    plan := ExecutorV3BinaryPairPlan(leftType, rightType, resultType, opCode)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+func ExecutorV3CeqBoolZeroPlan(): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1162, 0)
+    boolTypeIndex := plan.AddType(typeof(bool))
+    boolArgument := plan.AddArgument(0, boolTypeIndex, false)
+    operand := plan.BeginFragment(root, 6, 1)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), boolArgument)
+    plan.CompleteFragment(operand, typeof(bool))
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+    plan.CompleteFragment(root, typeof(bool))
+    plan.CompleteV3(typeof(bool))
+    return plan
+}
+
+test "schema v3 executor validates the arithmetic primitive binary opcode families" {
+    subMul := new short[](2)
+    subMul[0] = ColumnarCodePlanContract.Sub()
+    subMul[1] = ColumnarCodePlanContract.Mul()
+    i := 0
+    while i < subMul.Length {
+        ExecutorAssertBinaryValidates(subMul[i], typeof(int), typeof(int), typeof(int))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(long), typeof(long), typeof(long))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(uint), typeof(uint), typeof(uint))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(ulong), typeof(ulong), typeof(ulong))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(float), typeof(float), typeof(float))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(double), typeof(double), typeof(double))
+        ExecutorAssertBinaryValidates(subMul[i], typeof(byte), typeof(short), typeof(int))
+        i += 1
+    }
+
+    divRem := new short[](2)
+    divRem[0] = ColumnarCodePlanContract.Div()
+    divRem[1] = ColumnarCodePlanContract.Rem()
+    i = 0
+    while i < divRem.Length {
+        ExecutorAssertBinaryValidates(divRem[i], typeof(int), typeof(int), typeof(int))
+        ExecutorAssertBinaryValidates(divRem[i], typeof(long), typeof(long), typeof(long))
+        ExecutorAssertBinaryValidates(divRem[i], typeof(float), typeof(float), typeof(float))
+        ExecutorAssertBinaryValidates(divRem[i], typeof(double), typeof(double), typeof(double))
+        ExecutorAssertBinaryValidates(divRem[i], typeof(byte), typeof(short), typeof(int))
+        i += 1
+    }
+
+    divRemUn := new short[](2)
+    divRemUn[0] = ColumnarCodePlanContract.DivUn()
+    divRemUn[1] = ColumnarCodePlanContract.RemUn()
+    i = 0
+    while i < divRemUn.Length {
+        ExecutorAssertBinaryValidates(divRemUn[i], typeof(uint), typeof(uint), typeof(uint))
+        ExecutorAssertBinaryValidates(divRemUn[i], typeof(ulong), typeof(ulong), typeof(ulong))
+        i += 1
+    }
+}
+
+test "schema v3 executor validates the bitwise and shift primitive binary opcode families" {
+    bitwise := new short[](3)
+    bitwise[0] = ColumnarCodePlanContract.And()
+    bitwise[1] = ColumnarCodePlanContract.Or()
+    bitwise[2] = ColumnarCodePlanContract.Xor()
+    i := 0
+    while i < bitwise.Length {
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(int), typeof(int), typeof(int))
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(long), typeof(long), typeof(long))
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(uint), typeof(uint), typeof(uint))
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(ulong), typeof(ulong), typeof(ulong))
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(bool), typeof(bool), typeof(bool))
+        ExecutorAssertBinaryValidates(bitwise[i], typeof(byte), typeof(short), typeof(int))
+        i += 1
+    }
+
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shl(), typeof(int), typeof(int), typeof(int))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shl(), typeof(long), typeof(int), typeof(long))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shl(), typeof(uint), typeof(int), typeof(uint))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shl(), typeof(ulong), typeof(int), typeof(ulong))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shl(), typeof(byte), typeof(int), typeof(int))
+
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shr(), typeof(int), typeof(int), typeof(int))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Shr(), typeof(long), typeof(int), typeof(long))
+
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.ShrUn(), typeof(uint), typeof(int), typeof(uint))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.ShrUn(), typeof(ulong), typeof(int), typeof(ulong))
+}
+
+test "schema v3 executor validates the checked and comparison primitive binary opcode families" {
+    signedOverflow := new short[](3)
+    signedOverflow[0] = ColumnarCodePlanContract.AddOvf()
+    signedOverflow[1] = ColumnarCodePlanContract.SubOvf()
+    signedOverflow[2] = ColumnarCodePlanContract.MulOvf()
+    i := 0
+    while i < signedOverflow.Length {
+        ExecutorAssertBinaryValidates(signedOverflow[i], typeof(int), typeof(int), typeof(int))
+        ExecutorAssertBinaryValidates(signedOverflow[i], typeof(long), typeof(long), typeof(long))
+        ExecutorAssertBinaryValidates(signedOverflow[i], typeof(byte), typeof(short), typeof(int))
+        i += 1
+    }
+
+    unsignedOverflow := new short[](3)
+    unsignedOverflow[0] = ColumnarCodePlanContract.AddOvfUn()
+    unsignedOverflow[1] = ColumnarCodePlanContract.SubOvfUn()
+    unsignedOverflow[2] = ColumnarCodePlanContract.MulOvfUn()
+    i = 0
+    while i < unsignedOverflow.Length {
+        ExecutorAssertBinaryValidates(unsignedOverflow[i], typeof(uint), typeof(uint), typeof(uint))
+        ExecutorAssertBinaryValidates(unsignedOverflow[i], typeof(ulong), typeof(ulong), typeof(ulong))
+        i += 1
+    }
+
+    signedCompare := new short[](2)
+    signedCompare[0] = ColumnarCodePlanContract.Cgt()
+    signedCompare[1] = ColumnarCodePlanContract.Clt()
+    i = 0
+    while i < signedCompare.Length {
+        ExecutorAssertBinaryValidates(signedCompare[i], typeof(int), typeof(int), typeof(bool))
+        ExecutorAssertBinaryValidates(signedCompare[i], typeof(long), typeof(long), typeof(bool))
+        ExecutorAssertBinaryValidates(signedCompare[i], typeof(float), typeof(float), typeof(bool))
+        ExecutorAssertBinaryValidates(signedCompare[i], typeof(double), typeof(double), typeof(bool))
+        ExecutorAssertBinaryValidates(signedCompare[i], typeof(byte), typeof(short), typeof(bool))
+        i += 1
+    }
+
+    unsignedCompare := new short[](2)
+    unsignedCompare[0] = ColumnarCodePlanContract.CgtUn()
+    unsignedCompare[1] = ColumnarCodePlanContract.CltUn()
+    i = 0
+    while i < unsignedCompare.Length {
+        ExecutorAssertBinaryValidates(unsignedCompare[i], typeof(uint), typeof(uint), typeof(bool))
+        ExecutorAssertBinaryValidates(unsignedCompare[i], typeof(ulong), typeof(ulong), typeof(bool))
+        i += 1
+    }
+}
+
+test "schema v3 executor rejects mismatched primitive binary operand families" {
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Sub(), typeof(bool), typeof(bool), typeof(bool))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Div(), typeof(float), typeof(int), typeof(float))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Div(), typeof(uint), typeof(uint), typeof(uint))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.DivUn(), typeof(int), typeof(int), typeof(int))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.DivUn(), typeof(float), typeof(float), typeof(float))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.And(), typeof(float), typeof(float), typeof(float))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Shl(), typeof(int), typeof(long), typeof(int))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Shr(), typeof(uint), typeof(int), typeof(uint))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.ShrUn(), typeof(int), typeof(int), typeof(int))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.AddOvf(), typeof(ulong), typeof(ulong), typeof(ulong))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.AddOvfUn(), typeof(int), typeof(int), typeof(int))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Cgt(), typeof(bool), typeof(bool), typeof(bool))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.CgtUn(), typeof(int), typeof(int), typeof(bool))
+}
+
+test "schema v3 executor generalizes ceq while preserving its Boolean literal-zero form" {
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(int), typeof(int), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(long), typeof(long), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(uint), typeof(uint), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(ulong), typeof(ulong), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(float), typeof(float), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(double), typeof(double), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(byte), typeof(short), typeof(bool))
+    ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Ceq(), typeof(string), typeof(string), typeof(bool))
+
+    boolZero := ExecutorV3CeqBoolZeroPlan()
+    ColumnarCodePlanExecutor.Validate(boolZero)
+    assert boolZero.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects an operand-starved primitive binary op" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1161, 0)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+func ExecutorAssertBinaryExecutes(
+    opCode: short,
+    leftType: Type,
+    rightType: Type,
+    resultType: Type,
+    leftValue: object,
+    rightValue: object,
+    expected: string) {
+    plan := ExecutorV3BinaryPairPlan(leftType, rightType, resultType, opCode)
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = leftType
+    parameterTypes[1] = rightType
+    arguments := new object[](2)
+    ExecutorSetObject(arguments, 0, leftValue)
+    ExecutorSetObject(arguments, 1, rightValue)
+    assert ExecutorRunRecursivePlan(
+        plan, resultType, parameterTypes, arguments) == expected
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+
+test "schema v3 executor executes arithmetic primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Sub(), typeof(int), typeof(int), typeof(int),
+        50, 8, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Mul(), typeof(int), typeof(int), typeof(int),
+        6, 7, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Div(), typeof(int), typeof(int), typeof(int),
+        85, 2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Rem(), typeof(int), typeof(int), typeof(int),
+        142, 100, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Add(), typeof(long), typeof(long), typeof(long),
+        (long)40, (long)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Sub(), typeof(long), typeof(long), typeof(long),
+        (long)44, (long)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.DivUn(), typeof(uint), typeof(uint), typeof(uint),
+        (uint)84, (uint)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.RemUn(), typeof(ulong), typeof(ulong), typeof(ulong),
+        (ulong)142, (ulong)100, "42")
+}
+
+test "schema v3 executor executes integer bitwise primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.And(), typeof(int), typeof(int), typeof(int),
+        46, 59, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Or(), typeof(int), typeof(int), typeof(int),
+        40, 2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Xor(), typeof(int), typeof(int), typeof(int),
+        63, 21, "42")
+}
+
+test "schema v3 executor executes Boolean logical primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.And(), typeof(bool), typeof(bool), typeof(bool),
+        true, false, "False")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Or(), typeof(bool), typeof(bool), typeof(bool),
+        true, false, "True")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Xor(), typeof(bool), typeof(bool), typeof(bool),
+        true, true, "False")
+}
+
+test "schema v3 executor executes shift primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Shl(), typeof(int), typeof(int), typeof(int),
+        21, 1, "42")
+    negativeLeft := -84
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Shr(), typeof(int), typeof(int), typeof(int),
+        negativeLeft, 1, "-42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.ShrUn(), typeof(uint), typeof(int), typeof(uint),
+        (uint)84, 1, "42")
+}
+
+test "schema v3 executor executes checked primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.AddOvf(), typeof(int), typeof(int), typeof(int),
+        40, 2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.SubOvf(), typeof(long), typeof(long), typeof(long),
+        (long)44, (long)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.MulOvf(), typeof(int), typeof(int), typeof(int),
+        6, 7, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.AddOvfUn(), typeof(uint), typeof(uint), typeof(uint),
+        (uint)40, (uint)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.SubOvfUn(), typeof(ulong), typeof(ulong), typeof(ulong),
+        (ulong)44, (ulong)2, "42")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.MulOvfUn(), typeof(uint), typeof(uint), typeof(uint),
+        (uint)6, (uint)7, "42")
+}
+
+test "schema v3 executor executes comparison primitive binary opcodes end to end" {
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Cgt(), typeof(int), typeof(int), typeof(bool),
+        7, 6, "True")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Clt(), typeof(int), typeof(int), typeof(bool),
+        7, 6, "False")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Ceq(), typeof(int), typeof(int), typeof(bool),
+        42, 42, "True")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.Ceq(), typeof(int), typeof(int), typeof(bool),
+        42, 41, "False")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.CgtUn(), typeof(uint), typeof(uint), typeof(bool),
+        (uint)7, (uint)6, "True")
+    ExecutorAssertBinaryExecutes(
+        ColumnarCodePlanContract.CltUn(), typeof(ulong), typeof(ulong), typeof(bool),
+        (ulong)6, (ulong)7, "True")
+}

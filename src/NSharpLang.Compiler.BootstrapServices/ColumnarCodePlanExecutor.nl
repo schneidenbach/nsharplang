@@ -362,6 +362,50 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Dup)
         } else if opCodeValue == ColumnarCodePlanContract.Add() {
             il.Emit(OpCodes.Add)
+        } else if opCodeValue == ColumnarCodePlanContract.Sub() {
+            il.Emit(OpCodes.Sub)
+        } else if opCodeValue == ColumnarCodePlanContract.Mul() {
+            il.Emit(OpCodes.Mul)
+        } else if opCodeValue == ColumnarCodePlanContract.Div() {
+            il.Emit(OpCodes.Div)
+        } else if opCodeValue == ColumnarCodePlanContract.DivUn() {
+            il.Emit(OpCodes.Div_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.Rem() {
+            il.Emit(OpCodes.Rem)
+        } else if opCodeValue == ColumnarCodePlanContract.RemUn() {
+            il.Emit(OpCodes.Rem_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.And() {
+            il.Emit(OpCodes.And)
+        } else if opCodeValue == ColumnarCodePlanContract.Or() {
+            il.Emit(OpCodes.Or)
+        } else if opCodeValue == ColumnarCodePlanContract.Xor() {
+            il.Emit(OpCodes.Xor)
+        } else if opCodeValue == ColumnarCodePlanContract.Shl() {
+            il.Emit(OpCodes.Shl)
+        } else if opCodeValue == ColumnarCodePlanContract.Shr() {
+            il.Emit(OpCodes.Shr)
+        } else if opCodeValue == ColumnarCodePlanContract.ShrUn() {
+            il.Emit(OpCodes.Shr_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.AddOvf() {
+            il.Emit(OpCodes.Add_Ovf)
+        } else if opCodeValue == ColumnarCodePlanContract.AddOvfUn() {
+            il.Emit(OpCodes.Add_Ovf_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.MulOvf() {
+            il.Emit(OpCodes.Mul_Ovf)
+        } else if opCodeValue == ColumnarCodePlanContract.MulOvfUn() {
+            il.Emit(OpCodes.Mul_Ovf_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.SubOvf() {
+            il.Emit(OpCodes.Sub_Ovf)
+        } else if opCodeValue == ColumnarCodePlanContract.SubOvfUn() {
+            il.Emit(OpCodes.Sub_Ovf_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.Cgt() {
+            il.Emit(OpCodes.Cgt)
+        } else if opCodeValue == ColumnarCodePlanContract.CgtUn() {
+            il.Emit(OpCodes.Cgt_Un)
+        } else if opCodeValue == ColumnarCodePlanContract.Clt() {
+            il.Emit(OpCodes.Clt)
+        } else if opCodeValue == ColumnarCodePlanContract.CltUn() {
+            il.Emit(OpCodes.Clt_Un)
         } else if opCodeValue == ColumnarCodePlanContract.Neg() {
             il.Emit(OpCodes.Neg)
         } else if opCodeValue == ColumnarCodePlanContract.Not() {
@@ -1642,6 +1686,198 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Sub()
+            || opCodeValue == ColumnarCodePlanContract.Mul() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinaryArithmeticResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " sub/mul requires an Int32-promotable pair or exact matching "
+                        + "Int64, UInt32, UInt64, Single, or Double operands.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Div()
+            || opCodeValue == ColumnarCodePlanContract.Rem() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinarySignedDivResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " div/rem requires an Int32-promotable pair or exact matching "
+                        + "Int64, Single, or Double operands; use div.un/rem.un for unsigned "
+                        + "integers.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.DivUn()
+            || opCodeValue == ColumnarCodePlanContract.RemUn() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinaryUnsignedDivResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " div.un/rem.un requires an exact matching UInt32 or UInt64 pair.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.And()
+            || opCodeValue == ColumnarCodePlanContract.Or()
+            || opCodeValue == ColumnarCodePlanContract.Xor() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinaryBitwiseResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " and/or/xor requires an Int32-promotable pair, an exact matching "
+                        + "Int64, UInt32, or UInt64 pair, or an exact Boolean pair.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Shl() {
+            right := state.Pop()
+            left := state.Pop()
+            if !IsIntPromotableAddOperand(right) {
+                throw new InvalidOperationException(
+                    schemaName + " shl requires an Int32 shift-count operand.")
+            }
+            resultType := ShiftLeftResultType(left, true, true)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " shl requires an Int32, Int64, UInt32, or UInt64 left operand.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Shr() {
+            right := state.Pop()
+            left := state.Pop()
+            if !IsIntPromotableAddOperand(right) {
+                throw new InvalidOperationException(
+                    schemaName + " shr requires an Int32 shift-count operand.")
+            }
+            resultType := ShiftLeftResultType(left, true, false)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName + " shr requires a signed Int32 or Int64 left operand.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.ShrUn() {
+            right := state.Pop()
+            left := state.Pop()
+            if !IsIntPromotableAddOperand(right) {
+                throw new InvalidOperationException(
+                    schemaName + " shr.un requires an Int32 shift-count operand.")
+            }
+            resultType := ShiftLeftResultType(left, false, true)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " shr.un requires an unsigned UInt32 or UInt64 left operand.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.AddOvf()
+            || opCodeValue == ColumnarCodePlanContract.SubOvf()
+            || opCodeValue == ColumnarCodePlanContract.MulOvf() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinarySignedOverflowResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " checked signed arithmetic requires an Int32-promotable pair or an "
+                        + "exact matching Int64 pair.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.AddOvfUn()
+            || opCodeValue == ColumnarCodePlanContract.SubOvfUn()
+            || opCodeValue == ColumnarCodePlanContract.MulOvfUn() {
+            right := state.Pop()
+            left := state.Pop()
+            resultType := BinaryUnsignedOverflowResultType(left, right)
+            if resultType == null {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " checked unsigned arithmetic requires an exact matching UInt32 or "
+                        + "UInt64 pair.")
+            }
+            state.Push(
+                resultType,
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.Cgt()
+            || opCodeValue == ColumnarCodePlanContract.Clt() {
+            right := state.Pop()
+            left := state.Pop()
+            if !IsSignedComparablePair(left, right) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " cgt/clt requires an Int32-promotable pair or exact matching "
+                        + "Int64, Single, or Double operands.")
+            }
+            state.Push(
+                typeof(bool),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
+        } else if opCodeValue == ColumnarCodePlanContract.CgtUn()
+            || opCodeValue == ColumnarCodePlanContract.CltUn() {
+            right := state.Pop()
+            left := state.Pop()
+            if !IsUnsignedComparablePair(left, right) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " cgt.un/clt.un requires an exact matching UInt32 or UInt64 pair.")
+            }
+            state.Push(
+                typeof(bool),
+                false,
+                ColumnarCodePlanStackValueKind.Exact(),
+                false,
+                0)
         } else if opCodeValue == ColumnarCodePlanContract.Neg() {
             value := state.Pop()
             if value.IsAddress
@@ -1678,14 +1914,18 @@ public class ColumnarCodePlanExecutor {
         } else if opCodeValue == ColumnarCodePlanContract.Ceq() {
             right := state.Pop()
             left := state.Pop()
-            if left.IsAddress || right.IsAddress
-                || left.ValueKind != ColumnarCodePlanStackValueKind.Exact()
-                || left.ValueType != typeof(bool)
-                || right.ValueKind != ColumnarCodePlanStackValueKind.LiteralI4()
-                || !right.LiteralKnown
-                || right.LiteralValue != 0 {
+            boolZero := !left.IsAddress
+                && !right.IsAddress
+                && left.ValueKind == ColumnarCodePlanStackValueKind.Exact()
+                && left.ValueType == typeof(bool)
+                && right.ValueKind == ColumnarCodePlanStackValueKind.LiteralI4()
+                && right.LiteralKnown
+                && right.LiteralValue == 0
+            if !boolZero && !IsEqualityComparablePair(left, right) {
                 throw new InvalidOperationException(
-                    schemaName + " ceq requires exact Boolean and literal zero operands.")
+                    schemaName
+                        + " ceq requires exact Boolean and literal zero operands or an "
+                        + "Int32-promotable, Int64, UInt32, UInt64, Single, or Double pair.")
             }
             state.Push(
                 typeof(bool),
@@ -2652,6 +2892,180 @@ public class ColumnarCodePlanExecutor {
         return value.ValueType == typeof(int)
             && value.ValueKind == ColumnarCodePlanStackValueKind.LiteralI4()
             && value.LiteralKnown
+    }
+
+    static func IsIntPromotablePair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): bool {
+        return IsIntPromotableAddOperand(left) && IsIntPromotableAddOperand(right)
+    }
+
+    static func IsExactPrimitivePair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode,
+        expectedType: Type): bool {
+        return IsExactPrimitiveAddOperand(left, expectedType)
+            && IsExactPrimitiveAddOperand(right, expectedType)
+    }
+
+    // Add/Sub/Mul admit an Int32-promotable pair or an exact matching wider primitive pair.
+    static func BinaryArithmeticResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsIntPromotablePair(left, right) {
+            return typeof(int)
+        }
+        if IsExactPrimitivePair(left, right, typeof(long)) {
+            return typeof(long)
+        }
+        if IsExactPrimitivePair(left, right, typeof(uint)) {
+            return typeof(uint)
+        }
+        if IsExactPrimitivePair(left, right, typeof(ulong)) {
+            return typeof(ulong)
+        }
+        if IsExactPrimitivePair(left, right, typeof(float)) {
+            return typeof(float)
+        }
+        if IsExactPrimitivePair(left, right, typeof(double)) {
+            return typeof(double)
+        }
+        return null
+    }
+
+    // Signed div/rem admit an Int32-promotable pair or an exact long/float/double pair only;
+    // unsigned integer division must route through div.un/rem.un instead.
+    static func BinarySignedDivResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsIntPromotablePair(left, right) {
+            return typeof(int)
+        }
+        if IsExactPrimitivePair(left, right, typeof(long)) {
+            return typeof(long)
+        }
+        if IsExactPrimitivePair(left, right, typeof(float)) {
+            return typeof(float)
+        }
+        if IsExactPrimitivePair(left, right, typeof(double)) {
+            return typeof(double)
+        }
+        return null
+    }
+
+    // Unsigned div.un/rem.un admit only an exact matching UInt32 or UInt64 pair.
+    static func BinaryUnsignedDivResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsExactPrimitivePair(left, right, typeof(uint)) {
+            return typeof(uint)
+        }
+        if IsExactPrimitivePair(left, right, typeof(ulong)) {
+            return typeof(ulong)
+        }
+        return null
+    }
+
+    // And/Or/Xor admit an Int32-promotable pair, an exact long/uint/ulong pair, or a
+    // non-short-circuit logical Boolean pair over the shared Int32 slot.
+    static func BinaryBitwiseResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsIntPromotablePair(left, right) {
+            return typeof(int)
+        }
+        if IsExactPrimitivePair(left, right, typeof(long)) {
+            return typeof(long)
+        }
+        if IsExactPrimitivePair(left, right, typeof(uint)) {
+            return typeof(uint)
+        }
+        if IsExactPrimitivePair(left, right, typeof(ulong)) {
+            return typeof(ulong)
+        }
+        if IsExactPrimitivePair(left, right, typeof(bool)) {
+            return typeof(bool)
+        }
+        return null
+    }
+
+    // Checked signed add/sub/mul overflow admit an Int32-promotable pair or an exact Int64 pair.
+    static func BinarySignedOverflowResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsIntPromotablePair(left, right) {
+            return typeof(int)
+        }
+        if IsExactPrimitivePair(left, right, typeof(long)) {
+            return typeof(long)
+        }
+        return null
+    }
+
+    // Checked unsigned add/sub/mul overflow admit only an exact UInt32 or UInt64 pair.
+    static func BinaryUnsignedOverflowResultType(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): Type? {
+        if IsExactPrimitivePair(left, right, typeof(uint)) {
+            return typeof(uint)
+        }
+        if IsExactPrimitivePair(left, right, typeof(ulong)) {
+            return typeof(ulong)
+        }
+        return null
+    }
+
+    // A shift's left operand keeps its own type; an Int32-promotable slot counts as Int32. shr
+    // requires a signed left operand and shr.un requires an unsigned one, so the caller selects
+    // which families it admits.
+    static func ShiftLeftResultType(
+        left: ColumnarCodePlanStackNode,
+        allowSigned: bool,
+        allowUnsigned: bool): Type? {
+        if allowSigned && IsIntPromotableAddOperand(left) {
+            return typeof(int)
+        }
+        if allowSigned && IsExactPrimitiveAddOperand(left, typeof(long)) {
+            return typeof(long)
+        }
+        if allowUnsigned && IsExactPrimitiveAddOperand(left, typeof(uint)) {
+            return typeof(uint)
+        }
+        if allowUnsigned && IsExactPrimitiveAddOperand(left, typeof(ulong)) {
+            return typeof(ulong)
+        }
+        return null
+    }
+
+    // Signed cgt/clt admit an Int32-promotable pair or an exact long/float/double pair.
+    static func IsSignedComparablePair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): bool {
+        return IsIntPromotablePair(left, right)
+            || IsExactPrimitivePair(left, right, typeof(long))
+            || IsExactPrimitivePair(left, right, typeof(float))
+            || IsExactPrimitivePair(left, right, typeof(double))
+    }
+
+    // Unsigned cgt.un/clt.un admit only an exact matching UInt32 or UInt64 pair.
+    static func IsUnsignedComparablePair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): bool {
+        return IsExactPrimitivePair(left, right, typeof(uint))
+            || IsExactPrimitivePair(left, right, typeof(ulong))
+    }
+
+    // ceq admits an Int32-promotable pair or an exact matching long/uint/ulong/float/double pair
+    // in addition to the retained exact-Boolean-versus-literal-zero form.
+    static func IsEqualityComparablePair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): bool {
+        return IsIntPromotablePair(left, right)
+            || IsExactPrimitivePair(left, right, typeof(long))
+            || IsExactPrimitivePair(left, right, typeof(uint))
+            || IsExactPrimitivePair(left, right, typeof(ulong))
+            || IsExactPrimitivePair(left, right, typeof(float))
+            || IsExactPrimitivePair(left, right, typeof(double))
     }
 
     static func IsI8Destination(expectedType: Type): bool {

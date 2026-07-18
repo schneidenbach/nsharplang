@@ -78,6 +78,19 @@ public class ColumnarCodePlanContract {
     public static func Brfalse(): short { return 57 }
     public static func LdindRef(): short { return 80 }
     public static func Add(): short { return 88 }
+    // Primitive binary arithmetic and bitwise opcodes carry their single-byte CIL encodings.
+    public static func Sub(): short { return 89 }
+    public static func Mul(): short { return 90 }
+    public static func Div(): short { return 91 }
+    public static func DivUn(): short { return 92 }
+    public static func Rem(): short { return 93 }
+    public static func RemUn(): short { return 94 }
+    public static func And(): short { return 95 }
+    public static func Or(): short { return 96 }
+    public static func Xor(): short { return 97 }
+    public static func Shl(): short { return 98 }
+    public static func Shr(): short { return 99 }
+    public static func ShrUn(): short { return 100 }
     public static func Neg(): short { return 101 }
     public static func Not(): short { return 102 }
     public static func ConvI4(): short { return 105 }
@@ -113,7 +126,19 @@ public class ColumnarCodePlanContract {
     public static func Ldelem(): short { return 163 }
     public static func Stelem(): short { return 164 }
     public static func Ldtoken(): short { return 208 }
+    // Checked binary arithmetic opcodes carry their single-byte CIL encodings.
+    public static func AddOvf(): short { return 214 }
+    public static func AddOvfUn(): short { return 215 }
+    public static func MulOvf(): short { return 216 }
+    public static func MulOvfUn(): short { return 217 }
+    public static func SubOvf(): short { return 218 }
+    public static func SubOvfUn(): short { return 219 }
     public static func Ceq(): short { return -511 }
+    // Two-byte FE-prefixed comparison opcodes reinterpret as negative shorts, exactly like Ceq.
+    public static func Cgt(): short { return -510 }
+    public static func CgtUn(): short { return -509 }
+    public static func Clt(): short { return -508 }
+    public static func CltUn(): short { return -507 }
     public static func Initobj(): short { return -491 }
 
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
@@ -150,6 +175,28 @@ public class ColumnarCodePlanContract {
         return opCodeValue == Ldnull()
             || opCodeValue == Dup()
             || opCodeValue == Add()
+            || opCodeValue == Sub()
+            || opCodeValue == Mul()
+            || opCodeValue == Div()
+            || opCodeValue == DivUn()
+            || opCodeValue == Rem()
+            || opCodeValue == RemUn()
+            || opCodeValue == And()
+            || opCodeValue == Or()
+            || opCodeValue == Xor()
+            || opCodeValue == Shl()
+            || opCodeValue == Shr()
+            || opCodeValue == ShrUn()
+            || opCodeValue == AddOvf()
+            || opCodeValue == AddOvfUn()
+            || opCodeValue == MulOvf()
+            || opCodeValue == MulOvfUn()
+            || opCodeValue == SubOvf()
+            || opCodeValue == SubOvfUn()
+            || opCodeValue == Cgt()
+            || opCodeValue == CgtUn()
+            || opCodeValue == Clt()
+            || opCodeValue == CltUn()
             || opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()

@@ -61,7 +61,7 @@ func AssertStaticCall(
 }
 
 test "recursive code plans own every required opcode field" {
-    names := new string[](62)
+    names := new string[](84)
     names[0] = "Ldc_I4_M1"
     names[1] = "Ldc_I4_0"
     names[2] = "Ldc_I4_1"
@@ -124,6 +124,28 @@ test "recursive code plans own every required opcode field" {
     names[59] = "Stelem_Ref"
     names[60] = "Stelem"
     names[61] = "Castclass"
+    names[62] = "Sub"
+    names[63] = "Mul"
+    names[64] = "Div"
+    names[65] = "Div_Un"
+    names[66] = "Rem"
+    names[67] = "Rem_Un"
+    names[68] = "And"
+    names[69] = "Or"
+    names[70] = "Xor"
+    names[71] = "Shl"
+    names[72] = "Shr"
+    names[73] = "Shr_Un"
+    names[74] = "Add_Ovf"
+    names[75] = "Add_Ovf_Un"
+    names[76] = "Mul_Ovf"
+    names[77] = "Mul_Ovf_Un"
+    names[78] = "Sub_Ovf"
+    names[79] = "Sub_Ovf_Un"
+    names[80] = "Cgt"
+    names[81] = "Cgt_Un"
+    names[82] = "Clt"
+    names[83] = "Clt_Un"
 
     i := 0
     while i < names.Length {
