@@ -48,11 +48,9 @@ public class MultiFileCompiler
     public IReadOnlyDictionary<string, string> SourceTexts => _sourceTexts;
     public string ProjectRoot => _projectRoot;
 
-    /// <summary>
-    /// The project-level semantic index built from all analyzed files.
+    /// <summary>The project-level semantic index built from all analyzed files.
     /// Contains the merged BindingMap and type-declaration-to-file mapping.
-    /// Available after <see cref="CompileForAnalysis"/> or <see cref="CompileToIlAssembly"/> completes.
-    /// </summary>
+    /// Available after <see cref="CompileForAnalysis"/> or <see cref="CompileToIlAssembly"/> completes.</summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
     /// <summary>Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
@@ -209,11 +207,9 @@ public class MultiFileCompiler
         }
     }
 
-    /// <summary>
-    /// Detect circular file-import graphs before semantic analysis so project checks
+    /// <summary>Detect circular file-import graphs before semantic analysis so project checks
     /// fail with a bounded, actionable diagnostic instead of relying on per-file
-    /// shallow checks.
-    /// </summary>
+    /// shallow checks.</summary>
     private void DetectCircularFileImports()
     {
         var sourceFiles = _compilationUnits.Keys.ToList();
@@ -372,13 +368,11 @@ public class MultiFileCompiler
         }
     }
 
-    /// <summary>
-    /// Parse and analyze all files without exporting or emitting IL.
+    /// <summary>Parse and analyze all files without exporting or emitting IL.
     /// This is the fast path for code intelligence queries — skips code generation
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
     /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
-    /// so we can report both syntax and semantic diagnostics in a single pass.
-    /// </summary>
+    /// so we can report both syntax and semantic diagnostics in a single pass.</summary>
     public void CompileForAnalysis()
     {
         RunLegacyValidationPipeline(validateStrictLint: false, out _);
@@ -422,9 +416,8 @@ public class MultiFileCompiler
         {
             ReadAllSourceTexts();
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
-            if (!EmitOnWideStackThread(assemblyName, outputPath))
+            if (!EmitOnWideStackThread(assemblyName, outputPath, out var decline))
             {
-                var decline = BuildColumnarDeclineDiagnostic();
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
                     AotMode,
@@ -466,9 +459,8 @@ public class MultiFileCompiler
 
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
-            if (!EmitOnWideStackThread(assemblyName, outputPath))
+            if (!EmitOnWideStackThread(assemblyName, outputPath, out var decline))
             {
-                var decline = BuildColumnarDeclineDiagnostic();
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
                     AotMode,
@@ -517,20 +509,28 @@ public class MultiFileCompiler
         return true;
     }
 
-    // MSBuild task threads have ~256 KB stacks and the emitter's per-node recursion frames are large,
-    // so columnar emission runs on a dedicated 64 MB wide-stack thread for deterministic headroom.
-    private bool EmitOnWideStackThread(string assemblyName, string outputPath)
+    // MSBuild task threads have ~256 KB stacks and the emitter's per-node recursion frames are large, so
+    // emission runs on a dedicated 64 MB wide-stack thread. ColumnarDeclineTrace is [ThreadStatic], so the
+    // decline diagnostic must also be built on that thread, while its recorded declines are still visible.
+    private bool EmitOnWideStackThread(string assemblyName, string outputPath, out ColumnarDeclineDiagnostic decline)
     {
         var emitted = false;
+        ColumnarDeclineDiagnostic? diagnostic = null;
         System.Runtime.ExceptionServices.ExceptionDispatchInfo? captured = null;
         var thread = new System.Threading.Thread(() =>
         {
-            try { emitted = TryEmitWithColumnarBackend(assemblyName, outputPath); }
+            try
+            {
+                emitted = TryEmitWithColumnarBackend(assemblyName, outputPath);
+                if (!emitted)
+                    diagnostic = BuildColumnarDeclineDiagnostic();
+            }
             catch (Exception ex) { captured = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
         }, 64 * 1024 * 1024) { IsBackground = true, Name = "nsharp-columnar-emit" };
         thread.Start();
         thread.Join();
         captured?.Throw();
+        decline = diagnostic ?? ColumnarDeclineDiagnostic.Empty;
         return emitted;
     }
 
