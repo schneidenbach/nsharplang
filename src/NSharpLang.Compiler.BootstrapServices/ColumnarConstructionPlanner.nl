@@ -119,8 +119,9 @@ class ColumnarConstructionPlanner {
     }
 
     // Source-aware construction admission is deliberately separate from DirectCall's public
-    // shape-only preflight. It commits primitive `+` only after a scratch schema-v3 plan proves an
-    // exact Int32, Int64, or String pair; every other binary family remains a whole-subtree exit.
+    // shape-only preflight. It commits a primitive binary value only after a scratch schema-v3 plan
+    // proves the exact operand surface the primitive-binary planner owns; every unproven binary
+    // shape remains a whole-subtree exit.
     public static func IsAdmittedConstructionValueSyntax(
         nodes: ColumnarNodeTable,
         source: string,

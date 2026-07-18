@@ -15,10 +15,10 @@ class ColumnarRangeIndexPlanner {
     // N# gates syntax/type shape before allocating bindings or resolving any reflection handle.
     static func TryEmitFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
-        return TryEmitFromFacts(nodes, source, node, parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, enclosingTypeDefinition, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters, new Dictionary<string, Type>(StringComparer.Ordinal), plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        return TryEmitFromFacts(nodes, source, node, parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, enclosingTypeDefinition, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters, new Dictionary<string, Type>(StringComparer.Ordinal), false, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
     }
 
-    static func TryEmitFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+    static func TryEmitFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, overflowCheckingEnabled: bool, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
         nsharpOwned = false
         legacyWholeSubtreePlanning = false
@@ -30,6 +30,7 @@ class ColumnarRangeIndexPlanner {
 
         bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
         bindings.ExactSourceTypes = exactSourceTypes
+        bindings.OverflowCheckingEnabled = overflowCheckingEnabled
 
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
@@ -41,6 +42,10 @@ class ColumnarRangeIndexPlanner {
         }
         if ColumnarDirectCallPlanner.MayPlanRoot(nodes, node) {
             return ColumnarDirectCallPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        }
+        if ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node) {
+            handles := ColumnarRangeIndexHandles.Resolve()
+            return ColumnarPrimitiveBinaryPlanner.TryEmitRoot(nodes, source, node, bindings, handles, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
 
         if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
@@ -79,10 +84,10 @@ class ColumnarRangeIndexPlanner {
 
     static func TryGetTypeFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, plan: ColumnarCodePlan, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
-        return TryGetTypeFromFacts(nodes, source, node, parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, enclosingTypeDefinition, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters, new Dictionary<string, Type>(StringComparer.Ordinal), plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        return TryGetTypeFromFacts(nodes, source, node, parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, enclosingTypeDefinition, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters, new Dictionary<string, Type>(StringComparer.Ordinal), false, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
     }
 
-    static func TryGetTypeFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, plan: ColumnarCodePlan, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+    static func TryGetTypeFromFacts(nodes: ColumnarNodeTable, source: string, node: int, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, overflowCheckingEnabled: bool, plan: ColumnarCodePlan, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ValidateFacadeRootInputs(nodes, source, node, plan)
         nsharpOwned = false
         legacyWholeSubtreePlanning = false
@@ -94,6 +99,7 @@ class ColumnarRangeIndexPlanner {
 
         bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
         bindings.ExactSourceTypes = exactSourceTypes
+        bindings.OverflowCheckingEnabled = overflowCheckingEnabled
 
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
@@ -105,6 +111,10 @@ class ColumnarRangeIndexPlanner {
         }
         if ColumnarDirectCallPlanner.MayPlanRoot(nodes, node) {
             return ColumnarDirectCallPlanner.TryGetType(nodes, source, node, bindings, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        }
+        if ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node) {
+            handles := ColumnarRangeIndexHandles.Resolve()
+            return ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(nodes, source, node, bindings, handles, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
 
         if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
@@ -237,6 +247,10 @@ class ColumnarRangeIndexPlanner {
 
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             return true
+        }
+
+        if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+            return ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node)
         }
 
         if kind != ColumnarExpressionNodeKind.IndexAccessExpression() || nodes.ChildCount(node) != 2 {

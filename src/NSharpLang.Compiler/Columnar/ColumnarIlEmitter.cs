@@ -9983,6 +9983,7 @@ internal sealed class ColumnarIlEmitter
                 _visibleLocalFuncs,
                 _typeParameters,
                 ExactSourceTypesForBody(),
+                _overflowCheckingEnabled,
                 _codePlan,
                 _il,
                 out var nsharpOwned,
@@ -10290,7 +10291,9 @@ internal sealed class ColumnarIlEmitter
                 // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
                 // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
                 // matching  for int/long; the columnar `>>` is a single binary operator here (the `>>` token
-                // split only applies inside generic type arguments, not expression context).
+                // split only applies inside generic type arguments, not expression context). The N# planner owns
+                // these families at the front door for fully-plannable operands; this arm is the identical-IL
+                // fallback for operands outside the planner surface (casts, decimal literals, bare sibling calls).
                 if (op == "<<" || op == ">>")
                 {
                     if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) || rightType != typeof(int))
@@ -16708,6 +16711,7 @@ internal sealed class ColumnarIlEmitter
                 _visibleLocalFuncs,
                 _typeParameters,
                 ExactSourceTypesForBody(),
+                _overflowCheckingEnabled,
                 _codePlan,
                 out var nsharpOwned,
                 out var legacyWholeSubtreePlanning,

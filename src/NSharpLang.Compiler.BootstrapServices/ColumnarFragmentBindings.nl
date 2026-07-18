@@ -29,6 +29,9 @@ class ColumnarFragmentBindings {
     // Unlike CurrentInstance, this remains populated in static member bodies and anchors bare
     // static method calls on the enclosing source type.
     EnclosingTypeDefinition: ColumnarStructDef?
+    // Live checked/unchecked context routed mechanically from the emitter. Only checked integral
+    // add/sub/mul select the overflow opcode variants; every other family ignores this flag.
+    OverflowCheckingEnabled: bool
     // Union aliases may likewise expose the same definition more than once. Type-expression
     // owners consume the live builders and deduplicate by base identity.
     SourceUnionDefinitions: IEnumerable<ColumnarUnionDef>
@@ -56,6 +59,7 @@ class ColumnarFragmentBindings {
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ExactSourceTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         EnclosingTypeDefinition = null
+        OverflowCheckingEnabled = false
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
         this.liftedNames = liftedNames

@@ -1867,10 +1867,16 @@ public class ColumnarCodePlanExecutor {
             || opCodeValue == ColumnarCodePlanContract.CltUn() {
             right := state.Pop()
             left := state.Pop()
-            if !IsUnsignedComparablePair(left, right) {
+            // cgt.un/clt.un serve two roles: the unsigned ordering forms for `>`/`<` on UInt32 or
+            // UInt64, and the UNORDERED float complement forms that `<=`/`>=` lower to on Single or
+            // Double so a NaN operand yields false. Both are valid IL producing a Boolean.
+            if !IsUnsignedComparablePair(left, right)
+                && !IsExactPrimitivePair(left, right, typeof(float))
+                && !IsExactPrimitivePair(left, right, typeof(double)) {
                 throw new InvalidOperationException(
                     schemaName
-                        + " cgt.un/clt.un requires an exact matching UInt32 or UInt64 pair.")
+                        + " cgt.un/clt.un requires an exact matching UInt32 or UInt64 pair, or "
+                        + "an exact matching Single or Double pair for the unordered complement.")
             }
             state.Push(
                 typeof(bool),
@@ -3055,8 +3061,9 @@ public class ColumnarCodePlanExecutor {
             || IsExactPrimitivePair(left, right, typeof(ulong))
     }
 
-    // ceq admits an Int32-promotable pair or an exact matching long/uint/ulong/float/double pair
-    // in addition to the retained exact-Boolean-versus-literal-zero form.
+    // ceq admits an Int32-promotable pair, an exact matching long/uint/ulong/float/double pair, or
+    // an exact Boolean pair (`a == b` over two Booleans compares their shared Int32 slot), in
+    // addition to the retained exact-Boolean-versus-literal-zero form.
     static func IsEqualityComparablePair(
         left: ColumnarCodePlanStackNode,
         right: ColumnarCodePlanStackNode): bool {
@@ -3066,6 +3073,7 @@ public class ColumnarCodePlanExecutor {
             || IsExactPrimitivePair(left, right, typeof(ulong))
             || IsExactPrimitivePair(left, right, typeof(float))
             || IsExactPrimitivePair(left, right, typeof(double))
+            || IsExactPrimitivePair(left, right, typeof(bool))
     }
 
     static func IsI8Destination(expectedType: Type): bool {

@@ -5,8 +5,17 @@ Last updated: 2026-07-18
 ## Cursor
 
 - Current task: `tasks/006-primitive-binary-expressions.md`
-- Current iteration: one terminal slice
-- Active sub-slice: not yet selected (revalidate the 006 accept set against `ColumnarPrimitiveBinaryPlanner.nl`, which task 005 already landed as a value-position dependency)
+- Current iteration: one terminal slice (stage 0 `3dcb60bd2` opcode identities; ownership routing
+  landed next — see Current evidence)
+- Active sub-slice: own the residual OPERAND families that block the C# numeric-arm deletion —
+  cast expressions (kind 16 numeric casts), decimal literals, and bare sibling-function call
+  operands. The verified blocker: with the case-12 numeric arms deleted, `x == (uint)42`,
+  `d == 24.5m`, and `Foo() == 42` decline because those operands are not yet plannable, so the
+  deletion was reverted and the arm stands as the fenced whole-subtree residual. Once those operand
+  families plan, delete the case-12 numeric switch, shifts branch, decimal table, string-pair
+  concat, and shrink `TryGetPreflightBinaryExpressionType` to the retained families
+  (&&/||, ??, null comparisons, string chains, string+char, Type/record/enum equality,
+  source operators).
 - Last accepted ownership commit: `6746c1b2c` (`Own construction and array literals in N#`)
 - Queue: `tasks/README.md`
 

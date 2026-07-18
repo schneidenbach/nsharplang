@@ -259,8 +259,6 @@ test "primitive binary source addition rejects unsupported and corrupt facts ato
 
 test "primitive binary planner declines other operators types and malformed arity atomically" {
     PrimitiveBinaryDeclines(
-        "20 - 22", ColumnarRangePlannerEmptyBindings())
-    PrimitiveBinaryDeclines(
         "20 + 22L", ColumnarRangePlannerEmptyBindings())
     PrimitiveBinaryDeclines(
         "left + right", PrimitiveBinaryParameterBindings(typeof(bool)))
@@ -582,7 +580,7 @@ test "unsupported addition shapes remain contextual construction exits" {
     assert legacy
 
     operatorNearMiss := DirectCallParsedTree(
-        "new PrimitiveBinaryExcludedOwner(left - left)")
+        "new PrimitiveBinaryExcludedOwner(left && left)")
     ConstructionStampScope(operatorNearMiss, factSource)
     nearMissBindings := ConstructionBindings(definitions)
     ColumnarRangePlannerAddParameter(
@@ -724,4 +722,411 @@ test "semantic construction admission preserves target-typed null values" {
         objectPlan, ColumnarCodePlanContract.Ldnull()) == 1
     assert PrimitiveBinaryOpcodeCount(
         objectPlan, ColumnarCodePlanContract.Stfld()) == 1
+}
+
+func PrimitiveBinaryCheckedBindings(valueType: Type): ColumnarFragmentBindings {
+    bindings := PrimitiveBinaryParameterBindings(valueType)
+    bindings.OverflowCheckingEnabled = true
+    return bindings
+}
+
+test "primitive binary planner owns subtraction multiplication division and remainder" {
+    subPlan := PrimitiveBinaryPlan(
+        "50 - 8", ColumnarRangePlannerEmptyBindings())
+    assert subPlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        subPlan, ColumnarCodePlanContract.Sub()) == 1
+    assert ExecutorRunV3ScalarPlan(subPlan, typeof(int)) == "42"
+
+    mulPlan := PrimitiveBinaryPlan(
+        "6 * 7", ColumnarRangePlannerEmptyBindings())
+    assert PrimitiveBinaryOpcodeCount(
+        mulPlan, ColumnarCodePlanContract.Mul()) == 1
+    assert ExecutorRunV3ScalarPlan(mulPlan, typeof(int)) == "42"
+
+    divPlan := PrimitiveBinaryPlan(
+        "84 / 2", ColumnarRangePlannerEmptyBindings())
+    assert PrimitiveBinaryOpcodeCount(
+        divPlan, ColumnarCodePlanContract.Div()) == 1
+    assert ExecutorRunV3ScalarPlan(divPlan, typeof(int)) == "42"
+
+    remPlan := PrimitiveBinaryPlan(
+        "142 % 100", ColumnarRangePlannerEmptyBindings())
+    assert PrimitiveBinaryOpcodeCount(
+        remPlan, ColumnarCodePlanContract.Rem()) == 1
+    assert ExecutorRunV3ScalarPlan(remPlan, typeof(int)) == "42"
+
+    longSub := PrimitiveBinaryPlan(
+        "left - right", PrimitiveBinaryParameterBindings(typeof(long)))
+    assert longSub.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        longSub, ColumnarCodePlanContract.Sub()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        longSub, typeof(long), typeof(long), typeof(long),
+        50L, 8L) == "42"
+
+    uintDiv := PrimitiveBinaryPlan(
+        "left / right", PrimitiveBinaryParameterBindings(typeof(uint)))
+    assert uintDiv.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        uintDiv, ColumnarCodePlanContract.DivUn()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        uintDiv, ColumnarCodePlanContract.Div()) == 0
+    assert PrimitiveBinaryExecuteParameters(
+        uintDiv, typeof(uint), typeof(uint), typeof(uint),
+        (uint)84, (uint)2) == "42"
+
+    ulongRem := PrimitiveBinaryPlan(
+        "left % right", PrimitiveBinaryParameterBindings(typeof(ulong)))
+    assert PrimitiveBinaryOpcodeCount(
+        ulongRem, ColumnarCodePlanContract.RemUn()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        ulongRem, typeof(ulong), typeof(ulong), typeof(ulong),
+        (ulong)142, (ulong)100) == "42"
+
+    doubleDiv := PrimitiveBinaryPlan(
+        "left / right", PrimitiveBinaryParameterBindings(typeof(double)))
+    assert doubleDiv.ResultType == typeof(double)
+    assert PrimitiveBinaryOpcodeCount(
+        doubleDiv, ColumnarCodePlanContract.Div()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        doubleDiv, typeof(double), typeof(double), typeof(double),
+        105.0, 2.5) == (105.0 / 2.5).ToString()
+
+    charSub := PrimitiveBinaryPlan(
+        "left - right", PrimitiveBinaryParameterBindings(typeof(char)))
+    assert charSub.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        charSub, ColumnarCodePlanContract.Sub()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        charSub, typeof(int), typeof(char), typeof(char),
+        'd', 'a') == "3"
+}
+
+test "primitive binary planner owns bitwise and or xor over integral op types" {
+    andPlan := PrimitiveBinaryPlan(
+        "left & right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert andPlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        andPlan, ColumnarCodePlanContract.And()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        andPlan, typeof(int), typeof(int), typeof(int),
+        46, 58) == "42"
+
+    orPlan := PrimitiveBinaryPlan(
+        "left | right", PrimitiveBinaryParameterBindings(typeof(long)))
+    assert orPlan.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        orPlan, ColumnarCodePlanContract.Or()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        orPlan, typeof(long), typeof(long), typeof(long),
+        32L, 10L) == "42"
+
+    xorPlan := PrimitiveBinaryPlan(
+        "left ^ right", PrimitiveBinaryParameterBindings(typeof(uint)))
+    assert xorPlan.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        xorPlan, ColumnarCodePlanContract.Xor()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        xorPlan, typeof(uint), typeof(uint), typeof(uint),
+        (uint)60, (uint)22) == "42"
+
+    promotedAnd := PrimitiveBinaryPlan(
+        "left & right",
+        PrimitiveBinaryPairBindings(typeof(byte), typeof(short)))
+    assert promotedAnd.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        promotedAnd, ColumnarCodePlanContract.And()) == 1
+
+    PrimitiveBinaryDeclines(
+        "left & right", PrimitiveBinaryParameterBindings(typeof(bool)))
+}
+
+test "primitive binary planner owns shifts with signed and unsigned right selection" {
+    leftShift := PrimitiveBinaryPlan(
+        "left << right",
+        PrimitiveBinaryPairBindings(typeof(int), typeof(int)))
+    assert leftShift.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        leftShift, ColumnarCodePlanContract.Shl()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        leftShift, typeof(int), typeof(int), typeof(int),
+        21, 1) == "42"
+
+    signedRight := PrimitiveBinaryPlan(
+        "left >> right",
+        PrimitiveBinaryPairBindings(typeof(long), typeof(int)))
+    assert signedRight.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        signedRight, ColumnarCodePlanContract.Shr()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        signedRight, ColumnarCodePlanContract.ShrUn()) == 0
+    assert PrimitiveBinaryExecuteParameters(
+        signedRight, typeof(long), typeof(long), typeof(int),
+        168L, 2) == "42"
+
+    unsignedRight := PrimitiveBinaryPlan(
+        "left >> right",
+        PrimitiveBinaryPairBindings(typeof(ulong), typeof(int)))
+    assert unsignedRight.ResultType == typeof(ulong)
+    assert PrimitiveBinaryOpcodeCount(
+        unsignedRight, ColumnarCodePlanContract.ShrUn()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        unsignedRight, ColumnarCodePlanContract.Shr()) == 0
+    assert PrimitiveBinaryExecuteParameters(
+        unsignedRight, typeof(ulong), typeof(ulong), typeof(int),
+        (ulong)168, 2) == "42"
+
+    PrimitiveBinaryDeclines(
+        "left >> right",
+        PrimitiveBinaryPairBindings(typeof(int), typeof(long)))
+    PrimitiveBinaryDeclines(
+        "left << right",
+        PrimitiveBinaryPairBindings(typeof(uint), typeof(int)))
+}
+
+func PrimitiveBinaryOrderingResult(
+    source: string,
+    valueType: Type,
+    leftValue: object,
+    rightValue: object): string {
+    plan := PrimitiveBinaryPlan(
+        source, PrimitiveBinaryParameterBindings(valueType))
+    return PrimitiveBinaryExecuteParameters(
+        plan, typeof(bool), valueType, valueType, leftValue, rightValue)
+}
+
+test "primitive binary planner owns ordering with signed unsigned and float lowering" {
+    intLess := PrimitiveBinaryPlan(
+        "left < right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert intLess.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        intLess, ColumnarCodePlanContract.Clt()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left < right", typeof(int), 1, 2) == "True"
+    assert PrimitiveBinaryOrderingResult(
+        "left < right", typeof(int), 5, 2) == "False"
+
+    intLessEqual := PrimitiveBinaryPlan(
+        "left <= right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        intLessEqual, ColumnarCodePlanContract.Cgt()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        intLessEqual, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left <= right", typeof(int), 2, 2) == "True"
+
+    uintGreater := PrimitiveBinaryPlan(
+        "left > right", PrimitiveBinaryParameterBindings(typeof(uint)))
+    assert PrimitiveBinaryOpcodeCount(
+        uintGreater, ColumnarCodePlanContract.CgtUn()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left > right", typeof(uint), (uint)50, (uint)8) == "True"
+
+    floatLessEqual := PrimitiveBinaryPlan(
+        "left <= right", PrimitiveBinaryParameterBindings(typeof(double)))
+    assert PrimitiveBinaryOpcodeCount(
+        floatLessEqual, ColumnarCodePlanContract.CgtUn()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        floatLessEqual, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left <= right", typeof(double), 2.0, 2.5) == "True"
+    zero := 0.0
+    nanValue := zero / zero
+    assert PrimitiveBinaryOrderingResult(
+        "left <= right", typeof(double), nanValue, 2.5) == "False"
+
+    doubleGreaterEqual := PrimitiveBinaryPlan(
+        "left >= right", PrimitiveBinaryParameterBindings(typeof(double)))
+    assert PrimitiveBinaryOpcodeCount(
+        doubleGreaterEqual, ColumnarCodePlanContract.CltUn()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        doubleGreaterEqual, ColumnarCodePlanContract.Ceq()) == 1
+}
+
+test "primitive binary planner owns numeric and Boolean equality" {
+    intEq := PrimitiveBinaryPlan(
+        "left == right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert intEq.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        intEq, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left == right", typeof(int), 42, 42) == "True"
+    assert PrimitiveBinaryOrderingResult(
+        "left == right", typeof(int), 42, 7) == "False"
+
+    intNotEq := PrimitiveBinaryPlan(
+        "left != right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        intNotEq, ColumnarCodePlanContract.Ceq()) == 2
+    assert PrimitiveBinaryOrderingResult(
+        "left != right", typeof(int), 42, 7) == "True"
+
+    boolEq := PrimitiveBinaryPlan(
+        "left == right", PrimitiveBinaryParameterBindings(typeof(bool)))
+    assert boolEq.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        boolEq, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left == right", typeof(bool), true, true) == "True"
+    assert PrimitiveBinaryOrderingResult(
+        "left == right", typeof(bool), true, false) == "False"
+
+    boolNotEq := PrimitiveBinaryPlan(
+        "left != right", PrimitiveBinaryParameterBindings(typeof(bool)))
+    assert PrimitiveBinaryOpcodeCount(
+        boolNotEq, ColumnarCodePlanContract.Ceq()) == 2
+    assert PrimitiveBinaryOrderingResult(
+        "left != right", typeof(bool), true, false) == "True"
+
+    doubleEq := PrimitiveBinaryPlan(
+        "left == right", PrimitiveBinaryParameterBindings(typeof(double)))
+    assert PrimitiveBinaryOpcodeCount(
+        doubleEq, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryOrderingResult(
+        "left == right", typeof(double), 42.0, 42.0) == "True"
+}
+
+test "primitive binary planner owns the decimal operator statics" {
+    subPlan := PrimitiveBinaryPlan(
+        "left - right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert subPlan.ResultType == typeof(decimal)
+    assert PrimitiveBinaryOpcodeCount(
+        subPlan, ColumnarCodePlanContract.Call()) == 1
+    assert subPlan.Methods[0].get_Name() == "op_Subtraction"
+    assert PrimitiveBinaryExecuteParameters(
+        subPlan, typeof(decimal), typeof(decimal), typeof(decimal),
+        50m, 8m) == "42"
+
+    mulPlan := PrimitiveBinaryPlan(
+        "left * right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert mulPlan.ResultType == typeof(decimal)
+    assert mulPlan.Methods[0].get_Name() == "op_Multiply"
+    assert PrimitiveBinaryExecuteParameters(
+        mulPlan, typeof(decimal), typeof(decimal), typeof(decimal),
+        6m, 7m) == "42"
+
+    divPlan := PrimitiveBinaryPlan(
+        "left / right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert divPlan.Methods[0].get_Name() == "op_Division"
+    assert PrimitiveBinaryExecuteParameters(
+        divPlan, typeof(decimal), typeof(decimal), typeof(decimal),
+        84m, 2m) == "42"
+
+    remPlan := PrimitiveBinaryPlan(
+        "left % right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert remPlan.Methods[0].get_Name() == "op_Modulus"
+    assert PrimitiveBinaryExecuteParameters(
+        remPlan, typeof(decimal), typeof(decimal), typeof(decimal),
+        142m, 100m) == "42"
+
+    lessPlan := PrimitiveBinaryPlan(
+        "left < right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert lessPlan.ResultType == typeof(bool)
+    assert lessPlan.Methods[0].get_Name() == "op_LessThan"
+    assert PrimitiveBinaryExecuteParameters(
+        lessPlan, typeof(bool), typeof(decimal), typeof(decimal),
+        1m, 2m) == "True"
+
+    greaterEqualPlan := PrimitiveBinaryPlan(
+        "left >= right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert greaterEqualPlan.ResultType == typeof(bool)
+    assert greaterEqualPlan.Methods[0].get_Name() == "op_GreaterThanOrEqual"
+    assert PrimitiveBinaryExecuteParameters(
+        greaterEqualPlan, typeof(bool), typeof(decimal), typeof(decimal),
+        2m, 2m) == "True"
+
+    equalPlan := PrimitiveBinaryPlan(
+        "left == right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert equalPlan.ResultType == typeof(bool)
+    assert equalPlan.Methods[0].get_Name() == "op_Equality"
+    assert PrimitiveBinaryExecuteParameters(
+        equalPlan, typeof(bool), typeof(decimal), typeof(decimal),
+        5m, 5m) == "True"
+
+    notEqualPlan := PrimitiveBinaryPlan(
+        "left != right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+    assert notEqualPlan.Methods[0].get_Name() == "op_Inequality"
+    assert PrimitiveBinaryExecuteParameters(
+        notEqualPlan, typeof(bool), typeof(decimal), typeof(decimal),
+        5m, 8m) == "True"
+
+    PrimitiveBinaryDeclines(
+        "left & right", PrimitiveBinaryParameterBindings(typeof(decimal)))
+}
+
+test "primitive binary planner selects checked overflow opcodes only under a checked context" {
+    uncheckedAdd := PrimitiveBinaryPlan(
+        "left + right", PrimitiveBinaryParameterBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        uncheckedAdd, ColumnarCodePlanContract.Add()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        uncheckedAdd, ColumnarCodePlanContract.AddOvf()) == 0
+
+    checkedAdd := PrimitiveBinaryPlan(
+        "left + right", PrimitiveBinaryCheckedBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedAdd, ColumnarCodePlanContract.AddOvf()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        checkedAdd, ColumnarCodePlanContract.Add()) == 0
+    assert PrimitiveBinaryExecuteParameters(
+        checkedAdd, typeof(int), typeof(int), typeof(int),
+        20, 22) == "42"
+
+    checkedSub := PrimitiveBinaryPlan(
+        "left - right", PrimitiveBinaryCheckedBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedSub, ColumnarCodePlanContract.SubOvf()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        checkedSub, ColumnarCodePlanContract.Sub()) == 0
+
+    checkedMul := PrimitiveBinaryPlan(
+        "left * right", PrimitiveBinaryCheckedBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedMul, ColumnarCodePlanContract.MulOvf()) == 1
+
+    checkedUintAdd := PrimitiveBinaryPlan(
+        "left + right", PrimitiveBinaryCheckedBindings(typeof(uint)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedUintAdd, ColumnarCodePlanContract.AddOvfUn()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        checkedUintAdd, typeof(uint), typeof(uint), typeof(uint),
+        (uint)20, (uint)22) == "42"
+
+    checkedUintMul := PrimitiveBinaryPlan(
+        "left * right", PrimitiveBinaryCheckedBindings(typeof(uint)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedUintMul, ColumnarCodePlanContract.MulOvfUn()) == 1
+
+    checkedDiv := PrimitiveBinaryPlan(
+        "left / right", PrimitiveBinaryCheckedBindings(typeof(int)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedDiv, ColumnarCodePlanContract.Div()) == 1
+
+    checkedDouble := PrimitiveBinaryPlan(
+        "left + right", PrimitiveBinaryCheckedBindings(typeof(double)))
+    assert PrimitiveBinaryOpcodeCount(
+        checkedDouble, ColumnarCodePlanContract.Add()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        checkedDouble, ColumnarCodePlanContract.AddOvf()) == 0
+}
+
+test "primitive binary planner declines mixed pairs boolean and non numeric relations atomically" {
+    PrimitiveBinaryDeclines(
+        "left - right",
+        PrimitiveBinaryPairBindings(typeof(int), typeof(double)))
+    PrimitiveBinaryDeclines(
+        "left * right",
+        PrimitiveBinaryPairBindings(typeof(int), typeof(long)))
+    PrimitiveBinaryDeclines(
+        "left < right",
+        PrimitiveBinaryParameterBindings(typeof(string)))
+    PrimitiveBinaryDeclines(
+        "left == right",
+        PrimitiveBinaryParameterBindings(typeof(string)))
+
+    partialBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(partialBindings, "left", 0, typeof(int))
+    PrimitiveBinaryDeclines("left * missing", partialBindings)
+    PrimitiveBinaryDeclines("left < missing", partialBindings)
 }
