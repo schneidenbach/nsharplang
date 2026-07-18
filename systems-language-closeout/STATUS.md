@@ -46,6 +46,14 @@ Last updated: 2026-07-18
   task-004 acceptance.
 - The ownership growth ratchet is repinned to observed state (audit 18/18); the emitter entry rises
   only within its immutable epoch ceiling and records the restored fenced residual.
+- Post-acceptance follow-ups `195028aa9` and `7f4e727d6`: columnar emission now runs on a dedicated
+  wide-stack thread (MSBuild task threads run ~256 KB stacks and the emitter's per-node frames are
+  large; the July-12 sources overflowed every fresh SDK-path emit), and the NL103 decline diagnostic
+  is built inside that same thread (the decline trace is thread-local). The stale mid-slice SDK pack
+  in `~/.nuget/local-feed` (the feed actually consulted; `~/.nsharp/packages` is not) was replaced,
+  and the self-host loop is regenerative again: BootstrapServices Release re-emits cleanly through
+  the packaged SDK, 553/553 contracts pass against the fresh kernel, and the clean repin is
+  `nlc 0.1.0+7f4e727d615d2c38b5b71e6ac69690e5aa2275ff` with doctor status all-green.
 
 ## Iterative-task targets
 
