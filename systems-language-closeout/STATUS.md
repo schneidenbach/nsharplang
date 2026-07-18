@@ -7,7 +7,7 @@ Last updated: 2026-07-18
 - Current task: `tasks/006-primitive-binary-expressions.md`
 - Current iteration: one terminal slice (stage 0 `3dcb60bd2` opcode identities; ownership routing
   landed next — see Current evidence)
-- Active sub-slice: own the residual OPERAND families that block the C# numeric-arm deletion —
+- Active sub-slice: own bare sibling-function CALL operands (the last deletion blocker; casts and decimal literals landed at `83941f204`), then delete the case-12 numeric arms. Prior framing —
   cast expressions (kind 16 numeric casts), decimal literals, and bare sibling-function call
   operands. The verified blocker: with the case-12 numeric arms deleted, `x == (uint)42`,
   `d == 24.5m`, and `Foo() == 42` decline because those operands are not yet plannable, so the
