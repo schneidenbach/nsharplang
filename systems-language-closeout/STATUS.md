@@ -7,12 +7,12 @@ Last updated: 2026-07-18
 - Current task: `tasks/006-primitive-binary-expressions.md`
 - Current iteration: one terminal slice
 - Active sub-slice: not yet selected (revalidate the 006 accept set against `ColumnarPrimitiveBinaryPlanner.nl`, which task 005 already landed as a value-position dependency)
-- Last accepted ownership commit: `Own construction and array literals in N#` (hash recorded at next update)
+- Last accepted ownership commit: `6746c1b2c` (`Own construction and array literals in N#`)
 - Queue: `tasks/README.md`
 
 ## Current evidence
 
-- Task 005 is accepted (commit hash recorded at next update; stage-0 prerequisites `67a3e5803`,
+- Task 005 is accepted at `6746c1b2c` (stage-0 prerequisites `67a3e5803`,
   `37822d657`, `f9ed33dd9`, `aca8d35b3`, `91c062dd6`, `e63f27176`, and `ff2cf1138`). N# now owns
   construction planning end-to-end for the admitted family: ordinary source/runtime constructor
   calls with exact selection, defaults (including enum and dotted/aliased enum defaults), sized and
@@ -118,7 +118,7 @@ Completed slices:
     contracts; 14 direct-call, 2 interface-parameter, 18 ownership, 4 decline-diagnostic, and 2
     reflection-bootstrap contracts; exact ILVerify; three adversarial audits; clean SDK repin.
 
-- Task 005 — construction and array literals; commit hash recorded at next update (stage-0
+- Task 005 — construction and array literals; commit `6746c1b2c` (stage-0
   prerequisites `67a3e5803`, `37822d657`, `f9ed33dd9`, `aca8d35b3`, `91c062dd6`, `e63f27176`,
   and `ff2cf1138`).
   - Deleted C# owners: the Analyzer's string-matched member/export/declaration resolution
