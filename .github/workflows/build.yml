@@ -50,9 +50,9 @@ jobs:
   # Blocking IL-verification gate. PR #160 shipped GC-unsafe IL that only
   # crashed on Linux x64 because nothing verified the emitted assemblies and CI
   # never ran ilverify. This job runs `scripts/ilverify.sh` (the single source
-  # of truth, shared with the local full-suite gate), which builds the example
-  # and fixture assemblies with `nlc build` and runs `dotnet ilverify` over each
-  # one, failing on any NEW unverifiable IL versus the committed baseline.
+  # of truth, shared with the local full-suite gate), which builds example and
+  # fixture assemblies with `nlc build`, emits selected native regression projects
+  # with `nlc test`, and rejects NEW unverifiable IL versus the committed baseline.
   ilverify:
     runs-on: ubuntu-latest
 

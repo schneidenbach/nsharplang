@@ -25,7 +25,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [002 — Bound identifier reads](002-bound-identifier-reads.md)
 - [x] [003 — Instance fields and properties](003-instance-fields-and-properties.md)
 - [x] [004 — Fixed-arity direct calls](004-fixed-arity-direct-calls.md)
-- [ ] [005 — Construction and array literals](005-construction-and-array-literals.md)
+- [x] [005 — Construction and array literals](005-construction-and-array-literals.md)
 - [ ] [006 — Primitive binary expressions](006-primitive-binary-expressions.md)
 - [ ] [007 — Conditional and short-circuit expressions](007-conditional-and-short-circuit-expressions.md)
 - [ ] [008 — Complete range/index owner deletion](008-range-index-owner-deletion.md)

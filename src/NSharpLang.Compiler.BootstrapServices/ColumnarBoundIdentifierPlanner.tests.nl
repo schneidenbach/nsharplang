@@ -598,6 +598,61 @@ test "bound identifier planner interns repeated parameter ordinals" {
     ColumnarCodePlanExecutor.Validate(plan)
 }
 
+test "bound identifier planner interns repeated generic current-instance handles by exact shape" {
+    owner := SourceCallGenericDefinition(
+        "ColumnarBoundIdentifierGenericCurrent")
+    field := ConstructionDefinePublicField(
+        owner.Builder, "Field", typeof(int))
+    owner.Fields["Field"] = field
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.CurrentInstance =
+        ColumnarCurrentInstanceFacts.FromSourceDefinition(owner)
+    plan := ColumnarRangePlannerPlan(
+        BoundRepeatedRangeTree("Field"), bindings)
+
+    assert plan.ArgumentCount == 1
+    assert plan.ArgumentOrdinals[0] == 0
+    assert !plan.ArgumentIsAddress[0]
+    assert plan.OperationCount == 9
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ldarg()
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "bound identifier planner rejects genuinely conflicting argument shapes and address modes" {
+    firstOwner := SourceCallGenericDefinition(
+        "ColumnarBoundIdentifierArgumentFirst")
+    firstBuilderType: Type = firstOwner.Builder
+    firstArguments := firstBuilderType.GetGenericArguments()
+    firstType := firstBuilderType.MakeGenericType(firstArguments)
+    equivalentType := firstBuilderType.MakeGenericType(
+        firstBuilderType.GetGenericArguments())
+
+    addressConflict := new ColumnarCodePlan()
+    addressConflict.PrepareV3()
+    ColumnarBoundIdentifierPlanner.GetOrAddArgument(
+        addressConflict, 3, firstType, false)
+    assert throws InvalidOperationException {
+        ColumnarBoundIdentifierPlanner.GetOrAddArgument(
+            addressConflict, 3, equivalentType, true)
+    }
+
+    secondOwner := SourceCallGenericDefinition(
+        "ColumnarBoundIdentifierArgumentSecond")
+    secondBuilderType: Type = secondOwner.Builder
+    secondType := secondBuilderType.MakeGenericType(
+        secondBuilderType.GetGenericArguments())
+    typeConflict := new ColumnarCodePlan()
+    typeConflict.PrepareV3()
+    ColumnarBoundIdentifierPlanner.GetOrAddArgument(
+        typeConflict, 4, firstType, false)
+    assert throws InvalidOperationException {
+        ColumnarBoundIdentifierPlanner.GetOrAddArgument(
+            typeConflict, 4, secondType, false)
+    }
+}
+
 test "bound identifier plans execute parameters locals lifted values and boxed captures" {
     tree := BoundIdentifierTree("value")
 

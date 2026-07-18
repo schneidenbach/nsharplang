@@ -426,19 +426,17 @@ class ColumnarInstanceMemberPlanner {
     static func TrySelectSource(receiverType: Type, memberName: string, bindings: ColumnarFragmentBindings, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         source: ColumnarStructDef? = null
-        closed := false
         for candidate in bindings.SourceTypeDefinitions {
             candidateType: Type = candidate.Builder
             if candidateType == receiverType {
                 source = candidate
             } else if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == candidateType {
                 source = candidate
-                closed = true
             }
         }
 
         if source != null {
-            return TrySelectSourceDefinition(receiverType, memberName, source, closed, classification, out selection)
+            return TrySelectSourceDefinition(receiverType, memberName, source, classification, out selection)
         }
 
         facts := bindings.CurrentInstance
@@ -449,20 +447,21 @@ class ColumnarInstanceMemberPlanner {
         throw new InvalidOperationException("Classified source instance facts disappeared during member selection.")
     }
 
-    static func TrySelectSourceDefinition(receiverType: Type, memberName: string, root: ColumnarStructDef, closed: bool, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+    static func TrySelectSourceDefinition(receiverType: Type, memberName: string, root: ColumnarStructDef, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         if memberName.Length == 0 {
             return false
         }
 
-        ValidateSourceHierarchy(root, closed)
-        arguments := closed ? receiverType.GetGenericArguments() : new Type[](0)
+        ValidateSourceHierarchy(root)
         current: ColumnarStructDef? = root
+        currentExactType := receiverType
         found := false
         foundStatic := false
         foundField: FieldInfo? = null
         foundProperty: ColumnarPropertyDef? = null
         foundDeclaring := typeof(object)
+        foundExactDeclaring := typeof(object)
         while current != null {
             localField := current.Fields.ContainsKey(memberName)
             localProperty := current.Properties.ContainsKey(memberName)
@@ -478,6 +477,7 @@ class ColumnarInstanceMemberPlanner {
                 found = localField || localProperty
                 foundStatic = localStaticField || localStaticProperty
                 foundDeclaring = current.Builder
+                foundExactDeclaring = currentExactType
                 if localField {
                     foundField = current.Fields[memberName]
                 } else if localProperty {
@@ -485,13 +485,37 @@ class ColumnarInstanceMemberPlanner {
                 }
             }
 
-            // Closed user-generic access historically owns only its declaration. Generic base
-            // construction is rejected earlier and must not be guessed here.
-            if closed {
+            baseDefinition := current.BaseDef
+            if baseDefinition == null {
                 current = null
-            } else {
-                current = current.BaseDef
+                continue
             }
+
+            exactBaseTemplate := current.ExactBaseType
+            if exactBaseTemplate == null {
+                throw new InvalidOperationException("Source instance-member base facts have no exact type template.")
+            }
+            emittedBaseTemplate := current.Builder.get_BaseType()
+            if emittedBaseTemplate == null
+                || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                    exactBaseTemplate, emittedBaseTemplate) {
+                throw new InvalidOperationException("Source instance-member exact base template does not match emitted inheritance.")
+            }
+
+            currentWasClosed := !ContainsOpenTypeParameters(currentExactType)
+            currentArguments := currentExactType.get_IsGenericType()
+                ? currentExactType.GetGenericArguments()
+                : new Type[](0)
+            currentExactType = currentArguments.Length == 0
+                ? exactBaseTemplate
+                : SubstituteTypeArguments(exactBaseTemplate, currentArguments)
+            if !ExactTypeOwnsDefinition(currentExactType, baseDefinition) {
+                throw new InvalidOperationException("Source instance-member exact base type does not match its definition.")
+            }
+            if currentWasClosed && ContainsOpenTypeParameters(currentExactType) {
+                throw new InvalidOperationException("A closed source receiver cannot map to an open generic base.")
+            }
+            current = baseDefinition
         }
 
         if foundStatic || !found {
@@ -511,10 +535,15 @@ class ColumnarInstanceMemberPlanner {
             resultType := field.get_FieldType()
             declaringType := foundDeclaring
             selectedField := field
-            if closed {
-                selectedField = RebindField(receiverType, field)
-                declaringType = receiverType
-                resultType = SubstituteTypeArguments(resultType, arguments)
+            foundArguments := foundExactDeclaring.get_IsGenericType()
+                ? foundExactDeclaring.GetGenericArguments()
+                : new Type[](0)
+            if foundArguments.Length > 0 {
+                resultType = SubstituteTypeArguments(resultType, foundArguments)
+            }
+            if foundExactDeclaring != foundDeclaring {
+                selectedField = RebindField(foundExactDeclaring, field)
+                declaringType = foundExactDeclaring
             }
 
             if !IsStorableResult(resultType) {
@@ -543,10 +572,15 @@ class ColumnarInstanceMemberPlanner {
         propertyType := property.PropertyType
         declaringPropertyType := foundDeclaring
         selectedGetter := getter
-        if closed {
-            selectedGetter = RebindMethod(receiverType, getter)
-            declaringPropertyType = receiverType
-            propertyType = SubstituteTypeArguments(propertyType, arguments)
+        foundPropertyArguments := foundExactDeclaring.get_IsGenericType()
+            ? foundExactDeclaring.GetGenericArguments()
+            : new Type[](0)
+        if foundPropertyArguments.Length > 0 {
+            propertyType = SubstituteTypeArguments(propertyType, foundPropertyArguments)
+        }
+        if foundExactDeclaring != foundDeclaring {
+            selectedGetter = RebindMethod(foundExactDeclaring, getter)
+            declaringPropertyType = foundExactDeclaring
         }
 
         if !IsStorableResult(propertyType) {
@@ -629,11 +663,7 @@ class ColumnarInstanceMemberPlanner {
         return true
     }
 
-    static func ValidateSourceHierarchy(root: ColumnarStructDef, closed: bool) {
-        if closed {
-            return
-        }
-
+    static func ValidateSourceHierarchy(root: ColumnarStructDef) {
         slow: ColumnarStructDef? = root
         fast: ColumnarStructDef? = root
         while fast != null && fast.BaseDef != null {
@@ -651,6 +681,37 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("Source instance-member hierarchy contains a cycle.")
             }
         }
+    }
+
+    static func ExactTypeOwnsDefinition(exactType: Type, definition: ColumnarStructDef): bool {
+        if ColumnarConstructionPlanner.SameObject(exactType, definition.Builder) {
+            return !definition.Builder.get_IsGenericTypeDefinition()
+        }
+
+        return exactType.get_IsGenericType()
+            && !exactType.get_IsGenericTypeDefinition()
+            && ColumnarConstructionPlanner.SameObject(
+                exactType.GetGenericTypeDefinition(), definition.Builder)
+    }
+
+    static func ContainsOpenTypeParameters(valueType: Type): bool {
+        if valueType.get_IsGenericParameter()
+            || valueType.get_IsGenericTypeDefinition() {
+            return true
+        }
+        if !valueType.get_IsGenericType() {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if ContainsOpenTypeParameters(arguments[index]) {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     static func ValidateExactHierarchy(root: ColumnarCurrentInstanceFacts) {

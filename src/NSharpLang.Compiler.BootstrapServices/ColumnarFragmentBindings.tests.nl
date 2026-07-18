@@ -211,9 +211,9 @@ test "selected source type resolution prefers exact identity and deduplicates re
         resolved, alpha.Builder)
 }
 
-test "selected source type declaration bridge requires one distinct candidate" {
+test "selected exact source declaration requires one distinct candidate" {
     selected := BindingSourceDefinition(
-        "SelectedRuntimeWidget", "Widget", 0)
+        "SelectedRuntimeWidget", "Selected.Widget", 0)
     uniqueDefinitions := new List<ColumnarStructDef>()
     uniqueDefinitions.Add(selected)
     unique := BindingEmpty()
@@ -224,8 +224,10 @@ test "selected source type declaration bridge requires one distinct candidate" {
     assert ColumnarConstructionPlanner.SameObject(
         resolved, selected.Builder)
 
-    first := BindingSourceDefinition("FirstRuntimeWidget", "Widget", 0)
-    second := BindingSourceDefinition("SecondRuntimeWidget", "Widget", 0)
+    first := BindingSourceDefinition(
+        "FirstRuntimeWidget", "Selected.Widget", 0)
+    second := BindingSourceDefinition(
+        "SecondRuntimeWidget", "Selected.Widget", 0)
     ambiguousDefinitions := new List<ColumnarStructDef>()
     ambiguousDefinitions.Add(first)
     ambiguousDefinitions.Add(second)

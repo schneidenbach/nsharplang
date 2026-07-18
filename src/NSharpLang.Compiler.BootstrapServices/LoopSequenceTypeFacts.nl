@@ -4,6 +4,10 @@ import System.Collections.Generic
 
 class LoopSequenceTypeFacts {
     static func GetGenericLoopSequenceElementType(genericType: GenericTypeInfo, requireAsync: bool): TypeInfo? {
+        if genericType.GenericDefinition != null
+            && genericType.GenericDefinition as ReflectionTypeInfo == null {
+            return null
+        }
         name := StripGenericArity(UnqualifiedTypeName(genericType.Name))
 
         if requireAsync {
@@ -18,7 +22,17 @@ class LoopSequenceTypeFacts {
             arguments := new List<TypeInfo>()
             arguments.Add(genericType.TypeArguments[0])
             arguments.Add(genericType.TypeArguments[1])
-            return new GenericTypeInfo("KeyValuePair", arguments)
+            definition := Type.GetType(
+                "System.Collections.Generic.KeyValuePair`2")
+            if definition == null {
+                throw new InvalidOperationException(
+                    "Required KeyValuePair generic definition was not found.")
+            }
+            definitionInfo := new ReflectionTypeInfo(definition)
+            return new GenericTypeInfo(
+                "KeyValuePair",
+                arguments,
+                definitionInfo)
         }
 
         if genericType.TypeArguments.Count != 1 {

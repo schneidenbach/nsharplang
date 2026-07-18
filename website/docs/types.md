@@ -420,7 +420,16 @@ func processReader(reader: IReader) {
 // Both types work - they have the right shape!
 processReader(new FileReader())
 processReader(new HttpReader())
+
+readers := new System.Collections.Generic.List<IReader>()
+readers.Add(new FileReader())
+readers.Add(new HttpReader())
 ```
+
+Satisfaction is checked when a value flows to a duck-interface target, including
+function arguments, returns, fields, and generic APIs such as `List<IReader>.Add`.
+The source class does not declare `: IReader`; matching the required exported
+member signatures is the contract.
 
 ### Duck Interface Constraints
 
@@ -445,7 +454,9 @@ result := execute<string>(new StringProcessor(), "hello")
 
 ### How Duck Interfaces Compile
 
-Duck interfaces are compile-time only - they're erased at runtime:
+Duck interfaces use structural checking in N# source, but they are not erased.
+The compiler emits an internal CLR interface and records that exact interface on
+matching N# types:
 
 ```n#
 duck interface IReader {
@@ -462,7 +473,7 @@ internal interface IReader
 }
 ```
 
-And the compiler automatically implements it on matching types:
+For example, the emitted shape is equivalent to:
 
 ```text
 // Original N#
@@ -476,6 +487,11 @@ class FileReader : IReader
     public string Read() { ... }
 }
 ```
+
+That CLR shape makes ordinary interface dispatch reliable. A matching class
+flows to `IReader` by reference conversion; a matching struct is boxed when it
+becomes an interface value. N# keeps the source surface structural: you do not
+write an explicit implementation clause or use a cast to claim conformance.
 
 ## Enums
 

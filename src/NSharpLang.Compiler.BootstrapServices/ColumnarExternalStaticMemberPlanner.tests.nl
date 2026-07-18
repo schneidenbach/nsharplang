@@ -347,6 +347,13 @@ test "external static-member planner owns closed pool properties and exact type 
     aliasPlan := ExternalPlan(aliasTree, ColumnarRangePlannerEmptyBindings())
     assert aliasPlan.ResultType == arrayType
 
+    wrongElementAlias := ExternalStaticMemberTree("ByteArrayPool", "Shared")
+    ExternalStampScope(
+        wrongElementAlias,
+        "import System.Buffers\ntype ByteArrayPool = ArrayPool<int>\n")
+    ExternalAssertDeclines(
+        wrongElementAlias, ColumnarRangePlannerEmptyBindings())
+
     memoryTree := ExternalStaticMemberTree("ByteMemoryPool", "Shared")
     ExternalStampScope(
         memoryTree,

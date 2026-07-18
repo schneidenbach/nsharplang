@@ -1,10 +1,25 @@
 # Analyzer Component
 
-**File:** `src/NSharpLang.Compiler/Analyzer.cs`
+**Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`
 
 ## Responsibility
 
 Performs semantic analysis, type checking, and name resolution on the AST.
+
+`Analyzer.cs` is the diagnostic/scope shell. `AnalyzerDeclarationContext.nl` is the N# owner for
+the project declaration catalog, case-sensitive canonical source-type identity, file and namespace
+imports, alias-cycle handling, owner-open generic substitution, lexical nested-type lookup, and
+source member projection. The shell
+loads parsed project units into that owner at the start of analysis and routes declaration/member
+queries through it; do not recreate those policies as C# caches or fallback resolvers.
+Project candidates across every visible namespace import are exhausted before CLR candidates;
+bare CLR names use the same case-sensitive exported-type assembly scan as the analyzer shell.
+`TypeInfoIdentityFacts.nl` owns exact structural identity for composed types and exact CLR metadata
+identity; nominal source types compare through the canonical declaration handles supplied by the
+declaration context. Tuple element labels are metadata rather than type identity, while dynamic
+assembly types remain reference-identity-only even after they are baked.
 
 ## Core Functions
 
@@ -124,9 +139,16 @@ this MetadataLoadContext" whenever the restored version was not the lexically gr
 
 ### Method Overload Resolution
 For external methods with multiple overloads:
-- Create `ReflectionMethodGroupInfo` with all signatures
-- During call analysis, pick best match by argument count
-- **Limitation:** Only checks count, not types
+- Create a `ReflectionMethodGroupInfo` with the complete applicable method surface. For CLR
+  interfaces this includes inherited interface methods, which `Type.GetMethods()` does not expose
+  on the derived interface itself.
+- Filter by positional/named arity, optional parameters, `params`, receiver compatibility,
+  ref/out shape, generic bindings, and contextual delegate/lambda compatibility.
+- Rank viable candidates by exact type and conversion quality, preferring instance methods over
+  extension methods, non-`params` candidates, and fewer defaults. An equal best match is rejected
+  as ambiguous rather than selected by declaration or reflection order.
+- N# overload groups use the same principle: argument types and conversion specificity decide the
+  unique best candidate; incompatible candidates and equal-best ties are diagnostics.
 
 ## Type Checking
 
@@ -135,16 +157,41 @@ For external methods with multiple overloads:
 - Exact type match
 - Inheritance (class → base class)
 - Interface implementation (class → interface)
-- Duck interface structural typing (see `memory/features/duck-interfaces.md`)
+- Duck interface structural typing (see [Duck interfaces](../../website/docs/types.md#duck-interfaces))
 - User-defined implicit conversions
 - Nullable conversions (`T → T?`)
-- Array covariance (`Derived[] → Base[]`)
+- CLR-backed assignability and the explicitly modeled generic collection variance/conversions
+- Exact array-to-span and `Span<T>`-to-`ReadOnlySpan<T>` conversions with preserved element identity
 
 ### Type Inference
 For `:=` declarations:
 - Infer from initializer expression type
 - If array literal, infer array type from elements
-- If lambda, type remains `Unknown` (limited context inference)
+- Contextual delegate targets (`Action`, `Func`, and other CLR delegates) supply lambda parameter
+  and return expectations during call and assignment binding. A lambda with no usable target may
+  still contain inference holes rather than being treated as an independently nominal value.
+
+### Exact Runtime Structural Projections
+
+Some CLR surfaces cannot be reconstructed safely by comparing display names or by mixing runtime
+`Type` objects with `MetadataLoadContext` types. `AnalyzerDeclarationContext.nl` therefore owns a
+small, identity-checked projection layer:
+
+- `NSharpLang.Runtime.Result<T, E>` exposes `IsOk`, `IsErr`, `OkValue`,
+  `OkValueUnchecked`, `ErrValue`, and `ErrValueUnchecked`, preserving both source type arguments.
+- Exact `System.Span<T>` and `System.ReadOnlySpan<T>` expose `Length`, `IsEmpty`, and the governed
+  systems-programming `ptr` surface.
+- Exact read-only collection definitions expose `Count`.
+- Arrays expose the real `AsSpan()` and `AsSpan(start, length)` extension surface only when
+  `System` is imported, preserving the array element type.
+- CLR interfaces expose the effective method group from the interface and all inherited
+  interfaces, consistently for runtime reflection and metadata-only reflection.
+
+`TypeInfoIdentityFacts.nl` is the single identity boundary used by these projections and assignment
+rules. It compares composed N# types structurally, canonical source declarations nominally, exact
+CLR definitions across runtime and metadata-load contexts, runtime delegate definitions,
+Int32-backed CLR enums, and the exact `Span<T>` to `ReadOnlySpan<T>` widening. Do not replace these
+checks with type-name matching.
 
 ### Definite Assignment
 For non-nullable fields:
@@ -215,15 +262,15 @@ Analyzer emits `CompilerError` records with:
 
 ## Testing
 
-Analyzer has 78 unit tests covering:
-- Type checking (primitives, classes, generics)
-- Type inference
-- Name resolution
-- Scope management
-- External type resolution
-- Pattern matching exhaustiveness
-- Definite assignment
-- Duck interfaces
-- Error detection
+Analyzer coverage is split deliberately across:
 
-See `tests/AnalyzerTests.cs`.
+- `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.tests.nl` for the N#
+  declaration catalog, source ownership, visibility, imports, members, and exact runtime
+  projections.
+- `src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.tests.nl` for nominal,
+  structural, runtime, and metadata-only identity and conversion rules.
+- `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
+  end-to-end semantic behavior.
+
+Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
+diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

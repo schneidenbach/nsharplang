@@ -580,7 +580,9 @@ class ColumnarBoundIdentifierPlanner {
         while index < plan.ArgumentCount {
             if plan.ArgumentOrdinals[index] == ordinal {
                 existingType := plan.Types[plan.ArgumentTypeIndices[index]]
-                if existingType != valueType || plan.ArgumentIsAddress[index] != isAddress {
+                if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                        existingType, valueType)
+                    || plan.ArgumentIsAddress[index] != isAddress {
                     throw new InvalidOperationException("One argument ordinal cannot carry conflicting bound-identifier facts.")
                 }
 

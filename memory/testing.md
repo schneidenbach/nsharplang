@@ -152,9 +152,12 @@ VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 
 The full gate avoids one known duplicate-work trap: Step 8/9 build the
 example/fixture surface, then Step 10b passes the exact emitted assemblies to
-`scripts/ilverify.sh --built-dirs-file`. Copied package and DLL runtime assets
-remain verifier references rather than being mistaken for N# outputs. Standalone
-`scripts/ilverify.sh` and CI build the surface themselves before verification.
+`scripts/ilverify.sh --built-dirs-file` and adds `--build-native-tests` for the
+selected direct-call, construction/array, and erased-enum regression assemblies.
+The built-dirs mode never rebuilds examples or fixtures. Copied package and DLL
+runtime assets remain verifier references rather than being mistaken for N#
+outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
+selected native regression assemblies themselves before verification.
 
 ## Test Categories
 

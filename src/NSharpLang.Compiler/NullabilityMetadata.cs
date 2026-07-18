@@ -120,7 +120,7 @@ public static class NullabilityMetadata
                 convertedArguments.Add(ConvertType(typeArguments[i], argumentNullability, typeOverride));
             }
 
-            return new GenericTypeInfo(name, convertedArguments);
+            return ReflectionTypeInfoFactory.FromConstructedGeneric(name, convertedArguments, type);
         }
 
         var overridden = typeOverride?.Invoke(type);

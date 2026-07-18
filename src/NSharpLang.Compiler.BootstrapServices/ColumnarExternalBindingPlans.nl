@@ -599,6 +599,16 @@ public class ColumnarExternalBindingPlans {
         }
 
         if receiver == "System.Type" {
+            if memberName == "GetProperty"
+                && count == 2
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Reflection.BindingFlags" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    argumentTypeNames,
+                    "System.Reflection.PropertyInfo")
+            }
             if memberName == "GetMethods" && count == 0 {
                 return VirtualCall(
                     receiver,
@@ -724,6 +734,11 @@ public class ColumnarExternalBindingPlans {
 
         if receiver == "System.Reflection.PropertyInfo"
             && memberName == "GetGetMethod" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
+        }
+
+        if receiver == "System.Reflection.PropertyInfo"
+            && memberName == "get_SetMethod" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
         }
 
@@ -1024,6 +1039,7 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Call"
             || memberName == "Callvirt"
             || memberName == "Newobj"
+            || memberName == "Add"
             || memberName == "Neg"
             || memberName == "Not"
             || memberName == "Ceq"
@@ -1032,10 +1048,12 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Conv_R4"
             || memberName == "Conv_R8"
             || memberName == "Box"
+            || memberName == "Castclass"
             || memberName == "Ldnull"
             || memberName == "Initobj"
             || memberName == "Ldfld"
             || memberName == "Ldflda"
+            || memberName == "Stfld"
             || memberName == "Ldsfld"
             || memberName == "Newarr"
             || memberName == "Ldlen"

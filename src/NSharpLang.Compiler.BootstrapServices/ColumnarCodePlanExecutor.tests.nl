@@ -20,6 +20,18 @@ public class ColumnarExecutorProbeMethods {
     public static func RecordStatic(target: List<int>) { target.Add(41) }
 }
 
+public class ColumnarExecutorFieldProbe {
+    public Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    public func set_Fake(value: int) {
+        Value = value
+    }
+}
+
 func ExecutorRequiredMethod(owner: Type, name: string, parameters: Type[]): MethodInfo {
     method := owner.GetMethod(name, parameters)
     if method == null {
@@ -1448,6 +1460,154 @@ test "schema v3 executor admits exact static fields only through ldsfld" {
     }
 }
 
+test "schema v3 executor validates and emits exact instance field stores" {
+    probeType := typeof(ColumnarExecutorFieldProbe)
+    valueField := ExecutorRequiredField(probeType, "Value")
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1086, 0)
+    probeTypeIndex := plan.AddType(probeType)
+    probeArgument := plan.AddArgument(0, probeTypeIndex)
+    valueIndex := plan.AddInt32(42)
+    fieldIndex := plan.AddFieldWithSignature(
+        valueField, probeType, typeof(int), false)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), probeArgument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.AppendInt32Instruction(
+        ColumnarCodePlanContract.LdcI4(), valueIndex)
+    plan.AppendFieldInstruction(
+        ColumnarCodePlanContract.Stfld(), fieldIndex)
+    plan.AppendFieldInstruction(
+        ColumnarCodePlanContract.Ldfld(), fieldIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+
+    ColumnarCodePlanExecutor.Validate(plan)
+    probe := new ColumnarExecutorFieldProbe(0)
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = probeType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, probe)
+    assert ExecutorRunRecursivePlan(
+        plan, typeof(int), parameterTypes, arguments) == "42"
+    assert probe.Value == 42
+
+    missingReceiver := new ColumnarCodePlan()
+    missingReceiver.PrepareV3()
+    missingRoot := missingReceiver.BeginFragment(-1, 1087, 0)
+    missingValue := missingReceiver.AddInt32(42)
+    missingField := missingReceiver.AddFieldWithSignature(
+        valueField, probeType, typeof(int), false)
+    missingReceiver.AppendInt32Instruction(
+        ColumnarCodePlanContract.LdcI4(), missingValue)
+    missingReceiver.AppendFieldInstruction(
+        ColumnarCodePlanContract.Stfld(), missingField)
+    missingReceiver.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_0())
+    missingReceiver.CompleteFragment(missingRoot, typeof(int))
+    missingReceiver.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(missingReceiver)
+    }
+    assert missingReceiver.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    unrelatedResidual := new ColumnarCodePlan()
+    unrelatedResidual.PrepareV3()
+    residualRoot := unrelatedResidual.BeginFragment(-1, 1088, 0)
+    residualProbeType := unrelatedResidual.AddType(probeType)
+    residualProbe := unrelatedResidual.AddArgument(0, residualProbeType)
+    residualValue := unrelatedResidual.AddInt32(42)
+    residualField := unrelatedResidual.AddFieldWithSignature(
+        valueField, probeType, typeof(int), false)
+    unrelatedResidual.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_0())
+    unrelatedResidual.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), residualProbe)
+    unrelatedResidual.AppendInt32Instruction(
+        ColumnarCodePlanContract.LdcI4(), residualValue)
+    unrelatedResidual.AppendFieldInstruction(
+        ColumnarCodePlanContract.Stfld(), residualField)
+    unrelatedResidual.CompleteFragment(residualRoot, typeof(int))
+    unrelatedResidual.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(unrelatedResidual)
+    }
+    assert unrelatedResidual.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects init-only field stores" {
+    owner := TypeOfCreateBuilder(
+        "ExecutorInitOnlyOwnerSeed",
+        "ColumnarExecutorTests.ExecutorInitOnlyOwner",
+        0)
+    field := ConstructionDefineInitOnlyField(
+        owner, "Value", typeof(int))
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1089, 0)
+    ownerType := plan.AddType(owner)
+    receiver := plan.AddArgument(0, ownerType)
+    fieldIndex := plan.AddFieldWithSignature(
+        field, owner, typeof(int), false)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), receiver)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendFieldInstruction(
+        ColumnarCodePlanContract.Stfld(), fieldIndex)
+    plan.CompleteFragment(root, owner)
+    plan.CompleteV3(owner)
+
+    assert field.get_IsInitOnly()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 initobj accepts plan locals and rejects argument addresses" {
+    assigned := new ColumnarCodePlan()
+    assigned.PrepareV3()
+    assignedRoot := assigned.BeginFragment(-1, 1090, 0)
+    assignedType := assigned.AddType(typeof(int))
+    assignedLocal := assigned.DeclarePlanLocal(assignedType)
+    assigned.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    assigned.AppendPlanLocalInstruction(
+        ColumnarCodePlanContract.Stloc(), assignedLocal)
+    assigned.AppendPlanLocalInstruction(
+        ColumnarCodePlanContract.Ldloca(), assignedLocal)
+    assigned.AppendTypeInstruction(
+        ColumnarCodePlanContract.Initobj(), assignedType)
+    assigned.AppendPlanLocalInstruction(
+        ColumnarCodePlanContract.Ldloc(), assignedLocal)
+    assigned.CompleteFragment(assignedRoot, typeof(int))
+    assigned.CompleteV3(typeof(int))
+    ColumnarCodePlanExecutor.Validate(assigned)
+
+    argumentAddress := new ColumnarCodePlan()
+    argumentAddress.PrepareV3()
+    argumentRoot := argumentAddress.BeginFragment(-1, 1091, 0)
+    argumentType := argumentAddress.AddType(typeof(int))
+    argument := argumentAddress.AddArgument(0, argumentType)
+    argumentAddress.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), argument)
+    argumentAddress.AppendTypeInstruction(
+        ColumnarCodePlanContract.Initobj(), argumentType)
+    argumentAddress.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), argument)
+    argumentAddress.CompleteFragment(argumentRoot, typeof(int))
+    argumentAddress.CompleteV3(typeof(int))
+
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(argumentAddress)
+    }
+    assert assigned.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    assert argumentAddress.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
 test "schema v2 executor requires straight-line plan-local assignment" {
     plan := new ColumnarCodePlan()
     plan.PrepareV2()
@@ -1972,6 +2132,52 @@ test "schema v3 executor rejects mismatched roots and nested void calls" {
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(nestedVoidCall)
     }
+
+    add := ExecutorRequiredMethod(typeof(List<int>), "Add", oneInt)
+    unrelatedResidual := new ColumnarCodePlan()
+    unrelatedResidual.PrepareV3()
+    residualRoot := unrelatedResidual.BeginFragment(-1, 1138, 0)
+    residualListType := unrelatedResidual.AddType(typeof(List<int>))
+    residualArgument := unrelatedResidual.AddArgument(0, residualListType)
+    residualMethod := unrelatedResidual.AddMethod(add)
+    unrelatedResidual.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_0())
+    unrelatedResidual.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), residualArgument)
+    unrelatedResidual.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    unrelatedResidual.AppendMethodInstruction(
+        ColumnarCodePlanContract.Callvirt(), residualMethod)
+    unrelatedResidual.CompleteFragment(residualRoot, typeof(int))
+    unrelatedResidual.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(unrelatedResidual)
+    }
+
+    fakeSetter := ExecutorRequiredMethod(
+        typeof(ColumnarExecutorFieldProbe), "set_Fake", oneInt)
+    ordinarySetName := new ColumnarCodePlan()
+    ordinarySetName.PrepareV3()
+    ordinaryRoot := ordinarySetName.BeginFragment(-1, 1139, 0)
+    ordinaryType := ordinarySetName.AddType(
+        typeof(ColumnarExecutorFieldProbe))
+    ordinaryArgument := ordinarySetName.AddArgument(0, ordinaryType)
+    ordinaryMethod := ordinarySetName.AddMethod(fakeSetter)
+    ordinarySetName.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), ordinaryArgument)
+    ordinarySetName.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.Dup())
+    ordinarySetName.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    ordinarySetName.AppendMethodInstruction(
+        ColumnarCodePlanContract.Callvirt(), ordinaryMethod)
+    ordinarySetName.CompleteFragment(
+        ordinaryRoot, typeof(ColumnarExecutorFieldProbe))
+    ordinarySetName.CompleteV3(typeof(ColumnarExecutorFieldProbe))
+    assert !fakeSetter.get_IsSpecialName()
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(ordinarySetName)
+    }
 }
 
 test "schema v3 executor rejects corrupt void method declarations before emission" {
@@ -2076,6 +2282,192 @@ test "schema v3 executor emits every scalar constant through DynamicMethod" {
     stringPlan := ExecutorV3StringPlan("emitted scalar")
     assert ExecutorRunV3ScalarPlan(stringPlan, typeof(string)) == "emitted scalar"
     assert stringPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+func ExecutorV3PrimitiveAddArgumentPlan(valueType: Type): ColumnarCodePlan {
+    return ExecutorV3PrimitiveAddPairPlan(
+        valueType, valueType, valueType)
+}
+
+func ExecutorV3PrimitiveAddPairPlan(
+    leftType: Type,
+    rightType: Type,
+    resultType: Type): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1137, 0)
+    leftTypeIndex := plan.AddType(leftType)
+    rightTypeIndex := plan.AddType(rightType)
+    leftArgument := plan.AddArgument(0, leftTypeIndex, false)
+    rightArgument := plan.AddArgument(1, rightTypeIndex, false)
+    left := plan.BeginFragment(root, 6, 1)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), leftArgument)
+    plan.CompleteFragment(left, leftType)
+    right := plan.BeginFragment(root, 6, 2)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), rightArgument)
+    plan.CompleteFragment(right, rightType)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    plan.CompleteFragment(root, resultType)
+    plan.CompleteV3(resultType)
+    return plan
+}
+
+func ExecutorAssertV3PrimitiveAdd(
+    leftType: Type,
+    rightType: Type,
+    resultType: Type,
+    leftValue: object,
+    rightValue: object,
+    expected: string) {
+    plan := ExecutorV3PrimitiveAddPairPlan(
+        leftType, rightType, resultType)
+    ColumnarCodePlanExecutor.Validate(plan)
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = leftType
+    parameterTypes[1] = rightType
+    arguments := new object[](2)
+    ExecutorSetObject(arguments, 0, leftValue)
+    ExecutorSetObject(arguments, 1, rightValue)
+    assert ExecutorRunRecursivePlan(
+        plan, resultType, parameterTypes, arguments) == expected
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+}
+
+test "schema v3 executor validates every retained primitive Add stack family once" {
+    assert ColumnarCodePlanContract.Add() == 88
+
+    intPlan := ExecutorV3PrimitiveAddArgumentPlan(typeof(int))
+    ColumnarCodePlanExecutor.Validate(intPlan)
+    ColumnarCodePlanExecutor.Validate(intPlan)
+    assert intPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    intParameterTypes := new Type[](2)
+    intParameterTypes[0] = typeof(int)
+    intParameterTypes[1] = typeof(int)
+    intArguments := new object[](2)
+    ExecutorSetObject(intArguments, 0, 20)
+    ExecutorSetObject(intArguments, 1, 22)
+    assert ExecutorRunRecursivePlan(
+        intPlan, typeof(int), intParameterTypes, intArguments) == "42"
+    assert intPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    longPlan := ExecutorV3PrimitiveAddArgumentPlan(typeof(long))
+    ColumnarCodePlanExecutor.Validate(longPlan)
+    ColumnarCodePlanExecutor.Validate(longPlan)
+    assert longPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+    longParameterTypes := new Type[](2)
+    longParameterTypes[0] = typeof(long)
+    longParameterTypes[1] = typeof(long)
+    longArguments := new object[](2)
+    ExecutorSetObject(longArguments, 0, (long)20)
+    ExecutorSetObject(longArguments, 1, (long)22)
+    assert ExecutorRunRecursivePlan(
+        longPlan, typeof(long), longParameterTypes, longArguments) == "42"
+    assert longPlan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
+
+    ExecutorAssertV3PrimitiveAdd(
+        typeof(uint), typeof(uint), typeof(uint),
+        (uint)20, (uint)22, "42")
+    ExecutorAssertV3PrimitiveAdd(
+        typeof(ulong), typeof(ulong), typeof(ulong),
+        (ulong)20, (ulong)22, "42")
+    ExecutorAssertV3PrimitiveAdd(
+        typeof(float), typeof(float), typeof(float),
+        1.25f, 2.75f, "4")
+    ExecutorAssertV3PrimitiveAdd(
+        typeof(double), typeof(double), typeof(double),
+        19.5, 22.5, "42")
+    ExecutorAssertV3PrimitiveAdd(
+        typeof(byte), typeof(short), typeof(int),
+        (byte)20, (short)22, "42")
+}
+
+test "schema v3 executor rejects corrupt Add stack categories before emission" {
+    booleans := ExecutorV3PrimitiveAddArgumentPlan(typeof(bool))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(booleans)
+    }
+    assert booleans.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    promotedAsByte := ExecutorV3PrimitiveAddArgumentPlan(typeof(byte))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(promotedAsByte)
+    }
+    assert promotedAsByte.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    mixed := new ColumnarCodePlan()
+    mixed.PrepareV3()
+    mixedRoot := mixed.BeginFragment(-1, 1138, 0)
+    intType := mixed.AddType(typeof(int))
+    longType := mixed.AddType(typeof(long))
+    intArgument := mixed.AddArgument(0, intType, false)
+    longArgument := mixed.AddArgument(1, longType, false)
+    mixed.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), intArgument)
+    mixed.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), longArgument)
+    mixed.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    mixed.CompleteFragment(mixedRoot, typeof(long))
+    mixed.CompleteV3(typeof(long))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(mixed)
+    }
+    assert mixed.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    strings := new ColumnarCodePlan()
+    strings.PrepareV3()
+    stringsRoot := strings.BeginFragment(-1, 1139, 0)
+    stringType := strings.AddType(typeof(string))
+    firstString := strings.AddArgument(0, stringType, false)
+    secondString := strings.AddArgument(1, stringType, false)
+    strings.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), firstString)
+    strings.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), secondString)
+    strings.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    strings.CompleteFragment(stringsRoot, typeof(string))
+    strings.CompleteV3(typeof(string))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(strings)
+    }
+    assert strings.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    addressed := new ColumnarCodePlan()
+    addressed.PrepareV3()
+    addressedRoot := addressed.BeginFragment(-1, 1140, 0)
+    addressedType := addressed.AddType(typeof(int))
+    address := addressed.AddArgument(0, addressedType, true)
+    ordinary := addressed.AddArgument(1, addressedType, false)
+    addressed.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), address)
+    addressed.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), ordinary)
+    addressed.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    addressed.CompleteFragment(addressedRoot, typeof(int))
+    addressed.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(addressed)
+    }
+    assert addressed.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+
+    underflow := new ColumnarCodePlan()
+    underflow.PrepareV3()
+    underflowRoot := underflow.BeginFragment(-1, 1141, 0)
+    underflowType := underflow.AddType(typeof(int))
+    underflowArgument := underflow.AddArgument(
+        0, underflowType, false)
+    underflow.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), underflowArgument)
+    underflow.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    underflow.CompleteFragment(underflowRoot, typeof(int))
+    underflow.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(underflow)
+    }
+    assert underflow.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
 
 test "schema v3 unary opcodes have exact identities and remain version isolated" {
@@ -2395,6 +2787,29 @@ test "schema v3 executor rejects missing dup and incomplete stelem stacks" {
 
     assert missingDup.Lifecycle == ColumnarCodePlanLifecycle.Sealed
     assert incompleteStore.Lifecycle == ColumnarCodePlanLifecycle.Sealed
+}
+
+test "schema v3 executor rejects stores through an unrelated array result" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1218, 0)
+    arrayType := plan.AddType(typeof(int[]))
+    preserved := plan.AddArgument(0, arrayType)
+    unrelated := plan.AddArgument(1, arrayType)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), preserved)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), unrelated)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+    plan.CompleteFragment(root, typeof(int[]))
+    plan.CompleteV3(typeof(int[]))
+
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
 
 test "schema v3 executor rejects corrupt stelem array index and value slots" {

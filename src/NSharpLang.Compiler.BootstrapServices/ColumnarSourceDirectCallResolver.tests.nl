@@ -586,6 +586,205 @@ test "source direct-call resolver admits safe builder-bound BCL interface upcast
     assert rejected.Status == ColumnarSourceDirectCallStatus.Rejected
 }
 
+test "source direct-call resolver scores and classifies exact source interface flows" {
+    target := SourceCallInterfaceDefinition(
+        "SourceCallExactInterfaceTarget")
+    referenceImplementer := SourceCallDefinition(
+        "SourceCallExactInterfaceClass", true)
+    referenceImplementer.ImplementedInterfaces.Add(target)
+    valueImplementer := SourceCallDefinition(
+        "SourceCallExactInterfaceStruct", false)
+    valueImplementer.ImplementedInterfaces.Add(target)
+    unrelated := SourceCallDefinition(
+        "SourceCallExactInterfaceUnrelated", true)
+
+    definitions := new ColumnarStructDef[](4)
+    definitions[0] = target
+    definitions[1] = referenceImplementer
+    definitions[2] = valueImplementer
+    definitions[3] = unrelated
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        target.Builder,
+        referenceImplementer.Builder,
+        definitions) == 4
+    referenceFlow := ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        target.Builder,
+        referenceImplementer.Builder,
+        definitions,
+        out referenceFlow)
+    assert referenceFlow == ColumnarDirectCallArgumentFlow.Reference
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        target.Builder,
+        valueImplementer.Builder,
+        definitions) == 4
+    valueFlow := ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        target.Builder,
+        valueImplementer.Builder,
+        definitions,
+        out valueFlow)
+    assert valueFlow == ColumnarDirectCallArgumentFlow.Boxing
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        target.Builder,
+        unrelated.Builder,
+        definitions) == -1
+    unrelatedFlow := ColumnarDirectCallArgumentFlow.Reference
+    assert !ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        target.Builder,
+        unrelated.Builder,
+        definitions,
+        out unrelatedFlow)
+    assert unrelatedFlow == ColumnarDirectCallArgumentFlow.None
+}
+
+test "source direct-call resolver classifies exact external IDisposable flows" {
+    disposableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IDisposable")
+    directClass := SourceCallDefinition(
+        "SourceCallExternalDisposableClass", true)
+    directClass.ExternalInterfaces.Add(disposableType)
+    directClass.Builder.AddInterfaceImplementation(disposableType)
+    directStruct := SourceCallDefinition(
+        "SourceCallExternalDisposableStruct", false)
+    directStruct.ExternalInterfaces.Add(disposableType)
+    directStruct.Builder.AddInterfaceImplementation(disposableType)
+
+    disposableSourceInterface := SourceCallInterfaceDefinition(
+        "SourceCallExternalDisposableInterface")
+    disposableSourceInterface.ExternalInterfaces.Add(disposableType)
+    disposableSourceInterface.Builder.AddInterfaceImplementation(
+        disposableType)
+    interfaceImplementer := SourceCallDefinition(
+        "SourceCallExternalDisposableInterfaceClass", true)
+    interfaceImplementer.ImplementedInterfaces.Add(
+        disposableSourceInterface)
+    interfaceImplementer.Builder.AddInterfaceImplementation(
+        disposableSourceInterface.Builder)
+
+    baseClass := SourceCallDefinition(
+        "SourceCallExternalDisposableBaseClass", true)
+    baseClass.ExternalInterfaces.Add(disposableType)
+    baseClass.Builder.AddInterfaceImplementation(disposableType)
+    derivedClass := SourceCallDefinition(
+        "SourceCallExternalDisposableDerivedClass", true)
+    derivedClass.BaseDef = baseClass
+
+    definitions := new ColumnarStructDef[](6)
+    definitions[0] = directClass
+    definitions[1] = directStruct
+    definitions[2] = disposableSourceInterface
+    definitions[3] = interfaceImplementer
+    definitions[4] = baseClass
+    definitions[5] = derivedClass
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        disposableType,
+        directClass.Builder,
+        definitions) == 4
+    classFlow := ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        directClass.Builder,
+        definitions,
+        out classFlow)
+    assert classFlow == ColumnarDirectCallArgumentFlow.Reference
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        disposableType,
+        directStruct.Builder,
+        definitions) == 4
+    structFlow := ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        directStruct.Builder,
+        definitions,
+        out structFlow)
+    assert structFlow == ColumnarDirectCallArgumentFlow.Boxing
+
+    inheritedFlow := ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        interfaceImplementer.Builder,
+        definitions,
+        out inheritedFlow)
+    assert inheritedFlow == ColumnarDirectCallArgumentFlow.Reference
+
+    inheritedFlow = ColumnarDirectCallArgumentFlow.None
+    assert ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        derivedClass.Builder,
+        definitions,
+        out inheritedFlow)
+    assert inheritedFlow == ColumnarDirectCallArgumentFlow.Reference
+}
+
+test "source direct-call resolver rejects external interface identity near misses" {
+    disposableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IDisposable")
+    comparableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IComparable")
+    sameSpelled := SourceCallInterfaceDefinition(
+        "SourceCallExternalSameSpelledDisposable")
+    sameSpelled.DeclaredTypeName = "IDisposable"
+    sameSpelledImplementer := SourceCallDefinition(
+        "SourceCallExternalSameSpelledDisposableClass", true)
+    sameSpelledImplementer.ImplementedInterfaces.Add(sameSpelled)
+    sameSpelledImplementer.Builder.AddInterfaceImplementation(
+        sameSpelled.Builder)
+
+    unrelated := SourceCallDefinition(
+        "SourceCallExternalComparableClass", true)
+    unrelated.ExternalInterfaces.Add(comparableType)
+    unrelated.Builder.AddInterfaceImplementation(comparableType)
+    unregistered := SourceCallDefinition(
+        "SourceCallExternalUnregisteredDisposableClass", true)
+    unregistered.Builder.AddInterfaceImplementation(disposableType)
+
+    definitions := new ColumnarStructDef[](4)
+    definitions[0] = sameSpelled
+    definitions[1] = sameSpelledImplementer
+    definitions[2] = unrelated
+    definitions[3] = unregistered
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        disposableType,
+        sameSpelledImplementer.Builder,
+        definitions) == -1
+    nearMissFlow := ColumnarDirectCallArgumentFlow.Reference
+    assert !ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        sameSpelledImplementer.Builder,
+        definitions,
+        out nearMissFlow)
+    assert nearMissFlow == ColumnarDirectCallArgumentFlow.None
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        disposableType,
+        unrelated.Builder,
+        definitions) == -1
+    assert !ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        unrelated.Builder,
+        definitions,
+        out nearMissFlow)
+    assert nearMissFlow == ColumnarDirectCallArgumentFlow.None
+
+    assert ColumnarSourceDirectCallResolver.ArgumentFlowScore(
+        disposableType,
+        unregistered.Builder,
+        definitions) == -1
+    assert !ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        disposableType,
+        unregistered.Builder,
+        definitions,
+        out nearMissFlow)
+    assert nearMissFlow == ColumnarDirectCallArgumentFlow.None
+}
+
 test "source direct-call resolver preserves instance and static inheritance hiding order" {
     baseDefinition := SourceCallDefinition("SourceCallBaseOwner", true)
     derivedDefinition := SourceCallDefinition("SourceCallDerivedOwner", true)

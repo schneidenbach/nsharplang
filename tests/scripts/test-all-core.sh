@@ -183,8 +183,8 @@ root = os.path.realpath(sys.argv[1])
 SKIP_DIRS = {".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
              "artifacts", "server", "out", "nsharp", "TestResults"}
 
-# Path prefixes per input set ('/'-normalized, relative to repo root). Sets are
-# deliberately over-inclusive: the gate scripts and shared build files are in
+# Path prefixes per input set ('/'-normalized, relative to repo root). Sets are deliberately
+# over-inclusive: the gate scripts and shared build files are in
 # every set, and src/ (the compiler itself) invalidates everything. UNIT must
 # cover docs/ and website/docs/ wholesale because unit tests golden-compare and
 # parity-check repo documentation (cli-reference.md, diagnostic-clusters
@@ -196,7 +196,7 @@ SETS = {
                        "docs/", "website/docs/",
                        "editors/vscode/test/suite/"),
     "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
-                           "tests/native/direct-calls/", "tests/scripts/"),
+                           "tests/native/", "tests/scripts/"),
 }
 
 # Behavior-changing environment must be part of every step key, mirroring
@@ -557,7 +557,6 @@ handle_success "N# NuGet package cache entries cleared"
 run_template_and_examples_steps() {
 ILVERIFY_BUILT_DIRS_FILE=$(mktemp)
 ILVERIFY_TEMP_DIRS=()
-printf '%s\n' "$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll" >> "$ILVERIFY_BUILT_DIRS_FILE"
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local N# package cache..."
 if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
@@ -863,11 +862,11 @@ else
 fi
 
 section "Step 10b: IL Verification Gate"
-echo "Running ECMA-335 IL verification over emitted example/fixture assemblies..."
+echo "Running ECMA-335 IL verification over emitted example/fixture and selected native assemblies..."
 echo "(scripts/ilverify.sh is the single source of truth, shared with CI.)"
 if command -v ilverify >/dev/null 2>&1 || [ -x "$HOME/.dotnet/tools/ilverify" ]; then
     ILVERIFY_OUTPUT=$(mktemp)
-    if "$REPO_ROOT/scripts/ilverify.sh" --built-dirs-file "$ILVERIFY_BUILT_DIRS_FILE" > "$ILVERIFY_OUTPUT" 2>&1; then
+    if "$REPO_ROOT/scripts/ilverify.sh" --built-dirs-file "$ILVERIFY_BUILT_DIRS_FILE" --build-native-tests > "$ILVERIFY_OUTPUT" 2>&1; then
         tail -1 "$ILVERIFY_OUTPUT"
         handle_success "IL verification gate"
     else

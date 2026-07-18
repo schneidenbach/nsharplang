@@ -844,6 +844,67 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
     ColumnarCodePlanExecutor.Validate(plan)
 }
 
+test "range planner raw-facts facade routes object initializers to the N# construction owner" {
+    tree := DirectCallParsedTree(
+        "new JsonSerializerOptions { MaxDepth: 20 + 22 }")
+    ConstructionStampScope(tree, "import System.Text.Json\n")
+    emptyNames := new HashSet<string>(StringComparer.Ordinal)
+    plan := new ColumnarCodePlan()
+    nsharpOwned := false
+    legacyWholeSubtreePlanning := true
+    resultType := typeof(object)
+
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        new Dictionary<string, int>(StringComparer.Ordinal),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        new Dictionary<string, System.Reflection.Emit.LocalBuilder>(
+            StringComparer.Ordinal),
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        ColumnarRangePlannerEmptyLiftedFacts(),
+        null,
+        null,
+        null,
+        new ColumnarStructDef[](0),
+        new ColumnarUnionDef[](0),
+        new Dictionary<string, string[]>(StringComparer.Ordinal),
+        emptyNames,
+        emptyNames,
+        emptyNames,
+        plan,
+        out nsharpOwned,
+        out legacyWholeSubtreePlanning,
+        out resultType)
+
+    assert nsharpOwned
+    assert !legacyWholeSubtreePlanning
+    assert resultType == typeof(System.Text.Json.JsonSerializerOptions)
+    assert plan.Status == ColumnarFragmentPlanStatus.Planned
+    assert plan.MethodCount == 1
+    assert plan.Methods[0].get_Name()
+        == "set_MaxDepth"
+    assert PrimitiveBinaryOpcodeCount(
+        plan, ColumnarCodePlanContract.Add()) == 1
+    ColumnarCodePlanExecutor.Validate(plan)
+    result := NullableArgumentRunPlan(
+        plan, typeof(System.Text.Json.JsonSerializerOptions))
+    options := result as System.Text.Json.JsonSerializerOptions
+    if options == null {
+        throw new InvalidOperationException(
+            "The facade object-initializer plan returned the wrong type.")
+    }
+    maxDepthProperty := typeof(System.Text.Json.JsonSerializerOptions)
+        .GetProperty("MaxDepth")
+    if maxDepthProperty == null {
+        throw new InvalidOperationException(
+            "The JsonSerializerOptions MaxDepth property was not found.")
+    }
+    maxDepth := maxDepthProperty.GetValue(options)
+    assert maxDepth != null && maxDepth.ToString() == "42"
+}
+
 test "range planner raw-facts facades gate ordinary int indexing before facts handles or IL" {
     tree := ColumnarRangePlannerOrdinaryLiteralAccess()
     typePlan := new ColumnarCodePlan()

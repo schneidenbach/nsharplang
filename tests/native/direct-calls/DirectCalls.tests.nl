@@ -67,11 +67,15 @@ test "instance selection uses the nearest visible declaration while preserving t
 
 test "direct calls recurse through receivers arguments and persisted results" {
     receiver := new DirectReferenceReceiver(10)
+    zero := () => 42
 
     assert ComposeNestedCalls(receiver) == 135
     assert SelectFromCreatedReference() == 113
     assert SelectFromCreatedValue() == 317
     assert RecurseDirectCalls(42) == 42
+    assert InvokeFunctionSyntax(value => value * 2, 21) == 42
+    assert zero() == 42
+    assert RentThroughExactPoolAlias() >= 1
 }
 
 test "direct calls compose with already-owned index and range plans" {

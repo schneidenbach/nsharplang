@@ -950,7 +950,10 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func TryClassifyArgumentFlow(expectedType: Type, actualType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, out flow: ColumnarDirectCallArgumentFlow): bool {
-        score := ArgumentFlowScore(expectedType, actualType, new List<ColumnarStructDef>())
+        score := ArgumentFlowScore(
+            expectedType,
+            actualType,
+            sourceTypeDefinitions)
 
         if score == 8 {
             flow = ColumnarDirectCallArgumentFlow.Identity
@@ -972,8 +975,13 @@ class ColumnarSourceDirectCallResolver {
             return true
         }
 
-        if score == 4 {
-            flow = actualType.get_IsValueType() || actualType.get_IsGenericParameter() ? ColumnarDirectCallArgumentFlow.Boxing : ColumnarDirectCallArgumentFlow.Reference
+        referenceFlow := ColumnarDirectCallArgumentFlow.None
+        if TryClassifyBuiltInReferenceFlow(
+                expectedType,
+                actualType,
+                sourceTypeDefinitions,
+                out referenceFlow) {
+            flow = referenceFlow
             return true
         }
 
@@ -1017,30 +1025,83 @@ class ColumnarSourceDirectCallResolver {
             return 4
         }
 
+        referenceFlow := ColumnarDirectCallArgumentFlow.None
+        if TryClassifyBuiltInReferenceFlow(
+                expectedType,
+                actualType,
+                sourceTypeDefinitions,
+                out referenceFlow) {
+            return 4
+        }
+
         implicitConversion := ColumnarSourceImplicitConversionResolver.ResolveExact(actualType, expectedType, sourceTypeDefinitions)
 
         if implicitConversion.IsSelected {
             return 4
         }
 
+        return -1
+    }
+
+    // Built-in reference and boxing conversions are authoritative over a same-ranked
+    // user-defined operator. Keep their classification separate from the numeric score so a
+    // score of four cannot accidentally erase an op_Implicit call from the persisted plan.
+    static func TryClassifyBuiltInReferenceFlow(
+        expectedType: Type,
+        actualType: Type,
+        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
+        out flow: ColumnarDirectCallArgumentFlow): bool {
+        flow = ColumnarDirectCallArgumentFlow.None
+
         if expectedType == typeof(object) && actualType.FullName != "System.Void" {
-            return 4
+            flow = actualType.get_IsValueType() || actualType.get_IsGenericParameter()
+                ? ColumnarDirectCallArgumentFlow.Boxing
+                : ColumnarDirectCallArgumentFlow.Reference
+            return true
+        }
+
+        sourceIsReference := false
+        if ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+                actualType,
+                expectedType,
+                sourceTypeDefinitions,
+                out sourceIsReference) {
+            flow = sourceIsReference
+                ? ColumnarDirectCallArgumentFlow.Reference
+                : ColumnarDirectCallArgumentFlow.Boxing
+            return true
+        }
+
+        // Mutable Reflection.Emit metadata is not a semantic fallback for source interfaces.
+        // Every TypeBuilder-backed interface edge must come from the exact declaration registry;
+        // otherwise a partially populated or same-spelled builder can become assignable at a
+        // different phase and make selection disagree with persisted-plan emission.
+        if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType)
+            && expectedType.get_IsInterface() {
+            return false
         }
 
         if actualType.get_IsValueType() || actualType.get_IsGenericParameter() {
-            return !expectedType.get_IsValueType() && RuntimeAssignableFrom(expectedType, actualType) ? 4 : -1
+            if !expectedType.get_IsValueType()
+                && RuntimeAssignableFrom(expectedType, actualType) {
+                flow = ColumnarDirectCallArgumentFlow.Boxing
+                return true
+            }
+            return false
         }
 
         if expectedType.get_IsValueType() {
-            return -1
+            return false
         }
 
-        if RuntimeAssignableFrom(expectedType, actualType) {
-            return 4
+        if RuntimeAssignableFrom(expectedType, actualType)
+            || ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+                actualType, expectedType) {
+            flow = ColumnarDirectCallArgumentFlow.Reference
+            return true
         }
 
-        return ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-            actualType, expectedType) ? 4 : -1
+        return false
     }
 
     static func IsImplicitNumericFlow(actualType: Type, expectedType: Type): bool {

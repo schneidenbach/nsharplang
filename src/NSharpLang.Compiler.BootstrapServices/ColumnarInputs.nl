@@ -180,8 +180,10 @@ class ColumnarStructInput {
     IsNewtype: bool
     TypeParamNames: string[]
     SourceFileId: int
+    EnclosingTypeName: string
+    NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -208,6 +210,20 @@ class ColumnarStructInput {
         IsNewtype = isNewtype
         TypeParamNames = typeParamNames ?? new string[](0)
         SourceFileId = sourceFileId
+        EnclosingTypeName = enclosingTypeName ?? ""
+        NestedVisibilityAttributes = NestedVisibilityFor(
+            name, visibilityModifierFlags)
+    }
+
+    static func NestedVisibilityFor(name: string, flags: int): int {
+        if (flags & 1) != 0 { return 2 }
+        if (flags & 2) != 0 || (flags & 32768) != 0 { return 3 }
+        if (flags & 4) != 0 { return 4 }
+        if (flags & 8) != 0 { return 5 }
+        if name.Length > 0 && char.IsUpper(name[0]) {
+            return 2
+        }
+        return 3
     }
 }
 
@@ -363,6 +379,15 @@ class ColumnarProgramInput {
         return bindingScope.ExactTypeNameForFile(name, sourceFileId)
     }
 
+    public func ExactStructTypeName(input: ColumnarStructInput): string {
+        return bindingScope.ExactStructTypeName(input)
+    }
+
+    public func ExactRelativeTypeNameForFile(
+        name: string, sourceFileId: int): string {
+        return bindingScope.ExactRelativeTypeNameForFile(name, sourceFileId)
+    }
+
     // Metadata declaration sites do not own a node-table view, so select the same immutable
     // per-file semantic scope explicitly before resolving a live type handle.
     public func TryResolveExactExplicitTypeForFile(
@@ -384,6 +409,20 @@ class ColumnarProgramInput {
         fileScope := bindingScope.ForSourceFile(sourceFileId)
         return fileScope.TryResolveExactExplicitType(
             canonical, bindings, out result, out claimed)
+    }
+
+    // Definition registries need the declaration identity, not a CLR Type. This is especially
+    // important for string-backed enums, whose distinct source declarations all erase to
+    // System.String. Keep that selection in the same per-file N# binding scope as explicit type
+    // resolution so the mechanical assembly owner never probes candidate declarations.
+    public func TryResolveExactSourceDeclarationNameForFile(
+        sourceFileId: int,
+        canonical: string,
+        out exactName: string,
+        out claimed: bool): bool {
+        fileScope := bindingScope.ForSourceFile(sourceFileId)
+        return fileScope.TryResolveExactSourceDeclarationName(
+            canonical, out exactName, out claimed)
     }
 
     static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {
@@ -408,14 +447,14 @@ class ColumnarProgramInput {
             structInput := Structs[structIndex]
             methodIndex := 0
             while methodIndex < structInput.Methods.Count {
-                StampFunctionBindingContext(structInput.Methods[methodIndex], scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+                StampFunctionBindingContext(structInput.Methods[methodIndex], scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
 
                 methodIndex = methodIndex + 1
             }
 
             constructorIndex := 0
             while constructorIndex < structInput.Constructors.Count {
-                StampFunctionBindingContext(structInput.Constructors[constructorIndex].Body, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+                StampFunctionBindingContext(structInput.Constructors[constructorIndex].Body, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
 
                 constructorIndex = constructorIndex + 1
             }
@@ -423,10 +462,10 @@ class ColumnarProgramInput {
             propertyIndex := 0
             while propertyIndex < structInput.Properties.Count {
                 propertyInput := structInput.Properties[propertyIndex]
-                StampFunctionBindingContext(propertyInput.Getter, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+                StampFunctionBindingContext(propertyInput.Getter, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
 
                 if propertyInput.Setter != null {
-                    StampFunctionBindingContext(propertyInput.Setter, scope, scope.ExactTypeNameForFile(structInput.Name, structInput.SourceFileId), structInput.TypeParamNames, null)
+                    StampFunctionBindingContext(propertyInput.Setter, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
                 }
 
                 propertyIndex = propertyIndex + 1

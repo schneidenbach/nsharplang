@@ -153,7 +153,7 @@ class ColumnarDirectCallPlanner {
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         argumentOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out argumentOwnership) {
+        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, false, argumentTypes, argumentFacts, out argumentOwnership) {
             if argumentOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -423,7 +423,7 @@ class ColumnarDirectCallPlanner {
 
         receiverType := typeof(int)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
+        if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, false, out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
             if receiverOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -529,7 +529,7 @@ class ColumnarDirectCallPlanner {
             }
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -553,7 +553,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -624,7 +624,7 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
         if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length {
             return false
         }
@@ -664,7 +664,18 @@ class ColumnarDirectCallPlanner {
             }
 
             actualType := typeof(int)
-            if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
+            valuePlanned := false
+            if allowPrimitiveBinary {
+                valuePlanned =
+                    ColumnarRangeIndexPlanner.TryAppendConstructionValue(
+                        nodes, source, argumentNode, bindings, handles, plan,
+                        parentFragment, depth, out actualType)
+            } else {
+                valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(
+                    nodes, source, argumentNode, bindings, handles, plan,
+                    parentFragment, depth, out actualType)
+            }
+            if !valuePlanned || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
                 return false
             }
 
@@ -700,13 +711,45 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if flow == ColumnarDirectCallArgumentFlow.Identity || flow == ColumnarDirectCallArgumentFlow.Reference {
+        sourceInterfaceIsReference := false
+        exactSourceInterfaceFlow := false
+        if flow == ColumnarDirectCallArgumentFlow.Reference
+            || flow == ColumnarDirectCallArgumentFlow.Boxing {
+            exactSourceInterfaceFlow = ColumnarReferenceConversionFacts
+                .TryClassifyExactSourceInterfaceUpcast(
+                    actualType,
+                    parameterType,
+                    sourceTypeDefinitions,
+                    out sourceInterfaceIsReference)
+            if exactSourceInterfaceFlow
+                && sourceInterfaceIsReference
+                    != (flow == ColumnarDirectCallArgumentFlow.Reference) {
+                throw new InvalidOperationException(
+                    "Source interface conversion flow disagrees with its declaration shape.")
+            }
+        }
+
+        if flow == ColumnarDirectCallArgumentFlow.Identity {
+            return true
+        }
+
+        if flow == ColumnarDirectCallArgumentFlow.Reference {
+            if exactSourceInterfaceFlow {
+                targetIndex := plan.AddType(parameterType)
+                plan.AppendTypeInstruction(
+                    ColumnarCodePlanContract.Castclass(), targetIndex)
+            }
             return true
         }
 
         if flow == ColumnarDirectCallArgumentFlow.Boxing {
             typeIndex := plan.AddType(actualType)
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), typeIndex)
+            if exactSourceInterfaceFlow {
+                targetIndex := plan.AddType(parameterType)
+                plan.AppendTypeInstruction(
+                    ColumnarCodePlanContract.Castclass(), targetIndex)
+            }
             return true
         }
 
@@ -775,7 +818,7 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func TryGetArgumentTypes(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryGetArgumentTypes(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         if argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument type slots.")
@@ -793,7 +836,7 @@ class ColumnarDirectCallPlanner {
             }
 
             argumentType := typeof(int)
-            if !IsAdmittedValueSyntax(nodes, argumentNode, depth + 1) || !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
+            if !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, allowPrimitiveBinary, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
                 return false
             }
 
@@ -841,16 +884,37 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
-        if !IsAdmittedValueSyntax(nodes, node, depth) {
+        syntaxAdmitted := IsAdmittedValueSyntax(nodes, node, depth)
+        if allowPrimitiveBinary && !syntaxAdmitted {
+            syntaxAdmitted = ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(
+                nodes, source, node, depth)
+        }
+        if allowPrimitiveBinary && !syntaxAdmitted
+            && ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
+            syntaxAdmitted =
+                ColumnarConstructionPlanner.IsAdmittedConstructionValueSyntax(
+                    nodes, source, node, bindings, handles, depth)
+        }
+        if !syntaxAdmitted {
             return false
         }
 
         scratch := new ColumnarCodePlan()
         scratch.PrepareV3()
-        if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType, out nestedOwnership) {
+        valuePlanned := false
+        if allowPrimitiveBinary {
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(
+                nodes, source, node, bindings, handles, scratch,
+                -1, depth, out resultType, out nestedOwnership)
+        } else {
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(
+                nodes, source, node, bindings, handles, scratch,
+                -1, depth, out resultType, out nestedOwnership)
+        }
+        if !valuePlanned {
             return false
         }
 
@@ -870,6 +934,7 @@ class ColumnarDirectCallPlanner {
         }
 
         if kind == ColumnarExpressionNodeKind.NewExpression()
+            || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression()
             || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
             return ColumnarConstructionPlanner.IsAdmittedValueSyntax(
                 nodes, node, depth)

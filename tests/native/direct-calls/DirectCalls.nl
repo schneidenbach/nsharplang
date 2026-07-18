@@ -1,5 +1,10 @@
 namespace NSharpLang.DirectCalls.Tests
 
+// `Func<...>` is parser-owned function-type syntax even when a source generic collides.
+class Func<T, R> {}
+
+type ByteArrayPool = System.Buffers.ArrayPool<byte>
+
 class DirectCallLog {
     value: int
 
@@ -218,6 +223,17 @@ func PassSlicedValue(value: string): int {
 
 func RecurseDirectCalls(value: int): int {
     return DirectStaticCalls.Identity(DirectStaticCalls.Identity(value))
+}
+
+func InvokeFunctionSyntax(callback: Func<int, int>, value: int): int {
+    return callback(value)
+}
+
+func RentThroughExactPoolAlias(): int {
+    buffer := ByteArrayPool.Shared.Rent(1)
+    length := buffer.Length
+    ByteArrayPool.Shared.Return(buffer)
+    return length
 }
 
 func ParseRuntimeInt(value: string): int {

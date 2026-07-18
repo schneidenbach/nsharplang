@@ -150,6 +150,7 @@ class ColumnarPropertyDef {
     Setter: MethodBuilder?
     PropertyType: Type
     GetterParameterCount: int
+    SetterParameterCount: int
 
     constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken) {
         if getter == null || propertyType == null || token == null {
@@ -160,6 +161,7 @@ class ColumnarPropertyDef {
         Setter = setter
         PropertyType = propertyType
         GetterParameterCount = 0
+        SetterParameterCount = setter == null ? 0 : 1
     }
 
     // Define the accessors and their signature fact atomically. A ColumnarPropertyDef cannot
@@ -170,8 +172,17 @@ class ColumnarPropertyDef {
             throw new InvalidOperationException("Source property definition inputs cannot be null.")
         }
 
+        // Accessor identity is part of the property fact, not an optional caller convention.
+        // In particular, schema-v3 permits a residual void call only for a genuine setter; stamp
+        // SpecialName here so every accessor created through this atomic factory carries the CLR
+        // invariant even when a synthetic fixture supplies only its visibility flags.
+        // ECMA-335 MethodAttributes.SpecialName is the stable 0x0800 metadata bit.
+        specialNameFlag := 0x0800
+        exactGetterAttributes := (MethodAttributes)(
+            (int)getterAttributes | specialNameFlag)
         getterParameters := new Type[](0)
-        getter := owner.DefineMethod(getterName, getterAttributes, propertyType, getterParameters)
+        getter := owner.DefineMethod(
+            getterName, exactGetterAttributes, propertyType, getterParameters)
 
         setter: MethodBuilder? = null
         if setterName != null {
@@ -182,7 +193,10 @@ class ColumnarPropertyDef {
 
             setterParameters := new Type[](1)
             setterParameters[0] = propertyType
-            setter = owner.DefineMethod(setterName, setterAttributes, voidType, setterParameters)
+            exactSetterAttributes := (MethodAttributes)(
+                (int)setterAttributes | specialNameFlag)
+            setter = owner.DefineMethod(
+                setterName, exactSetterAttributes, voidType, setterParameters)
         }
 
         return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
@@ -210,6 +224,139 @@ class ColumnarConstructorDef {
     }
 }
 
+// Enum-member defaults are declaration facts. Bind source enum identity before constructor
+// facts are registered so callers can never reinterpret an omitted argument through their own
+// imports. Runtime enum reflection remains a mechanical host concern; this binder claims only
+// source enum owners or source enum parameter types.
+class ColumnarConstructorDefaultBinder {
+    public static func TryCanonicalizeSourceEnumMember(
+        parameterType: Type,
+        defaultText: string,
+        owner: ColumnarEnumDef?,
+        parameter: ColumnarEnumDef?,
+        out canonicalText: string,
+        out claimed: bool): bool {
+        canonicalText = defaultText
+        claimed = false
+        if parameterType == null
+            || defaultText == null {
+            return false
+        }
+
+        separator := defaultText.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator + 1 >= defaultText.Length {
+            return false
+        }
+        memberName := defaultText.Substring(separator + 1)
+
+        if owner == null && parameter == null {
+            return false
+        }
+
+        claimed = true
+        if owner == null
+            || parameter == null
+            || !Object.ReferenceEquals(owner, parameter)
+            || !Object.ReferenceEquals(owner.EnumType, parameterType)
+            || owner.DeclaredTypeName.Length == 0 {
+            return false
+        }
+        if owner.IsStringBacked {
+            if owner.StringConstants == null
+                || !owner.StringConstants.ContainsKey(memberName) {
+                return false
+            }
+        } else if !owner.Constants.ContainsKey(memberName) {
+            return false
+        }
+
+        canonicalText = owner.DeclaredTypeName + "." + memberName
+        return true
+    }
+
+    public static func TryCanonicalizeDefaults(
+        parameterTypes: Type[],
+        parameterCanonicals: string[],
+        defaultKinds: int[],
+        defaultTexts: string[],
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        out canonicalDefaultTexts: string[]): bool {
+        canonicalDefaultTexts = new string[](0)
+        if defaultKinds.Length == 0 && defaultTexts.Length == 0 {
+            return true
+        }
+        if parameterCanonicals.Length != parameterTypes.Length
+            || defaultKinds.Length != parameterTypes.Length
+            || defaultTexts.Length != parameterTypes.Length {
+            return false
+        }
+
+        canonicalDefaultTexts = new string[](parameterTypes.Length)
+        index := 0
+        while index < parameterTypes.Length {
+            defaultText := defaultTexts[index]
+            if defaultText == null {
+                return false
+            }
+            if defaultKinds[index] != 1000 {
+                canonicalDefaultTexts[index] = defaultText
+                index += 1
+                continue
+            }
+
+            separator := defaultText.LastIndexOf(".", StringComparison.Ordinal)
+            if separator <= 0 || separator + 1 >= defaultText.Length {
+                return false
+            }
+            ownerName := defaultText.Substring(0, separator)
+            memberName := defaultText.Substring(separator + 1)
+            sourceOwner: ColumnarEnumDef? = null
+            sourceParameter: ColumnarEnumDef? = null
+            enumRegistry.TryGetValue(ownerName, out sourceOwner)
+            enumRegistry.TryGetValue(
+                parameterCanonicals[index], out sourceParameter)
+            sourceCanonical := ""
+            sourceClaimed := false
+            if TryCanonicalizeSourceEnumMember(
+                    parameterTypes[index],
+                    defaultText,
+                    sourceOwner,
+                    sourceParameter,
+                    out sourceCanonical,
+                    out sourceClaimed) {
+                canonicalDefaultTexts[index] = sourceCanonical
+                index += 1
+                continue
+            }
+            if sourceClaimed {
+                return false
+            }
+
+            runtimeEnum := typeof(object)
+            runtimeClaimed := false
+            if !enumRegistry.Resolver.TryResolve(
+                    ownerName, out runtimeEnum, out runtimeClaimed)
+                || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+                    runtimeEnum, parameterTypes[index])
+                || runtimeEnum is TypeBuilder
+                || runtimeEnum is EnumBuilder
+                || !runtimeEnum.get_IsEnum()
+                || Enum.GetUnderlyingType(runtimeEnum).FullName
+                    != "System.Int32"
+                || !Enum.IsDefined(runtimeEnum, memberName) {
+                return false
+            }
+            fullName := runtimeEnum.FullName
+            if fullName == null || fullName.Length == 0 {
+                return false
+            }
+            canonicalDefaultTexts[index] = fullName + "." + memberName
+            index += 1
+        }
+        return true
+    }
+}
+
 // Live source-type metadata is N#-owned so expression planners can select exact unbaked
 // FieldBuilder/MethodBuilder handles without a C# lookup bridge.
 class ColumnarStructDef {
@@ -231,6 +378,7 @@ class ColumnarStructDef {
     DefaultInterfaceMethodNames: HashSet<string>
     DefaultCtor: ConstructorBuilder?
     BaseDef: ColumnarStructDef?
+    ExactBaseType: Type?
     Methods: Dictionary<string, ColumnarInstanceMethodDef>
     MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
     StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
@@ -272,6 +420,7 @@ class ColumnarStructDef {
         Constructors = new List<ColumnarConstructorDef>()
         InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+        ExactBaseType = null
     }
 
     // Define the exact user-constructor handle and its planner-visible signature as one N#

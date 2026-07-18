@@ -97,6 +97,20 @@ func ConversionBoxCallPlan(parameterType: Type, methodName: string): ColumnarCod
     return plan
 }
 
+func ConversionCastclassPlan(targetType: Type): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1212, 0)
+    text := plan.AddString("cast-value")
+    targetIndex := plan.AddType(targetType)
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), text)
+    plan.AppendTypeInstruction(
+        ColumnarCodePlanContract.Castclass(), targetIndex)
+    plan.CompleteFragment(root, targetType)
+    plan.CompleteV3(targetType)
+    return plan
+}
+
 func ConversionSetObject(values: object[], index: int, value: object) {
     values[index] = value
 }
@@ -133,6 +147,7 @@ test "schema v3 conversion and box opcodes pin exact CLR identities and catalog 
     assert ColumnarCodePlanContract.ConvI8() == 106
     assert ColumnarCodePlanContract.ConvR4() == 107
     assert ColumnarCodePlanContract.ConvR8() == 108
+    assert ColumnarCodePlanContract.Castclass() == 116
     assert ColumnarCodePlanContract.Box() == 140
 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Conv_I8").IsSupported
@@ -142,6 +157,9 @@ test "schema v3 conversion and box opcodes pin exact CLR identities and catalog 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Conv_R8").IsSupported
 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Box").IsSupported
+
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "OpCodes", "Castclass").IsSupported
 }
 
 test "schema v3 admits conversion and box rows without widening v1 or v2" {
@@ -152,13 +170,16 @@ test "schema v3 admits conversion and box rows without widening v1 or v2" {
     r8 := ConversionFromI4Plan(ColumnarCodePlanContract.ConvR8(), typeof(double))
 
     boxed := ConversionBoxPlan(typeof(object))
+    casted := ConversionCastclassPlan(ConversionComparableType())
 
     ColumnarCodePlanExecutor.Validate(i8)
     ColumnarCodePlanExecutor.Validate(r4)
     ColumnarCodePlanExecutor.Validate(r8)
     ColumnarCodePlanExecutor.Validate(boxed)
+    ColumnarCodePlanExecutor.Validate(casted)
     assert i8.OperandKinds[1] == ColumnarCodePlanContract.NoOperand()
     assert boxed.OperandKinds[1] == ColumnarCodePlanContract.TypeOperand()
+    assert casted.OperandKinds[1] == ColumnarCodePlanContract.TypeOperand()
 
     v1 := new ColumnarCodePlan()
     v1.Prepare()
@@ -176,6 +197,10 @@ test "schema v3 admits conversion and box rows without widening v1 or v2" {
     typeIndex := v2.AddType(typeof(int))
     assert throws InvalidOperationException {
         v2.AppendTypeInstruction(ColumnarCodePlanContract.Box(), typeIndex)
+    }
+    assert throws InvalidOperationException {
+        v2.AppendTypeInstruction(
+            ColumnarCodePlanContract.Castclass(), typeIndex)
     }
 }
 
@@ -210,6 +235,59 @@ test "schema v3 box plans validate and execute object and interface flows" {
     assert ConversionRunPlan(objectResult, typeof(object)) == "8"
     assert ConversionRunPlan(interfaceResult, comparableType) == "8"
     assert ConversionRunPlan(objectCall, typeof(string)) == "object"
+}
+
+test "schema v3 castclass plans validate and execute exact reference targets" {
+    comparableType := ConversionComparableType()
+    casted := ConversionCastclassPlan(comparableType)
+
+    ColumnarCodePlanExecutor.Validate(casted)
+    assert ConversionRunPlan(casted, comparableType) == "cast-value"
+
+    badTarget := new ColumnarCodePlan()
+    badTarget.PrepareV3()
+    badTargetRoot := badTarget.BeginFragment(-1, 1213, 0)
+    text := badTarget.AddString("value")
+    intType := badTarget.AddType(typeof(int))
+    badTarget.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), text)
+    badTarget.AppendTypeInstruction(
+        ColumnarCodePlanContract.Castclass(), intType)
+    badTarget.CompleteFragment(badTargetRoot, typeof(int))
+    badTarget.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(badTarget)
+    }
+
+    badSource := new ColumnarCodePlan()
+    badSource.PrepareV3()
+    badSourceRoot := badSource.BeginFragment(-1, 1214, 0)
+    comparableIndex := badSource.AddType(comparableType)
+    badSource.AppendInstructionWithoutOperand(
+        ColumnarCodePlanContract.LdcI4_1())
+    badSource.AppendTypeInstruction(
+        ColumnarCodePlanContract.Castclass(), comparableIndex)
+    badSource.CompleteFragment(badSourceRoot, comparableType)
+    badSource.CompleteV3(comparableType)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(badSource)
+    }
+
+    pointerSource := new ColumnarCodePlan()
+    pointerSource.PrepareV3()
+    pointerSourceRoot := pointerSource.BeginFragment(-1, 1215, 0)
+    pointerType := typeof(int).MakePointerType()
+    pointerTypeIndex := pointerSource.AddType(pointerType)
+    pointerArgument := pointerSource.AddArgument(0, pointerTypeIndex)
+    comparablePointerIndex := pointerSource.AddType(comparableType)
+    pointerSource.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarg(), pointerArgument)
+    pointerSource.AppendTypeInstruction(
+        ColumnarCodePlanContract.Castclass(), comparablePointerIndex)
+    pointerSource.CompleteFragment(pointerSourceRoot, comparableType)
+    pointerSource.CompleteV3(comparableType)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(pointerSource)
+    }
 }
 
 test "schema v3 rejects malformed box rows and incompatible box values before emission" {

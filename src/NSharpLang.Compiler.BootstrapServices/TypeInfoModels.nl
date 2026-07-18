@@ -171,13 +171,22 @@ public class ParameterDeclarationInfo {
 public class NestedTypeInfo {
     nameValue: string
     typeValue: TypeInfo
+    isExportedValue: bool
 
     Name: string => nameValue
     Type: TypeInfo => typeValue
+    IsExported: bool => isExportedValue
 
     constructor(name: string, nestedType: TypeInfo) {
         nameValue = name
         typeValue = nestedType
+        isExportedValue = VisibilityConventions.IsExportedIdentifier(name)
+    }
+
+    constructor(name: string, nestedType: TypeInfo, isExported: bool) {
+        nameValue = name
+        typeValue = nestedType
+        isExportedValue = isExported
     }
 }
 
@@ -591,13 +600,22 @@ public class AliasTypeInfo: TypeInfo {
 public class GenericTypeInfo: TypeInfo {
     nameValue: string
     typeArgumentsValue: List<TypeInfo>
+    genericDefinitionValue: TypeInfo?
 
     Name: string => nameValue
     TypeArguments: List<TypeInfo> => typeArgumentsValue
+    GenericDefinition: TypeInfo? => genericDefinitionValue
 
     constructor(name: string, typeArguments: List<TypeInfo>) {
         nameValue = name
         typeArgumentsValue = typeArguments
+        genericDefinitionValue = null
+    }
+
+    constructor(name: string, typeArguments: List<TypeInfo>, genericDefinition: TypeInfo?) {
+        nameValue = name
+        typeArgumentsValue = typeArguments
+        genericDefinitionValue = genericDefinition
     }
 
     override func ToString(): string {
@@ -668,6 +686,7 @@ public class FunctionTypeInfo: TypeInfo {
     HasParamsParameter: bool
     TypeParameters: List<TypeParameter>?
     GenericConstraints: List<GenericConstraint>?
+    ResolvedGenericConstraintTypes: Dictionary<string, List<TypeInfo>>?
     HasMustUseAttribute: bool
     ReturnType: TypeInfo?
 

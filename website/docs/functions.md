@@ -83,6 +83,24 @@ message1 := greet("Alice")              // "Hello, Alice!"
 message2 := greet("Bob", "Hi")          // "Hi, Bob!"
 ```
 
+Enum members are compile-time constructor defaults too. The enum owner is bound
+where the constructor is declared, so imports at a call site cannot change it.
+
+```n#
+enum DeliveryMode {
+    Standard,
+    Express
+}
+
+class Quote {
+    Mode: DeliveryMode
+
+    constructor(mode: DeliveryMode = DeliveryMode.Standard) {
+        this.Mode = mode
+    }
+}
+```
+
 ### Params Arrays
 
 ```n#

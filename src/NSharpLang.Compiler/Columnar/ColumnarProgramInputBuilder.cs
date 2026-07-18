@@ -70,8 +70,10 @@ internal static class ColumnarProgramInputBuilder
         var structIndices = new int[n + 1];
         var structReferenceFlags = new int[n + 1];
         var structRecordFlags = new int[n + 1];
+        var structVisibilityFlags = new int[n + 1];
+        var structEnclosingTypeNames = new string[n + 1];
         var declarationResult = new int[6];
-        var declarationRowCount = global::Program.TopLevelColumnarProgramDeclarationIndicesInto(
+        var declarationRowCount = global::Program.ColumnarProgramDeclarationIndicesInto(
             source,
             tokens.RawKinds,
             tokens.RawStarts,
@@ -86,10 +88,8 @@ internal static class ColumnarProgramInputBuilder
             enumIndices,
             unionIndices,
             interfaceIndices,
-            structIndices,
-            structReferenceFlags,
-            structRecordFlags,
-            declarationResult);
+            structIndices, structReferenceFlags, structRecordFlags,
+            structVisibilityFlags, structEnclosingTypeNames, declarationResult);
         if (declarationRowCount < 0)
         {
             var scanStage = declarationRowCount switch
@@ -117,7 +117,7 @@ internal static class ColumnarProgramInputBuilder
         {
             return Decline("parse.enum", "enum declaration materialization failed");
         }
-        if (!TryGetColumnarStructInputs(source, tokens, structIndices, structReferenceFlags, structRecordFlags, declarationResult[5], out var structs))
+        if (!TryGetColumnarStructInputs(source, tokens, structIndices, structReferenceFlags, structRecordFlags, structVisibilityFlags, structEnclosingTypeNames, declarationResult[5], out var structs))
         {
             return Decline("parse.struct", "struct/class/record declaration materialization failed");
         }
@@ -383,7 +383,7 @@ internal static class ColumnarProgramInputBuilder
 
     private static bool TryGetColumnarStructInputs(
         string source, ColumnarTokenizedSource tokens,
-        int[] declIndices, int[] declReferenceFlags, int[] declRecordFlags, int declCount,
+        int[] declIndices, int[] declReferenceFlags, int[] declRecordFlags, int[] declVisibilityFlags, string[] declEnclosingTypeNames, int declCount,
         out List<ColumnarStructInput> structs)
     {
         structs = [];
@@ -510,7 +510,7 @@ internal static class ColumnarProgramInputBuilder
                     properties.Add(propInput);
                 }
 
-                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct));
+                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct, enclosingTypeName: declEnclosingTypeNames[declSlot] ?? "", visibilityModifierFlags: declVisibilityFlags[declSlot]));
             }
             return true;
         }

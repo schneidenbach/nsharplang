@@ -77,6 +77,7 @@ public class ColumnarCodePlanContract {
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
     public static func LdindRef(): short { return 80 }
+    public static func Add(): short { return 88 }
     public static func Neg(): short { return 101 }
     public static func Not(): short { return 102 }
     public static func ConvI4(): short { return 105 }
@@ -86,8 +87,10 @@ public class ColumnarCodePlanContract {
     public static func Callvirt(): short { return 111 }
     public static func Ldstr(): short { return 114 }
     public static func Newobj(): short { return 115 }
+    public static func Castclass(): short { return 116 }
     public static func Ldfld(): short { return 123 }
     public static func Ldflda(): short { return 124 }
+    public static func Stfld(): short { return 125 }
     public static func Ldsfld(): short { return 126 }
     public static func Box(): short { return 140 }
     public static func Newarr(): short { return 141 }
@@ -146,6 +149,7 @@ public class ColumnarCodePlanContract {
     public static func IsScalarNoOperandOpcode(opCodeValue: short): bool {
         return opCodeValue == Ldnull()
             || opCodeValue == Dup()
+            || opCodeValue == Add()
             || opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()
@@ -862,6 +866,7 @@ public class ColumnarCodePlan {
                 && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
                     || (opCodeValue != ColumnarCodePlanContract.Ldtoken()
                         && opCodeValue != ColumnarCodePlanContract.Box()
+                        && opCodeValue != ColumnarCodePlanContract.Castclass()
                         && opCodeValue != ColumnarCodePlanContract.Initobj()
                         && opCodeValue != ColumnarCodePlanContract.Newarr()
                         && opCodeValue != ColumnarCodePlanContract.Stelem())))
@@ -941,6 +946,7 @@ public class ColumnarCodePlan {
         if (opCodeValue != ColumnarCodePlanContract.Ldfld()
                 && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
                     || (opCodeValue != ColumnarCodePlanContract.Ldflda()
+                        && opCodeValue != ColumnarCodePlanContract.Stfld()
                         && opCodeValue != ColumnarCodePlanContract.Ldsfld())))
             || fieldIndex < 0
             || fieldIndex >= FieldCount {
@@ -1782,6 +1788,7 @@ public class ColumnarCodePlan {
         if opCodeValue == ColumnarCodePlanContract.Ldfld()
             || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
                 && (opCodeValue == ColumnarCodePlanContract.Ldflda()
+                    || opCodeValue == ColumnarCodePlanContract.Stfld()
                     || opCodeValue == ColumnarCodePlanContract.Ldsfld())) {
             return operandKind == ColumnarCodePlanContract.FieldOperand()
                 && operandIndex >= 0
@@ -1797,6 +1804,7 @@ public class ColumnarCodePlan {
             || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
                 && (opCodeValue == ColumnarCodePlanContract.Ldtoken()
                     || opCodeValue == ColumnarCodePlanContract.Box()
+                    || opCodeValue == ColumnarCodePlanContract.Castclass()
                     || opCodeValue == ColumnarCodePlanContract.Initobj()
                     || opCodeValue == ColumnarCodePlanContract.Newarr()
                     || opCodeValue == ColumnarCodePlanContract.Stelem())) {

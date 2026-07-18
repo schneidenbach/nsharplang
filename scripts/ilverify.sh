@@ -5,25 +5,17 @@
 # This is the SINGLE SOURCE OF TRUTH for IL verification. It is invoked by
 # CI (.github/workflows/build.yml) and by the local full-suite gate
 # (tests/scripts/test-all-core.sh). It builds examples, single-file examples,
-# and fixtures with `nlc build`, plus the direct-call native tests with `nlc
-# test`, then verifies every emitted assembly with BCL/ASP.NET references.
+# and fixtures with `nlc build`, plus selected native regression projects with
+# `nlc test`, then verifies every emitted assembly with BCL/ASP.NET references.
 #
-# WHY THIS EXISTS: PR #160 shipped GC-unsafe IL that ECMA-335 verification
-# would have rejected, but it only crashed at runtime on Linux x64 and CI
-# never ran ilverify. This gate makes any new unverifiable IL a deterministic,
-# blocking failure on ubuntu-latest, independent of the host CPU/OS.
-#
-# IMPORTANT: `dotnet ilverify` exits 0 even when it reports verification
-# errors (it only returns non-zero on argument/load failures). We therefore
-# parse its textual output for errors rather than trusting the exit code, and
-# diff the findings against a committed baseline allowlist so the gate fails
-# ONLY on NEW errors.
+# `dotnet ilverify` exits 0 when it reports verification errors, so this gate
+# parses its output and rejects every finding outside the committed baseline.
 #
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
 #
-# The full local product gate already builds the example/fixture surface before
-# invoking this script. It passes exact emitted assemblies through
-# `--built-dirs-file <file>` without rebuilding the same projects again.
+# `--built-dirs-file` verifies only caller-supplied outputs and needs no compiler.
+# Add `--build-native-tests` to emit selected native regression assemblies;
+# standalone mode emits them by default.
 #
 set -euo pipefail
 
@@ -52,6 +44,7 @@ CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 
 UPDATE_BASELINE=0
 BUILT_DIRS_FILE=""
+BUILD_NATIVE_TESTS=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --update-baseline)
@@ -70,6 +63,10 @@ while [ "$#" -gt 0 ]; do
             BUILT_DIRS_FILE="${1#--built-dirs-file=}"
             shift
             ;;
+        --build-native-tests)
+            BUILD_NATIVE_TESTS=1
+            shift
+            ;;
         -h|--help)
             grep '^#' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -80,6 +77,7 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+if [ -z "$BUILT_DIRS_FILE" ]; then BUILD_NATIVE_TESTS=1; fi
 
 # --------------------------------------------------------------------------
 # Locate the .NET runtime and ilverify
@@ -147,21 +145,14 @@ echo "    aspnet ref  : ${ASPNET_DIR:-<none>}"
 echo "    baseline    : $BASELINE_FILE"
 echo
 
-# --------------------------------------------------------------------------
-# Build the CLI compiler if needed
-# --------------------------------------------------------------------------
-if [ -z "$BUILT_DIRS_FILE" ] && [ ! -f "$CLI_DLL" ]; then
+# Build the CLI only when this invocation owns emitted inputs.
+if [ "$BUILD_NATIVE_TESTS" = "1" ] && [ ! -f "$CLI_DLL" ]; then
     info "Building N# CLI (compiler)"
     dotnet build "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" -v q
 fi
 
-# --------------------------------------------------------------------------
-# Build the product surface with nlc
-# --------------------------------------------------------------------------
-# We deliberately build into each project's own bin/ so reference assemblies
-# (runtime assets) land next to the output DLL, mirroring `nlc build`'s real
-# behavior. Verification then resolves refs from the framework dirs AND from
-# the output dir itself.
+# Build the product surface with nlc.
+# Project-local output keeps runtime assets beside each emitted assembly for resolution.
 BUILT_DIRS=()
 BUILT_TARGETS=()
 
@@ -189,6 +180,18 @@ build_single_file() {
     fi
     fail "nlc build failed for single-file example: $nl_file"
     echo "    Reproduce: dotnet \"$CLI_DLL\" build \"$nl_file\""
+    return 1
+}
+
+build_native_test() {
+    local label="$1" project="$2" assembly="$3"
+    info "Building $label native test assembly"
+    if dotnet "$CLI_DLL" test --project "$project" --no-cache --json && [ -f "$assembly" ]; then
+        BUILT_TARGETS+=("$assembly")
+        return 0
+    fi
+    fail "nlc test failed to emit the $label native test assembly"
+    echo "    Reproduce: dotnet \"$CLI_DLL\" test --project \"$project\" --no-cache --json"
     return 1
 }
 
@@ -248,20 +251,15 @@ else
         build_single_file "$nl_file" || BUILD_FAILED=1
     done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
 
-    info "Building direct-call native test assembly"
-    DIRECT_CALL_TEST_ASSEMBLY="$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll"
-    if dotnet "$CLI_DLL" test --project "$REPO_ROOT/tests/native/direct-calls" --no-cache --json >/dev/null 2>&1 \
-        && [ -f "$DIRECT_CALL_TEST_ASSEMBLY" ]; then
-        BUILT_TARGETS+=("$DIRECT_CALL_TEST_ASSEMBLY")
-    else
-        fail "nlc test failed to emit the direct-call native test assembly"
-        BUILD_FAILED=1
-    fi
-    if [ "$BUILD_FAILED" = "1" ]; then
-        fail "One or more nlc builds failed; cannot run IL verification."
-        echo "    Fix the build failures above and re-run."
-        exit 1
-    fi
+fi
+if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
+    build_native_test "direct-call" "$REPO_ROOT/tests/native/direct-calls" "$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll" || BUILD_FAILED=1
+    build_native_test "construction-array" "$REPO_ROOT/tests/native/construction-arrays" "$REPO_ROOT/tests/native/construction-arrays/bin/Debug/net10.0/tests/NSharpLang.ConstructionArrays.Tests.dll" || BUILD_FAILED=1
+    build_native_test "erased-enum identity" "$REPO_ROOT/tests/native/erased-enum-identity" "$REPO_ROOT/tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll" || BUILD_FAILED=1
+fi
+if [ "$BUILD_FAILED" = "1" ]; then
+    fail "One or more nlc builds failed; cannot run IL verification."
+    exit 1
 fi
 echo
 
@@ -280,6 +278,7 @@ fi
 if [ "${#BUILT_TARGETS[@]}" -gt 0 ]; then for built_target in "${BUILT_TARGETS[@]}"; do
     name="$(basename "$built_target")"
     real="$(cd "$(dirname "$built_target")" && pwd)/$name"
+    case "$SEEN" in *$'\n'"$real"$'\n'*) continue ;; esac
     SEEN+="$real"$'\n'
     TARGETS+=("$real")
 done; fi

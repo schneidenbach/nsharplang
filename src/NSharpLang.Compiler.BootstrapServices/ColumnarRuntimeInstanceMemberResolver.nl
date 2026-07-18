@@ -50,7 +50,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if receiverType == typeof(DateTime) || receiverType == typeof(Type) || receiverType == typeof(Process) || receiverType == typeof(IList) {
+        if receiverType == typeof(DateTime) || receiverType == typeof(Type) || receiverType == typeof(Process) || receiverType == typeof(IList) || receiverType == typeof(JsonSerializerOptions) {
             return true
         }
 
@@ -138,6 +138,10 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         if receiverType == typeof(JsonElement) && member == "ValueKind" {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonValueKind), out selection)
+        }
+
+        if receiverType == typeof(JsonSerializerOptions) && member == "WriteIndented" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(bool), out selection)
         }
 
         if receiverType == jsonArrayEnumeratorType && member == "Current" {
@@ -247,11 +251,17 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
 
-        if IsSupportedCountReceiver(receiverType) && member == "Count" {
+        if IsSupportedCountReceiver(receiverType)
+            && (member == "Count"
+                || member == "Capacity"
+                    && receiverType.GetGenericTypeDefinition()
+                        == typeof(List<int>).GetGenericTypeDefinition()) {
             countOwner := receiverType
-            definition := receiverType.GetGenericTypeDefinition()
-            if definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() {
-                countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(receiverType.GetGenericArguments())
+            if member == "Count" {
+                definition := receiverType.GetGenericTypeDefinition()
+                if definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() {
+                    countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(receiverType.GetGenericArguments())
+                }
             }
 
             return TrySelectExpectedProperty(receiverType, countOwner, member, typeof(int), out selection)

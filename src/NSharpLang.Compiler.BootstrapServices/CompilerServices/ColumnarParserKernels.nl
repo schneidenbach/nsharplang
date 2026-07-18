@@ -483,12 +483,20 @@ class ColumnarExpressionNodeKind {
         return 11
     }
 
+    static func BinaryExpression(): int {
+        return 12
+    }
+
     static func TernaryExpression(): int {
         return 13
     }
 
     static func NewExpression(): int {
         return 15
+    }
+
+    static func ObjectInitializerExpression(): int {
+        return 36
     }
 
     static func TypeOfExpression(): int {
@@ -6931,12 +6939,158 @@ func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, cou
     return outCount
 }
 
-func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
+func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outStructEnclosingTypeNames: string[], outResult: int[]): int {
     rawTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
     compactTokens := new ParserDeclarationTokenTable(compactTokenKinds, compactTokenStarts, compactTokenValueLengths)
     outputs := new TopLevelColumnarProgramDeclarationTable(outFuncIndices, outFuncAsyncFlags, outEnumIndices, outUnionIndices, outInterfaceIndices, outStructIndices, outStructReferenceFlags, outStructRecordFlags)
     result := new ParserDeclarationResultTable(outResult)
-    return TopLevelColumnarProgramDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, outputs, result)
+    declarationCount := TopLevelColumnarProgramDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, outputs, result)
+    if declarationCount < 0 {
+        return declarationCount
+    }
+    nestedCount := NestedColumnarStructDeclarationIndicesInto(source, compactTokenKinds, compactTokenStarts, compactTokenValueLengths, compactCount, outStructIndices, outStructReferenceFlags, outStructRecordFlags, outStructVisibilityFlags, outStructEnclosingTypeNames, outResult[5])
+    if nestedCount < 0 {
+        return -6
+    }
+    outResult[5] = outResult[5] + nestedCount
+    return declarationCount + nestedCount
+}
+
+// Collect struct-like declarations that are direct members of a source type. The top-level
+// declaration scanner intentionally stops at brace depth zero; this companion keeps an explicit
+// type-owner stack so a `class` token in a function body or constraint can never masquerade as a
+// nested declaration. Enclosing names are source-qualified (`Outer.Middle`) rather than CLR
+// metadata names (`Outer+Middle`); the assembly owner uses them only to select the already-defined
+// enclosing TypeBuilder.
+func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outEnclosingTypeNames: string[], outputOffset: int = 0): int {
+    if source == null || tokenKinds == null || tokenStarts == null
+        || tokenValueLengths == null || outStructIndices == null
+        || outStructReferenceFlags == null || outStructRecordFlags == null
+        || outStructVisibilityFlags == null || outEnclosingTypeNames == null
+        || count < 0 || outputOffset < 0
+        || count > tokenKinds.Length || count > tokenStarts.Length
+        || count > tokenValueLengths.Length {
+        return -1
+    }
+
+    ownerNames := new string[](count + 1)
+    ownerBodyDepths := new int[](count + 1)
+    ownerCount := 0
+    pendingOwnerName := ""
+    pendingOwnerDepth := -1
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    outputCount := 0
+
+    index := 0
+    while index < count {
+        kind := tokenKinds[index]
+        declarationScope := bracketDepth == 0 && parenDepth == 0
+            && (braceDepth == 0
+                || ownerCount > 0
+                    && braceDepth == ownerBodyDepths[ownerCount - 1])
+        if declarationScope && IsTopLevelTypeDeclarationKind(kind)
+            && !IsRecordStructTailToken(tokenKinds, index) {
+            nameIndex := index + 1
+            if kind == 13 && nameIndex < count && tokenKinds[nameIndex] == 9 {
+                nameIndex = nameIndex + 1
+            }
+            if nameIndex < count && tokenKinds[nameIndex] == 0 {
+                declarationName := source.Substring(
+                    tokenStarts[nameIndex], tokenValueLengths[nameIndex])
+                enclosingName := ""
+                if ownerCount > 0 {
+                    enclosingName = ownerNames[ownerCount - 1]
+                    pendingOwnerName = enclosingName + "." + declarationName
+                } else {
+                    pendingOwnerName = declarationName
+                }
+                pendingOwnerDepth = braceDepth
+
+                if ownerCount > 0 && (kind == 8 || kind == 9 || kind == 13) {
+                    outputIndex := outputOffset + outputCount
+                    if outputIndex >= outStructIndices.Length
+                        || outputIndex >= outStructReferenceFlags.Length
+                        || outputIndex >= outStructRecordFlags.Length
+                        || outputIndex >= outStructVisibilityFlags.Length
+                        || outputIndex >= outEnclosingTypeNames.Length {
+                        return -1
+                    }
+                    outStructIndices[outputIndex] = index
+                    isRecord := kind == 13
+                    isReference := kind == 8 || isRecord
+                    if isRecord && index + 1 < count && tokenKinds[index + 1] == 9 {
+                        isReference = false
+                    }
+                    outStructReferenceFlags[outputIndex] = isReference ? 1 : 0
+                    outStructRecordFlags[outputIndex] = isRecord ? 1 : 0
+                    visibilityFlags := 0
+                    modifierIndex := index - 1
+                    if kind == 9 && modifierIndex >= 0
+                        && tokenKinds[modifierIndex] == 78 {
+                        modifierIndex = modifierIndex - 1
+                    }
+                    while modifierIndex >= 0
+                        && ParserDeclarationMemberModifierKind(
+                            tokenKinds[modifierIndex]) != 0 {
+                        modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
+                        if modifierFlag == 1 || modifierFlag == 2
+                            || modifierFlag == 4 || modifierFlag == 8
+                            || modifierFlag == 32768 {
+                            visibilityFlags = visibilityFlags | modifierFlag
+                        }
+                        modifierIndex = modifierIndex - 1
+                    }
+                    outStructVisibilityFlags[outputIndex] = visibilityFlags
+                    outEnclosingTypeNames[outputIndex] = enclosingName
+                    outputCount = outputCount + 1
+                }
+            }
+        }
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+            if pendingOwnerName.Length > 0
+                && pendingOwnerDepth == braceDepth - 1 {
+                ownerNames[ownerCount] = pendingOwnerName
+                ownerBodyDepths[ownerCount] = braceDepth
+                ownerCount = ownerCount + 1
+                pendingOwnerName = ""
+                pendingOwnerDepth = -1
+            }
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+            while ownerCount > 0
+                && braceDepth < ownerBodyDepths[ownerCount - 1] {
+                ownerCount = ownerCount - 1
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        }
+        index = index + 1
+    }
+
+    if braceDepth != 0 || bracketDepth != 0 || parenDepth != 0
+        || ownerCount != 0 || pendingOwnerName.Length > 0 {
+        return -1
+    }
+    return outputCount
 }
 
 func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: ParserDeclarationTokenTable, rawCount: int, compactTokens: ParserDeclarationTokenTable, compactCount: int, outputs: TopLevelColumnarProgramDeclarationTable, result: ParserDeclarationResultTable): int {
@@ -8362,6 +8516,23 @@ func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int)
         i = i + 1
     }
 
+    return builder.ToString()
+}
+
+func ParserDeclarationCanonicalDottedNameText(source: string, start: int, length: int): string {
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    builder := new StringBuilder(length)
+    i := 0
+    while i < length {
+        ch := source[start + i]
+        if !Char.IsWhiteSpace(ch) {
+            builder.Append(ch)
+        }
+        i = i + 1
+    }
     return builder.ToString()
 }
 
@@ -10001,6 +10172,25 @@ func FunctionSignatureDefaultDottedNameSupported(tokens: ParserTokenTable, start
     return !expectIdentifier && identifierCount >= 2 && dotCount >= 1
 }
 
+func FunctionSignatureDefaultDottedNameText(
+    source: string,
+    tokens: ParserTokenTable,
+    startIndex: int,
+    endIndex: int): string {
+    if !FunctionSignatureDefaultDottedNameSupported(
+            tokens, startIndex, endIndex) {
+        return ""
+    }
+    builder := new StringBuilder()
+    index := startIndex
+    while index < endIndex {
+        builder.Append(source.Substring(
+            tokens.Starts[index], tokens.ValueLengths[index]))
+        index = index + 1
+    }
+    return builder.ToString()
+}
+
 func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable, count: int, funcIndex: int, outputs: FunctionSignatureInfoOutputTable): int {
     if funcIndex < 0 || funcIndex >= count || (tokens.Kinds[funcIndex] != 7 && tokens.Kinds[funcIndex] != 85 && tokens.Kinds[funcIndex] != 86) {
         return -1
@@ -10153,7 +10343,14 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
             }
 
             outputs.ParamDefaultKinds[paramCount] = defaultKind
-            outputs.ParamDefaultTexts[paramCount] = FunctionSignatureSpanText(source, defaultStart, defaultLength)
+            if defaultKind == FunctionSignatureDefaultMemberAccessKind() {
+                outputs.ParamDefaultTexts[paramCount] =
+                    FunctionSignatureDefaultDottedNameText(
+                        source, tokens, defaultTokenStart, pos)
+            } else {
+                outputs.ParamDefaultTexts[paramCount] =
+                    FunctionSignatureSpanText(source, defaultStart, defaultLength)
+            }
         } else if foundDefault == 1 {
             return -1
         }
@@ -10989,7 +11186,14 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
             }
 
             outputs.ArgKinds[paramCount] = defaultKind
-            outputs.ArgTexts[paramCount] = FunctionSignatureSpanText(source, defaultStart, defaultLength)
+            if defaultKind == FunctionSignatureDefaultMemberAccessKind() {
+                outputs.ArgTexts[paramCount] =
+                    FunctionSignatureDefaultDottedNameText(
+                        source, tokens, defaultTokenStart, pos)
+            } else {
+                outputs.ArgTexts[paramCount] =
+                    FunctionSignatureSpanText(source, defaultStart, defaultLength)
+            }
         } else if foundDefault == 1 {
             return -1
         }
@@ -11702,7 +11906,14 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         signatureOutputs.ParamTypeTexts[p] = paramType
         signatureOutputs.ArgKinds[p] = primaryParameters.DefaultKinds[p]
         if primaryParameters.DefaultKinds[p] >= 0 {
-            signatureOutputs.ArgTexts[p] = ParserDeclarationSpanText(source, primaryParameters.DefaultStarts[p], primaryParameters.DefaultLengths[p])
+            if primaryParameters.DefaultKinds[p] == ParserDeclarationDefaultMemberAccessKind() {
+                signatureOutputs.ArgTexts[p] = ParserDeclarationCanonicalDottedNameText(
+                    source,
+                    primaryParameters.DefaultStarts[p],
+                    primaryParameters.DefaultLengths[p])
+            } else {
+                signatureOutputs.ArgTexts[p] = ParserDeclarationSpanText(source, primaryParameters.DefaultStarts[p], primaryParameters.DefaultLengths[p])
+            }
         } else {
             signatureOutputs.ArgTexts[p] = ""
         }
@@ -11999,10 +12210,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
         }
     }
 
-    if typeParamCount > 0 && baseNameCount > 0 {
-        return -1
-    }
-
     i := 0
     if typeParamCount > 0 {
         while i < fieldCount {
@@ -12064,7 +12271,12 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
         return -1
     }
 
-    structName := ParserDeclarationQualifiedNameText(source, declarationTokens, tokens.Count, structIndex, result.Values[0], result.Values[1])
+    // Struct inputs carry a source-relative simple name plus an explicit enclosing-type path.
+    // Namespace qualification belongs to ColumnarBindingScopeFacts, which has the file identity;
+    // returning a namespace-qualified string here would force the mechanical C# bridge to strip
+    // semantic identity back apart.
+    structName := ParserDeclarationSpanText(
+        source, result.Values[0], result.Values[1])
     if structName == "" {
         return -1
     }

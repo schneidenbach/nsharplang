@@ -287,6 +287,336 @@ test "direct-call planner validates List of source values flowing to IReadOnlyLi
         plan.MethodParameterTypes[methodIndex][0], readOnlyListType)
 }
 
+test "direct-call planner emits exact duck-interface List Add flows for classes and structs" {
+    notifier := SourceCallInterfaceDefinition(
+        "DirectCallDuckListNotifier")
+    referenceNotifier := SourceCallDefinition(
+        "DirectCallDuckListClass", true)
+    referenceNotifier.ImplementedInterfaces.Add(notifier)
+    referenceNotifier.Builder.AddInterfaceImplementation(notifier.Builder)
+    valueNotifier := SourceCallDefinition(
+        "DirectCallDuckListStruct", false)
+    valueNotifier.ImplementedInterfaces.Add(notifier)
+    valueNotifier.Builder.AddInterfaceImplementation(notifier.Builder)
+    valueNotifierType: Type = valueNotifier.Builder
+
+    definitions := new ColumnarStructDef[](3)
+    definitions[0] = notifier
+    definitions[1] = referenceNotifier
+    definitions[2] = valueNotifier
+
+    notifierType: Type = notifier.Builder
+    interfaceArguments := new Type[](1)
+    interfaceArguments[0] = notifierType
+    listType := typeof(List<int>)
+        .GetGenericTypeDefinition()
+        .MakeGenericType(interfaceArguments)
+    tree := DirectCallInstanceTree(
+        "notifiers",
+        "Add",
+        DirectCallOneText("notifier"),
+        DirectCallOneKind(
+            ColumnarExpressionNodeKind.IdentifierExpression()))
+
+    referenceBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        referenceBindings, "notifiers", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        referenceBindings,
+        "notifier",
+        1,
+        referenceNotifier.Builder)
+    referencePlan := DirectCallPlan(tree, referenceBindings)
+
+    assert referencePlan.ResultType == SourceCallVoidType()
+    assert referencePlan.OperationCount == 4
+    assert referencePlan.OpCodeValues[0]
+        == ColumnarCodePlanContract.Ldarg()
+    assert referencePlan.OpCodeValues[1]
+        == ColumnarCodePlanContract.Ldarg()
+    assert referencePlan.OpCodeValues[2]
+        == ColumnarCodePlanContract.Castclass()
+    assert referencePlan.Types[referencePlan.OperandIndices[2]]
+        == notifierType
+    assert referencePlan.OpCodeValues[3]
+        == ColumnarCodePlanContract.Callvirt()
+    assert !ConversionDirectCallHasOpcode(
+        referencePlan, ColumnarCodePlanContract.Box())
+    referenceMethod := referencePlan.OperandIndices[3]
+    assert referencePlan.Methods[referenceMethod].get_Name() == "Add"
+    assert referencePlan.MethodParameterTypes[referenceMethod].Length == 1
+    assert referencePlan.MethodParameterTypes[referenceMethod][0]
+        == notifierType
+
+    valueBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        valueBindings, "notifiers", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        valueBindings,
+        "notifier",
+        1,
+        valueNotifier.Builder)
+    valuePlan := DirectCallPlan(tree, valueBindings)
+
+    assert valuePlan.ResultType == SourceCallVoidType()
+    assert valuePlan.OperationCount == 5
+    assert valuePlan.OpCodeValues[0]
+        == ColumnarCodePlanContract.Ldarg()
+    assert valuePlan.OpCodeValues[1]
+        == ColumnarCodePlanContract.Ldarg()
+    assert valuePlan.OpCodeValues[2]
+        == ColumnarCodePlanContract.Box()
+    assert valuePlan.Types[valuePlan.OperandIndices[2]]
+        == valueNotifierType
+    assert valuePlan.OpCodeValues[3]
+        == ColumnarCodePlanContract.Castclass()
+    assert valuePlan.Types[valuePlan.OperandIndices[3]]
+        == notifierType
+    assert valuePlan.OpCodeValues[4]
+        == ColumnarCodePlanContract.Callvirt()
+    valueMethod := valuePlan.OperandIndices[4]
+    assert valuePlan.Methods[valueMethod].get_Name() == "Add"
+    assert valuePlan.MethodParameterTypes[valueMethod].Length == 1
+    assert valuePlan.MethodParameterTypes[valueMethod][0]
+        == notifierType
+}
+
+test "direct-call planner keeps unrelated duck-interface List Add terminally rejected" {
+    target := SourceCallInterfaceDefinition(
+        "DirectCallDuckListExactTarget")
+    nearMiss := SourceCallInterfaceDefinition(
+        "DirectCallDuckListNearMissTarget")
+    target.DeclaredTypeName = "INotifier"
+    nearMiss.DeclaredTypeName = "INotifier"
+
+    implementer := SourceCallDefinition(
+        "DirectCallDuckListNearMissClass", true)
+    implementer.ImplementedInterfaces.Add(nearMiss)
+    implementer.Builder.AddInterfaceImplementation(nearMiss.Builder)
+
+    definitions := new ColumnarStructDef[](3)
+    definitions[0] = target
+    definitions[1] = nearMiss
+    definitions[2] = implementer
+
+    targetType: Type = target.Builder
+    interfaceArguments := new Type[](1)
+    interfaceArguments[0] = targetType
+    listType := typeof(List<int>)
+        .GetGenericTypeDefinition()
+        .MakeGenericType(interfaceArguments)
+    bindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        bindings, "notifiers", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        bindings, "notifier", 1, implementer.Builder)
+    tree := DirectCallInstanceTree(
+        "notifiers",
+        "Add",
+        DirectCallOneText("notifier"),
+        DirectCallOneKind(
+            ColumnarExpressionNodeKind.IdentifierExpression()))
+
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning := true
+    DirectCallRejected(
+        tree,
+        bindings,
+        out ownership,
+        out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacyWholeSubtreePlanning
+}
+
+test "direct-call planner emits exact external IDisposable List Add flows" {
+    disposableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IDisposable")
+    referenceDisposable := SourceCallDefinition(
+        "DirectCallExternalDisposableClass", true)
+    referenceDisposable.ExternalInterfaces.Add(disposableType)
+    referenceDisposable.Builder.AddInterfaceImplementation(
+        disposableType)
+    valueDisposable := SourceCallDefinition(
+        "DirectCallExternalDisposableStruct", false)
+    valueDisposable.ExternalInterfaces.Add(disposableType)
+    valueDisposable.Builder.AddInterfaceImplementation(
+        disposableType)
+    valueDisposableType: Type = valueDisposable.Builder
+
+    definitions := new ColumnarStructDef[](2)
+    definitions[0] = referenceDisposable
+    definitions[1] = valueDisposable
+
+    interfaceArguments := new Type[](1)
+    interfaceArguments[0] = disposableType
+    listType := typeof(List<int>)
+        .GetGenericTypeDefinition()
+        .MakeGenericType(interfaceArguments)
+    tree := DirectCallInstanceTree(
+        "items",
+        "Add",
+        DirectCallOneText("item"),
+        DirectCallOneKind(
+            ColumnarExpressionNodeKind.IdentifierExpression()))
+
+    referenceBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        referenceBindings, "items", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        referenceBindings,
+        "item",
+        1,
+        referenceDisposable.Builder)
+    referencePlan := DirectCallPlan(tree, referenceBindings)
+
+    assert referencePlan.ResultType == SourceCallVoidType()
+    assert referencePlan.OperationCount == 4
+    assert referencePlan.OpCodeValues[0]
+        == ColumnarCodePlanContract.Ldarg()
+    assert referencePlan.OpCodeValues[1]
+        == ColumnarCodePlanContract.Ldarg()
+    assert referencePlan.OpCodeValues[2]
+        == ColumnarCodePlanContract.Castclass()
+    assert referencePlan.Types[referencePlan.OperandIndices[2]]
+        == disposableType
+    assert referencePlan.OpCodeValues[3]
+        == ColumnarCodePlanContract.Callvirt()
+    assert !ConversionDirectCallHasOpcode(
+        referencePlan, ColumnarCodePlanContract.Box())
+    referenceMethod := referencePlan.OperandIndices[3]
+    assert referencePlan.Methods[referenceMethod].get_Name() == "Add"
+    assert referencePlan.MethodParameterTypes[referenceMethod].Length == 1
+    assert referencePlan.MethodParameterTypes[referenceMethod][0]
+        == disposableType
+
+    valueBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        valueBindings, "items", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        valueBindings,
+        "item",
+        1,
+        valueDisposable.Builder)
+    valuePlan := DirectCallPlan(tree, valueBindings)
+
+    assert valuePlan.ResultType == SourceCallVoidType()
+    assert valuePlan.OperationCount == 5
+    assert valuePlan.OpCodeValues[0]
+        == ColumnarCodePlanContract.Ldarg()
+    assert valuePlan.OpCodeValues[1]
+        == ColumnarCodePlanContract.Ldarg()
+    assert valuePlan.OpCodeValues[2]
+        == ColumnarCodePlanContract.Box()
+    assert valuePlan.Types[valuePlan.OperandIndices[2]]
+        == valueDisposableType
+    assert valuePlan.OpCodeValues[3]
+        == ColumnarCodePlanContract.Castclass()
+    assert valuePlan.Types[valuePlan.OperandIndices[3]]
+        == disposableType
+    assert valuePlan.OpCodeValues[4]
+        == ColumnarCodePlanContract.Callvirt()
+    valueMethod := valuePlan.OperandIndices[4]
+    assert valuePlan.Methods[valueMethod].get_Name() == "Add"
+    assert valuePlan.MethodParameterTypes[valueMethod].Length == 1
+    assert valuePlan.MethodParameterTypes[valueMethod][0]
+        == disposableType
+}
+
+test "direct-call planner terminally rejects external IDisposable near misses" {
+    disposableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IDisposable")
+    comparableType := TypeOfRequiredRuntimeType(
+        typeof(Type), "System.IComparable")
+    sameSpelled := SourceCallInterfaceDefinition(
+        "DirectCallExternalSameSpelledDisposable")
+    sameSpelled.DeclaredTypeName = "IDisposable"
+    sameSpelledImplementer := SourceCallDefinition(
+        "DirectCallExternalSameSpelledDisposableClass", true)
+    sameSpelledImplementer.ImplementedInterfaces.Add(sameSpelled)
+    sameSpelledImplementer.Builder.AddInterfaceImplementation(
+        sameSpelled.Builder)
+    unsupported := SourceCallDefinition(
+        "DirectCallExternalComparableClass", true)
+    unsupported.ExternalInterfaces.Add(comparableType)
+    unsupported.Builder.AddInterfaceImplementation(comparableType)
+    unregistered := SourceCallDefinition(
+        "DirectCallExternalUnregisteredDisposableClass", true)
+    unregistered.Builder.AddInterfaceImplementation(disposableType)
+
+    definitions := new ColumnarStructDef[](4)
+    definitions[0] = sameSpelled
+    definitions[1] = sameSpelledImplementer
+    definitions[2] = unsupported
+    definitions[3] = unregistered
+
+    interfaceArguments := new Type[](1)
+    interfaceArguments[0] = disposableType
+    listType := typeof(List<int>)
+        .GetGenericTypeDefinition()
+        .MakeGenericType(interfaceArguments)
+    tree := DirectCallInstanceTree(
+        "items",
+        "Add",
+        DirectCallOneText("item"),
+        DirectCallOneKind(
+            ColumnarExpressionNodeKind.IdentifierExpression()))
+
+    sameSpelledBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        sameSpelledBindings, "items", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        sameSpelledBindings,
+        "item",
+        1,
+        sameSpelledImplementer.Builder)
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning := true
+    DirectCallRejected(
+        tree,
+        sameSpelledBindings,
+        out ownership,
+        out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacyWholeSubtreePlanning
+
+    unsupportedBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        unsupportedBindings, "items", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        unsupportedBindings,
+        "item",
+        1,
+        unsupported.Builder)
+    ownership = ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning = true
+    DirectCallRejected(
+        tree,
+        unsupportedBindings,
+        out ownership,
+        out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacyWholeSubtreePlanning
+
+    unregisteredBindings := DirectCallBindings(definitions)
+    ColumnarRangePlannerAddParameter(
+        unregisteredBindings, "items", 0, listType)
+    ColumnarRangePlannerAddParameter(
+        unregisteredBindings,
+        "item",
+        1,
+        unregistered.Builder)
+    ownership = ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning = true
+    DirectCallRejected(
+        tree,
+        unregisteredBindings,
+        out ownership,
+        out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacyWholeSubtreePlanning
+}
+
 test "direct-call planner owns scoped runtime static calls with exact handles" {
     tree := DirectCallQualifiedTree("Type", "GetType", DirectCallOneText("\"System.String\""), DirectCallOneKind(ColumnarExpressionNodeKind.StringLiteralExpression()))
 

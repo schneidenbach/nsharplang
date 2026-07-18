@@ -245,6 +245,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.Callvirt() == 111
     assert ColumnarCodePlanContract.Newobj() == 115
     assert ColumnarCodePlanContract.Ldfld() == 123
+    assert ColumnarCodePlanContract.Stfld() == 125
     assert ColumnarCodePlanContract.Ldsfld() == 126
     assert ColumnarCodePlanContract.Newarr() == 141
     assert ColumnarCodePlanContract.Ldlen() == 142
@@ -1117,6 +1118,7 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert ColumnarCodePlanContract.LdcR4() == 34
     assert ColumnarCodePlanContract.LdcR8() == 35
     assert ColumnarCodePlanContract.Ldstr() == 114
+    assert ColumnarCodePlanContract.Add() == 88
     assert ColumnarCodePlanContract.Neg() == 101
     assert ColumnarCodePlanContract.Not() == 102
     assert ColumnarCodePlanContract.Ceq() == -511
@@ -1149,6 +1151,43 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert plan.SingleValues != null
     assert plan.DoubleValues != null
     assert plan.StringValues != null
+}
+
+test "schema v3 admits the exact Add row and keeps it isolated from schema v2" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1216, 0)
+    left := plan.BeginFragment(root, 0, 1)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.CompleteFragment(left, typeof(int))
+    right := plan.BeginFragment(root, 0, 2)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.CompleteFragment(right, typeof(int))
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+    assert plan.OperandKinds[2] == ColumnarCodePlanContract.NoOperand()
+    assert plan.OperandIndices[2] == -1
+    plan.ValidateSealedStructure()
+    ColumnarCodePlanExecutor.Validate(plan)
+
+    v2Builder := new ColumnarCodePlan()
+    v2Builder.PrepareV2()
+    _v2Root := v2Builder.BeginFragment(-1, 1217, 0)
+    assert throws InvalidOperationException {
+        v2Builder.AppendInstructionWithoutOperand(
+            ColumnarCodePlanContract.Add())
+    }
+    assert v2Builder.OperationCount == 0
+
+    smuggled := ValidV2CodePlan()
+    smuggled.OpCodeValues[0] = ColumnarCodePlanContract.Add()
+    assert throws InvalidOperationException {
+        smuggled.ValidateSealedStructure()
+    }
 }
 
 test "schema v3 carries exact managed-address arguments into ldind.ref" {
@@ -1562,6 +1601,43 @@ test "schema v2 carries ldarga and exact declared field columns" {
     assert plan.FieldDeclaringTypes[0] == tupleType
     assert plan.FieldValueTypes[0] == typeof(int)
     assert !plan.FieldIsStatic[0]
+}
+
+test "schema v3 seals stfld rows while earlier recursive schemas reject them" {
+    tupleType := typeof(ValueTuple<int, int>)
+    field := tupleType.GetField("Item1")
+    if field == null {
+        throw new InvalidOperationException(
+            "Required ValueTuple.Item1 field was not found.")
+    }
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1215, 0)
+    tupleTypeIndex := plan.AddType(tupleType)
+    tupleArgument := plan.AddArgument(0, tupleTypeIndex, false)
+    fieldIndex := plan.AddFieldWithSignature(
+        field, tupleType, typeof(int), false)
+    plan.AppendArgumentInstruction(
+        ColumnarCodePlanContract.Ldarga(), tupleArgument)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+    plan.ValidateSealedStructure()
+
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Stfld()
+    assert plan.OperandKinds[2] == ColumnarCodePlanContract.FieldOperand()
+
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    _schemaV2Root := schemaV2.BeginFragment(-1, 1216, 0)
+    schemaV2Field := schemaV2.AddField(field)
+    assert throws InvalidOperationException {
+        schemaV2.AppendFieldInstruction(
+            ColumnarCodePlanContract.Stfld(), schemaV2Field)
+    }
 }
 
 test "schema v2 rejects malformed argument address and declared method columns" {

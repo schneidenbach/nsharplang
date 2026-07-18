@@ -4913,27 +4913,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void TestDefaultParametersWithEnumMembers()
-    {
-        var result = Analyze(@"
-            enum Mode {
-                Disabled,
-                Enabled
-            }
-
-            class Settings {
-                constructor(mode: Mode = Mode.Enabled) {
-                }
-            }
-
-            func Schedule(day: System.DayOfWeek = System.DayOfWeek.Friday) {
-            }
-        ");
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void TestDefaultParametersInvalidNonConstant()
     {
         // Invalid: non-constant expression as default

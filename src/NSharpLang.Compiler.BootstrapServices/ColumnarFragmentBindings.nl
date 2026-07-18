@@ -23,6 +23,9 @@ class ColumnarFragmentBindings {
     // The production emitter passes this live view. Registry aliases may expose the same
     // definition more than once, so member selection deduplicates by definition identity.
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
+    // Metadata resolution supplies an immutable exact declaration-name index so generic heads
+    // and aliases do not rescan every live definition.
+    ExactSourceTypes: Dictionary<string, Type>
     // Unlike CurrentInstance, this remains populated in static member bodies and anchors bare
     // static method calls on the enclosing source type.
     EnclosingTypeDefinition: ColumnarStructDef?
@@ -51,6 +54,7 @@ class ColumnarFragmentBindings {
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
+        ExactSourceTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         EnclosingTypeDefinition = null
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -100,6 +104,27 @@ class ColumnarFragmentBindings {
         return result
     }
 
+    public static func CreateTypeResolutionBindings(
+        enums: Dictionary<string, ColumnarEnumDef>,
+        sourceTypeDefinitions: Dictionary<string, ColumnarStructDef>,
+        sourceUnionDefinitions: Dictionary<string, ColumnarUnionDef>,
+        typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
+        structs := new ColumnarStructDef[](sourceTypeDefinitions.Count)
+        structIndex := 0
+        for pair in sourceTypeDefinitions {
+            structs[structIndex] = pair.Value
+            structIndex += 1
+        }
+        unions := new ColumnarUnionDef[](sourceUnionDefinitions.Count)
+        unionIndex := 0
+        for pair in sourceUnionDefinitions {
+            unions[unionIndex] = pair.Value
+            unionIndex += 1
+        }
+        return CreateTypeResolutionBindings(
+            enums, structs, unions, typeParameters)
+    }
+
     // Erased source types (notably string-backed enums) cannot be distinguished by CLR Type.
     // Exact-scope consumers can probe one semantic enum definition at a time without exposing
     // or reconstructing this binding set's live type-parameter handles.
@@ -118,6 +143,18 @@ class ColumnarFragmentBindings {
         }
         return CreateTypeResolutionBindings(
             enums,
+            new ColumnarStructDef[](0),
+            new ColumnarUnionDef[](0),
+            copiedTypeParameters)
+    }
+
+    func CreateEmptySourceTypeResolutionBindings(): ColumnarFragmentBindings {
+        copiedTypeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+        for pair in typeParameters {
+            copiedTypeParameters[pair.Key] = pair.Value
+        }
+        return CreateTypeResolutionBindings(
+            new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
             new ColumnarStructDef[](0),
             new ColumnarUnionDef[](0),
             copiedTypeParameters)
@@ -183,29 +220,25 @@ class ColumnarFragmentBindings {
     }
 
     // The binding scope selects one semantic source declaration before this live-handle bridge
-    // runs. Registry aliases may repeat that declaration, so identity deduplication is required;
-    // a declaration-name fallback is permitted only when the selected exact source name is not
-    // present in the mechanical builder registries.
+    // runs. Registry aliases may repeat that declaration, so identity deduplication is required.
+    // Only the selected exact declaration name may participate; short CLR/display-name bridges
+    // are not semantic identity.
     func TryResolveSelectedSourceType(exactName: string, declarationName: string, out selectedType: Type): bool {
         if exactName == null || exactName.Length == 0 || declarationName == null || declarationName.Length == 0
-            || Enums == null || SourceTypeDefinitions == null || SourceUnionDefinitions == null {
+            || Enums == null || SourceTypeDefinitions == null || SourceUnionDefinitions == null
+            || ExactSourceTypes == null {
             throw new InvalidOperationException("Selected source-type lookup facts cannot be null or empty.")
+        }
+
+        selectedType = typeof(object)
+        if ExactSourceTypes.TryGetValue(exactName, out selectedType) {
+            return true
         }
 
         identities := new List<object>()
         types := new List<Type>()
         CollectSelectedDeclaredTypeCandidates(exactName, identities, types)
-        if identities.Count == 0 {
-            CollectSelectedSourceTypeBridgeCandidates(exactName, true, identities, types)
-        }
-        if identities.Count == 0 {
-            CollectSelectedDeclaredTypeCandidates(declarationName, identities, types)
-        }
-        if identities.Count == 0 {
-            CollectSelectedSourceTypeBridgeCandidates(declarationName, false, identities, types)
-        }
 
-        selectedType = typeof(object)
         if identities.Count != 1 {
             return false
         }
@@ -247,53 +280,6 @@ class ColumnarFragmentBindings {
         }
     }
 
-    // Older mechanical registries expose only aliases and runtime builder names. Keep that bridge
-    // for transition compatibility, but consult it only after no semantic declared-name fact won.
-    func CollectSelectedSourceTypeBridgeCandidates(name: string, exact: bool, identities: List<object>, types: List<Type>) {
-        for pair in Enums {
-            definition := pair.Value
-            if definition == null {
-                throw new InvalidOperationException("Selected source enum facts cannot contain null definitions.")
-            }
-
-            matches := pair.Key == name
-            if exact {
-                matches = matches || TypeFullNameMatches(definition.EnumType, name)
-            } else {
-                matches = matches || TypeDeclarationNameMatches(definition.EnumType, name)
-            }
-            if matches {
-                AddDistinctSourceTypeCandidate(definition, definition.EnumType, identities, types)
-            }
-        }
-
-        for definition in SourceTypeDefinitions {
-            if definition == null {
-                throw new InvalidOperationException("Selected source type facts cannot contain null definitions.")
-            }
-
-            matches := exact
-                ? TypeFullNameMatches(definition.Builder, name)
-                : TypeDeclarationNameMatches(definition.Builder, name)
-            if matches {
-                AddDistinctSourceTypeCandidate(definition, definition.Builder, identities, types)
-            }
-        }
-
-        for definition in SourceUnionDefinitions {
-            if definition == null {
-                throw new InvalidOperationException("Selected source union facts cannot contain null definitions.")
-            }
-
-            matches := exact
-                ? TypeFullNameMatches(definition.Base, name)
-                : TypeDeclarationNameMatches(definition.Base, name)
-            if matches {
-                AddDistinctSourceTypeCandidate(definition, definition.Base, identities, types)
-            }
-        }
-    }
-
     static func AddDistinctSourceTypeCandidate(identity: object, candidateType: Type, identities: List<object>, types: List<Type>) {
         index := 0
         while index < identities.Count {
@@ -306,22 +292,6 @@ class ColumnarFragmentBindings {
 
         identities.Add(identity)
         types.Add(candidateType)
-    }
-
-    static func TypeFullNameMatches(candidate: Type, name: string): bool {
-        if candidate == null {
-            throw new InvalidOperationException("Selected source type handle cannot be null.")
-        }
-
-        return candidate.FullName == name
-    }
-
-    static func TypeDeclarationNameMatches(candidate: Type, name: string): bool {
-        if candidate == null {
-            throw new InvalidOperationException("Selected source type handle cannot be null.")
-        }
-
-        return candidate.Name == name || candidate.FullName == name
     }
 
     static func ValidateTypeParameter(name: string, parameterType: Type) {

@@ -143,6 +143,138 @@ class ColumnarConstructorDefaultParseProbe {
     }
 }
 
+class ColumnarStructDeclarationParseProbe {
+    FieldCount: int
+    TypeParamTexts: string[]
+    BaseNameTexts: string[]
+    StructNameTexts: string[]
+    Result: int[]
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        fieldNameTexts := new string[](capacity)
+        fieldTypeTexts := new string[](capacity)
+        fieldStaticFlags := new int[](capacity)
+        fieldInitKinds := new int[](capacity)
+        fieldInitTexts := new string[](capacity)
+        methodFuncIndices := new int[](capacity)
+        methodStaticFlags := new int[](capacity)
+        constructorIndices := new int[](capacity)
+        propertyIndices := new int[](capacity)
+        propertyStaticFlags := new int[](capacity)
+        TypeParamTexts = new string[](capacity)
+        BaseNameTexts = new string[](capacity)
+        StructNameTexts = new string[](1)
+        Result = new int[](10)
+        structIndex := 0
+        while structIndex < tokenCount
+            && tokenKinds[structIndex] != 8
+            && tokenKinds[structIndex] != 9
+            && tokenKinds[structIndex] != 13 {
+            structIndex = structIndex + 1
+        }
+        FieldCount = ParseColumnarStructInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            structIndex,
+            1,
+            0,
+            fieldNameTexts,
+            fieldTypeTexts,
+            fieldStaticFlags,
+            fieldInitKinds,
+            fieldInitTexts,
+            methodFuncIndices,
+            methodStaticFlags,
+            constructorIndices,
+            propertyIndices,
+            propertyStaticFlags,
+            TypeParamTexts,
+            BaseNameTexts,
+            StructNameTexts,
+            Result)
+    }
+}
+
+class ColumnarNestedStructDeclarationProbe {
+    ScanStatus: int
+    Count: int
+    StructIndices: int[]
+    ReferenceFlags: int[]
+    RecordFlags: int[]
+    VisibilityFlags: int[]
+    EnclosingTypeNames: string[]
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        StructIndices = new int[](capacity)
+        ReferenceFlags = new int[](capacity)
+        RecordFlags = new int[](capacity)
+        VisibilityFlags = new int[](capacity)
+        EnclosingTypeNames = new string[](capacity)
+        result := new int[](6)
+        ScanStatus = ColumnarProgramDeclarationIndicesInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenCounts[0],
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            StructIndices,
+            ReferenceFlags,
+            RecordFlags,
+            VisibilityFlags,
+            EnclosingTypeNames,
+            result)
+        Count = ScanStatus < 0 ? -1 : result[5]
+    }
+}
+
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
     probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression())
@@ -186,6 +318,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarExpressionNodeKind.BoolLiteralExpression() == 4
     assert ColumnarExpressionNodeKind.NullLiteralExpression() == 5
     assert ColumnarExpressionNodeKind.CallExpression() == 9
+    assert ColumnarExpressionNodeKind.BinaryExpression() == 12
 
     assert ColumnarPrimaryConstructorLiteralExpressionKind(1) == ColumnarExpressionNodeKind.IntLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(2) == ColumnarExpressionNodeKind.FloatLiteralExpression()
@@ -198,7 +331,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
 
 test "constructor parser preserves dotted enum member defaults" {
     probe := new ColumnarConstructorDefaultParseProbe(
-        "constructor(count: int, day: System.DayOfWeek = System.DayOfWeek.Friday) {}")
+        "constructor(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}")
 
     assert probe.ParamCount == 2
     assert probe.Result[2] == 2
@@ -210,6 +343,65 @@ test "constructor parser preserves dotted enum member defaults" {
     assert probe.ArgTexts[0] == ""
     assert probe.ArgKinds[1] == 1000
     assert probe.ArgTexts[1] == "System.DayOfWeek.Friday"
+}
+
+test "primary constructor parser canonicalizes dotted enum member defaults" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "class Schedule(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}")
+
+    assert probe.ParamCount == 2
+    assert probe.Result[2] == 2
+    assert probe.ParamNameTexts[0] == "count"
+    assert probe.ParamNameTexts[1] == "day"
+    assert probe.ParamTypeTexts[0] == "int"
+    assert probe.ParamTypeTexts[1] == "System.DayOfWeek"
+    assert probe.ArgKinds[0] == -1
+    assert probe.ArgTexts[0] == ""
+    assert probe.ArgKinds[1] == 1000
+    assert probe.ArgTexts[1] == "System.DayOfWeek.Friday"
+}
+
+test "struct parser preserves generic parameters alongside a constructed base" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Derived<X,Y>: Base<string,Y> {}")
+
+    assert probe.FieldCount == 0
+    assert probe.Result[7] == 2
+    assert probe.Result[8] == 1
+    assert probe.TypeParamTexts[0] == "X"
+    assert probe.TypeParamTexts[1] == "Y"
+    assert probe.BaseNameTexts[0] == "Base<string,Y>"
+    assert probe.StructNameTexts[0] == "Derived"
+}
+
+test "struct parser leaves namespace ownership with the file binding scope" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "namespace Scope\nclass Widget {}")
+
+    assert probe.FieldCount == 0
+    assert probe.StructNameTexts[0] == "Widget"
+}
+
+test "program declaration scanner appends nested lexical owner paths and declaration kinds" {
+    probe := new ColumnarNestedStructDeclarationProbe(
+        "class Outer { public class Sibling {} class Middle { record struct Value {} class Inner {} } func Run() { value := typeof(string) } }")
+
+    assert probe.ScanStatus >= 0
+    assert probe.Count == 5
+    assert probe.EnclosingTypeNames[1] == "Outer"
+    assert probe.EnclosingTypeNames[2] == "Outer"
+    assert probe.EnclosingTypeNames[3] == "Outer.Middle"
+    assert probe.EnclosingTypeNames[4] == "Outer.Middle"
+    assert probe.ReferenceFlags[1] == 1
+    assert probe.RecordFlags[1] == 0
+    assert probe.ReferenceFlags[2] == 1
+    assert probe.RecordFlags[2] == 0
+    assert probe.ReferenceFlags[3] == 0
+    assert probe.RecordFlags[3] == 1
+    assert probe.ReferenceFlags[4] == 1
+    assert probe.RecordFlags[4] == 0
+    assert probe.VisibilityFlags[1] == 1
+    assert probe.VisibilityFlags[2] == 0
 }
 
 test "columnar decimal literal spans preserve separators and value" {

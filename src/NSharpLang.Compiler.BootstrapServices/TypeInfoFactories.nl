@@ -5,6 +5,18 @@ import System.Collections
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+public class ReflectionTypeInfoFactory {
+    public static func FromConstructedGeneric(
+        name: string,
+        arguments: List<TypeInfo>,
+        constructedType: Type): GenericTypeInfo {
+        return new GenericTypeInfo(
+            name,
+            arguments,
+            new ReflectionTypeInfo(constructedType.GetGenericTypeDefinition()))
+    }
+}
+
 public class NominalTypeInfoFactory {
     public static func FromClassDeclaration(declaration: object): ClassTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
@@ -651,27 +663,28 @@ public class NominalTypeInfoFactory {
     static func CreateNestedTypeInfo(declaration: object): NestedTypeInfo {
         name := TypeInfoFactoryReflection.GetRequiredString(declaration, "Name")
         typeName := declaration.GetType().Name
+        isExported := IsExportedMember(declaration, name)
 
         if typeName == "ClassDeclaration" {
-            return new NestedTypeInfo(name, FromClassDeclaration(declaration))
+            return new NestedTypeInfo(name, FromClassDeclaration(declaration), isExported)
         }
         if typeName == "StructDeclaration" {
-            return new NestedTypeInfo(name, FromStructDeclaration(declaration))
+            return new NestedTypeInfo(name, FromStructDeclaration(declaration), isExported)
         }
         if typeName == "RecordDeclaration" {
-            return new NestedTypeInfo(name, FromRecordDeclaration(declaration))
+            return new NestedTypeInfo(name, FromRecordDeclaration(declaration), isExported)
         }
         if typeName == "SoaRecordDeclaration" {
-            return new NestedTypeInfo(name, SoaTypeInfoFactory.FromDeclaration(declaration))
+            return new NestedTypeInfo(name, SoaTypeInfoFactory.FromDeclaration(declaration), isExported)
         }
         if typeName == "InterfaceDeclaration" {
-            return new NestedTypeInfo(name, FromInterfaceDeclaration(declaration))
+            return new NestedTypeInfo(name, FromInterfaceDeclaration(declaration), isExported)
         }
         if typeName == "EnumDeclaration" {
-            return new NestedTypeInfo(name, EnumTypeInfoFactory.FromDeclaration(declaration))
+            return new NestedTypeInfo(name, EnumTypeInfoFactory.FromDeclaration(declaration), isExported)
         }
         if typeName == "UnionDeclaration" {
-            return new NestedTypeInfo(name, UnionTypeInfoFactory.FromDeclaration(declaration))
+            return new NestedTypeInfo(name, UnionTypeInfoFactory.FromDeclaration(declaration), isExported)
         }
         if typeName == "TypeAliasDeclaration" {
             aliasType := GetOptionalTypeReference(declaration, "Type")
@@ -679,7 +692,7 @@ public class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + declaration.GetType().Name + ".Type' to be a type reference.")
             }
 
-            return new NestedTypeInfo(name, new AliasTypeInfo(aliasType))
+            return new NestedTypeInfo(name, new AliasTypeInfo(aliasType), isExported)
         }
         if typeName == "NewtypeDeclaration" {
             underlyingType := GetOptionalTypeReference(declaration, "UnderlyingType")
@@ -687,7 +700,7 @@ public class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + declaration.GetType().Name + ".UnderlyingType' to be a type reference.")
             }
 
-            return new NestedTypeInfo(name, new NewtypeInfo(name, underlyingType))
+            return new NestedTypeInfo(name, new NewtypeInfo(name, underlyingType), isExported)
         }
 
         throw new InvalidOperationException("Expected '" + typeName + "' to be a nested type declaration.")

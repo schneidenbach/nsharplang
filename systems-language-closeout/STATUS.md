@@ -1,48 +1,59 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-11
+Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/005-construction-and-array-literals.md`
+- Current task: `tasks/006-primitive-binary-expressions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: move ordinary construction, sized arrays, and inferred array literals into N# plans
-- Last accepted ownership commit: `5ad756e1d` (`Own fixed-arity direct calls in N#`)
+- Active sub-slice: not yet selected (revalidate the 006 accept set against `ColumnarPrimitiveBinaryPlanner.nl`, which task 005 already landed as a value-position dependency)
+- Last accepted ownership commit: `Own construction and array literals in N#` (hash recorded at next update)
 - Queue: `tasks/README.md`
 
 ## Current evidence
 
-- Task 004 is accepted at `5ad756e1d` (stage-0 prerequisites `d6d551ea1`, `d24ec7bb4`,
-  `8ce4d49e2`, `fcbcf4ef6`, `0cd216a44`, `0e1d02ed1`, `507742abc`, `1e747dd97`,
-  `469408917`, `1b63b9a82`, and `0035d82ae`). N# now owns exact fixed-arity,
-  non-generic source and runtime static/instance calls: receiver and argument planning, overload and
-  signature selection, admitted conversions, `call` versus `callvirt`, result type, rollback, and
-  stack validation. Exact source-owner scope, import/type-alias subtree boundaries, addressable
-  value receivers, and synthesized record calls are covered by native and product contracts.
-- The C# emitter's synthesized-record `Equals`/`GetHashCode` preflight and emission branches and
-  direct `TextWriter.WriteLine(string)` arm are deleted. Retained call paths are fenced to excluded
-  generic, extension, params, ref/out, contextual-lambda, method-group, or whole-subtree forms.
-  `ColumnarIlEmitter.cs` fell from 21,164 to 21,097 lines.
-- Evidence: 3,181/3,182 units in the fresh gate (only Task 009), 382/382 BootstrapServices
-  contracts, 14/14 direct-call product contracts, 2/2 interface-parameter contracts, 18/18
-  ownership-audit contracts, 4/4 decline-diagnostic contracts, 2/2 reflection-bootstrap contracts,
-  and exact direct-call IL verification. The two gate-only scope regressions were fixed and their
-  exact unit tests pass 2/2.
-- The fresh non-VS-Code product gate has exactly ten remaining failure groups, all assigned to later
-  queue owners: issue-tracker/Web API external base resolution (009), record-with value lowering
-  (011), readonly initialization (012), synchronous iterators (013), async iterators (014), and
-  remaining method-access/IL decisions (015).
-- Clean repin: `nlc 0.1.0+5ad756e1dfa68d6849fd7cc689ff5e7f8865e10c`, doctor status `ok`;
-  installed, local-feed, and global-cache SDK hashes all equal
-  `878804310b6b8a6c4a7f5a819487a75a7e5cd4fb254009f48ad8b66313251d88`.
-  The cached BootstrapServices DLL hash is
-  `2a56c9f0d6cbb592ad34b6a47e4d71a443f3dea4c275462d45cd1a6fd184773a`.
+- Task 005 is accepted (commit hash recorded at next update; stage-0 prerequisites `67a3e5803`,
+  `37822d657`, `f9ed33dd9`, `aca8d35b3`, `91c062dd6`, `e63f27176`, and `ff2cf1138`). N# now owns
+  construction planning end-to-end for the admitted family: ordinary source/runtime constructor
+  calls with exact selection, defaults (including enum and dotted/aliased enum defaults), sized and
+  inferred array literals with exact store opcodes, source class/struct/record and union-case object
+  initializers (including nested values, generic-base member rebinding, and target-typed integers),
+  closed source/runtime generic construction, and the approved runtime constructor catalog, all
+  through schema-v3 plan rows executed and stack-validated by `ColumnarCodePlanExecutor`.
+- The Analyzer's string-matched member/export/declaration resolution was deleted and replaced by
+  the N#-owned `AnalyzerDeclarationContext`/`ColumnarSemanticTypeRegistry` exact-scope facts:
+  `Analyzer.cs` fell from 23,471 to 23,068 lines. `ColumnarSynthesizedGenericScopeTests.cs` was
+  deleted in favor of the native `generic-scope-invalid` project. Aggregate C# across the slice is
+  net negative (−157 lines).
+- The C# emitter retains exactly one fenced legacy surface for constructions: the whole-subtree
+  residual (kinds 15/58/36 plus four helpers), reachable only when the N# planner declines without
+  claiming (a value outside the plannable surface, e.g. interpolated holes or sibling-function call
+  arguments). This mirrors the accepted task-004 fenced-call architecture; `ColumnarIlEmitter.cs`
+  is 21,586 lines (epoch ceiling 21,723). The residual shrinks as later owners land (interpolation,
+  sibling calls: task 015).
+- Evidence: 3,182/3,182 units in the fresh gate (task 009's issue-tracker failure is FIXED by this
+  slice); 553/553 BootstrapServices contracts; native product contracts all green: 14/14
+  direct-calls, 18/18 ownership-audit, 7/7 construction-arrays (new), 3/3 generic-scope-invalid
+  (new), 1/1 erased-enum-identity (new). Previously red vs HEAD and now green: `examples/16-task-cli`
+  (union-case construction with interpolated argument), `examples/12-multi-file-projects/WeatherDemo`
+  (record object initializer with call/index values), AutoDiscovery, issue-tracker backend check,
+  and systems proof 36 (`new Dictionary<int,int>(capacity: 128)` named argument).
+- The fresh non-VS-Code product gate has exactly four remaining failure groups, all verified
+  byte-identical at HEAD `ff2cf1138` and assigned to later queue owners: Web API template build
+  (009), Iterators single-file example (013), AsyncStreams single-file example (014), and the IL
+  verification findings `RecordStructs.dll` CallVirtOnValueType/StackUnexpected (011) and
+  `RecordsAndInterfaces.dll` InitOnly on `<InitializeFields>$` (012). Down from ten groups at the
+  task-004 acceptance.
+- The ownership growth ratchet is repinned to observed state (audit 18/18); the emitter entry rises
+  only within its immutable epoch ceiling and records the restored fenced residual.
 
 ## Iterative-task targets
 
 These are populated only when their task becomes current.
 
-- Task 015 next emitter sub-slice: not selected
+- Task 015 next emitter sub-slice: not selected (queued residual from 005: interpolated-hole
+  string values and bare sibling-function call arguments inside constructions whole-subtree-exit to
+  the fenced legacy arms; owning those value forms in N# retires the construction residual)
 - Task 016 next parser sub-slice: not selected
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
@@ -106,6 +117,29 @@ Completed slices:
   - Evidence: 3,181/3,182 fresh-gate units with only Task 009 remaining; 382 BootstrapServices
     contracts; 14 direct-call, 2 interface-parameter, 18 ownership, 4 decline-diagnostic, and 2
     reflection-bootstrap contracts; exact ILVerify; three adversarial audits; clean SDK repin.
+
+- Task 005 — construction and array literals; commit hash recorded at next update (stage-0
+  prerequisites `67a3e5803`, `37822d657`, `f9ed33dd9`, `aca8d35b3`, `91c062dd6`, `e63f27176`,
+  and `ff2cf1138`).
+  - Deleted C# owners: the Analyzer's string-matched member/export/declaration resolution
+    (nested-type, tuple, primary-constructor-parameter, declared-member and export-visibility
+    string lookups; `Analyzer.cs` fell from 23,471 to 23,068 lines), the emitter's unconditional
+    construction ownership (constructions claimed by the N# planner never reach C#; the retained
+    kinds 15/58/36 arms are fenced to the whole-subtree residual), and
+    `ColumnarSynthesizedGenericScopeTests.cs` (replaced by the native `generic-scope-invalid`
+    project). Aggregate C# net −157 lines.
+  - Added N# owners: `ColumnarConstructionPlanner` (source/runtime/closed-generic constructor
+    selection with defaults, sized/inferred arrays, source and union-case object initializers,
+    runtime catalog), construction-row execution in `ColumnarCodePlanExecutor`,
+    `ColumnarSemanticTypeRegistry` + `AnalyzerDeclarationContext` exact declaration scopes,
+    `ColumnarPrimitiveBinaryPlanner` (admitted value-position binaries),
+    `ColumnarSourceOperatorResolver`, and `TypeInfoIdentityFacts`, with native construction-arrays,
+    generic-scope-invalid, and erased-enum-identity product contracts.
+  - Evidence: 3,182/3,182 fresh-gate units (issue-tracker fixed); 553 BootstrapServices contracts;
+    14 direct-call, 18 ownership, 7 construction-arrays, 3 generic-scope-invalid, and 1
+    erased-enum-identity contracts; fresh non-VS-Code product gate down to four failure groups all
+    verified pre-existing at HEAD and owned by 009/011/012/013/014; ratchet repin (audit 18/18);
+    clean SDK repin.
 
 After each accepted slice, record only:
 
