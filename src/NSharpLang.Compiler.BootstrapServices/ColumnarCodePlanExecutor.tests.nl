@@ -3308,10 +3308,9 @@ test "schema v3 executor executes shift primitive binary opcodes end to end" {
     ExecutorAssertBinaryExecutes(
         ColumnarCodePlanContract.Shl(), typeof(int), typeof(int), typeof(int),
         21, 1, "42")
-    negativeLeft := -84
     ExecutorAssertBinaryExecutes(
         ColumnarCodePlanContract.Shr(), typeof(int), typeof(int), typeof(int),
-        negativeLeft, 1, "-42")
+        -84, 1, "-42")
     ExecutorAssertBinaryExecutes(
         ColumnarCodePlanContract.ShrUn(), typeof(uint), typeof(int), typeof(uint),
         (uint)84, 1, "42")

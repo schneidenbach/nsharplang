@@ -200,3 +200,18 @@ test "List element field reads execute as binary equality operands" {
     assert IndexItemIdMatches(items, 2, 30)
     assert !IndexItemIdMatches(items, 1, 99)
 }
+
+// Regression guard for the unary-minus boxing miscompile (2026-07-18): a `-84`-style literal
+// passed directly in an object-typed argument position produced invalid IL in the CALLING
+// method until the task-006 operand arcs landed. Cover every argument position that the
+// original executor-shape call exercised, plus the hoisted-local control.
+func BoxedProbe(_before: int, _value: object, _after: int): int {
+    return 9
+}
+
+test "unary-minus literals box directly into object argument positions" {
+    negative := -84
+    assert BoxedProbe(1, -84, 2) == 9
+    assert BoxedProbe(-84, -84, -84) == 9
+    assert BoxedProbe(1, negative, 2) == 9
+}
