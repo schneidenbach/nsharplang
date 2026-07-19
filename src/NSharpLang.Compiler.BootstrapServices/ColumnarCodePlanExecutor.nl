@@ -414,6 +414,24 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ceq)
         } else if opCodeValue == ColumnarCodePlanContract.LdindRef() {
             il.Emit(OpCodes.Ldind_Ref)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindI1() {
+            il.Emit(OpCodes.Ldind_I1)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindU1() {
+            il.Emit(OpCodes.Ldind_U1)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindI2() {
+            il.Emit(OpCodes.Ldind_I2)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindU2() {
+            il.Emit(OpCodes.Ldind_U2)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindI4() {
+            il.Emit(OpCodes.Ldind_I4)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindU4() {
+            il.Emit(OpCodes.Ldind_U4)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindI8() {
+            il.Emit(OpCodes.Ldind_I8)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindR4() {
+            il.Emit(OpCodes.Ldind_R4)
+        } else if opCodeValue == ColumnarCodePlanContract.LdindR8() {
+            il.Emit(OpCodes.Ldind_R8)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             il.Emit(OpCodes.Conv_I4)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI8() {

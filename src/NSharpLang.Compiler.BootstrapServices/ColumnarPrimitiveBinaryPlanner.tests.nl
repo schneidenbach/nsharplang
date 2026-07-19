@@ -1414,6 +1414,58 @@ test "primitive binary planner adopts an unsuffixed int literal into an exact ui
         longShiftPlan, typeof(long), typeof(long), tenLong) == "40"
 }
 
+test "primitive binary planner derefs byref parameters inside binaries" {
+    // The exact case-12 blocker shape from the interface-parameter-modifiers product surface:
+    // `value + 10` with `ref value: int` plans ldarg(address) + ldind.i4 for the read, then the
+    // literal and add — executed through a real byref slot.
+    byRefIntBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        byRefIntBindings, "value", 0, typeof(int).MakeByRefType())
+    byRefIntPlan := PrimitiveBinaryPlan("value + 10", byRefIntBindings)
+    assert byRefIntPlan.ResultType == typeof(int)
+    assert PrimitiveBinaryOpcodeCount(
+        byRefIntPlan, ColumnarCodePlanContract.LdindI4()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        byRefIntPlan, ColumnarCodePlanContract.Add()) == 1
+    assert byRefIntPlan.ArgumentCount == 1
+    assert byRefIntPlan.ArgumentIsAddress[0]
+    assert PrimitiveBinaryExecuteOneParameter(
+        byRefIntPlan, typeof(int), typeof(int).MakeByRefType(), 32) == "42"
+
+    // A byref long left operand derefs via ldind.i8 and the right literal adopts long.
+    byRefLongBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        byRefLongBindings, "value", 0, typeof(long).MakeByRefType())
+    byRefLongPlan := PrimitiveBinaryPlan("value * 3", byRefLongBindings)
+    assert byRefLongPlan.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        byRefLongPlan, ColumnarCodePlanContract.LdindI8()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        byRefLongPlan, ColumnarCodePlanContract.LdcI8()) == 1
+    fourteenLong := 14L
+    assert PrimitiveBinaryExecuteOneParameter(
+        byRefLongPlan, typeof(long), typeof(long).MakeByRefType(),
+        fourteenLong) == "42"
+
+    // A byref double ordering operand derefs via ldind.r8.
+    byRefDoubleBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        byRefDoubleBindings, "value", 0, typeof(double).MakeByRefType())
+    byRefDoublePlan := PrimitiveBinaryPlan("value < 4.5", byRefDoubleBindings)
+    assert byRefDoublePlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        byRefDoublePlan, ColumnarCodePlanContract.LdindR8()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        byRefDoublePlan, typeof(bool), typeof(double).MakeByRefType(), 4.0)
+        == "True"
+
+    // A byref element outside the ldind table (decimal) keeps the binary a whole-subtree exit.
+    byRefDecimalBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        byRefDecimalBindings, "value", 0, typeof(decimal).MakeByRefType())
+    PrimitiveBinaryDeclines("value + 1m", byRefDecimalBindings)
+}
+
 test "primitive binary planner declines non-adopting literal mixes atomically" {
     uintBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(uintBindings, "left", 0, typeof(uint))

@@ -10,6 +10,7 @@ enum ColumnarBoundIdentifierKind {
     LiftedLocal,
     Local,
     Parameter,
+    ByRefParameter,
     CurrentField,
     CurrentProperty
 }
@@ -83,7 +84,16 @@ class ColumnarBoundIdentifierPlanner {
 
         if hasOrdinal {
             parameterType := bindings.ParameterTypes[name]
-            return parameterType == null || !parameterType.get_IsByRef()
+            if parameterType == null || !parameterType.get_IsByRef() {
+                return true
+            }
+            // A byref parameter claims exactly when its element rides the typed-ldind deref
+            // table; every other element (structs, enums, nullables, generic parameters) stays
+            // with the legacy Ldobj deref owner as a whole-subtree exit.
+            elementType := parameterType.GetElementType()
+            indirectOpcode := ColumnarCodePlanContract.NoOpCode()
+            return elementType != null
+                && TryGetByRefElementOpcode(elementType, out indirectOpcode)
         }
 
         selection := EmptySelection()
@@ -180,6 +190,20 @@ class ColumnarBoundIdentifierPlanner {
             argumentIndex := GetOrAddArgument(plan, selection.Ordinal, selection.ResultType, false)
 
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+        } else if selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter {
+            // A ref/out parameter READ: ldarg pushes the argument slot's managed address-of-T and
+            // one typed ldind row loads the element — the legacy case-6 deref arm's
+            // EmitLoadArgument + EmitLoadByRefElement, with ldind.<t> as ECMA-335's exact primitive
+            // shorthand for its ldobj and ldind.ref serving reference elements.
+            argumentIndex := GetOrAddArgument(plan, selection.Ordinal, selection.ResultType, true)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            indirectOpcode := ColumnarCodePlanContract.NoOpCode()
+            if !TryGetByRefElementOpcode(selection.ResultType, out indirectOpcode) {
+                throw new InvalidOperationException(
+                    "A by-reference parameter selection has no typed indirect-load opcode.")
+            }
+            plan.AppendInstructionWithoutOperand(indirectOpcode)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CurrentField {
             currentInstanceType := RequiredType(selection.CurrentInstanceType, "Current-field selection has no current-instance type.")
 
@@ -227,7 +251,8 @@ class ColumnarBoundIdentifierPlanner {
 
     // Member planning needs the semantic receiver type before it chooses a field/getter and,
     // for source value types, must preserve the original local/argument storage address. Ref/out
-    // parameters remain excluded from ordinary value reads but are valid reference- or value-type receivers.
+    // parameters with typed-ldind elements resolve directly (value reads deref through the table);
+    // byref elements outside the table remain receiver-only via the fallback below.
     static func TryGetReceiverType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type, out directStorage: bool, out byRefParameter: bool): bool {
         resultType = typeof(int)
         directStorage = false
@@ -240,8 +265,9 @@ class ColumnarBoundIdentifierPlanner {
         selection := EmptySelection()
         if TryResolve(nodes, source, candidate, bindings, out selection) {
             resultType = selection.ResultType
-            directStorage = selection.Kind == ColumnarBoundIdentifierKind.Local || selection.Kind == ColumnarBoundIdentifierKind.Parameter || selection.Kind == ColumnarBoundIdentifierKind.CurrentField
+            directStorage = selection.Kind == ColumnarBoundIdentifierKind.Local || selection.Kind == ColumnarBoundIdentifierKind.Parameter || selection.Kind == ColumnarBoundIdentifierKind.CurrentField || selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter
 
+            byRefParameter = selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter
             return true
         }
 
@@ -462,9 +488,24 @@ class ColumnarBoundIdentifierPlanner {
                 throw new InvalidOperationException("Ordinary-parameter facts must identify a valid type and ordinal.")
             }
 
-            // ref/out reads retain their legacy branch until an address-aware plan schema owns them.
+            // A ref/out parameter READ resolves as an address deref over the typed-ldind table:
+            // the selection carries the ELEMENT type as its result and the argument slot stays an
+            // address-of-T fact. Elements outside the table (structs, enums, nullables, generic
+            // parameters) decline so the legacy Ldobj deref arm serves them whole-subtree.
             if parameterType.get_IsByRef() {
-                return false
+                elementType := parameterType.GetElementType()
+                if elementType == null {
+                    throw new InvalidOperationException("A by-reference parameter has no element type.")
+                }
+
+                indirectOpcode := ColumnarCodePlanContract.NoOpCode()
+                if !TryGetByRefElementOpcode(elementType, out indirectOpcode) {
+                    return false
+                }
+
+                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.ByRefParameter, elementType, ordinal, null, null, null, null, null, null, false)
+
+                return true
             }
 
             RequireStorableValueType(parameterType, "Ordinary-parameter facts must identify a storable value type.")
@@ -573,6 +614,46 @@ class ColumnarBoundIdentifierPlanner {
         if valueType == null || valueType.FullName == "System.Void" || valueType.get_IsByRef() || valueType.get_IsGenericTypeDefinition() {
             throw new InvalidOperationException(message)
         }
+    }
+
+    // The typed byref-dereference selection the legacy EmitLoadByRefElement lowering implies:
+    // ldind.<t> is ECMA-335's exact shorthand for ldobj over each primitive slot (ldind.i8 serves
+    // both Int64 and UInt64 — there is no ldind.u8 encoding), and ldind.ref serves storable
+    // reference elements. Every element outside this table — structs, enums, nullables, decimal,
+    // generic parameters — is unsupported here and remains with the legacy Ldobj deref owner.
+    static func TryGetByRefElementOpcode(elementType: Type, out opcodeValue: short): bool {
+        opcodeValue = ColumnarCodePlanContract.NoOpCode()
+        if elementType == null {
+            return false
+        }
+        if elementType == typeof(sbyte) {
+            opcodeValue = ColumnarCodePlanContract.LdindI1()
+        } else if elementType == typeof(byte) || elementType == typeof(bool) {
+            opcodeValue = ColumnarCodePlanContract.LdindU1()
+        } else if elementType == typeof(short) {
+            opcodeValue = ColumnarCodePlanContract.LdindI2()
+        } else if elementType == typeof(char) || elementType == typeof(ushort) {
+            opcodeValue = ColumnarCodePlanContract.LdindU2()
+        } else if elementType == typeof(int) {
+            opcodeValue = ColumnarCodePlanContract.LdindI4()
+        } else if elementType == typeof(uint) {
+            opcodeValue = ColumnarCodePlanContract.LdindU4()
+        } else if elementType == typeof(long) || elementType == typeof(ulong) {
+            opcodeValue = ColumnarCodePlanContract.LdindI8()
+        } else if elementType == typeof(float) {
+            opcodeValue = ColumnarCodePlanContract.LdindR4()
+        } else if elementType == typeof(double) {
+            opcodeValue = ColumnarCodePlanContract.LdindR8()
+        } else if !elementType.get_IsValueType()
+            && !elementType.get_IsGenericParameter()
+            && !elementType.get_IsByRef()
+            && !elementType.get_IsGenericTypeDefinition()
+            && elementType.FullName != "System.Void" {
+            opcodeValue = ColumnarCodePlanContract.LdindRef()
+        } else {
+            return false
+        }
+        return true
     }
 
     static func GetOrAddArgument(plan: ColumnarCodePlan, ordinal: int, valueType: Type, isAddress: bool): int {

@@ -391,10 +391,18 @@ test "bound identifier facade reports exact ownership and preserves byref fallba
     assert resultType == typeof(int)
     ColumnarCodePlanExecutor.Validate(plan)
 
+    // A byref parameter whose element rides the typed-ldind table CLAIMS the root (the deref is
+    // planner-owned); a byref element outside the table (decimal has no ldind form) does not
+    // claim, preserving the legacy Ldobj deref fallback for that family.
     byrefBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(byrefBindings, "value", 2, BoundByRefType())
 
-    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, byrefBindings)
+    assert ColumnarBoundIdentifierPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, byrefBindings)
+
+    structByRefBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(structByRefBindings, "value", 2, typeof(decimal).MakeByRefType())
+
+    assert !ColumnarBoundIdentifierPlanner.ClaimsRoot(tree.Nodes, tree.Source, tree.Root, structByRefBindings)
 
     explicitTree := BoundExplicitThisTree("missing")
     assert ColumnarBoundIdentifierPlanner.ClaimsRoot(explicitTree.Nodes, explicitTree.Source, explicitTree.Root, ColumnarRangePlannerEmptyBindings())
@@ -722,6 +730,78 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
     boxedArgs := new object[](1)
     ExecutorSetObject(boxedArgs, 0, BoundCreateBoxOwner(44))
     assert BoundInvokeText(boxedMethod, boxedArgs) == "44"
+}
+
+func BoundByRefDerefText(
+    elementType: Type,
+    expectedOpcode: short,
+    argumentValue: object): string {
+    tree := BoundIdentifierTree("value")
+    byRefType := elementType.MakeByRefType()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
+    plan := BoundPlan(tree, bindings)
+    if plan.ResultType != elementType
+        || plan.OperationCount != 2
+        || plan.ArgumentCount != 1
+        || !plan.ArgumentIsAddress[0]
+        || plan.Types[plan.ArgumentTypeIndices[0]] != elementType
+        || plan.OpCodeValues[0] != ColumnarCodePlanContract.Ldarg()
+        || plan.OpCodeValues[1] != expectedOpcode {
+        throw new InvalidOperationException(
+            "A byref deref plan does not carry the exact ldarg + typed ldind shape.")
+    }
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefType
+    method := BoundDynamicMethod("BoundByRefDeref", elementType, parameterTypes)
+    il := method.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, argumentValue)
+    return BoundInvokeText(method, arguments)
+}
+
+test "bound identifier planner derefs typed byref parameters with executed ldind rows" {
+    // Each supported byref element plans exactly ldarg (address-of-T argument fact) + its typed
+    // ldind row, and executes through a real byref DynamicMethod slot to the element value —
+    // the legacy case-6 EmitLoadArgument + EmitLoadByRefElement deref, planner-owned.
+    assert BoundByRefDerefText(
+        typeof(int), ColumnarCodePlanContract.LdindI4(), 32) == "32"
+    fiveBillion := 5000000000L
+    assert BoundByRefDerefText(
+        typeof(long), ColumnarCodePlanContract.LdindI8(), fiveBillion)
+        == fiveBillion.ToString()
+    assert BoundByRefDerefText(
+        typeof(double), ColumnarCodePlanContract.LdindR8(), 2.5)
+        == (2.5).ToString()
+    assert BoundByRefDerefText(
+        typeof(uint), ColumnarCodePlanContract.LdindU4(), (uint)42) == "42"
+    negativeSevenInt := -7
+    negativeSeven := (short)negativeSevenInt
+    assert BoundByRefDerefText(
+        typeof(short), ColumnarCodePlanContract.LdindI2(), negativeSeven) == "-7"
+    assert BoundByRefDerefText(
+        typeof(string), ColumnarCodePlanContract.LdindRef(), "deref") == "deref"
+}
+
+test "bound identifier planner declines byref elements outside the ldind table atomically" {
+    tree := BoundIdentifierTree("value")
+
+    // decimal has no ldind form; the legacy Ldobj deref owner keeps serving it whole-subtree.
+    decimalBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(decimalBindings, "value", 0, typeof(decimal).MakeByRefType())
+    decimalPlan := new ColumnarCodePlan()
+    assert ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, decimalBindings, decimalPlan) == ColumnarFragmentPlanStatus.NotOwned
+    ColumnarRangePlannerAssertEmptyRollback(decimalPlan)
+
+    // An enum element is a value type outside the table: same decline (the C# arm's Ldobj shape).
+    enumBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(enumBindings, "value", 0, typeof(ColumnarRangePlannerProbeEnum).MakeByRefType())
+    enumPlan := new ColumnarCodePlan()
+    assert ColumnarBoundIdentifierPlanner.Plan(tree.Nodes, tree.Source, tree.Root, enumBindings, enumPlan) == ColumnarFragmentPlanStatus.NotOwned
+    ColumnarRangePlannerAssertEmptyRollback(enumPlan)
 }
 
 test "bound identifier plans execute current class fields and properties" {

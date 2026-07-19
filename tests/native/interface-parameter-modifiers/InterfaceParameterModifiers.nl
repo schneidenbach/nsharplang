@@ -4,6 +4,7 @@ interface IModifierService {
     func Count(params values: int[]): int
     func Increment(ref value: int)
     func Read(out value: int)
+    func Describe(ref value: int): int
 }
 
 class ModifierService: IModifierService {
@@ -18,6 +19,13 @@ class ModifierService: IModifierService {
     func Read(out value: int) {
         value = 23
     }
+
+    // Byref reads inside binaries, in BOTH operand orders: `value * 2` derefs the ref parameter
+    // as the left operand and `100 - value` as the right operand, all planner-owned typed-ldind
+    // derefs over the ldarg address.
+    func Describe(ref value: int): int {
+        return value * 2 + (100 - value)
+    }
 }
 
 func CountThroughInterface(service: IModifierService): int {
@@ -31,4 +39,9 @@ func MutateThroughInterface(service: IModifierService): int {
     service.Increment(ref changed)
     service.Read(out observed)
     return changed * 100 + observed
+}
+
+func ReadThroughInterface(service: IModifierService): int {
+    amount := 16
+    return service.Describe(ref amount)
 }
