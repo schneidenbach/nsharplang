@@ -17,7 +17,11 @@ Last updated: 2026-07-18
   (`u / 2`, `l != 0` — unsuffixed literal adopting uint/long/ulong left) into the planner;
   (e) byref-parameter deref operands — needs an ldind.i4-family schema+allowlist+repin stage-0;
   (f) enum→int slot-reinterpretation casts (schema forbids empty fragments — needs a ruling);
-  (g) contextual-lambda call operands (explicit later ownership tier). Sibling calls landed
+  (g) contextual-lambda call operands (explicit later ownership tier; task 010 owns lambda
+  placement — the 006 deletion either waits for it or the deletion recuts to keep a minimal fenced
+  numeric core for lambda-carrying subtrees). Families (a) delegate-invoke, (b) String.Join
+  catalog, and (c) List<T> indexer chains landed at `5523402c5` (lowercase `string.Join` spellings
+  deliberately stay legacy — unresolvable external owner). Sibling calls landed
   `62ab5ffdf`; casts+decimal literals `83941f204`; ushort-literal casts + negative decimal
   literals `096655625`. Prior framing —
   cast expressions (kind 16 numeric casts), decimal literals, and bare sibling-function call
