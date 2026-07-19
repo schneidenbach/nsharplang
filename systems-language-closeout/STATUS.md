@@ -7,7 +7,19 @@ Last updated: 2026-07-18
 - Current task: `tasks/006-primitive-binary-expressions.md`
 - Current iteration: one terminal slice (stage 0 `3dcb60bd2` opcode identities; ownership routing
   landed next — see Current evidence)
-- Active sub-slice: own bare sibling-function CALL operands (the last deletion blocker; casts and decimal literals landed at `83941f204`), then delete the case-12 numeric arms. Prior framing —
+- Active sub-slice: the case-12 numeric-arm deletion was RE-APPLIED and battery-verified at
+  `096655625`-era tree: it deletes cleanly (~-145 lines emit+preflight) but SIX further operand
+  families still route through it, so it was reverted and stays fenced. Verified deletion
+  sequencing (each its own sub-slice, in rough order of leverage): (a) local-delegate invocation
+  operands (`zero() == 42` — ldloc + callvirt Invoke, plannable now); (b) `String.Join(string,
+  List<string>)` external-call catalog entry (serves task-cli); (c) List<T> indexer chains in
+  `TryPlanIndexAccess` (serves issue-tracker); (d) port the right-literal ADOPTION path
+  (`u / 2`, `l != 0` — unsuffixed literal adopting uint/long/ulong left) into the planner;
+  (e) byref-parameter deref operands — needs an ldind.i4-family schema+allowlist+repin stage-0;
+  (f) enum→int slot-reinterpretation casts (schema forbids empty fragments — needs a ruling);
+  (g) contextual-lambda call operands (explicit later ownership tier). Sibling calls landed
+  `62ab5ffdf`; casts+decimal literals `83941f204`; ushort-literal casts + negative decimal
+  literals `096655625`. Prior framing —
   cast expressions (kind 16 numeric casts), decimal literals, and bare sibling-function call
   operands. The verified blocker: with the case-12 numeric arms deleted, `x == (uint)42`,
   `d == 24.5m`, and `Foo() == 42` decline because those operands are not yet plannable, so the
