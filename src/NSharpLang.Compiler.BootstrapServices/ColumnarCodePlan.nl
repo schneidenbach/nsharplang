@@ -76,6 +76,10 @@ public class ColumnarCodePlanContract {
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
+    // brtrue (0x3A) is the conditional-branch complement of brfalse (0x39): it pops one Boolean/I4
+    // condition and branches when it is non-zero. The short-circuit `||` owner branches to its merge
+    // label on a true left operand exactly as the C# emitter's case-12 arm does.
+    public static func Brtrue(): short { return 58 }
     // Typed byref-dereference opcodes carry their single-byte CIL encodings (ECMA-335 III.3.42):
     // ldind.i1=0x46 through ldind.r8=0x4F, with ldind.i (0x4D, native int) deliberately omitted —
     // the byref-parameter deref family never derefs a native-int slot. ldind.ref (0x50) already
@@ -1060,7 +1064,8 @@ public class ColumnarCodePlan {
     public func AppendLabelInstruction(opCodeValue: short, labelIndex: int) {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Br()
-                && opCodeValue != ColumnarCodePlanContract.Brfalse())
+                && opCodeValue != ColumnarCodePlanContract.Brfalse()
+                && opCodeValue != ColumnarCodePlanContract.Brtrue())
             || labelIndex < 0
             || labelIndex >= LabelCount {
             throw new InvalidOperationException("The opcode does not use this label entry.")
@@ -1879,7 +1884,8 @@ public class ColumnarCodePlan {
                 && operandIndex < FieldCount
         }
         if opCodeValue == ColumnarCodePlanContract.Br()
-            || opCodeValue == ColumnarCodePlanContract.Brfalse() {
+            || opCodeValue == ColumnarCodePlanContract.Brfalse()
+            || opCodeValue == ColumnarCodePlanContract.Brtrue() {
             return operandKind == ColumnarCodePlanContract.LabelOperand()
                 && operandIndex >= 0
                 && operandIndex < LabelCount

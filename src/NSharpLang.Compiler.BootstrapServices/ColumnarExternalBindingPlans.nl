@@ -1104,6 +1104,7 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ldind_Ref"
             || memberName == "Br"
             || memberName == "Brfalse"
+            || memberName == "Brtrue"
             || memberName == "Call"
             || memberName == "Callvirt"
             || memberName == "Newobj"

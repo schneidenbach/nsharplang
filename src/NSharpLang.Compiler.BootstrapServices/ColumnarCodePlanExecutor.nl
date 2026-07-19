@@ -313,6 +313,8 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.LabelOperand() {
             if opCodeValue == ColumnarCodePlanContract.Br() {
                 il.Emit(OpCodes.Br, labels[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Brtrue() {
+                il.Emit(OpCodes.Brtrue, labels[operandIndex])
             } else {
                 il.Emit(OpCodes.Brfalse, labels[operandIndex])
             }
@@ -1090,7 +1092,8 @@ public class ColumnarCodePlanExecutor {
             if opCodeValue == ColumnarCodePlanContract.Br() {
                 labelIndex := plan.OperandIndices[i]
                 MergeState(states, labelMarkIndices[labelIndex], output, schemaName)
-            } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
+            } else if opCodeValue == ColumnarCodePlanContract.Brfalse()
+                || opCodeValue == ColumnarCodePlanContract.Brtrue() {
                 labelIndex := plan.OperandIndices[i]
                 MergeState(
                     states,
@@ -1681,6 +1684,18 @@ public class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(
                     schemaName
                         + " brfalse requires an exact Boolean condition or literal I4.")
+            }
+        } else if opCodeValue == ColumnarCodePlanContract.Brtrue() {
+            value := state.Pop()
+            if value.IsAddress
+                || !IsBooleanCondition(
+                    value.ValueType,
+                    value.ValueKind,
+                    value.LiteralKnown,
+                    value.LiteralValue) {
+                throw new InvalidOperationException(
+                    schemaName
+                        + " brtrue requires an exact Boolean condition or literal I4.")
             }
         } else if opCodeValue == ColumnarCodePlanContract.Add() {
             right := state.Pop()

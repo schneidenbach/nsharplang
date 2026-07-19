@@ -241,6 +241,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.Call() == 40
     assert ColumnarCodePlanContract.Br() == 56
     assert ColumnarCodePlanContract.Brfalse() == 57
+    assert ColumnarCodePlanContract.Brtrue() == 58
     assert ColumnarCodePlanContract.ConvI4() == 105
     assert ColumnarCodePlanContract.Callvirt() == 111
     assert ColumnarCodePlanContract.Newobj() == 115

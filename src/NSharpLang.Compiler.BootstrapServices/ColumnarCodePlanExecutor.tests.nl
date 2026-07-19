@@ -3357,3 +3357,25 @@ test "schema v3 executor executes comparison primitive binary opcodes end to end
         ColumnarCodePlanContract.CltUn(), typeof(ulong), typeof(ulong), typeof(bool),
         (ulong)6, (ulong)7, "True")
 }
+
+test "schema v3 executor rejects a brtrue over a non-Boolean condition before emission" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 2201, 0)
+    shortLabel := plan.DefineLabel()
+    endLabel := plan.DefineLabel()
+    longValue := plan.AddInt64((long)5)
+    // A brtrue that pops a 64-bit integer, not a Boolean/I4 condition.
+    plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), longValue)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), shortLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+    plan.AppendMarkLabel(shortLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendMarkLabel(endLabel)
+    plan.CompleteFragment(root, typeof(bool))
+    plan.CompleteV3(typeof(bool))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}

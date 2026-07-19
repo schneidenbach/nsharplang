@@ -51,6 +51,10 @@ class ColumnarRangeIndexPlanner {
             handles := ColumnarRangeIndexHandles.Resolve()
             return ColumnarPrimitiveBinaryPlanner.TryEmitRoot(nodes, source, node, bindings, handles, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
+        if ColumnarConditionalPlanner.MayPlanRoot(nodes, source, node) {
+            handles := ColumnarRangeIndexHandles.Resolve()
+            return ColumnarConditionalPlanner.TryEmitRoot(nodes, source, node, bindings, handles, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        }
 
         if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
             nsharpOwned = true
@@ -122,6 +126,10 @@ class ColumnarRangeIndexPlanner {
         if ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node) {
             handles := ColumnarRangeIndexHandles.Resolve()
             return ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(nodes, source, node, bindings, handles, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+        }
+        if ColumnarConditionalPlanner.MayPlanRoot(nodes, source, node) {
+            handles := ColumnarRangeIndexHandles.Resolve()
+            return ColumnarConditionalPlanner.TryGetTypeRoot(nodes, source, node, bindings, handles, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
 
         if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
@@ -224,6 +232,10 @@ class ColumnarRangeIndexPlanner {
         node = UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
+        }
+
+        if ColumnarConditionalPlanner.MayPlanRoot(nodes, source, node) {
+            return true
         }
 
         kind := nodes.Kind(node)
@@ -453,13 +465,23 @@ class ColumnarRangeIndexPlanner {
             if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
-        } else if allowPrimitiveBinary
-            && kind == ColumnarExpressionNodeKind.BinaryExpression() {
-            planned = ColumnarPrimitiveBinaryPlanner.TryAppend(
-                nodes, source, node, bindings, handles, plan,
-                fragment, depth,
-                out resultType,
-                out nestedOwnership)
+        } else if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+            // Short-circuit `&&`/`||` is a Boolean control-flow form owned by the conditional
+            // planner in every value position; the remaining primitive binaries stay gated to the
+            // construction-argument surface that admits them.
+            if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) {
+                planned = ColumnarConditionalPlanner.TryPlanShortCircuit(
+                    nodes, source, node, bindings, handles, plan,
+                    fragment, depth,
+                    out resultType,
+                    out nestedOwnership)
+            } else if allowPrimitiveBinary {
+                planned = ColumnarPrimitiveBinaryPlanner.TryAppend(
+                    nodes, source, node, bindings, handles, plan,
+                    fragment, depth,
+                    out resultType,
+                    out nestedOwnership)
+            }
         } else if kind == ColumnarExpressionNodeKind.NewExpression()
             || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression()
             || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
@@ -486,7 +508,7 @@ class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.RangeExpression() {
             planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.TernaryExpression() {
-            planned = TryPlanTernary(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+            planned = ColumnarConditionalPlanner.TryPlanTernary(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0, out resultType, out nestedOwnership)
         }
@@ -839,40 +861,6 @@ class ColumnarRangeIndexPlanner {
 
         constructorIndex := plan.AddConstructor(handles.IndexConstructor)
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
-    }
-
-    static func TryPlanTernary(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
-        resultType = typeof(int)
-        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
-        if nodes.ChildCount(node) != 3 {
-            return false
-        }
-
-        conditionType := typeof(bool)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out conditionType, out nestedOwnership) || conditionType != typeof(bool) {
-            return false
-        }
-
-        falseLabel := plan.DefineLabel()
-        endLabel := plan.DefineLabel()
-        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), falseLabel)
-
-        whenTrueType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, out whenTrueType, out nestedOwnership) {
-            return false
-        }
-
-        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
-        plan.AppendMarkLabel(falseLabel)
-
-        whenFalseType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 2), bindings, handles, plan, fragment, depth + 1, out whenFalseType, out nestedOwnership) || whenTrueType != whenFalseType {
-            return false
-        }
-
-        plan.AppendMarkLabel(endLabel)
-        resultType = whenTrueType
-        return true
     }
 
     static func TryPlanIndexAccess(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowOrdinaryIntIndex: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
