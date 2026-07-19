@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Compiler
 
@@ -119,7 +120,8 @@ public class ColumnarUnaryLiteralPlanner {
                     && (operandType == typeof(int)
                         || operandType == typeof(long)
                         || operandType == typeof(float)
-                        || operandType == typeof(double))
+                        || operandType == typeof(double)
+                        || operandType == typeof(decimal))
             }
         } else {
             planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(
@@ -137,7 +139,23 @@ public class ColumnarUnaryLiteralPlanner {
         plan.CompleteFragment(operandFragment, operandType)
         resultType = operandType
         if operatorText == "-" {
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Neg())
+            // Decimal is not an IL primitive: neg is invalid over its value, so negation calls
+            // the System.Decimal op_UnaryNegation static, exactly like the legacy unary arm.
+            if operandType == typeof(decimal) {
+                parameterTypes := new Type[](1)
+                parameterTypes[0] = typeof(decimal)
+                methodIndex := plan.AddMethodWithSignature(
+                    RequiredDecimalNegation(parameterTypes),
+                    typeof(decimal),
+                    parameterTypes,
+                    typeof(decimal),
+                    true,
+                    false)
+                plan.AppendMethodInstruction(
+                    ColumnarCodePlanContract.Call(), methodIndex)
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Neg())
+            }
         } else if operatorText == "~" {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Not())
         } else {
@@ -193,6 +211,26 @@ public class ColumnarUnaryLiteralPlanner {
         valueIndex := plan.AddInt32(-2147483648)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
         return true
+    }
+
+    static func RequiredDecimalNegation(
+        parameterTypes: Type[]): MethodInfo {
+        method := typeof(decimal).GetMethod("op_UnaryNegation", parameterTypes)
+        if method == null
+            || method.get_DeclaringType() != typeof(decimal)
+            || !method.get_IsStatic()
+            || method.get_IsGenericMethod()
+            || method.get_ReturnType() != typeof(decimal) {
+            throw new InvalidOperationException(
+                "Required CLR method Decimal.op_UnaryNegation(Decimal) was not found exactly.")
+        }
+        parameters := method.GetParameters()
+        if parameters.Length != 1
+            || parameters[0].get_ParameterType() != typeof(decimal) {
+            throw new InvalidOperationException(
+                "Decimal.op_UnaryNegation(Decimal) has an unexpected runtime signature.")
+        }
+        return method
     }
 
     static func TryGetNodeText(

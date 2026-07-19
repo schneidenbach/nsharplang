@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // Callback-free owner for System.Index/System.Range construction and Index/Range reads over
@@ -585,6 +586,32 @@ class ColumnarRangeIndexPlanner {
         // Int32 value survives to the fragment boundary, which refines it to the declared target.
         if (targetType == typeof(int) || targetType == typeof(uint))
             && IsI4LiteralOperand(nodes, source, operandNode) {
+            operandType := typeof(int)
+            if !ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, operandNode, plan, out operandType) {
+                return false
+            }
+            if operandType != typeof(int) && operandType != typeof(char) {
+                return false
+            }
+            resultType = targetType
+            return true
+        }
+
+        // A ushort target shares conv.u2 with char, whose validation-stack model the schema pins
+        // to char, so only the KNOWN-literal form is claimable: an in-range magnitude rides the
+        // same literal no-op branch (the boundary refines the known Int32 value to ushort), and
+        // every out-of-range magnitude stays with the legacy conv.u2 truncation owner.
+        if targetType == typeof(ushort)
+            && IsI4LiteralOperand(nodes, source, operandNode) {
+            if nodes.Kind(operandNode)
+                == ColumnarExpressionNodeKind.IntLiteralExpression() {
+                magnitude := 0UL
+                if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(
+                        nodes.Text(source, operandNode), out magnitude)
+                    || magnitude > 65535UL {
+                    return false
+                }
+            }
             operandType := typeof(int)
             if !ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, operandNode, plan, out operandType) {
                 return false

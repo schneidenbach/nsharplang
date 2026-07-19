@@ -1275,6 +1275,25 @@ test "primitive binary planner owns numeric cast operands per admitted target" {
         identityPlan, ColumnarCodePlanContract.ConvI4()) == 0
     assert PrimitiveBinaryExecuteOneParameter(
         identityPlan, typeof(int), typeof(int), 1) == "42"
+
+    // A ushort target over a KNOWN in-range literal rides the same no-op path: the fragment
+    // boundary refines the known Int32 value to ushort with no conv.u2 row.
+    ushortLiteralBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        ushortLiteralBindings, "left", 0, typeof(ushort))
+    ushortLiteralPlan := PrimitiveBinaryPlan(
+        "left == (ushort)16", ushortLiteralBindings)
+    assert ushortLiteralPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        ushortLiteralPlan, ColumnarCodePlanContract.ConvU2()) == 0
+    assert PrimitiveBinaryOpcodeCount(
+        ushortLiteralPlan, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        ushortLiteralPlan, typeof(bool), typeof(ushort), (ushort)16) == "True"
+    ushortMismatchPlan := PrimitiveBinaryPlan(
+        "left == (ushort)16", ushortLiteralBindings)
+    assert PrimitiveBinaryExecuteOneParameter(
+        ushortMismatchPlan, typeof(bool), typeof(ushort), (ushort)17) == "False"
 }
 
 test "primitive binary planner owns decimal literal operands" {
@@ -1311,6 +1330,26 @@ test "primitive binary planner owns decimal literal operands" {
     assert negativeScalePlan.ResultType == typeof(bool)
     assert PrimitiveBinaryExecuteOneParameter(
         negativeScalePlan, typeof(bool), typeof(decimal), 0.25m) == "True"
+
+    // A NEGATIVE decimal literal operand closes through the unary-literal planner's
+    // System.Decimal.op_UnaryNegation lowering inside the binary plan.
+    negativeLiteralPlan := PrimitiveBinaryPlan(
+        "left == -1.25m", decimalBindings)
+    assert negativeLiteralPlan.ResultType == typeof(bool)
+    negationFound := false
+    methodIndex := 0
+    while methodIndex < negativeLiteralPlan.MethodCount {
+        if negativeLiteralPlan.Methods[methodIndex].get_Name()
+            == "op_UnaryNegation" {
+            negationFound = true
+        }
+        methodIndex += 1
+    }
+    assert negationFound
+    negativeProbe := -1.25m
+    assert PrimitiveBinaryExecuteOneParameter(
+        negativeLiteralPlan, typeof(bool), typeof(decimal),
+        negativeProbe) == "True"
 }
 
 test "primitive binary planner declines legacy-owned cast forms atomically" {
@@ -1323,11 +1362,16 @@ test "primitive binary planner declines legacy-owned cast forms atomically" {
     ColumnarRangePlannerAddParameter(uintNoOp, "right", 1, typeof(int))
     PrimitiveBinaryDeclines("left == (uint)right", uintNoOp)
 
-    // Non-numeric targets, decimal targets, and non-identity ushort targets stay legacy-owned.
+    // Non-numeric targets, decimal targets, and NON-LITERAL ushort targets stay legacy-owned
+    // (only a known in-range ushort literal rides the refinement no-op path); an out-of-range
+    // ushort literal keeps the legacy conv.u2 truncation owner.
     boolPair := PrimitiveBinaryParameterBindings(typeof(bool))
     PrimitiveBinaryDeclines("left == (bool)right", boolPair)
     PrimitiveBinaryDeclines("(decimal)left + 1m", intPair)
     PrimitiveBinaryDeclines("(ushort)left + right", intPair)
+    ushortRange := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(ushortRange, "left", 0, typeof(ushort))
+    PrimitiveBinaryDeclines("left == (ushort)70000", ushortRange)
     PrimitiveBinaryDeclines("(string)left == right", intPair)
 
     // A decimal source never reaches a conv opcode.

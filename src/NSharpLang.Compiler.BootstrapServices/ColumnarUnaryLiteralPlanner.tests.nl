@@ -149,6 +149,26 @@ test "unary literal planner owns negate complement and logical-not families" {
     assert logicalNot.OperationCount == 3
     assert logicalNot.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4_0()
     assert logicalNot.OpCodeValues[2] == ColumnarCodePlanContract.Ceq()
+
+    // Decimal negation is not an IL neg: the planner closes it through the exact
+    // System.Decimal.op_UnaryNegation static, mirroring the legacy unary arm.
+    negativeDecimal := ColumnarUnaryPlannerPlan(
+        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25m")
+    assert negativeDecimal.ResultType == typeof(decimal)
+    assert negativeDecimal.MethodCount == 1
+    assert negativeDecimal.MethodUsesDeclaredSignature[0]
+    negationMethod := negativeDecimal.Methods[0]
+    assert negationMethod.get_DeclaringType() == typeof(decimal)
+    assert negationMethod.get_Name() == "op_UnaryNegation"
+    assert negativeDecimal.MethodParameterTypes[0].Length == 1
+    assert negativeDecimal.MethodParameterTypes[0][0] == typeof(decimal)
+    assert negativeDecimal.MethodReturnTypes[0] == typeof(decimal)
+
+    negativeIntegerFormDecimal := ColumnarUnaryPlannerPlan(
+        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "5m")
+    assert negativeIntegerFormDecimal.ResultType == typeof(decimal)
+    assert negativeIntegerFormDecimal.MethodCount == 1
+    assert negativeIntegerFormDecimal.Methods[0].get_Name() == "op_UnaryNegation"
 }
 
 test "unary literal planner executes every admitted opcode through DynamicMethod" {
@@ -168,6 +188,10 @@ test "unary literal planner executes every admitted opcode through DynamicMethod
         "!", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true"), typeof(bool)) == "False"
     assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
         "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "2147483648"), typeof(int)) == "-2147483648"
+    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
+        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25m"), typeof(decimal)) == "-1.25"
+    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
+        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "5m"), typeof(decimal)) == "-5"
 }
 
 test "unary literal planner declines unsupported operators types and spellings atomically" {
@@ -182,7 +206,7 @@ test "unary literal planner declines unsupported operators types and spellings a
     ColumnarUnaryPlannerDeclines(
         "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9223372036854775808L")
     ColumnarUnaryPlannerDeclines(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25m")
+        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "not-a-decimal-m")
     ColumnarUnaryPlannerDeclines(
         "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9223372036854775808LL")
 
