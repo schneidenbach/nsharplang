@@ -175,14 +175,26 @@ class ColumnarInstanceMemberPlanner {
                     return false
                 }
 
-                receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(receiverNode), receiverNode)
+                if nodes.Kind(receiverNode) == ColumnarExpressionNodeKind.IndexAccessExpression() {
+                    // A List/array/string element receiver plans as a self-contained value fragment
+                    // through the range/index owner, then composes with the ordinary member
+                    // selection below (`issues[i].Id`).
+                    handles := ColumnarRangeIndexHandles.Resolve()
+                    if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+                } else {
+                    receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(receiverNode), receiverNode)
 
-                if !TryAppendComposedReceiver(nodes, source, receiverNode, bindings, plan, out receiverType) {
-                    plan.Rollback(checkpoint)
-                    return false
+                    if !TryAppendComposedReceiver(nodes, source, receiverNode, bindings, plan, out receiverType) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    plan.CompleteFragment(receiverFragment, receiverType)
                 }
 
-                plan.CompleteFragment(receiverFragment, receiverType)
                 if !TrySelect(receiverType, memberName, bindings, out selection) {
                     plan.Rollback(checkpoint)
                     return false
@@ -276,6 +288,14 @@ class ColumnarInstanceMemberPlanner {
 
         scratch := new ColumnarCodePlan()
         kind := nodes.Kind(receiverNode)
+        if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+            // A List/array/string element receiver's type comes from planning the index access into
+            // a throwaway schema-v3 plan; the open root fragment enables ordinary int indexing.
+            scratch.PrepareV3()
+            rootFragment := scratch.BeginFragment(-1, kind, receiverNode)
+            handles := ColumnarRangeIndexHandles.Resolve()
+            return ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, scratch, rootFragment, 0, out receiverType)
+        }
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return ColumnarExternalStaticMemberPlanner.TryGetType(nodes, source, receiverNode, bindings, scratch, out receiverType)
         }

@@ -1,5 +1,8 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
+import System.Collections.Generic
+
 func AssertSupportedOpcode(name: string) {
     plan := ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", name)
     assert plan.IsSupported
@@ -680,6 +683,96 @@ test "static call plans own exact CLR overloads" {
         doubleTryParseParameters,
         "System.Double",
         "System.Boolean")
+}
+
+test "static call plans own String.Join over string sequences with the enumerable overload" {
+    listArguments := new string[](2)
+    listArguments[0] = "System.String"
+    listArguments[1] = typeof(List<string>).FullName
+    enumerableIdentity := typeof(IEnumerable<string>).get_AssemblyQualifiedName()
+
+    listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", listArguments)
+    assert listPlan.IsSupported
+    assert listPlan.Kind == ColumnarExternalCallKind.Call
+    assert listPlan.DeclaringTypeName == "System.String, System.Private.CoreLib"
+    assert listPlan.MemberName == "Join"
+    assert listPlan.ParameterTypeNames.Length == 2
+    assert listPlan.ParameterTypeNames[0] == "System.String, System.Private.CoreLib"
+    assert listPlan.ParameterTypeNames[1] == enumerableIdentity
+    assert listPlan.ReturnTypeName == "System.String, System.Private.CoreLib"
+
+    // The fully qualified owner spelling resolves the same overload.
+    qualifiedArguments := new string[](2)
+    qualifiedArguments[0] = "System.String"
+    qualifiedArguments[1] = typeof(List<string>).FullName
+    qualifiedPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "System.String", "Join", qualifiedArguments)
+    assert qualifiedPlan.IsSupported
+    assert qualifiedPlan.ParameterTypeNames[1] == enumerableIdentity
+
+    // The lowercase `string` keyword is not a resolvable runtime static owner, so it is declined
+    // and stays with the legacy string owner (a supported plan over it would become a terminal
+    // ownership claim the owner resolver cannot satisfy).
+    lowerArguments := new string[](2)
+    lowerArguments[0] = "System.String"
+    lowerArguments[1] = typeof(List<string>).FullName
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "string", "Join", lowerArguments).IsSupported
+
+    // A direct IEnumerable<string> value flows to the identical overload.
+    enumerableArguments := new string[](2)
+    enumerableArguments[0] = "System.String"
+    enumerableArguments[1] = typeof(IEnumerable<string>).FullName
+    enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", enumerableArguments)
+    assert enumerablePlan.IsSupported
+    assert enumerablePlan.ParameterTypeNames[1] == enumerableIdentity
+
+    // The resolved enumerable identity binds the exact CLR overload.
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(string)
+    parameterTypes[1] = typeof(IEnumerable<string>)
+    joinMethod := typeof(string).GetMethod("Join", parameterTypes)
+    assert joinMethod != null
+    assert joinMethod.get_ReturnType() == typeof(string)
+}
+
+test "String.Join plans decline outside the enumerable-of-string contract" {
+    // A string[] argument binds the params overload, not the enumerable one, so it is declined
+    // and stays with its existing owner.
+    stringArrayArguments := new string[](2)
+    stringArrayArguments[0] = "System.String"
+    stringArrayArguments[1] = "System.String[]"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", stringArrayArguments).IsSupported
+
+    // A List<int> is not a string sequence.
+    intListArguments := new string[](2)
+    intListArguments[0] = "System.String"
+    intListArguments[1] = typeof(List<int>).FullName
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", intListArguments).IsSupported
+
+    // A non-string separator, wrong arity, and mis-spelled member all decline.
+    charSeparatorArguments := new string[](2)
+    charSeparatorArguments[0] = "System.Char"
+    charSeparatorArguments[1] = typeof(List<string>).FullName
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", charSeparatorArguments).IsSupported
+
+    oneArgument := new string[](1)
+    oneArgument[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", oneArgument).IsSupported
+
+    listArguments := new string[](2)
+    listArguments[0] = "System.String"
+    listArguments[1] = typeof(List<string>).FullName
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "join", listArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "StringBuilder", "Join", listArguments).IsSupported
 }
 
 test "static call plans own exact TypeBuilder member rebinding overloads" {

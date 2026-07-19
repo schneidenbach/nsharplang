@@ -1,5 +1,7 @@
 namespace NSharpLang.PrimitiveBinary.Tests
 
+import System.Collections.Generic
+
 test "integer arithmetic families execute through the product route" {
     arithmetic := IntArithmetic(10, 3)
     subtracted := IntSubtract(50, 8)
@@ -163,4 +165,38 @@ test "bare sibling-function calls execute as binary operands through the product
     assert BoxedSiblingSum(9) == 60
     values := [0, 1, 2, 3, 4, 5, 6]
     assert IndexBySibling(values, 3) == 6
+}
+
+test "delegate invocation operands execute as binary comparisons through the product route" {
+    fortyTwo: Func<int> = () => 42
+    seven: Func<int> = () => 7
+    add: Func<int, int> = (n) => n + 1
+    assert DelegateEqualsAnswer(fortyTwo)
+    assert !DelegateEqualsAnswer(seven)
+    assert DelegateSumEquals(add, 41, 42)
+    assert !DelegateSumEquals(add, 10, 42)
+}
+
+test "String.Join over a List of string executes as a concatenation operand" {
+    tags := new List<string>()
+    tags.Add("a")
+    tags.Add("b")
+    tags.Add("c")
+    joined := PrefixedJoin("tags:", tags)
+    assert joined == "tags:a,b,c"
+
+    empty := new List<string>()
+    emptyJoined := PrefixedJoin("tags:", empty)
+    assert emptyJoined == "tags:"
+}
+
+test "List element field reads execute as binary equality operands" {
+    items := new List<IndexItem>()
+    items.Add(new IndexItem { Id: 10, Label: "x" })
+    items.Add(new IndexItem { Id: 20, Label: "y" })
+    items.Add(new IndexItem { Id: 30, Label: "z" })
+    assert IndexItemIdMatches(items, 0, 10)
+    assert IndexItemIdMatches(items, 1, 20)
+    assert IndexItemIdMatches(items, 2, 30)
+    assert !IndexItemIdMatches(items, 1, 99)
 }

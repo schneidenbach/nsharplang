@@ -571,6 +571,27 @@ public class ColumnarExternalBindingPlans {
             }
         }
 
+        if (typeName == "String" || typeName == "System.String")
+            && memberName == "Join"
+            && count == 2
+            && argumentTypeNames[0] == "System.String"
+            && IsStringSequenceJoinArgument(argumentTypeNames[1]) {
+            // `String.Join(sep, values)` over a `List<string>`/`IEnumerable<string>` binds the exact
+            // `String.Join(String, IEnumerable<String>)` overload; a concrete List flows to the
+            // enumerable parameter through the ordinary reference upcast (no cast instruction),
+            // matching the legacy special-arm lowering byte for byte. Only owner spellings that
+            // resolve to a runtime static owner are admitted — the lowercase `string` keyword is not
+            // a resolvable external owner, so it stays with the legacy string owner instead of a
+            // terminal ownership claim.
+            return StaticCall(
+                "System.String",
+                memberName,
+                Two(
+                    "System.String",
+                    "System.Collections.Generic.IEnumerable`1[System.String]"),
+                "System.String")
+        }
+
         if typeName == "Decimal" || typeName == "decimal" {
             // The decimal-literal owner parses with the invariant Number style and reads the four
             // GetBits words to lower a `System.Decimal(int,int,int,bool,byte)` construction.
@@ -602,6 +623,19 @@ public class ColumnarExternalBindingPlans {
     static func IsReferenceIdentityArgumentType(typeName: string): bool {
         return typeName == "System.Object"
             || typeName == "System.Reflection.MethodInfo"
+    }
+
+    // A `List<string>` or `IEnumerable<string>` argument that flows to the exact
+    // `String.Join(String, IEnumerable<String>)` overload. The incoming names are runtime
+    // `FullName` values whose type argument is assembly-qualified (`[[System.String, ...]]`), so the
+    // markers stop before the version to stay framework-version robust.
+    static func IsStringSequenceJoinArgument(typeName: string): bool {
+        return typeName.StartsWith(
+                "System.Collections.Generic.List`1[[System.String,",
+                StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "System.Collections.Generic.IEnumerable`1[[System.String,",
+                StringComparison.Ordinal)
     }
 
     public static func GetInstanceCallPlan(
@@ -1260,7 +1294,11 @@ public class ColumnarExternalBindingPlans {
     }
 
     static func ExactTypeIdentity(fullName: string): string {
-        if fullName == "System.Threading.Tasks.Task`1[System.String]" {
+        if fullName == "System.Threading.Tasks.Task`1[System.String]"
+            || fullName == "System.Collections.Generic.IEnumerable`1[System.String]" {
+            // Closed BCL generics must carry their fully version-qualified identity: the runtime
+            // exact-identity check compares the assembly-qualified name (with the type argument's
+            // own assembly and version), so a short `[System.String]` spelling would never match.
             runtimeType := Type.GetType(fullName + ", System.Private.CoreLib")
             if runtimeType == null {
                 throw new InvalidOperationException(

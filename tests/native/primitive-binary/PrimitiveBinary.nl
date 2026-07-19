@@ -1,5 +1,8 @@
 namespace NSharpLang.PrimitiveBinary.Tests
 
+import System
+import System.Collections.Generic
+
 // A holder used to exercise primitive binary operators nested inside constructor arguments.
 class IntBox {
     Value: int
@@ -337,4 +340,36 @@ func BoxedSiblingSum(value: int): int {
 // A sibling call nested inside an index expression.
 func IndexBySibling(values: int[], value: int): int {
     return values[Doubled(value)]
+}
+
+// --- Delegate invocation operands: `zero() == 42` where `zero` is a delegate-typed value ---
+
+// A delegate-typed parameter invoked through its Invoke method as a binary equality operand.
+func DelegateEqualsAnswer(zero: Func<int>): bool {
+    return zero() == 42
+}
+
+// A delegate-typed parameter invoked with an exact argument, compared as a binary operand.
+func DelegateSumEquals(add: Func<int, int>, value: int, target: int): bool {
+    return add(value) == target
+}
+
+// --- String.Join external-call catalog: `String.Join(sep, list)` over a List<string> ---
+
+// String.Join over a List<string> flowing as the right operand of a string concatenation.
+func PrefixedJoin(prefix: string, tags: List<string>): string {
+    return prefix + String.Join(",", tags)
+}
+
+// --- List<T> indexer chains: `items[i].Id == id` composing the closed get_Item indexer ---
+
+// A record element read out of a List<T> through the closed get_Item indexer, then a field
+// comparison as a binary equality operand.
+record IndexItem {
+    Id: int
+    Label: string
+}
+
+func IndexItemIdMatches(items: List<IndexItem>, index: int, id: int): bool {
+    return items[index].Id == id
 }

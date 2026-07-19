@@ -860,13 +860,24 @@ class ColumnarRangeIndexPlanner {
         }
 
         isString := indexedType == typeof(string)
-        if !isString && !indexedType.get_IsSZArray() {
+        isList := IsClosedListType(indexedType)
+        if !isString && !isList && !indexedType.get_IsSZArray() {
             return false
         }
 
         accessType := typeof(int)
         if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, out accessType, out nestedOwnership) {
             return false
+        }
+
+        // List<T> exposes only the ordinary `get_Item(int)` indexer — it has no Index/Range form —
+        // so a non-int selector stays with its existing owner.
+        if isList {
+            if accessType != typeof(int) || !allowOrdinaryIntIndex {
+                return false
+            }
+
+            return PlanListOrdinaryIndex(plan, indexedType, out resultType)
         }
 
         if accessType == typeof(int) {
@@ -898,6 +909,58 @@ class ColumnarRangeIndexPlanner {
         }
 
         return PlanArrayRange(plan, handles, indexedType, out resultType)
+    }
+
+    // A closed System.Collections.Generic.List<T> (over a baked or builder-bound element). The open
+    // definition and every other collection stay with their existing owners.
+    static func IsClosedListType(candidate: Type): bool {
+        if candidate == null || candidate is TypeBuilder
+            || !candidate.get_IsGenericType()
+            || candidate.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        return candidate.GetGenericTypeDefinition()
+            == typeof(List<int>).GetGenericTypeDefinition()
+    }
+
+    // `list[i]` lowers to `callvirt get_Item(int)` on the closed List<T>, returning the exact element
+    // type. The ordinary runtime resolver rebinds the getter for a source-builder element (its
+    // return type is substituted to the closed element), matching the legacy List-indexer emission.
+    static func PlanListOrdinaryIndex(plan: ColumnarCodePlan, listType: Type, out resultType: Type): bool {
+        resultType = typeof(int)
+        intArguments := new Type[](1)
+        intArguments[0] = typeof(int)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(
+            listType,
+            "get_Item",
+            intArguments,
+            ColumnarDirectCallArgumentFacts.Empty(1),
+            false)
+        if !selection.IsSelected {
+            return false
+        }
+
+        method := selection.Method
+        if method == null {
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(
+            method,
+            selection.DeclaringType,
+            selection.ParameterTypes,
+            selection.ReturnType,
+            false,
+            selection.IsAbstract)
+        if selection.ReceiverIsReference {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+        } else {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        }
+
+        resultType = selection.ReturnType
+        return true
     }
 
     static func PlanStringOrdinaryIndex(plan: ColumnarCodePlan, handles: ColumnarRangeIndexHandles, out resultType: Type): bool {

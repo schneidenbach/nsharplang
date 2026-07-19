@@ -657,6 +657,31 @@ test "direct-call planner owns fully qualified runtime static owner chains" {
     assert plan.MethodIsStatic[methodIndex]
 }
 
+test "direct-call planner owns String.Join over a List of string via the enumerable overload" {
+    tree := DirectCallParsedTree("String.Join(sep, tags)")
+    ExternalStampScope(tree, "import System\nimport System.Collections.Generic")
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "sep", 0, typeof(string))
+    ColumnarRangePlannerAddParameter(bindings, "tags", 1, typeof(List<string>))
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(string)
+    // ldarg sep, ldarg tags, call Join. The List<string> flows to the IEnumerable<string>
+    // parameter by ordinary reference upcast, so no cast instruction is emitted.
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[2]
+    assert plan.Methods[methodIndex].get_Name() == "Join"
+    assert plan.MethodDeclaringTypes[methodIndex] == typeof(string)
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.MethodParameterTypes[methodIndex].Length == 2
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(string)
+    assert plan.MethodParameterTypes[methodIndex][1] == typeof(IEnumerable<string>)
+}
+
 test "direct-call planner defers nested type-alias receivers but still owns direct aliases" {
     nestedTree := DirectCallParsedTree("ByteArrayPool.Shared.Rent(65536)")
     ExternalStampScope(nestedTree, "import System.Buffers\ntype ByteArrayPool = ArrayPool<byte>\n")
@@ -1294,6 +1319,101 @@ test "direct-call planner plans two sibling calls as an additive binary" {
     assert DirectCallHasMethod(plan, "Left")
     assert DirectCallHasMethod(plan, "Right")
     ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "direct-call planner invokes a delegate-typed parameter through Invoke" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "zero", 0, typeof(Func<int>))
+    tree := DirectCallParsedTree("zero()")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    methodIndex := plan.OperandIndices[1]
+    assert plan.Methods[methodIndex].get_Name() == "Invoke"
+    assert plan.MethodDeclaringTypes[methodIndex] == typeof(Func<int>)
+    assert !plan.MethodIsStatic[methodIndex]
+    assert plan.MethodReturnTypes[methodIndex] == typeof(int)
+}
+
+test "direct-call planner invokes a delegate-typed value with an exact argument" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "add", 0, typeof(Func<int, int>))
+    ColumnarRangePlannerAddParameter(bindings, "x", 1, typeof(int))
+    tree := DirectCallParsedTree("add(x)")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
+    methodIndex := plan.OperandIndices[2]
+    assert plan.Methods[methodIndex].get_Name() == "Invoke"
+    assert plan.MethodParameterTypes[methodIndex].Length == 1
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(int)
+}
+
+test "direct-call planner plans a delegate invocation as a binary equality operand" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "zero", 0, typeof(Func<int>))
+    tree := DirectCallParsedTree("zero() == 42")
+
+    plan := new ColumnarCodePlan()
+    owned := false
+    wholeSubtree := false
+    resultType := typeof(int)
+    assert ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out owned, out wholeSubtree, out resultType)
+
+    assert owned
+    assert resultType == typeof(bool)
+    assert DirectCallHasMethod(plan, "Invoke")
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "direct-call planner yields the whole subtree for a non-delegate value call" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "count", 0, typeof(int))
+    tree := DirectCallParsedTree("count()")
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner yields the whole subtree for a delegate argument mismatch" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "add", 0, typeof(Func<int, int>))
+    ColumnarRangePlannerAddParameter(bindings, "text", 1, typeof(string))
+    tree := DirectCallParsedTree("add(text)")
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner yields the whole subtree for a delegate arity mismatch" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "zero", 0, typeof(Func<int>))
+    ColumnarRangePlannerAddParameter(bindings, "x", 1, typeof(int))
+    tree := DirectCallParsedTree("zero(x)")
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
 }
 
 test "direct-call planner yields the whole subtree for a sibling arity mismatch" {

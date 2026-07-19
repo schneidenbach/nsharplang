@@ -152,7 +152,11 @@ class ColumnarDirectCallPlanner {
 
             hasSibling := bindings.HasSiblingCallable(bareName)
 
-            if !explicitThis && !hasInstance && !hasStatic && !hasSibling {
+            // A delegate-typed local/parameter/lifted/boxed value with no same-named method tier is
+            // invoked through its Invoke method. Let those bare calls flow to the delegate-invoke
+            // owner instead of declining early.
+            if !explicitThis && !hasInstance && !hasStatic && !hasSibling
+                && !bindings.IsSiblingShadowedByValue(bareName) {
                 return false
             }
         }
@@ -211,6 +215,18 @@ class ColumnarDirectCallPlanner {
         if !explicitThis && bindings.IsCallable(memberName) {
             plan.Rollback(checkpoint)
             return false
+        }
+
+        // A delegate-typed value binding (local/parameter/lifted/boxed) with no same-named method
+        // tier is invoked through the delegate's Invoke method. The mechanical host's pinned
+        // method-beats-value order means any instance method (at any arity) on the current type, any
+        // static method at this arity on the enclosing type, or any sibling keeps the name terminal
+        // for its own owner, so those cases fall through to ordinary resolution below.
+        if !explicitThis && bindings.IsSiblingShadowedByValue(memberName)
+            && !bindings.HasSiblingCallable(memberName)
+            && !HasCurrentInstanceMethodAnyArity(bindings, memberName)
+            && !HasEnclosingStaticMethodAtArity(bindings, memberName, argumentTypes.Length) {
+            return TryAppendDelegateInvoke(nodes, source, callNode, callee, bindings, handles, plan, callFragment, depth, argumentTypes, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
 
         current := bindings.CurrentInstance
@@ -337,6 +353,116 @@ class ColumnarDirectCallPlanner {
 
         ownership = ColumnarDirectCallOwnership.Planned
         return true
+    }
+
+    // Invoke a delegate-typed value binding (`zero()` where `zero: Func<int>`): load the delegate
+    // value, emit each argument exactly typed against Invoke's parameters, and `callvirt Invoke`.
+    // Only closed System.Func/System.Action over baked runtime types are admitted, and every
+    // argument must land on Invoke's parameter type with no implicit conversion — the mechanical
+    // host's stored-delegate arm accepts exactly this shape. Anything outside it (a non-delegate
+    // value, an arity mismatch, an argument the planner cannot lower to the exact type, or a void
+    // result in a value position) yields the whole subtree to the legacy delegate-invoke arm.
+    static func TryAppendDelegateInvoke(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+
+        delegateType := typeof(object)
+        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType)
+            || !ColumnarRuntimeInstanceMemberResolver.IsSupportedDelegateType(delegateType) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        invoke := delegateType.GetMethod("Invoke")
+        if invoke == null || invoke.get_IsStatic() || invoke.get_IsGenericMethod() {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        parameters := invoke.GetParameters()
+        returnType := invoke.get_ReturnType()
+        if parameters == null || returnType == null
+            || parameters.Length != argumentTypes.Length {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        calleeCandidate := UnwrapParentheses(nodes, callee)
+        if calleeCandidate < 0 {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        delegateFragment := plan.BeginFragment(callFragment, nodes.Kind(calleeCandidate), calleeCandidate)
+        loadedType := typeof(object)
+        if !ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, calleeCandidate, bindings, plan, out loadedType) || loadedType != delegateType {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        plan.CompleteFragment(delegateFragment, loadedType)
+
+        parameterTypes := new Type[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            if parameter == null {
+                throw new InvalidOperationException("Delegate Invoke parameters cannot be null.")
+            }
+
+            expected := parameter.get_ParameterType()
+            if expected == null {
+                throw new InvalidOperationException("Delegate Invoke parameter types cannot be null.")
+            }
+
+            parameterTypes[index] = expected
+            actual := typeof(int)
+            if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual) || actual != expected {
+                legacyWholeSubtreePlanning = true
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            index += 1
+        }
+
+        methodIndex := plan.AddMethodWithSignature(invoke, delegateType, parameterTypes, returnType, false, invoke.get_IsAbstract())
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+        resultType = returnType
+        if callFragment != 0 && IsVoidType(resultType) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    // A same-named instance method anywhere on the current type's hierarchy keeps a bare call
+    // terminal for its own owner regardless of arity, exactly as the mechanical host's delegate
+    // arm consults the method chain before invoking a value.
+    static func HasCurrentInstanceMethodAnyArity(bindings: ColumnarFragmentBindings, memberName: string): bool {
+        current := bindings.CurrentInstance
+        if current == null {
+            return false
+        }
+
+        currentDefinition := current.SourceDefinition
+        return currentDefinition != null
+            && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName)
+    }
+
+    static func HasEnclosingStaticMethodAtArity(bindings: ColumnarFragmentBindings, memberName: string, argumentCount: int): bool {
+        enclosing := bindings.EnclosingTypeDefinition
+        return enclosing != null
+            && ColumnarSourceDirectCallResolver.HasStaticDeclarationAtArity(enclosing, memberName, argumentCount)
     }
 
     // Every plannable sibling parameter must be an ordinary (non-by-ref) value with no ref/out/

@@ -93,6 +93,33 @@ func InstanceIndexerTree(receiverName: string): ColumnarRangePlannerTestTree {
     return builder.Build(root)
 }
 
+func InstanceIndexerMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    builder.AddToken("[")
+    index := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    builder.AddToken("]")
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, index))
+    builder.AddToken(".")
+    memberStart := builder.AddToken(memberName)
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(indexAccess))
+    return builder.Build(root)
+}
+
+// A closed List<T> parameter over the given source-type element, plus its live source definition.
+func InstanceSourceListBindings(parameterName: string, element: ColumnarStructDef): ColumnarFragmentBindings {
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = element
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SourceTypeDefinitions = definitions
+    elementType: Type = element.Builder
+    typeArguments := new Type[](1)
+    typeArguments[0] = elementType
+    listType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+    ColumnarRangePlannerAddParameter(bindings, parameterName, 0, listType)
+    return bindings
+}
+
 func InstanceCallReceiverTree(memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "factory")
@@ -890,6 +917,75 @@ test "instance member planner rolls back an emitted external static receiver ato
     missingPlan := new ColumnarCodePlan()
     assert ColumnarInstanceMemberPlanner.Plan(missingTree.Nodes, missingTree.Source, missingTree.Root, bindings, missingPlan) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(missingPlan)
+}
+
+test "instance member planner owns a List element field through the closed get_Item indexer" {
+    element := SourceCallDefinition("InstanceListElement", true)
+    idField := ConstructionDefinePublicField(element.Builder, "Id", typeof(int))
+    element.Fields["Id"] = idField
+
+    bindings := InstanceSourceListBindings("issues", element)
+    tree := InstanceIndexerMemberTree("issues", "Id")
+
+    plan := InstanceMemberPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    // ldarg issues, ldc.i4.0, callvirt get_Item, ldfld Id.
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[plan.OperationCount - 1] == ColumnarCodePlanContract.Ldfld()
+    assert DirectCallHasMethod(plan, "get_Item")
+    getterIndex := -1
+    scan := 0
+    while scan < plan.MethodCount {
+        if plan.Methods[scan] != null && plan.Methods[scan].get_Name() == "get_Item" {
+            getterIndex = scan
+        }
+        scan += 1
+    }
+    assert getterIndex >= 0
+    assert plan.MethodParameterTypes[getterIndex].Length == 1
+    assert plan.MethodParameterTypes[getterIndex][0] == typeof(int)
+}
+
+test "instance member planner owns a List element field as a binary equality operand" {
+    element := SourceCallDefinition("InstanceListBinaryElement", true)
+    idField := ConstructionDefinePublicField(element.Builder, "Id", typeof(int))
+    element.Fields["Id"] = idField
+
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = element
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SourceTypeDefinitions = definitions
+    elementType: Type = element.Builder
+    typeArguments := new Type[](1)
+    typeArguments[0] = elementType
+    listType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(typeArguments)
+    ColumnarRangePlannerAddParameter(bindings, "issues", 0, listType)
+    ColumnarRangePlannerAddParameter(bindings, "id", 1, typeof(int))
+
+    tree := DirectCallParsedTree("issues[0].Id == id")
+
+    plan := new ColumnarCodePlan()
+    owned := false
+    wholeSubtree := false
+    resultType := typeof(int)
+    assert ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out owned, out wholeSubtree, out resultType)
+
+    assert owned
+    assert resultType == typeof(bool)
+    assert DirectCallHasMethod(plan, "get_Item")
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "instance member planner declines a List element member absent from the element" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    intListType := typeof(List<int>)
+    ColumnarRangePlannerAddParameter(bindings, "values", 0, intListType)
+    tree := InstanceIndexerMemberTree("values", "Id")
+
+    declinePlan := new ColumnarCodePlan()
+    assert ColumnarInstanceMemberPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, declinePlan) == ColumnarFragmentPlanStatus.NotOwned
+    ColumnarRangePlannerAssertEmptyRollback(declinePlan)
 }
 
 test "instance member planner leaves indexers and invocation receivers unowned" {
