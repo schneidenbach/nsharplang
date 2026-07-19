@@ -4,35 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/006-primitive-binary-expressions.md`
-- Current iteration: one terminal slice (stage 0 `3dcb60bd2` opcode identities; ownership routing
-  landed next — see Current evidence)
-- Active sub-slice: the case-12 numeric-arm deletion was RE-APPLIED and battery-verified at
-  `096655625`-era tree: it deletes cleanly (~-145 lines emit+preflight) but SIX further operand
-  families still route through it, so it was reverted and stays fenced. Verified deletion
-  sequencing (each its own sub-slice, in rough order of leverage): (a) local-delegate invocation
-  operands (`zero() == 42` — ldloc + callvirt Invoke, plannable now); (b) `String.Join(string,
-  List<string>)` external-call catalog entry (serves task-cli); (c) List<T> indexer chains in
-  `TryPlanIndexAccess` (serves issue-tracker); (d) port the right-literal ADOPTION path
-  (`u / 2`, `l != 0` — unsuffixed literal adopting uint/long/ulong left) into the planner;
-  (e) byref-parameter deref operands — needs an ldind.i4-family schema+allowlist+repin stage-0;
-  (f) enum→int slot-reinterpretation casts (schema forbids empty fragments — needs a ruling);
-  (g) contextual-lambda call operands (explicit later ownership tier; task 010 owns lambda
-  placement — the 006 deletion either waits for it or the deletion recuts to keep a minimal fenced
-  numeric core for lambda-carrying subtrees). Families (a) delegate-invoke, (b) String.Join
-  catalog, and (c) List<T> indexer chains landed at `5523402c5` (lowercase `string.Join` spellings
-  deliberately stay legacy — unresolvable external owner). Sibling calls landed
-  `62ab5ffdf`; casts+decimal literals `83941f204`; ushort-literal casts + negative decimal
-  literals `096655625`. Prior framing —
-  cast expressions (kind 16 numeric casts), decimal literals, and bare sibling-function call
-  operands. The verified blocker: with the case-12 numeric arms deleted, `x == (uint)42`,
-  `d == 24.5m`, and `Foo() == 42` decline because those operands are not yet plannable, so the
-  deletion was reverted and the arm stands as the fenced whole-subtree residual. Once those operand
-  families plan, delete the case-12 numeric switch, shifts branch, decimal table, string-pair
-  concat, and shrink `TryGetPreflightBinaryExpressionType` to the retained families
-  (&&/||, ??, null comparisons, string chains, string+char, Type/record/enum equality,
-  source operators).
-- Last accepted ownership commit: `6746c1b2c` (`Own construction and array literals in N#`)
+- Current task: `tasks/007-conditional-and-short-circuit-expressions.md`
+- Current iteration: one terminal slice
+- Active sub-slice: not yet selected (revalidate the 007 accept set: &&/||, ternary, ?? remain C#-owned in the retained case-12/13 arms)
+- Last accepted ownership commit: `e57c80c8a` (`Delete owned binary emission from the C# emitter`, task 006)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -173,6 +148,26 @@ Completed slices:
     erased-enum-identity contracts; fresh non-VS-Code product gate down to four failure groups all
     verified pre-existing at HEAD and owned by 009/011/012/013/014; ratchet repin (audit 18/18);
     clean SDK repin.
+
+- Task 006 — primitive binary expressions; commit `e57c80c8a` (stage commits `3dcb60bd2`,
+  `e41570f69`, `83941f204`, `62ab5ffdf`, `096655625`, `5523402c5`, `aade33590`, `8397811ea`).
+  - Deleted C# owners: the case-12 shifts branch, decimal op_* table, and right-literal adoption
+    path from both emission and preflight, plus the preflight's arith/bitwise/ordering/numeric
+    equality arms. `ColumnarIlEmitter.cs` fell from 21,618 to 21,499. The retained fenced numeric
+    core serves exactly the whole-subtree residual: contextual-lambda call operands (010), member
+    chains on call results, unary-negated call operands, dictionary-indexer reads, and string-typed
+    operands such as enum string-constant reads (015 grows the nested-operand surface).
+  - Added N# owners: the full primitive binary family (arithmetic with checked/unchecked overflow
+    selection, bitwise, shifts, ordering with float unordered complements, numeric/Boolean
+    equality, decimal op_* calls, string-pair concat, right-literal adoption) at expression roots
+    and value position; operand families unlocked along the way — numeric casts, decimal literals
+    (incl. negative), sibling-function calls, local-delegate invocations, String.Join catalog,
+    List<T> indexer chains, byref-parameter deref reads over the typed-ldind family, ushort literal
+    casts, and slot-reinterpretation casts via explicit conv.
+  - Evidence: 608 BootstrapServices contracts (Debug and fresh Release self-emit); 15 primitive-
+    binary, 41 range-index, 14 direct-call, 3 interface-parameter, 18 ownership contracts;
+    3,182/3,182 units; fresh non-VS-Code gate at the same four pre-existing later-owner failure
+    groups (009/011/012/013/014) as the 005 acceptance; toolset repins at each two-stage bootstrap.
 
 After each accepted slice, record only:
 
