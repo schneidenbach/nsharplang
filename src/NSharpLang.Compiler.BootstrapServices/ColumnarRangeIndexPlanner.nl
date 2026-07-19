@@ -554,9 +554,11 @@ class ColumnarRangeIndexPlanner {
     // name is one of the eleven castable numeric builtins (decimal stays legacy-owned: it converts
     // through System.Decimal operator statics, not conv opcodes, exactly like enum, user-defined,
     // reference, and interface casts). The opcode is TARGET-driven and mirrors the legacy emitter
-    // exactly, including its i4-slot no-ops: an int/uint target over an i4-slot source emits no
-    // instruction, so that shape is claimable only for int/char literal operands, whose known
-    // literal value the fragment boundary can refine; an exact-typed i4-slot source declines.
+    // exactly. Its i4-slot no-ops (an int/uint target over an i4-slot source) are claimable for
+    // int/char literal operands, whose known value the fragment boundary refines, and — per the
+    // family-f ruling below — for exact int/uint and known int-backed enum sources, which plan an
+    // explicit conv.i4/conv.u4 (a verifiable i4-slot identity, never an empty fragment). Every other
+    // exact-typed i4-slot source (short/byte/char/ushort/sbyte, non-int-backed enums) still declines.
     static func TryPlanNumericCast(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
@@ -626,6 +628,32 @@ class ColumnarRangeIndexPlanner {
         operandType := typeof(int)
         if !TryAppendPlannableValue(nodes, source, operandNode, bindings, handles, plan, fragment, depth + 1, out operandType, out nestedOwnership) {
             return false
+        }
+
+        // RULING (task 006, family f): a non-literal cast of an exact int/uint source, or of a known
+        // int-backed enum source, to int/uint is an i4-slot reinterpretation the legacy case-16 arm
+        // emits as a NO-OP (enum->int and int<->uint share the Int32 stack slot). A no-op would seal
+        // this cast fragment over exactly its operand child's rows — the empty-fragment shape the plan
+        // schema forbids — so those forms declined. The ruling: plan an EXPLICIT conv.i4 (int target)
+        // or conv.u4 (uint target). Both are verifiable IL, both are the identity function over an
+        // i4-slot value (so the executed result is bit-identical to the legacy no-op), and the cast
+        // fragment is non-empty. The executor's CanConvertToI4/CanConvertCastScalar already admit
+        // exact int/uint and i4-underlying enum stack sources, so no executor change is required. An
+        // identity target (`(int)intValue`) still declines here: it needs no reinterpretation and
+        // rides no branch, and its empty fragment stays with the legacy owner.
+        if (targetType == typeof(int) || targetType == typeof(uint))
+            && operandType != targetType
+            && (operandType == typeof(int)
+                || operandType == typeof(uint)
+                || (operandType.get_IsEnum()
+                    && operandType.GetEnumUnderlyingType() == typeof(int))) {
+            if targetType == typeof(uint) {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU4())
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+            }
+            resultType = targetType
+            return true
         }
 
         if !ColumnarNumericFacts.IsCastableScalar(operandType) || operandType == typeof(decimal) {

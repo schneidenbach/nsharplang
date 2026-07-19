@@ -76,6 +76,19 @@ public class ColumnarCodePlanContract {
     public static func Call(): short { return 40 }
     public static func Br(): short { return 56 }
     public static func Brfalse(): short { return 57 }
+    // Typed byref-dereference opcodes carry their single-byte CIL encodings (ECMA-335 III.3.42):
+    // ldind.i1=0x46 through ldind.r8=0x4F, with ldind.i (0x4D, native int) deliberately omitted —
+    // the byref-parameter deref family never derefs a native-int slot. ldind.ref (0x50) already
+    // sits below with the reference family.
+    public static func LdindI1(): short { return 70 }
+    public static func LdindU1(): short { return 71 }
+    public static func LdindI2(): short { return 72 }
+    public static func LdindU2(): short { return 73 }
+    public static func LdindI4(): short { return 74 }
+    public static func LdindU4(): short { return 75 }
+    public static func LdindI8(): short { return 76 }
+    public static func LdindR4(): short { return 78 }
+    public static func LdindR8(): short { return 79 }
     public static func LdindRef(): short { return 80 }
     public static func Add(): short { return 88 }
     // Primitive binary arithmetic and bitwise opcodes carry their single-byte CIL encodings.
@@ -209,6 +222,15 @@ public class ColumnarCodePlanContract {
             || opCodeValue == Neg()
             || opCodeValue == Not()
             || opCodeValue == Ceq()
+            || opCodeValue == LdindI1()
+            || opCodeValue == LdindU1()
+            || opCodeValue == LdindI2()
+            || opCodeValue == LdindU2()
+            || opCodeValue == LdindI4()
+            || opCodeValue == LdindU4()
+            || opCodeValue == LdindI8()
+            || opCodeValue == LdindR4()
+            || opCodeValue == LdindR8()
             || opCodeValue == LdindRef()
             || opCodeValue == ConvI8()
             || opCodeValue == ConvR4()

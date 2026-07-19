@@ -1352,15 +1352,171 @@ test "primitive binary planner owns decimal literal operands" {
         negativeProbe) == "True"
 }
 
+test "primitive binary planner adopts an unsuffixed int literal into an exact uint long ulong left" {
+    // `u / 2` runs uint/uint: the literal 2 adopts uint via ldc.i4, and the division is unsigned.
+    uintBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(uintBindings, "left", 0, typeof(uint))
+    uintDivPlan := PrimitiveBinaryPlan("left / 2", uintBindings)
+    assert uintDivPlan.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        uintDivPlan, ColumnarCodePlanContract.LdcI4()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        uintDivPlan, ColumnarCodePlanContract.DivUn()) == 1
+    eightyFour := (uint)84
+    assert PrimitiveBinaryExecuteOneParameter(
+        uintDivPlan, typeof(uint), typeof(uint), eightyFour) == "42"
+
+    // `l != 0` runs long/long: the literal 0 adopts long via ldc.i8, negated ceq for `!=`.
+    longBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(longBindings, "left", 0, typeof(long))
+    longNePlan := PrimitiveBinaryPlan("left != 0", longBindings)
+    assert longNePlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        longNePlan, ColumnarCodePlanContract.LdcI8()) == 1
+    fiveBillion := 5000000000L
+    assert PrimitiveBinaryExecuteOneParameter(
+        longNePlan, typeof(bool), typeof(long), fiveBillion) == "True"
+
+    // ulong adopts through the same ldc.i8 shape.
+    ulongBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(ulongBindings, "left", 0, typeof(ulong))
+    ulongPlan := PrimitiveBinaryPlan("left + 10", ulongBindings)
+    assert ulongPlan.ResultType == typeof(ulong)
+    assert PrimitiveBinaryOpcodeCount(
+        ulongPlan, ColumnarCodePlanContract.LdcI8()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        ulongPlan, ColumnarCodePlanContract.Add()) == 1
+    thirtyTwo := (ulong)32
+    assert PrimitiveBinaryExecuteOneParameter(
+        ulongPlan, typeof(ulong), typeof(ulong), thirtyTwo) == "42"
+
+    // A NEGATIVE literal adopts long only — the value seals pre-negated via ldc.i8, no neg opcode.
+    longNegPlan := PrimitiveBinaryPlan("left > -5", longBindings)
+    assert longNegPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        longNegPlan, ColumnarCodePlanContract.LdcI8()) == 1
+    zeroLong := 0L
+    assert PrimitiveBinaryExecuteOneParameter(
+        longNegPlan, typeof(bool), typeof(long), zeroLong) == "True"
+
+    // A SHIFT count literal never adopts: `l << 2` keeps its Int32 count (ldc.i4, not ldc.i8) and
+    // shifts the long value, exactly as before adoption existed.
+    longShiftPlan := PrimitiveBinaryPlan("left << 2", longBindings)
+    assert longShiftPlan.ResultType == typeof(long)
+    assert PrimitiveBinaryOpcodeCount(
+        longShiftPlan, ColumnarCodePlanContract.Shl()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        longShiftPlan, ColumnarCodePlanContract.LdcI4()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        longShiftPlan, ColumnarCodePlanContract.LdcI8()) == 0
+    tenLong := 10L
+    assert PrimitiveBinaryExecuteOneParameter(
+        longShiftPlan, typeof(long), typeof(long), tenLong) == "40"
+}
+
+test "primitive binary planner declines non-adopting literal mixes atomically" {
+    uintBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(uintBindings, "left", 0, typeof(uint))
+
+    // Both operand orders: only the RIGHT literal adopts (the legacy arm's exact rule). A literal
+    // LEFT against a typed uint right stays a mixed int/uint pair and declines.
+    literalLeft := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(literalLeft, "value", 0, typeof(uint))
+    PrimitiveBinaryDeclines("2 / value", literalLeft)
+
+    // An out-of-range magnitude declines for every target: the cap is Int32.MaxValue, so a literal
+    // above it neither adopts nor plans as its own Int32.
+    PrimitiveBinaryDeclines("left / 3000000000", uintBindings)
+
+    // A suffixed literal keeps its own fixed type and never adopts: `2UL` against a uint left is a
+    // uint/ulong mismatch that declines.
+    PrimitiveBinaryDeclines("left / 2UL", uintBindings)
+
+    // A negative literal never adopts an unsigned left (uint/ulong reject it), so the mix declines.
+    PrimitiveBinaryDeclines("left + -5", uintBindings)
+    ulongBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(ulongBindings, "left", 0, typeof(ulong))
+    PrimitiveBinaryDeclines("left + -5", ulongBindings)
+}
+
+test "primitive binary planner reinterprets exact i4 slot and int enum casts to int and uint" {
+    // `(uint)intValue` reinterprets via an explicit conv.u4 — the legacy i4-slot no-op planned as a
+    // non-empty fragment. Executes to the identical unsigned bit pattern.
+    uintFromInt := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(uintFromInt, "left", 0, typeof(uint))
+    ColumnarRangePlannerAddParameter(uintFromInt, "right", 1, typeof(int))
+    uintFromIntPlan := PrimitiveBinaryPlan("left == (uint)right", uintFromInt)
+    assert uintFromIntPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        uintFromIntPlan, ColumnarCodePlanContract.ConvU4()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        uintFromIntPlan, ColumnarCodePlanContract.Ceq()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        uintFromIntPlan, typeof(bool), typeof(uint), typeof(int), (uint)7, 7) == "True"
+    uintFromIntMismatch := PrimitiveBinaryPlan("left == (uint)right", uintFromInt)
+    assert PrimitiveBinaryExecuteParameters(
+        uintFromIntMismatch, typeof(bool), typeof(uint), typeof(int), (uint)9, 3) == "False"
+
+    // `(int)uintValue` reinterprets via an explicit conv.i4.
+    intFromUint := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(intFromUint, "left", 0, typeof(int))
+    ColumnarRangePlannerAddParameter(intFromUint, "right", 1, typeof(uint))
+    intFromUintPlan := PrimitiveBinaryPlan("left == (int)right", intFromUint)
+    assert intFromUintPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        intFromUintPlan, ColumnarCodePlanContract.ConvI4()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        intFromUintPlan, typeof(bool), typeof(int), typeof(uint), 7, (uint)7) == "True"
+
+    // A known int-backed enum reinterprets to int inside a binary: `((int)e & flag) == value`.
+    enumBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        enumBindings, "e", 0, typeof(ColumnarRangePlannerProbeEnum))
+    enumFalsePlan := PrimitiveBinaryPlan("((int)e & 4) == 0", enumBindings)
+    assert enumFalsePlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        enumFalsePlan, ColumnarCodePlanContract.ConvI4()) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        enumFalsePlan, ColumnarCodePlanContract.And()) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        enumFalsePlan, typeof(bool), typeof(ColumnarRangePlannerProbeEnum),
+        ColumnarRangePlannerProbeEnum.Four) == "False"
+    enumTruePlan := PrimitiveBinaryPlan("((int)e & 4) == 0", enumBindings)
+    assert PrimitiveBinaryExecuteOneParameter(
+        enumTruePlan, typeof(bool), typeof(ColumnarRangePlannerProbeEnum),
+        ColumnarRangePlannerProbeEnum.One) == "True"
+
+    // `(uint)e` reinterprets an int-backed enum to uint via conv.u4.
+    enumUint := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(enumUint, "left", 0, typeof(uint))
+    ColumnarRangePlannerAddParameter(
+        enumUint, "e", 1, typeof(ColumnarRangePlannerProbeEnum))
+    enumUintPlan := PrimitiveBinaryPlan("left == (uint)e", enumUint)
+    assert enumUintPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryOpcodeCount(
+        enumUintPlan, ColumnarCodePlanContract.ConvU4()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        enumUintPlan, typeof(bool), typeof(uint),
+        typeof(ColumnarRangePlannerProbeEnum),
+        (uint)4, ColumnarRangePlannerProbeEnum.Four) == "True"
+
+    // An identity int cast still declines: it needs no reinterpretation and its empty fragment
+    // stays with the legacy owner.
+    identityBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(identityBindings, "left", 0, typeof(int))
+    ColumnarRangePlannerAddParameter(identityBindings, "right", 1, typeof(int))
+    PrimitiveBinaryDeclines("left == (int)right", identityBindings)
+
+    // A source that is neither an exact int/uint nor an int-backed enum (a string-backed enum's
+    // runtime type is not a CLR enum) never reinterprets and stays legacy-owned.
+    stringSource := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(stringSource, "left", 0, typeof(int))
+    ColumnarRangePlannerAddParameter(stringSource, "e", 1, typeof(string))
+    PrimitiveBinaryDeclines("left == (int)e", stringSource)
+}
+
 test "primitive binary planner declines legacy-owned cast forms atomically" {
     intPair := PrimitiveBinaryPairBindings(typeof(int), typeof(int))
-
-    // An exact-typed i4-slot source under an int/uint target is the legacy no-op branch: without
-    // a known literal the fragment boundary cannot prove the reinterpretation.
-    uintNoOp := ColumnarRangePlannerEmptyBindings()
-    ColumnarRangePlannerAddParameter(uintNoOp, "left", 0, typeof(uint))
-    ColumnarRangePlannerAddParameter(uintNoOp, "right", 1, typeof(int))
-    PrimitiveBinaryDeclines("left == (uint)right", uintNoOp)
 
     // Non-numeric targets, decimal targets, and NON-LITERAL ushort targets stay legacy-owned
     // (only a known in-range ushort literal rides the refinement no-op path); an out-of-range

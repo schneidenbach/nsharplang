@@ -2550,6 +2550,93 @@ test "schema v3 ldind.ref rejects value slots and corrupt address facts purely" 
     assert corruptAddress.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
 
+func ExecutorV3ScalarIndirectPlan(
+    elementType: Type,
+    ldindOpcode: short,
+    isAddress: bool): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1130, 0)
+    elementTypeIndex := plan.AddType(elementType)
+    argument := plan.AddArgument(0, elementTypeIndex, isAddress)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
+    plan.AppendInstructionWithoutOperand(ldindOpcode)
+    plan.CompleteFragment(root, elementType)
+    plan.CompleteV3(elementType)
+    return plan
+}
+
+test "schema v3 typed ldind dereferences each exact managed primitive slot" {
+    // Each typed byref-dereference opcode pops its exact element address and pushes that element,
+    // exactly like ldind.ref pops a reference address and pushes the reference.
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(sbyte), ColumnarCodePlanContract.LdindI1(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(byte), ColumnarCodePlanContract.LdindU1(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(bool), ColumnarCodePlanContract.LdindU1(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(short), ColumnarCodePlanContract.LdindI2(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(char), ColumnarCodePlanContract.LdindU2(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(ushort), ColumnarCodePlanContract.LdindU2(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(int), ColumnarCodePlanContract.LdindI4(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(uint), ColumnarCodePlanContract.LdindU4(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(long), ColumnarCodePlanContract.LdindI8(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(ulong), ColumnarCodePlanContract.LdindI8(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(float), ColumnarCodePlanContract.LdindR4(), true))
+    ColumnarCodePlanExecutor.Validate(
+        ExecutorV3ScalarIndirectPlan(
+            typeof(double), ColumnarCodePlanContract.LdindR8(), true))
+}
+
+test "schema v3 typed ldind rejects non addresses wrong slots and reference elements" {
+    // A non-address operand (an ordinary Int32 value) has no slot to dereference.
+    ordinaryValue := ExecutorV3ScalarIndirectPlan(
+        typeof(int), ColumnarCodePlanContract.LdindI4(), false)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(ordinaryValue)
+    }
+
+    // A width mismatch (an Int32 address under ldind.i8) is rejected.
+    widthMismatch := ExecutorV3ScalarIndirectPlan(
+        typeof(int), ColumnarCodePlanContract.LdindI8(), true)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(widthMismatch)
+    }
+
+    // The stack model is signedness-exact: a UInt32 address never rides the signed ldind.i4.
+    signednessMismatch := ExecutorV3ScalarIndirectPlan(
+        typeof(uint), ColumnarCodePlanContract.LdindI4(), true)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(signednessMismatch)
+    }
+
+    // A reference element stays with ldind.ref; the typed scalar family never derefs a reference.
+    referenceElement := ExecutorV3ScalarIndirectPlan(
+        typeof(string), ColumnarCodePlanContract.LdindI4(), true)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(referenceElement)
+    }
+}
+
 test "schema v3 executor rejects invalid unary stack categories before emission" {
     badNeg := new ColumnarCodePlan()
     badNeg.PrepareV3()

@@ -1122,7 +1122,23 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert ColumnarCodePlanContract.Neg() == 101
     assert ColumnarCodePlanContract.Not() == 102
     assert ColumnarCodePlanContract.Ceq() == -511
+    // The typed byref-dereference family carries its exact single-byte ECMA-335 III.3.42 encodings:
+    // ldind.i1=0x46 (70) through ldind.r8=0x4F (79), with ldind.i (0x4D, 77) omitted, then
+    // ldind.ref=0x50 (80).
+    assert ColumnarCodePlanContract.LdindI1() == 70
+    assert ColumnarCodePlanContract.LdindU1() == 71
+    assert ColumnarCodePlanContract.LdindI2() == 72
+    assert ColumnarCodePlanContract.LdindU2() == 73
+    assert ColumnarCodePlanContract.LdindI4() == 74
+    assert ColumnarCodePlanContract.LdindU4() == 75
+    assert ColumnarCodePlanContract.LdindI8() == 76
+    assert ColumnarCodePlanContract.LdindR4() == 78
+    assert ColumnarCodePlanContract.LdindR8() == 79
     assert ColumnarCodePlanContract.LdindRef() == 80
+    assert ColumnarCodePlanContract.IsScalarNoOperandOpcode(
+        ColumnarCodePlanContract.LdindI1())
+    assert ColumnarCodePlanContract.IsScalarNoOperandOpcode(
+        ColumnarCodePlanContract.LdindR8())
     assert ColumnarCodePlanContract.Int64Operand() == 10
     assert ColumnarCodePlanContract.SingleOperand() == 11
     assert ColumnarCodePlanContract.DoubleOperand() == 12

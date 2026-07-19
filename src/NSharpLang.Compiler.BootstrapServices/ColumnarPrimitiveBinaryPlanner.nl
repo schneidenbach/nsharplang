@@ -188,7 +188,19 @@ public class ColumnarPrimitiveBinaryPlanner {
 
             rightType := typeof(int)
             rightOwnership := ColumnarDirectCallOwnership.NotOwned
-            if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(
+            // An unsuffixed int literal RIGHT operand adopts an exact uint/long/ulong LEFT
+            // operand's type before the ordinary operand path runs; a declined adoption leaves
+            // the plan untouched so the literal still plans as its own Int32 type below. Shift
+            // operators are excluded: their right operand is a shift COUNT that is always Int32 and
+            // must never take the left's type, so their count keeps the ordinary operand path.
+            adopted := false
+            if !IsShiftOperator(nodes, source, candidate) {
+                adopted = TryAppendAdoptedRightLiteral(
+                    nodes, source, nodes.Child(candidate, 1), leftType,
+                    plan, parentFragment, depth + 1, out rightType)
+            }
+            if !adopted
+                && !ColumnarRangeIndexPlanner.TryAppendConstructionValue(
                     nodes, source, nodes.Child(candidate, 1),
                     bindings, handles, plan, parentFragment, depth + 1,
                     out rightType, out rightOwnership) {
@@ -322,6 +334,86 @@ public class ColumnarPrimitiveBinaryPlanner {
         } else {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Shr())
         }
+        resultType = leftType
+        return true
+    }
+
+    // The RIGHT operand of an admitted binary whose LEFT operand is an exact uint/long/ulong may be
+    // an unsuffixed decimal int literal that ADOPTS the left's type — N#'s constant conversion, and
+    // exactly the legacy case-12 arm's TryEmitIntLiteralAsType adoption: `u / 2` runs uint/uint,
+    // `l != 0` runs long/long. Only these three left types adopt (the legacy arm gates on them), and
+    // only the RIGHT operand adopts (a literal LEFT cannot — its value is already committed, so the
+    // planner declines that mix through the ordinary mixed-pair path). The in-range magnitude cap is
+    // Int32.MaxValue for every target, matching the pipeline's overflow on unsuffixed literals beyond
+    // Int32 range whatever the target. A negative literal (unary minus wrapping the bare literal)
+    // adopts long only; uint and ulong reject it. The value emits pre-negated with no neg opcode via
+    // ldc.i4/ldc.i8, and the adopted operand seals its own fragment with the target type, exactly
+    // like the ordinary operand path, so the unified op type is the left type. Every decline is
+    // mutation-free: no plan row is written before the adoption is fully admitted.
+    static func TryAppendAdoptedRightLiteral(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        leftType: Type,
+        plan: ColumnarCodePlan,
+        parentFragment: int,
+        depth: int,
+        out resultType: Type): bool {
+        resultType = leftType
+        if depth > 200
+            || node < 0
+            || node >= nodes.Kinds.Length {
+            return false
+        }
+        if leftType != typeof(uint) && leftType != typeof(long)
+            && leftType != typeof(ulong) {
+            return false
+        }
+
+        negative := false
+        literalNode := node
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression()
+            && nodes.ChildCount(node) == 1
+            && nodes.Text(source, node) == "-" {
+            negative = true
+            literalNode = nodes.Child(node, 0)
+        }
+        if literalNode < 0
+            || literalNode >= nodes.Kinds.Length
+            || nodes.Kind(literalNode)
+                != ColumnarExpressionNodeKind.IntLiteralExpression()
+            || nodes.ChildCount(literalNode) != 0 {
+            return false
+        }
+
+        // Only an unsuffixed decimal literal within Int32's positive magnitude adopts, exactly like
+        // the legacy ulong.TryParse plus range gate; a suffixed literal keeps its own fixed type.
+        magnitude := 0
+        if !ColumnarScalarLiteralPlanner.TryGetTargetTypedIntegerMagnitude(
+                nodes.Text(source, literalNode), out magnitude) {
+            return false
+        }
+
+        // A negative magnitude adopts long only (the unsigned targets reject it). The cap already
+        // proved the magnitude at or below Int32.MaxValue, matching the legacy negation range gate.
+        if negative && leftType != typeof(long) {
+            return false
+        }
+
+        fragment := plan.BeginFragment(parentFragment, nodes.Kind(node), node)
+        if negative {
+            negatedValue := 0L - (long)magnitude
+            valueIndex := plan.AddInt64(negatedValue)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+        } else if leftType == typeof(uint) {
+            valueIndex := plan.AddInt32(magnitude)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+        } else {
+            valueIndex := plan.AddInt64((long)magnitude)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+        }
+
+        plan.CompleteFragment(fragment, leftType)
         resultType = leftType
         return true
     }

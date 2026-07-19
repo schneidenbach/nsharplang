@@ -1967,6 +1967,8 @@ public class ColumnarCodePlanExecutor {
                 ColumnarCodePlanStackValueKind.Exact(),
                 false,
                 0)
+        } else if IsScalarIndirectLoadOpcode(opCodeValue) {
+            ApplyScalarIndirectLoad(opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.ConvI4() {
             value := state.Pop()
             if value.IsAddress
@@ -2854,6 +2856,78 @@ public class ColumnarCodePlanExecutor {
         if opCodeValue == ColumnarCodePlanContract.LdelemRef() {
             return !elementType.get_IsValueType()
                 && !elementType.get_IsGenericParameter()
+        }
+        return false
+    }
+
+    // The typed byref-dereference family (ldind.i1..ldind.r8). Each opcode pops one managed address
+    // to its specific primitive slot and pushes that slot's value, exactly as ldind.ref pops a
+    // reference address and pushes the reference — ldind.ref is validated on its own arm because its
+    // element must be a reference type, whereas these validate the exact element primitive.
+    static func IsScalarIndirectLoadOpcode(opCodeValue: short): bool {
+        return opCodeValue == ColumnarCodePlanContract.LdindI1()
+            || opCodeValue == ColumnarCodePlanContract.LdindU1()
+            || opCodeValue == ColumnarCodePlanContract.LdindI2()
+            || opCodeValue == ColumnarCodePlanContract.LdindU2()
+            || opCodeValue == ColumnarCodePlanContract.LdindI4()
+            || opCodeValue == ColumnarCodePlanContract.LdindU4()
+            || opCodeValue == ColumnarCodePlanContract.LdindI8()
+            || opCodeValue == ColumnarCodePlanContract.LdindR4()
+            || opCodeValue == ColumnarCodePlanContract.LdindR8()
+    }
+
+    static func ApplyScalarIndirectLoad(
+        opCodeValue: short,
+        state: ColumnarCodePlanStackState,
+        schemaName: string) {
+        value := state.Pop()
+        if !value.IsAddress
+            || value.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+            || !TypedIndirectOpcodeMatches(opCodeValue, value.ValueType) {
+            throw new InvalidOperationException(
+                schemaName
+                    + " a typed ldind opcode requires an exact managed address to its "
+                    + "element type.")
+        }
+        // Push the loaded slot's declared element type as an exact value, exactly like ldloc of a
+        // local of that type: a small-int element (sbyte/byte/short/ushort/char) promotes at the
+        // consuming operation, and an Int64/UInt64 element is a known exact slot, not a contextual
+        // I8Slot, because the address pins the element's signedness.
+        state.Push(
+            value.ValueType,
+            false,
+            ColumnarCodePlanStackValueKind.Exact(),
+            false,
+            0)
+    }
+
+    static func TypedIndirectOpcodeMatches(opCodeValue: short, elementType: Type): bool {
+        if opCodeValue == ColumnarCodePlanContract.LdindI1() {
+            return elementType == typeof(sbyte)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindU1() {
+            return elementType == typeof(byte) || elementType == typeof(bool)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindI2() {
+            return elementType == typeof(short)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindU2() {
+            return elementType == typeof(char) || elementType == typeof(ushort)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindI4() {
+            return elementType == typeof(int)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindU4() {
+            return elementType == typeof(uint)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindI8() {
+            return elementType == typeof(long) || elementType == typeof(ulong)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindR4() {
+            return elementType == typeof(float)
+        }
+        if opCodeValue == ColumnarCodePlanContract.LdindR8() {
+            return elementType == typeof(double)
         }
         return false
     }
