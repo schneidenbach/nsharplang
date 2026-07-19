@@ -124,8 +124,14 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee) && bindings.IsCallable(nodes.Text(source, callee)) {
-            return false
+        // Callable names that are NOT plannable siblings stay legacy: visible local functions and
+        // any residual declared-callable name without routed sibling facts decline here exactly as
+        // before. A plannable sibling flows through to the sibling-ownership path below.
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee) {
+            bareCallable := nodes.Text(source, callee)
+            if bindings.IsCallable(bareCallable) && !bindings.HasSiblingCallable(bareCallable) {
+                return false
+            }
         }
 
         if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
@@ -144,7 +150,9 @@ class ColumnarDirectCallPlanner {
             enclosingDefinition := bindings.EnclosingTypeDefinition
             hasStatic := enclosingDefinition != null && (ColumnarSourceDirectCallResolver.HasStaticDeclarationAtArity(enclosingDefinition, bareName, argumentCount) || HasExcludedStaticOwnerAtArity(enclosingDefinition, bareName, argumentCount))
 
-            if !explicitThis && !hasInstance && !hasStatic {
+            hasSibling := bindings.HasSiblingCallable(bareName)
+
+            if !explicitThis && !hasInstance && !hasStatic && !hasSibling {
                 return false
             }
         }
@@ -188,7 +196,19 @@ class ColumnarDirectCallPlanner {
         memberName := nodes.Text(source, callee)
         explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee)
 
-        if memberName.Length == 0 || !explicitThis && bindings.IsCallable(memberName) {
+        if memberName.Length == 0 {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        // A plannable sibling takes precedence over the enclosing type's own instance/static
+        // members, mirroring the mechanical host's bare-call order. Other callable names (visible
+        // local functions and residual declared-callable names) stay legacy exactly as before.
+        if !explicitThis && bindings.HasSiblingCallable(memberName) {
+            return TryAppendSiblingCall(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, memberName, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+        }
+
+        if !explicitThis && bindings.IsCallable(memberName) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -270,6 +290,101 @@ class ColumnarDirectCallPlanner {
 
         ownership = ColumnarDirectCallOwnership.Planned
         return true
+    }
+
+    // A bare call to a top-level sibling function. The direct owner plans only the ordinary,
+    // fixed-arity, non-generic shape the mechanical host would emit as a plain static Call; every
+    // other admissible sibling shape (generic, by-ref/out/params parameters, arity mismatch, a
+    // value binding that shadows the name, or an argument the planner cannot lower) yields the
+    // whole subtree to the legacy sibling arm so its exact behavior is preserved. Because the name
+    // is a sibling, this owner is terminal: it never falls through to the enclosing type's own
+    // instance or static members, matching the host's bare-call precedence.
+    static func TryAppendSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, memberName: string, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+
+        facts := bindings.SiblingCallables[memberName]
+        if facts == null {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        // A local, parameter, lifted local, or boxed capture of the same name shadows the sibling.
+        // The host then emits a delegate invoke or reports the method/value collision; keep the
+        // whole subtree for that legacy path.
+        if bindings.IsSiblingShadowedByValue(memberName) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        // Generic siblings, by-ref/out/params parameters, and arity mismatches are all shapes the
+        // legacy sibling arm still owns (generic inference, expanded params, by-ref argument
+        // emission, or an outright decline). Preserve the subtree for it.
+        if facts.TypeParameterCount > 0 || HasNonOrdinarySiblingParameter(facts.ParameterTypes, facts.ParameterModifierKinds) || facts.ParameterTypes.Length != argumentTypes.Length {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        if !AppendSiblingSelection(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, facts, out resultType) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    // Every plannable sibling parameter must be an ordinary (non-by-ref) value with no ref/out/
+    // params/this modifier. A by-ref parameter type or any non-None modifier kind returns true so
+    // the caller yields to the legacy sibling arm.
+    static func HasNonOrdinarySiblingParameter(parameterTypes: Type[], modifierKinds: int[]): bool {
+        index := 0
+        while index < parameterTypes.Length {
+            if parameterTypes[index] == null || parameterTypes[index].get_IsByRef() {
+                return true
+            }
+
+            index += 1
+        }
+
+        index = 0
+        while index < modifierKinds.Length {
+            if modifierKinds[index] != 0 {
+                return true
+            }
+
+            index += 1
+        }
+
+        return false
+    }
+
+    static func AppendSiblingSelection(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, inferredArgumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, facts: ColumnarSiblingCallFacts, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := facts.Method
+        if method == null {
+            return false
+        }
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, facts.ParameterTypes, argumentFacts) {
+            return false
+        }
+
+        declaringType := method.get_DeclaringType()
+        if declaringType == null {
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, declaringType, facts.ParameterTypes, facts.ReturnType, true, false)
+
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        resultType = facts.ReturnType
+        return callFragment == 0 || !IsVoidType(resultType)
     }
 
     static func TryAppendMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {

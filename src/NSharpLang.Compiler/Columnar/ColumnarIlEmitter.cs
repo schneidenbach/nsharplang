@@ -84,6 +84,10 @@ internal sealed class ColumnarIlEmitter
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
     private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> _siblings;
+    // The N# direct-call planner owns bare sibling calls; it consults these routed facts to plan
+    // the ordinary fixed-arity shape. Projected once from _siblings (the MethodBuilder handle plus
+    // the carried signature, param-modifier, and generic-arity facts) and reused per body.
+    private Dictionary<string, ColumnarSiblingCallFacts>? _siblingCallFacts;
     private readonly IReadOnlyDictionary<Type, Type[]> _genericInterfaceConstraints;
     // User-defined enums in this program, by name -> (finalized enum Type, member->value). Lets member access
     // `Enum.Member` and enum match patterns resolve their underlying-int constant, and types resolve `Color` to a
@@ -9952,6 +9956,28 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
+    // Route the sibling signature facts to the N# planner. This is pure projection of _siblings —
+    // the planner alone decides which siblings it may own — cached so a body's many expressions
+    // share one dictionary.
+    private Dictionary<string, ColumnarSiblingCallFacts> SiblingCallFacts()
+    {
+        if (_siblingCallFacts != null)
+            return _siblingCallFacts;
+        var facts = new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal);
+        foreach (var entry in _siblings)
+        {
+            var sibling = entry.Value;
+            facts[entry.Key] = new ColumnarSiblingCallFacts(
+                sibling.Method,
+                sibling.ParamTypes,
+                sibling.ParamModifierKinds,
+                sibling.ReturnType,
+                sibling.TypeParams.Length);
+        }
+        _siblingCallFacts = facts;
+        return facts;
+    }
+
     private bool EmitExpressionCore(int idx, out Type type)
     {
         type = null!;
@@ -9984,6 +10010,7 @@ internal sealed class ColumnarIlEmitter
                 _typeParameters,
                 ExactSourceTypesForBody(),
                 _overflowCheckingEnabled,
+                SiblingCallFacts(),
                 _codePlan,
                 _il,
                 out var nsharpOwned,
@@ -16712,6 +16739,7 @@ internal sealed class ColumnarIlEmitter
                 _typeParameters,
                 ExactSourceTypesForBody(),
                 _overflowCheckingEnabled,
+                SiblingCallFacts(),
                 _codePlan,
                 out var nsharpOwned,
                 out var legacyWholeSubtreePlanning,

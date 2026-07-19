@@ -154,3 +154,13 @@ test "operators nested inside index and constructor expressions execute" {
     assert boxed == 42
     assert sized == 42
 }
+
+test "bare sibling-function calls execute as binary operands through the product route" {
+    assert SiblingEqualsLiteral()
+    assert SiblingSumOfCalls(10) == 62
+    assert SiblingCallLess(10)
+    assert !SiblingCallLess(30)
+    assert BoxedSiblingSum(9) == 60
+    values := [0, 1, 2, 3, 4, 5, 6]
+    assert IndexBySibling(values, 3) == 6
+}

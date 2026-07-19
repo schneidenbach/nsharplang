@@ -304,3 +304,37 @@ func DecimalIntegerLiteralAdd(): decimal {
 func DecimalLiteralCompare(d: decimal): bool {
     return d < 0.5m
 }
+
+// --- Bare sibling-function calls as binary operands ---
+// A module-level function called by a sibling compiles to a static call. When it appears as a
+// binary operand, the whole binary must plan through the N# route.
+func Answer(): int {
+    return 42
+}
+
+func Doubled(value: int): int {
+    return value * 2
+}
+
+func SiblingEqualsLiteral(): bool {
+    return Answer() == 42
+}
+
+func SiblingSumOfCalls(value: int): int {
+    return Answer() + Doubled(value)
+}
+
+func SiblingCallLess(value: int): bool {
+    return Doubled(value) < Answer()
+}
+
+// A sibling call nested inside a constructor argument.
+func BoxedSiblingSum(value: int): int {
+    box := new IntBox(Answer() + Doubled(value))
+    return box.Value
+}
+
+// A sibling call nested inside an index expression.
+func IndexBySibling(values: int[], value: int): int {
+    return values[Doubled(value)]
+}

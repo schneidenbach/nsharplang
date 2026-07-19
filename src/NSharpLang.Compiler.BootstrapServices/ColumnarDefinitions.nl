@@ -142,6 +142,31 @@ class ColumnarStaticMethodDef {
     }
 }
 
+// Top-level sibling functions compile to public static methods on the program/module type. The
+// mechanical host carries their exact selected signature (parameter types, return type) and the
+// param-modifier and generic-arity facts here, because a MethodBuilder does not expose
+// GetParameters()/ReturnType before its owner is baked. N# alone decides which siblings a direct
+// call may plan; the host only routes these facts.
+class ColumnarSiblingCallFacts {
+    Method: MethodInfo
+    ParameterTypes: Type[]
+    ParameterModifierKinds: int[]
+    ReturnType: Type
+    TypeParameterCount: int
+
+    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int) {
+        if method == null || parameterTypes == null || parameterModifierKinds == null || returnType == null {
+            throw new InvalidOperationException("Sibling call definition facts cannot be null.")
+        }
+
+        Method = method
+        ParameterTypes = parameterTypes
+        ParameterModifierKinds = parameterModifierKinds
+        ReturnType = returnType
+        TypeParameterCount = typeParameterCount
+    }
+}
+
 class ColumnarPropertyDefinitionToken {
 }
 

@@ -42,6 +42,10 @@ class ColumnarFragmentBindings {
     enclosingNames: IEnumerable<string>
     declaredCallableNames: IEnumerable<string>
     visibleLocalCallableNames: IEnumerable<string>
+    // Exact plannable facts for each top-level sibling function, keyed by name. The mechanical
+    // host routes these; direct-call planning consults them to own a bare sibling invocation.
+    // declaredCallableNames still carries the same name set for the callable-root guards.
+    SiblingCallables: Dictionary<string, ColumnarSiblingCallFacts>
 
     constructor(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedNames: IEnumerable<string>, boxedNames: IEnumerable<string>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>) {
         if parameterOrdinals == null || parameterTypes == null || locals == null || enums == null || liftedNames == null || boxedNames == null || enclosingNames == null || declaredCallableNames == null || visibleLocalCallableNames == null {
@@ -67,6 +71,7 @@ class ColumnarFragmentBindings {
         this.enclosingNames = enclosingNames
         this.declaredCallableNames = declaredCallableNames
         this.visibleLocalCallableNames = visibleLocalCallableNames
+        SiblingCallables = new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
     }
 
     // Metadata declaration passes need exact source/runtime type identity without value-flow
@@ -311,6 +316,26 @@ class ColumnarFragmentBindings {
 
     func IsCallable(name: string): bool {
         return ContainsName(declaredCallableNames, name) || ContainsName(visibleLocalCallableNames, name)
+    }
+
+    // A visible local function stays on the legacy delegate/closure tier; direct-call planning
+    // never owns it and must decline so the mechanical host can plan it.
+    func IsVisibleLocalCallable(name: string): bool {
+        return ContainsName(visibleLocalCallableNames, name)
+    }
+
+    // A top-level sibling function with routed plannable facts. Only these participate in the
+    // direct-call planner's sibling-ownership path.
+    func HasSiblingCallable(name: string): bool {
+        return SiblingCallables.ContainsKey(name)
+    }
+
+    // A value binding of the same name shadows the sibling. The mechanical host's bare-call arm
+    // matches exactly this set (locals, parameters, lifted locals, boxed captures) before it emits
+    // a delegate invoke or reports the ambiguous method/value collision, so the direct-call planner
+    // must yield the whole subtree for that legacy handling.
+    func IsSiblingShadowedByValue(name: string): bool {
+        return Locals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name)
     }
 
     func HasParameterOrdinal(ordinal: int): bool {

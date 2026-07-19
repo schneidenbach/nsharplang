@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -1164,4 +1165,206 @@ test "direct-call planner preserves exact constructed generic runtime returns" {
     assert plan.MethodDeclaringTypes[methodIndex] == streamReaderType
     assert plan.MethodReturnTypes[methodIndex] == expectedReturnType
     assert plan.Methods[methodIndex].get_ReturnType() == expectedReturnType
+}
+
+// Build a sibling MethodBuilder on a throwaway program-type host and wrap it as ordinary,
+// non-generic sibling facts. The host is never installed as an enclosing/source definition, so the
+// planner sees the method only through SiblingCallables.
+func DirectCallSiblingFacts(hostName: string, name: string, parameterTypes: Type[], returnType: Type): ColumnarSiblingCallFacts {
+    host := SourceCallDefinition(hostName, true)
+    method := host.Builder.DefineMethod(name, (MethodAttributes)22, returnType, parameterTypes)
+    return new ColumnarSiblingCallFacts(method, parameterTypes, new int[](0), returnType, 0)
+}
+
+func DirectCallSiblingFactsWithModifiers(hostName: string, name: string, parameterTypes: Type[], modifierKinds: int[], returnType: Type, typeParameterCount: int): ColumnarSiblingCallFacts {
+    host := SourceCallDefinition(hostName, true)
+    method := host.Builder.DefineMethod(name, (MethodAttributes)22, returnType, parameterTypes)
+    return new ColumnarSiblingCallFacts(method, parameterTypes, modifierKinds, returnType, typeParameterCount)
+}
+
+func DirectCallSiblingBindings(name: string, facts: ColumnarSiblingCallFacts): ColumnarFragmentBindings {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SiblingCallables[name] = facts
+    return bindings
+}
+
+func DirectCallLocalFunctionBindings(name: string): ColumnarFragmentBindings {
+    visibleFunctions := new HashSet<string>(StringComparer.Ordinal)
+    visibleFunctions.Add(name)
+    return new ColumnarFragmentBindings(new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), visibleFunctions)
+}
+
+test "direct-call planner owns a zero-argument sibling call" {
+    facts := DirectCallSiblingFacts("DirectCallSiblingZeroHost", "Ping", new Type[](0), typeof(int))
+    bindings := DirectCallSiblingBindings("Ping", facts)
+    tree := DirectCallBareTree("Ping", DirectCallEmptyTexts(), DirectCallEmptyKinds())
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[0]].get_Name() == "Ping"
+    assert plan.MethodIsStatic[plan.OperandIndices[0]]
+}
+
+test "direct-call planner owns a multi-argument sibling call with exact literal arguments" {
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(int)
+    parameterTypes[1] = typeof(int)
+    facts := DirectCallSiblingFacts("DirectCallSiblingAddHost", "Add", parameterTypes, typeof(int))
+    bindings := DirectCallSiblingBindings("Add", facts)
+
+    argumentTexts := new string[](2)
+    argumentTexts[0] = "3"
+    argumentTexts[1] = "4"
+    argumentKinds := new int[](2)
+    argumentKinds[0] = ColumnarExpressionNodeKind.IntLiteralExpression()
+    argumentKinds[1] = ColumnarExpressionNodeKind.IntLiteralExpression()
+    tree := DirectCallBareTree("Add", argumentTexts, argumentKinds)
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[2]].get_Name() == "Add"
+}
+
+test "direct-call planner plans a sibling call nested as a sibling argument" {
+    innerFacts := DirectCallSiblingFacts("DirectCallSiblingNestedInnerHost", "Inner", new Type[](0), typeof(int))
+    outerParameters := new Type[](1)
+    outerParameters[0] = typeof(int)
+    outerFacts := DirectCallSiblingFacts("DirectCallSiblingNestedOuterHost", "Outer", outerParameters, typeof(int))
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SiblingCallables["Inner"] = innerFacts
+    bindings.SiblingCallables["Outer"] = outerFacts
+    tree := DirectCallParsedTree("Outer(Inner())")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[0]].get_Name() == "Inner"
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[1]].get_Name() == "Outer"
+}
+
+test "direct-call planner plans a sibling call as a binary equality operand" {
+    facts := DirectCallSiblingFacts("DirectCallSiblingBinaryEqualityHost", "Answer", new Type[](0), typeof(int))
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SiblingCallables["Answer"] = facts
+    tree := DirectCallParsedTree("Answer() == 42")
+
+    plan := new ColumnarCodePlan()
+    owned := false
+    wholeSubtree := false
+    resultType := typeof(int)
+    assert ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out owned, out wholeSubtree, out resultType)
+
+    assert owned
+    assert resultType == typeof(bool)
+    assert DirectCallHasMethod(plan, "Answer")
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "direct-call planner plans two sibling calls as an additive binary" {
+    leftFacts := DirectCallSiblingFacts("DirectCallSiblingBinaryLeftHost", "Left", new Type[](0), typeof(int))
+    rightParameters := new Type[](1)
+    rightParameters[0] = typeof(int)
+    rightFacts := DirectCallSiblingFacts("DirectCallSiblingBinaryRightHost", "Right", rightParameters, typeof(int))
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SiblingCallables["Left"] = leftFacts
+    bindings.SiblingCallables["Right"] = rightFacts
+    tree := DirectCallParsedTree("Left() + Right(1)")
+
+    plan := new ColumnarCodePlan()
+    owned := false
+    wholeSubtree := false
+    resultType := typeof(int)
+    assert ColumnarPrimitiveBinaryPlanner.TryGetTypeRoot(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out owned, out wholeSubtree, out resultType)
+
+    assert owned
+    assert resultType == typeof(int)
+    assert DirectCallHasMethod(plan, "Left")
+    assert DirectCallHasMethod(plan, "Right")
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "direct-call planner yields the whole subtree for a sibling arity mismatch" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    facts := DirectCallSiblingFacts("DirectCallSiblingArityHost", "Need", parameterTypes, typeof(int))
+    bindings := DirectCallSiblingBindings("Need", facts)
+    tree := DirectCallBareTree("Need", DirectCallEmptyTexts(), DirectCallEmptyKinds())
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner yields the whole subtree for a generic sibling call" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    facts := DirectCallSiblingFactsWithModifiers("DirectCallSiblingGenericHost", "Identity", parameterTypes, new int[](0), typeof(int), 1)
+    bindings := DirectCallSiblingBindings("Identity", facts)
+    tree := DirectCallBareTree("Identity", DirectCallOneText("5"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner yields the whole subtree for a by-ref sibling parameter" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int).MakeByRefType()
+    modifierKinds := new int[](1)
+    modifierKinds[0] = (int)ParameterModifier.Ref
+    facts := DirectCallSiblingFactsWithModifiers("DirectCallSiblingByRefHost", "Bump", parameterTypes, modifierKinds, typeof(int), 0)
+    bindings := DirectCallSiblingBindings("Bump", facts)
+    tree := DirectCallBareTree("Bump", DirectCallOneText("5"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner yields the whole subtree when a value binding shadows a sibling" {
+    facts := DirectCallSiblingFacts("DirectCallSiblingShadowHost", "Shadowed", new Type[](0), typeof(int))
+    bindings := DirectCallSiblingBindings("Shadowed", facts)
+    ColumnarRangePlannerAddParameter(bindings, "Shadowed", 0, typeof(int))
+    tree := DirectCallBareTree("Shadowed", DirectCallEmptyTexts(), DirectCallEmptyKinds())
+
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacyWholeSubtreePlanning := false
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+}
+
+test "direct-call planner declines a visible local-function call without owning it" {
+    bindings := DirectCallLocalFunctionBindings("Helper")
+    tree := DirectCallBareTree("Helper", DirectCallEmptyTexts(), DirectCallEmptyKinds())
+
+    ownership := ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning := true
+    DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert !legacyWholeSubtreePlanning
 }
