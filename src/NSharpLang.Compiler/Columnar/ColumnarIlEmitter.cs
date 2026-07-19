@@ -10289,17 +10289,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     return false;
                 }
-                // The RIGHT operand: an unsuffixed int literal against a uint/long/ulong LEFT adopts the
-                // left's type (N#'s constant conversion — `u / 2`, `l + 5`); the left emits first, so this
-                // is well-ordered. A literal LEFT against a typed right cannot adopt (the left is already
-                // on the stack) — those mixes decline below, pinned for the widening slice.
-                Type rightType;
-                if ((leftType == typeof(uint) || leftType == typeof(long) || leftType == typeof(ulong))
-                    && TryEmitIntLiteralAsType(Child(idx, 1), leftType, out rightType))
-                {
-                    // adopted — rightType == leftType.
-                }
-                else if (!EmitExpression(Child(idx, 1), out rightType))
+                if (!EmitExpression(Child(idx, 1), out var rightType))
                 {
                     return false;
                 }
@@ -10315,30 +10305,18 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
-                // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
-                // matching  for int/long; the columnar `>>` is a single binary operator here (the `>>` token
-                // split only applies inside generic type arguments, not expression context). The N# planner owns
-                // these families at the front door for fully-plannable operands; this arm is the identical-IL
-                // fallback for operands outside the planner surface (casts, decimal literals, bare sibling calls).
-                if (op == "<<" || op == ">>")
-                {
-                    if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) || rightType != typeof(int))
-                        return false;
-                    // Shl is the same for signed/unsigned. `>>` is the SIGNED (arithmetic) Shr for int/long, but
-                    // the UNSIGNED (logical, zero-fill) Shr_Un for ulong — matching N#'s ulong `>>`. A wrong Shr
-                    // here would sign-extend a high-bit-set ulong.
-                    _il.Emit(op == "<<" ? OpCodes.Shl : (leftType == typeof(ulong) ? OpCodes.Shr_Un : OpCodes.Shr));
-                    type = leftType;
-                    return true;
-                }
-
-                // NUMERIC PROMOTION (ECMA §12.4.7) for the modelled int-like types: int, char, and the SMALL
-                // INTS (byte/sbyte/short/ushort) are ALL i4 on the stack (the load sign/zero-extends by the
-                // storage type), so ANY mix of them promotes to int with NO conversion IL (`b + s` is int,
-                // exactly ). long/ulong/uint/bool/string do NOT auto-promote (int/long needs a conv; uint
-                // runs native u4 against itself only) — they must match exactly. `opType` is the type the
-                // operation runs as; a same-type small-int pair promotes its RESULT to int below.
+                // FENCED WHOLE-SUBTREE RESIDUAL. This core serves ONLY binaries the N# front-door planner
+                // (ColumnarPrimitiveBinaryPlanner) declined as a whole subtree because an operand is outside
+                // its plannable surface: contextual-lambda call operands (task 010 owns lambda placement),
+                // member access / member chains on call results, unary-negated call operands, dictionary-indexer
+                // reads, and string-typed operands like enum string-constant reads or non-chain-provable
+                // indexer terms (task 015 grows the planner's nested-operand surface). It mirrors the planner's
+                // numeric promotion, arithmetic, bitwise, ordering, and equality selection exactly, keeps the
+                // two-operand string concat below, and keeps the non-numeric equality families
+                // (string/Type/user-reference/record-struct) that were never planner-owned, so a residual
+                // binary emits byte-identical IL. Shifts, the decimal op_* table, and the right-literal
+                // adoption path are NOT restored: no whole-subtree residual in the corpus reaches them (the
+                // planner owns every fully-plannable shift/decimal/adopting binary at the front door).
                 Type opType;
                 if (leftType == rightType)
                     opType = leftType;
@@ -10348,44 +10326,24 @@ internal sealed class ColumnarIlEmitter
                 {
                     return false;
                 }
-
-                // String CONCATENATION: `s1 + s2` -> String.Concat(string, string) (VALUE concat, matching the
-                // path's result). Both operands are already on the stack. Only string+string is modelled (the
-                // corpus' shape, e.g. `"diag-" + Math.Abs(hash).ToString("x")`); string+int etc. decline.
+                // Two-operand string CONCATENATION `s1 + s2` -> String.Concat(string, string). Retained in the
+                // residual because a residual-carrying string concat (e.g. `"x" + Status.Active` where the
+                // right is an enum string-constant member access, or `a + b + coll[i]` where an indexer term
+                // is not chain-provable) reaches here; the multi-term TryEmitStringConcatChain only fires when
+                // every term is a proven string literal/local/param, so mixed string operands fall through to
+                // this pair concat. The N# planner owns fully-plannable string-pair concat at the front door.
                 if (op == "+" && opType == typeof(string))
                 {
                     _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
                     type = typeof(string);
                     return true;
                 }
-                // DECIMAL (SC-6): not an IL primitive — arithmetic/comparisons call System.Decimal's op_*
-                // statics on the two already-emitted operands (the exact IL emit; 0.1m stays exact).
-                if (opType == typeof(decimal))
-                {
-                    var decimalOpMethod = op switch
-                    {
-                        "+" => "op_Addition", "-" => "op_Subtraction", "*" => "op_Multiply",
-                        "/" => "op_Division", "%" => "op_Modulus",
-                        "<" => "op_LessThan", ">" => "op_GreaterThan",
-                        "<=" => "op_LessThanOrEqual", ">=" => "op_GreaterThanOrEqual",
-                        "==" => "op_Equality", "!=" => "op_Inequality",
-                        _ => null,
-                    };
-                    if (decimalOpMethod == null)
-                        return false;
-                    _il.Emit(OpCodes.Call, typeof(decimal).GetMethod(decimalOpMethod, new[] { typeof(decimal), typeof(decimal) })!);
-                    type = op is "+" or "-" or "*" or "/" or "%" ? typeof(decimal) : typeof(bool);
-                    return true;
-                }
                 switch (op)
                 {
                     case "+": case "-": case "*": case "/": case "%":
                         // Add/Sub/Mul/Div/Rem work on i4, i8, and r8 (double); the result is `opType`'s numeric type.
-                        // Div/Rem are SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong); on DOUBLE the same
-                        // `div`/`rem` opcodes do IEEE FP division/remainder (x/0.0 -> ±Inf, 0.0/0.0 -> NaN — no
-                        // throw, matching the N# backend path), so double is NOT unsignedDivRem. Integer divide-by-zero /
-                        // INT_MIN÷-1 still throw exactly as the N# backend path does. A CHAR result promotes to INT (a char
-                        // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
+                        // Div/Rem are SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong/uint); on DOUBLE the same
+                        // `div`/`rem` opcodes do IEEE FP division/remainder. A CHAR/small-int result promotes to INT.
                         if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
                         var unsignedArithmetic = opType == typeof(ulong) || opType == typeof(uint);
                         var checkedIntegralArithmetic = _overflowCheckingEnabled
@@ -10397,25 +10355,17 @@ internal sealed class ColumnarIlEmitter
                             op == "*" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf) : OpCodes.Mul) :
                             op == "/" ? (unsignedArithmetic ? OpCodes.Div_Un : OpCodes.Div) :
                             (unsignedArithmetic ? OpCodes.Rem_Un : OpCodes.Rem));
-                        // char and the small ints never survive an arithmetic op — the result is INT (N#'s
-                        // promoted result, matching Analyzer.cs GetWiderType); uint stays uint (u4 native).
                         type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "&": case "|": case "^":
-                        // Bitwise on the int-promotable set (result INT — N# promotes), long, ulong, or uint
-                        // (And/Or/Xor work on i4 and i8 alike).
+                        // Bitwise on the int-promotable set (result INT — N# promotes), long, ulong, or uint.
                         if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
                         type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
-                        // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
-                        // correct), ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a large
-                        // positive, not a negative i8), or double (ORDERED Clt/Cgt for `<`/`>`; the UNORDERED
-                        // complement for `<=`/`>=` so a NaN operand yields false — see EmitComparison's isFloat path).
-                        // The int-promotable set compares SIGNED on i4 (the load's sign/zero extension makes
-                        // every small-int value its true integer — ushort 60000 is a positive i4); uint joins
-                        // ulong on the UNSIGNED compares (4000000000 must order as large-positive).
+                        // Ordering on int, long, char (signed), ulong/uint (UNSIGNED compares), or double/float
+                        // (ORDERED Clt/Cgt for `<`/`>`; UNORDERED complement for `<=`/`>=` so a NaN yields false).
                         if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
                         EmitComparison(op, opType == typeof(ulong) || opType == typeof(uint), opType == typeof(double) || opType == typeof(float));
                         type = typeof(bool);
@@ -10423,8 +10373,7 @@ internal sealed class ColumnarIlEmitter
                     case "==": case "!=":
                         if (opType == typeof(string))
                         {
-                            // String equality is VALUE equality (String.op_Equality), NOT `ceq` (which compares
-                            // references). `!=` negates the result.
+                            // String equality is VALUE equality (String.op_Equality), NOT `ceq`. `!=` negates.
                             _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
                             if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); }
                             type = typeof(bool);
@@ -10440,17 +10389,16 @@ internal sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // REFERENCE identity on registered user reference types (records AND classes): the
-                        // pipeline's `==`/`!=` on user reference values is reference equality (probe-pinned —
-                        // record VALUE equality lives in `.Equals`, never in `==`) — exactly `ceq`.
+                        // REFERENCE identity on registered user reference types (records AND classes): `==`/`!=`
+                        // on user reference values is reference equality (record VALUE equality is in `.Equals`).
                         if (opType is TypeBuilder eqOperandTb && FindDefByBuilder(eqOperandTb) is { IsReference: true })
                         {
                             EmitComparison(op);
                             type = typeof(bool);
                             return true;
                         }
-                        // RECORD STRUCT structural equality: `==`/`!=` on a value record routes through its
-                        // synthesized Equals(object) (box the right operand; call on the left's address).
+                        // RECORD STRUCT structural equality: routes through the synthesized Equals(object)
+                        // (box the right operand; call on the left's address).
                         if (opType is TypeBuilder recordStructTb
                             && FindDefByBuilder(recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
                         {
@@ -10466,9 +10414,8 @@ internal sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // Equality on int, long, ulong, bool, char, double, float, or a baked i4 enum (Ceq is bit-identical
-                        // signed/unsigned; on double/float it is the IEEE ordered equal — NaN == NaN is false and
-                        // NaN != NaN is true, which the `!=` negation of Ceq produces correctly).
+                        // Equality on int, long, ulong, uint, bool, char, double, float, or a baked i4 enum
+                        // (Ceq is bit-identical signed/unsigned; on double/float it is the IEEE ordered equal).
                         if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsKnownEnumType(opType))
                         {
                             return false;
@@ -16996,93 +16943,27 @@ internal sealed class ColumnarIlEmitter
             || !TryGetPreflightExpressionType(Child(node, 1), out var rightType))
             return false;
 
+        // ColumnarPrimitiveBinaryPlanner owns every numeric/bool/decimal/shift binary type at the
+        // front door; the retained preflight families mirror the fenced whole-subtree emit owner:
+        // string-pair concat and matched-type non-numeric equality (string, System.Type, and the
+        // interpolation-equality set covering enums and record types).
         if (op == "+" && leftType == typeof(string) && rightType == typeof(string))
         {
             type = typeof(string);
             return true;
         }
 
-        if (op == "<<" || op == ">>")
+        if ((op == "==" || op == "!=")
+            && TypesEquivalent(leftType, rightType)
+            && (leftType == typeof(string)
+                || leftType == typeof(Type)
+                || IsSupportedInterpolationEqualityType(leftType)))
         {
-            if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong))
-                || rightType != typeof(int))
-                return false;
-            type = leftType;
+            type = typeof(bool);
             return true;
         }
 
-        Type opType;
-        if (TypesEquivalent(leftType, rightType))
-        {
-            opType = leftType;
-        }
-        else if (!TrySelectMixedNumericCommonType(leftType, rightType, out opType))
-        {
-            if (!ColumnarNumericFacts.IsIntPromotable(leftType) || !ColumnarNumericFacts.IsIntPromotable(rightType))
-                return false;
-            opType = typeof(int);
-        }
-
-        switch (op)
-        {
-            case "+":
-            case "-":
-            case "*":
-            case "/":
-            case "%":
-                if (opType == typeof(decimal))
-                {
-                    type = typeof(decimal);
-                    return true;
-                }
-                if (!ColumnarNumericFacts.IsIntPromotable(opType)
-                    && opType != typeof(long)
-                    && opType != typeof(ulong)
-                    && opType != typeof(uint)
-                    && opType != typeof(double)
-                    && opType != typeof(float))
-                    return false;
-                type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
-                return true;
-            case "&":
-            case "|":
-            case "^":
-                if (!ColumnarNumericFacts.IsIntPromotable(opType)
-                    && opType != typeof(long)
-                    && opType != typeof(ulong)
-                    && opType != typeof(uint))
-                    return false;
-                type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
-                return true;
-            case "<":
-            case ">":
-            case "<=":
-            case ">=":
-                if (!ColumnarNumericFacts.IsIntPromotable(opType)
-                    && opType != typeof(long)
-                    && opType != typeof(ulong)
-                    && opType != typeof(uint)
-                    && opType != typeof(double)
-                    && opType != typeof(float)
-                    && opType != typeof(decimal))
-                    return false;
-                type = typeof(bool);
-                return true;
-            case "==":
-            case "!=":
-                if (!TypesEquivalent(leftType, rightType))
-                    return false;
-                if (opType == typeof(string)
-                    || opType == typeof(Type)
-                    || IsSupportedInterpolationEqualityType(opType))
-                {
-                    type = typeof(bool);
-                    return true;
-                }
-                return false;
-            default:
-                return false;
-        }
+        return false;
     }
 
     private bool TryGetPlannedExternalCall(
