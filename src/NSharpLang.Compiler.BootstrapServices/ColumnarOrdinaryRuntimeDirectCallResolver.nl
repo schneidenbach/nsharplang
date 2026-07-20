@@ -63,6 +63,57 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
     }
 }
 
+// A trailing-optional runtime method selection: the explicit call arguments occupy the leading
+// ParameterTypes and every parameter from ExplicitArgumentCount onward is filled from its null
+// metadata default. This is the shape `app.Run()` needs (`WebApplication.Run(string url = null)`).
+class ColumnarRuntimeOptionalCallSelection {
+    IsSelected: bool
+    Method: MethodInfo?
+    LookupType: Type
+    DeclaringType: Type
+    ParameterTypes: Type[]
+    ReturnType: Type
+    ExplicitArgumentCount: int
+    IsStatic: bool
+    ReceiverIsReference: bool
+    UsesCallVirtual: bool
+
+    constructor(isSelected: bool, method: MethodInfo?, lookupType: Type, declaringType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, isStatic: bool, receiverIsReference: bool) {
+        if lookupType == null || declaringType == null || parameterTypes == null || returnType == null {
+            throw new InvalidOperationException("Runtime optional-call selection facts cannot be null.")
+        }
+
+        if isSelected && (method == null || explicitArgumentCount < 0 || explicitArgumentCount >= parameterTypes.Length) {
+            throw new InvalidOperationException("A selected trailing-optional runtime call requires an exact handle and at least one filled default.")
+        }
+
+        IsSelected = isSelected
+        Method = method
+        LookupType = lookupType
+        DeclaringType = declaringType
+        ParameterTypes = parameterTypes
+        ReturnType = returnType
+        ExplicitArgumentCount = explicitArgumentCount
+        IsStatic = isStatic
+        ReceiverIsReference = receiverIsReference
+        UsesCallVirtual = !isStatic && receiverIsReference
+    }
+
+    static func None(lookupType: Type): ColumnarRuntimeOptionalCallSelection {
+        return new ColumnarRuntimeOptionalCallSelection(false, null, lookupType, lookupType, new Type[](0), typeof(object), 0, false, false)
+    }
+
+    static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, expectedStatic: bool): ColumnarRuntimeOptionalCallSelection {
+        declaringType := method.get_DeclaringType()
+        if declaringType == null {
+            throw new InvalidOperationException("A selected trailing-optional runtime call requires a declaring type.")
+        }
+
+        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        return new ColumnarRuntimeOptionalCallSelection(true, method, lookupType, declaringType, parameterTypes, returnType, explicitArgumentCount, expectedStatic, receiverIsReference)
+    }
+}
+
 // Reflection-backed overload selection for ordinary public runtime methods. This owns only
 // fixed-arity, non-generic, non-varargs, non-by-ref, non-params invocations. Candidate ranking
 // deliberately reuses source-call argument scores so source and runtime calls cannot disagree
@@ -481,6 +532,111 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func Empty(status: ColumnarOrdinaryRuntimeDirectCallStatus, lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         return new ColumnarOrdinaryRuntimeDirectCallSelection(status, null, lookupType, lookupType, new Type[](0), typeof(object), ColumnarExternalCallKind.None, expectedStatic, false, false)
+    }
+
+    // A fallback tier for the exact-arity resolver above: when no candidate binds at the supplied
+    // arity, select a single ordinary method whose trailing parameters are all fillable null-default
+    // optionals (`app.Run()` -> WebApplication.Run(string url = null)). Builder-bound source generics
+    // and every excluded shape (generic, params, by-ref, varargs) keep their existing decline; the
+    // explicit leading arguments are ranked with the shared direct-call scoring, and any tie declines.
+    static func ResolveOptionalFill(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarRuntimeOptionalCallSelection {
+        ValidateInputs(lookupType, memberName, argumentTypes)
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            return ColumnarRuntimeOptionalCallSelection.None(lookupType)
+        }
+
+        candidates := CandidatesOrEmpty(lookupType)
+        paramArrayAttributeType := RequiredParamArrayAttributeType()
+        argumentCount := argumentTypes.Length
+        bestScore := -1
+        bestParameterCount := 0
+        bestCount := 0
+        selected: MethodInfo? = null
+        selectedParameters := new Type[](0)
+        selectedReturnType := typeof(object)
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
+                parameters := candidate.GetParameters()
+                if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters, paramArrayAttributeType) && parameters.Length > argumentCount {
+                    parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
+                    returnType := ResolveReturnType(candidate, lookupType, closedArguments)
+                    if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
+                        leading := LeadingParameterTypes(parameterTypes, argumentCount)
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+                        if score >= 0 {
+                            parameterCount := parameters.Length
+                            if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                                bestScore = score
+                                bestParameterCount = parameterCount
+                                bestCount = 1
+                                selected = candidate
+                                selectedParameters = parameterTypes
+                                selectedReturnType = returnType
+                            } else if score == bestScore && parameterCount == bestParameterCount {
+                                bestCount = bestCount + 1
+                            }
+                        }
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        if bestCount == 1 && selected != null {
+            return ColumnarRuntimeOptionalCallSelection.Selected(lookupType, selected, selectedParameters, selectedReturnType, argumentCount, expectedStatic)
+        }
+
+        return ColumnarRuntimeOptionalCallSelection.None(lookupType)
+    }
+
+    static func CandidatesOrEmpty(lookupType: Type): MethodInfo[] {
+        try {
+            candidates := lookupType.GetMethods()
+            if candidates == null {
+                return new MethodInfo[](0)
+            }
+
+            return candidates
+        } catch ex: NotSupportedException {
+            return new MethodInfo[](0)
+        } catch ex: InvalidOperationException {
+            return new MethodInfo[](0)
+        }
+    }
+
+    static func OptionalTailFillable(parameters: ParameterInfo[], parameterTypes: Type[], startIndex: int): bool {
+        if parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        index := startIndex
+        while index < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.CanFillOptional(parameters[index], parameterTypes[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    static func LeadingParameterTypes(parameterTypes: Type[], count: int): Type[] {
+        result := new Type[](count)
+        index := 0
+        while index < count {
+            result[index] = parameterTypes[index]
+            index = index + 1
+        }
+
+        return result
     }
 
     static func ValidateInputs(lookupType: Type, memberName: string, argumentTypes: Type[]) {

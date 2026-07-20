@@ -907,6 +907,42 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
+        // No instance member of this name bound at the supplied arity. Two fallbacks remain before
+        // the call is yielded, both terminal in N#: (1) a trailing-optional instance method on the
+        // receiver's own type (`app.Run()` -> WebApplication.Run(string url = null)); (2) an external
+        // extension method exported by a referenced assembly (`builder.Services.AddControllers()`).
+        // An owned-rejected instance result (a same-named method exists but no overload can bind the
+        // arguments) is left alone: extension lookup only applies when the receiver has NO matching
+        // instance method, preserving instance-beats-extension precedence.
+        if !ordinaryInstance.IsOwnedRejected {
+            optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
+
+            if optionalInstance.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalInstance, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
+            if scope != null {
+                extension := ColumnarExtensionMethodSelection.None()
+                if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    if !AppendExtensionSelection(nodes, source, callNode, receiverNode, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    ownership = ColumnarDirectCallOwnership.Planned
+                    return true
+                }
+            }
+        }
+
         if ordinaryInstance.IsOwnedRejected {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
         } else {
@@ -915,6 +951,114 @@ class ColumnarDirectCallPlanner {
 
         plan.Rollback(checkpoint)
         return false
+    }
+
+    // Emit an external extension call as an ordinary static `call` row: load the receiver as the
+    // first argument, emit each explicit argument on its exact parameter type, fill every trailing
+    // optional from its null metadata default, and dispatch the static method. The receiver's value
+    // is verifiably assignable to the extension's declared receiver parameter, so no cast is emitted.
+    static func AppendExtensionSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarExtensionMethodSelection, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := selection.Method
+        if !selection.IsSelected || method == null {
+            return false
+        }
+
+        parameterTypes := selection.ParameterTypes
+        explicitCount := selection.ExplicitArgumentCount
+        if !AppendExtensionReceiver(nodes, source, receiverNode, parameterTypes[0], bindings, handles, plan, callFragment, depth + 1) {
+            return false
+        }
+
+        leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, argumentTypes, leadingParameterTypes, argumentFacts) {
+            return false
+        }
+
+        parameters := method.GetParameters()
+        if parameters == null || parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        defaultIndex := 1 + explicitCount
+        while defaultIndex < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[defaultIndex], parameterTypes[defaultIndex]) {
+                return false
+            }
+
+            defaultIndex += 1
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, true, false)
+
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        resultType = selection.ReturnType
+        return callFragment == 0 || !IsVoidType(resultType)
+    }
+
+    // Load the extension receiver as an ordinary value in the call fragment, mirroring how each call
+    // argument is emitted. Only reference receivers reach this owner, so no receiver address is taken.
+    static func AppendExtensionReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, expectedType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int): bool {
+        emittedType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth, out emittedType) {
+            return false
+        }
+
+        return !IsVoidType(emittedType) && ColumnarExtensionMethodResolver.ReferenceAssignableFrom(expectedType, emittedType)
+    }
+
+    // Emit a trailing-optional instance/static runtime call: emit the receiver (instance only), emit
+    // each explicit argument on its exact leading parameter type, fill every trailing optional from
+    // its null metadata default, and dispatch with the receiver's exact call/callvirt instruction.
+    static func AppendOptionalFillRuntimeSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarRuntimeOptionalCallSelection, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := selection.Method
+        if !selection.IsSelected || method == null {
+            return false
+        }
+
+        parameterTypes := selection.ParameterTypes
+        explicitCount := selection.ExplicitArgumentCount
+        if !selection.IsStatic && !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, selection.LookupType, selection.ReceiverIsReference) {
+            return false
+        }
+
+        leadingParameterTypes := ExtensionLeadingTypes(parameterTypes, explicitCount)
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, argumentTypes, leadingParameterTypes, argumentFacts) {
+            return false
+        }
+
+        parameters := method.GetParameters()
+        if parameters == null || parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        defaultIndex := explicitCount
+        while defaultIndex < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[defaultIndex], parameterTypes[defaultIndex]) {
+                return false
+            }
+
+            defaultIndex += 1
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
+
+        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+
+        resultType = selection.ReturnType
+        return callFragment == 0 || !IsVoidType(resultType)
+    }
+
+    static func ExtensionLeadingTypes(parameterTypes: Type[], count: int): Type[] {
+        result := new Type[](count)
+        index := 0
+        while index < count {
+            result[index] = parameterTypes[index]
+            index += 1
+        }
+
+        return result
     }
 
     static func AppendOrdinaryRuntimeSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, inferredArgumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out resultType: Type): bool {

@@ -15,6 +15,15 @@ func ExternalCopyAsset(sourcePath: string, destinationPath: string) {
     File.Copy(sourcePath, destinationPath, true)
 }
 
+func ExternalWriteAsset(destinationPath: string, content: string) {
+    directory := Path.GetDirectoryName(destinationPath)
+    if directory != null {
+        Directory.CreateDirectory(directory)
+    }
+
+    File.WriteAllText(destinationPath, content)
+}
+
 func ExternalContainsPath(paths: IReadOnlyList<string>, expected: string): bool {
     index := 0
     while index < paths.Count {
@@ -343,22 +352,25 @@ test "configured DLL runtime assets deploy implementations and retain metadata-o
     assert !File.Exists(Path.Combine(output, "MetadataOnly.dll"))
 }
 
-test "runtime asset copy rejects distinct sources that flatten to the same filename" {
-    root := Path.GetFullPath("obj/nsharp-runtime-asset-collision-contract")
-    firstPath := Path.Combine(root, "first/Collision.dll")
-    secondPath := Path.Combine(root, "second/Collision.dll")
+test "runtime asset copy unifies same-filename sources to the highest package version" {
+    root := Path.GetFullPath("obj/nsharp-runtime-asset-unify-contract")
+    lowerPath := Path.Combine(root, "microsoft.openapi/1.6.17/lib/net9.0/Collision.dll")
+    higherPath := Path.Combine(root, "microsoft.openapi/1.6.22/lib/net9.0/Collision.dll")
     output := Path.Combine(root, "output")
-    bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
 
-    ExternalCopyAsset(bootstrapRuntimePath, firstPath)
-    ExternalCopyAsset(bootstrapRuntimePath, secondPath)
+    ExternalWriteAsset(lowerPath, "lower-version-asset")
+    ExternalWriteAsset(higherPath, "higher-version-asset")
 
     result := new ReferenceResolutionResult()
-    result.AddRuntimeAsset(firstPath)
-    result.AddRuntimeAsset(secondPath)
+    result.AddRuntimeAsset(lowerPath)
+    result.AddRuntimeAsset(higherPath)
 
+    // A diamond dependency that flattens two versions of the same assembly name is unified to the
+    // single highest version, exactly as NuGet resolves a version conflict, instead of throwing.
     assert result.RuntimeAssets.Count == 2
-    assert throws InvalidOperationException {
-        result.CopyRuntimeAssets(output)
-    }
+    result.CopyRuntimeAssets(output)
+
+    copiedPath := Path.Combine(output, "Collision.dll")
+    assert File.Exists(copiedPath)
+    assert File.ReadAllText(copiedPath) == "higher-version-asset", "The higher package version must win a same-filename runtime-asset collision."
 }

@@ -790,6 +790,14 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
+        // The dependency-injection service collection is the receiver produced by a hosting builder's
+        // `Services` property (`builder.Services.AddControllers()`); admitting it as an instance-member
+        // result lets that external reference flow into extension-method resolution. Matched by exact
+        // metadata name because this assembly does not reference the DI abstractions.
+        if valueType.FullName == "Microsoft.Extensions.DependencyInjection.IServiceCollection" {
+            return true
+        }
+
         if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || IsSupportedTaskValueType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) {
             return true
         }

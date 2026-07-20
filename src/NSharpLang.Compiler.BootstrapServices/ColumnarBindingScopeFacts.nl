@@ -91,6 +91,8 @@ class ColumnarExternalTypeCatalog {
     resolvedOwners: Dictionary<string, ExternalAssemblyTypeResolution>
     fileFactsById: Dictionary<int, ColumnarSourceBindingFacts>
     referenceAssemblyPaths: string[]
+    extensionIndex: ColumnarExtensionMethodIndex?
+    extensionIndexBuilt: bool
     IsPrepared: bool
 
     constructor() {
@@ -98,7 +100,40 @@ class ColumnarExternalTypeCatalog {
             StringComparer.Ordinal)
         fileFactsById = new Dictionary<int, ColumnarSourceBindingFacts>()
         referenceAssemblyPaths = new string[](0)
+        extensionIndex = null
+        extensionIndexBuilt = false
         IsPrepared = false
+    }
+
+    // Extension-method discovery rides the same referenced-assembly scan the owner resolver uses.
+    // The name-keyed index is built once from the runtime scan (the exact emittable handles) and
+    // cached; owner lookups and extension lookups then share the canonical assembly order without a
+    // per-feature whitelist. A not-selected result is a normal decline, not an error.
+    func TryResolveExtension(
+        receiverType: Type,
+        memberName: string,
+        argumentTypes: Type[],
+        argumentFacts: ColumnarDirectCallArgumentFacts,
+        out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !IsPrepared {
+            return false
+        }
+        if !extensionIndexBuilt {
+            scan := ExternalAssemblyScan.OpenWithReferences(referenceAssemblyPaths)
+            try {
+                extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(scan)
+            } finally {
+                scan.Dispose()
+            }
+            extensionIndexBuilt = true
+        }
+        if extensionIndex == null {
+            return false
+        }
+        selection = ColumnarExtensionMethodResolver.Resolve(
+            extensionIndex, receiverType, memberName, argumentTypes, argumentFacts)
+        return true
     }
 
     func Prepare(
@@ -410,6 +445,23 @@ public class ColumnarBindingScopeFacts {
         assemblyCatalog.Prepare(
             referenceAssemblyPaths,
             fileFactsById)
+    }
+
+    // Member-style calls whose receiver declares no matching instance method may bind to an external
+    // extension method exported by a referenced assembly. Selection is delegated to the shared
+    // external-type catalog so the extension index is built once and reused across every file view.
+    public func TryResolveExtensionMethod(
+        receiverType: Type,
+        memberName: string,
+        argumentTypes: Type[],
+        argumentFacts: ColumnarDirectCallArgumentFacts,
+        out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !assemblyCatalog.IsPrepared {
+            return false
+        }
+        return assemblyCatalog.TryResolveExtension(
+            receiverType, memberName, argumentTypes, argumentFacts, out selection)
     }
 
     // Declared-type positions have their own exact binding rules. This resolver deliberately

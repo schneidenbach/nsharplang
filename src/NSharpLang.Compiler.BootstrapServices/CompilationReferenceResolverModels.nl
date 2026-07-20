@@ -86,13 +86,18 @@ public class ReferenceResolutionResult {
 
     public func CopyRuntimeAssets(outputDirectory: string) {
         assets := RuntimeAssets
+
+        // A diamond dependency can restore two versions of the same assembly (for example a project
+        // that pulls both Swashbuckle and Microsoft.AspNetCore.OpenApi resolves two Microsoft.OpenApi
+        // versions). NuGet unifies such a conflict to the single highest version; mirror that here so
+        // exactly one file per name is copied instead of failing on the runtime-asset name clash.
         destinations := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         foreach asset in assets {
             fileName := Path.GetFileName(asset)
             existing := ""
             if destinations.TryGetValue(fileName, out existing) {
-                if !string.Equals(existing, asset, StringComparison.OrdinalIgnoreCase) {
-                    throw new InvalidOperationException("Runtime asset filename collision for '" + fileName + "': '" + existing + "' and '" + asset + "'.")
+                if !string.Equals(existing, asset, StringComparison.OrdinalIgnoreCase) && PrefersReplacementRuntimeAsset(existing, asset) {
+                    destinations[fileName] = asset
                 }
 
                 continue
@@ -103,7 +108,8 @@ public class ReferenceResolutionResult {
 
         Directory.CreateDirectory(outputDirectory)
 
-        foreach asset in assets {
+        foreach entry in destinations {
+            asset := entry.Value
             destination := Path.Combine(outputDirectory, Path.GetFileName(asset))
             if string.Equals(Path.GetFullPath(asset), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase) {
                 continue
@@ -111,6 +117,49 @@ public class ReferenceResolutionResult {
 
             File.Copy(asset, destination, true)
         }
+    }
+
+    static func PrefersReplacementRuntimeAsset(existingAsset: string, candidateAsset: string): bool {
+        return IsHigherVersion(
+            ExtractRuntimeAssetVersion(candidateAsset),
+            ExtractRuntimeAssetVersion(existingAsset))
+    }
+
+    // Recover a runtime asset's package version from the standard NuGet cache layout
+    // (`<id>/<version>/lib/<tfm>/<file>`) by walking ancestor directories until one parses as a
+    // version. An unrecognizable layout falls back to the default version so a parseable candidate
+    // still wins.
+    static func ExtractRuntimeAssetVersion(assetPath: string): Version {
+        directory := Path.GetDirectoryName(assetPath)
+        guard := 0
+        while directory != null && directory.Length > 0 && guard < 32 {
+            segment := Path.GetFileName(directory)
+            parsedVersion := AssemblyVersionUtilities.DefaultAssemblyVersion
+            if AssemblyVersionUtilities.TryGetAssemblyVersion(segment, out parsedVersion) {
+                return parsedVersion
+            }
+
+            directory = Path.GetDirectoryName(directory)
+            guard = guard + 1
+        }
+
+        return AssemblyVersionUtilities.DefaultAssemblyVersion
+    }
+
+    static func IsHigherVersion(candidate: Version, existing: Version): bool {
+        if candidate.get_Major() != existing.get_Major() {
+            return candidate.get_Major() > existing.get_Major()
+        }
+
+        if candidate.get_Minor() != existing.get_Minor() {
+            return candidate.get_Minor() > existing.get_Minor()
+        }
+
+        if candidate.get_Build() != existing.get_Build() {
+            return candidate.get_Build() > existing.get_Build()
+        }
+
+        return candidate.get_Revision() > existing.get_Revision()
     }
 
     func BuildRuntimeAssets(): string[] {
