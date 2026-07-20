@@ -256,6 +256,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "direct-call" "$REPO_ROOT/tests/native/direct-calls" "$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll" || BUILD_FAILED=1
     build_native_test "construction-array" "$REPO_ROOT/tests/native/construction-arrays" "$REPO_ROOT/tests/native/construction-arrays/bin/Debug/net10.0/tests/NSharpLang.ConstructionArrays.Tests.dll" || BUILD_FAILED=1
     build_native_test "erased-enum identity" "$REPO_ROOT/tests/native/erased-enum-identity" "$REPO_ROOT/tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll" || BUILD_FAILED=1
+    build_native_test "lambda placement" "$REPO_ROOT/tests/native/lambda-placement" "$REPO_ROOT/tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."

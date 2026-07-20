@@ -1577,72 +1577,58 @@ internal sealed class ColumnarIlEmitter
         {
             // THIS-capture detection (bare-field/instance-member references in an INSTANCE method's lambda):
             // a kind-6 name that is neither bound nor a sibling but resolves on the enclosing type's chain
-            // means the lambda needs `this`. The legacy emitter's this-only path binds the delegate DIRECTLY to the
-            // current instance — the lambda becomes an instance method ON THE ENCLOSING TYPE, no display
-            // class, true reference capture (field mutation inside the lambda hits the real object, exactly
-            // the legacy emitter's semantics). REFERENCE types only: a value-type `this` would bind a copy with
-            // different semantics (the legacy emitter routes those through display-class copies) — decline.
-            if (_currentStruct != null
-                && BodyReferencesEnclosingChain(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)))
+            // means the lambda needs `this`. C# resolves that raw fact here; N# owns the placement decision
+            // it drives — a this-referencing body becomes a private instance method on the enclosing
+            // reference type (the delegate binds directly to the current instance, true reference capture),
+            // every other non-capturing body an assembly-static method on the program type.
+            var hasThisCapture = _currentStruct != null
+                && BodyReferencesEnclosingChain(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal));
+            // N# selects the owning type, the generated method identity, and the exact visibility that keeps
+            // a cross-type ldftn verifiable, and defines the synthesized method. C# only emits the recursive
+            // body and constructs the delegate over the exact method N# selected.
+            var placement = ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
+                _programType!, _currentStruct, _lambdaCounter!, _isConstructorBody,
+                _typeParameters, delegateReturnType, signatureTypes, hasThisCapture);
+            if (placement == null)
+                return false;
+            var bodyIl = placement.Method.GetILGenerator();
+            var bodyOrdinals = ordinals;
+            if (placement.OrdinalShift != 0)
             {
-                if (!_currentStruct.IsReference || _isConstructorBody)
-                    return false;
-                if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, _currentStruct.Builder))
-                    return false;
-                var instanceLambda = _currentStruct.Builder.DefineMethod(
-                    "<Lambda>_" + _lambdaCounter[0]++,
-                    MethodAttributes.Private | MethodAttributes.HideBySig, delegateReturnType, signatureTypes);
-                var instanceIl = instanceLambda.GetILGenerator();
-                var instanceOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                bodyOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var pair in ordinals)
-                    instanceOrdinals[pair.Key] = pair.Value + 1;
-                var instanceEmitter = new ColumnarIlEmitter(
-                    _nodes, _source, instanceOrdinals, paramTypeMap, delegateReturnType, instanceIl, _siblings,
-                    _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
-                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
-                    referenceAssemblyPaths: _referenceAssemblyPaths,
-                    genericInterfaceConstraints: _genericInterfaceConstraints,
-                    typeParameters: ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(
-                        _typeParameters, _currentStruct.Builder),
-                    typeResolutionEnums: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionEnums, _currentStruct.Builder),
-                    typeResolutionStructs: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionStructs, _currentStruct.Builder),
-                    typeResolutionUnions: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionUnions, _currentStruct.Builder));
-                if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, delegateReturnType))
-                    return DeclineMember("emit.body", "instance lambda body emission declined", bodyNode, "lambda");
+                    bodyOrdinals[pair.Key] = pair.Value + placement.OrdinalShift;
+            }
+            var subEmitter = new ColumnarIlEmitter(
+                _nodes, _source, bodyOrdinals, paramTypeMap, delegateReturnType, bodyIl, _siblings,
+                _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry,
+                currentStruct: placement.CurrentStructForBody,
+                programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+                enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                referenceAssemblyPaths: _referenceAssemblyPaths,
+                genericInterfaceConstraints: _genericInterfaceConstraints,
+                typeParameters: placement.TypeParametersForBody,
+                typeResolutionEnums: TypeResolutionForSynthesizedMethod(
+                    _typeResolutionEnums, placement.OwnerTypeForBody),
+                typeResolutionStructs: TypeResolutionForSynthesizedMethod(
+                    _typeResolutionStructs, placement.OwnerTypeForBody),
+                typeResolutionUnions: TypeResolutionForSynthesizedMethod(
+                    _typeResolutionUnions, placement.OwnerTypeForBody));
+            if (!EmitLambdaBody(subEmitter, bodyIl, bodyNode, delegateReturnType))
+                return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda");
+            if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis)
+            {
                 _il.Emit(OpCodes.Ldarg_0);
                 _il.Emit(
                     OpCodes.Ldftn,
-                    ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(_currentStruct.Builder, instanceLambda));
-                _il.Emit(OpCodes.Newobj, delegateCtor);
-                return true;
+                    ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(
+                        placement.OwnerTypeForBody, placement.Method));
             }
-            if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, _programType))
-                return false;
-            var lambdaMethod = _programType.DefineMethod(
-                "<Lambda>_" + _lambdaCounter[0]++,
-                MethodAttributes.Assembly | MethodAttributes.Static, delegateReturnType, signatureTypes);
-            var lambdaIl = lambdaMethod.GetILGenerator();
-            var subEmitter = new ColumnarIlEmitter(
-                _nodes, _source, ordinals, paramTypeMap, delegateReturnType, lambdaIl, _siblings,
-                _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
-                    referenceAssemblyPaths: _referenceAssemblyPaths,
-                    genericInterfaceConstraints: _genericInterfaceConstraints,
-                    typeResolutionEnums: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionEnums, _programType),
-                    typeResolutionStructs: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionStructs, _programType),
-                    typeResolutionUnions: TypeResolutionForSynthesizedMethod(
-                        _typeResolutionUnions, _programType));
-            if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, delegateReturnType))
-                return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda");
-            _il.Emit(OpCodes.Ldnull);
-            _il.Emit(OpCodes.Ldftn, lambdaMethod);
+            else
+            {
+                _il.Emit(OpCodes.Ldnull);
+                _il.Emit(OpCodes.Ldftn, placement.Method);
+            }
             _il.Emit(OpCodes.Newobj, delegateCtor);
             return true;
         }
