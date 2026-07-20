@@ -1,14 +1,15 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Cursor
 
-- Current task: `tasks/013-synchronous-iterators.md`
+- Current task: `tasks/014-async-iterators.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (013 owns the Iterators single-file gate failure:
-  synchronous yield-return iterator state machines)
-- Last accepted ownership commit: task 009's slice commits (`85c817440`, `5f9bf3fce`, extension-calls commit)
+- Active sub-slice: not yet selected (014 owns the AsyncStreams single-file gate failure — the
+  LAST remaining gate failure group; expect the 013 staging pattern to apply: async machinery on
+  top of the schema-4/iterator-planner foundation)
+- Last accepted ownership commit: task 013's slice commits (`489895987`..`f1c1b3b9f`)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -216,6 +217,46 @@ Completed slices:
   - Evidence: 625 BootstrapServices contracts; external-base-interface 18/18, extension-calls 4/4
     executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
     all native projects green; gate baseline shrunk to three groups.
+
+- Task 013 — synchronous iterators; staged commits `489895987` (func*/yield parsing in the N#
+  kernels, node kind 72, generator flag 4096, toolset repin), `71c5450b1` (schema-4 stage 1:
+  Ret/Throw/Isinst/Stsfld/Leave allowlist + exception-region operations incl. FAULT, repin),
+  `dd7d12107` (method-body executor + backward-branch stack-fixpoint validator, 13 contracts incl.
+  the leave-runs-finally-not-fault proof), `03849de55` (ColumnarIteratorPlanner decision layer),
+  `d0a4ee530` (MoveNext lowering proven running), `0c0961048` (native iterators project registered
+  in ilverify.sh at its 476 ceiling + fall-through fix), `9698fbb76` (array for..in, throw, slot
+  reuse), `bb359043f` (enumerator hoisting under the Roslyn try/FAULT region discipline; Dispose
+  cascade), `d3602cfa4` (generic iterators via self-instantiation TypeSpec rebinding + MVAR-leak
+  guard), `edfcbeb66` (instance iterators: <>__this capture, member reads, user-type sequence
+  elements, member-call for..in sources incl. recursion), `f1c1b3b9f` (consumer surface:
+  interpolation multi-arg call holes, plan-pinned generic String.Join<Int32>, open-generic
+  extension inference — all N#, zero C# growth).
+  - NEW SURFACE, not a migration: no C# iterator emitter ever existed (the C# recursive-descent
+    func*/yield parser/analyzer stays as the LSP-fallback/oracle owned by 016/017; the analyzer
+    already validated func* correctly). The "delete the C# owner" premise did not apply; the
+    deletion contract is satisfied by the planner-owned decline sites replacing the blanket
+    emit.statement.yield-unsupported arm and by zero net C# decision growth (emitter hosts
+    mechanically at 21,619 of the immutable 21,723 ceiling).
+  - Added N# owners: parser kernels (func* scan/signature/method-scan + yield statements),
+    ColumnarCodePlan/Executor schema-4 method bodies, ColumnarIteratorPlanner (shape facts, state
+    numbering, field layout, member/override specs, MoveNext/member/factory plans, decline
+    classification), interpolation splitter multi-arg holes, plan-pinned generic external calls,
+    open-generic extension-method inference.
+  - Evidence: examples/09-linq-and-collections/Iterators.nl builds through the columnar pipeline,
+    runs byte-exact across all nine sections, and ILVerifies (all six assemblies); native
+    tests/native/iterators 21/21 executed proofs (sequences, infinite+break, re-enumeration
+    clones, lazy throw, recursive tree traversal 1,2,4,5,3,6, generic value+reference elements,
+    LINQ chain); 690/690 BootstrapServices contracts; 3,182/3,182 units; ownership audit 18/18;
+    FULL VS Code-ENABLED GATE: exactly one failure group remains (AsyncStreams, owned by 014) —
+    the Iterators group is CLEARED; VS Code smoke tests (extension, diagnostics, hover,
+    completion) pass; extension rebuilt+reinstalled via reload-vscode-extension.sh. OUTSTANDING:
+    the computer-use visual IDE spot-check was not performed this session (screen-control access
+    denied at the approval dialog); the gate's automated VS Code integration evidence stands in.
+    Perform the visual check at the next IDE-affecting acceptance (014).
+  - Fenced 015 residuals recorded: lambda-taking LINQ arms (TryEmitEnumerableExtensionCall,
+    TryEmitLambdaLiteral), the interpolation hole/emission core, the C# generic String.Join arm
+    for non-int/string elements, extension interface-receiver inference, preflight typing of
+    legacy-owned static calls.
 
 - Task 012 — readonly-field initialization placement; commit recorded in git ("Own readonly-field
   initialization placement in N#").
