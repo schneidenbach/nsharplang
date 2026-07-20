@@ -28,7 +28,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [005 — Construction and array literals](005-construction-and-array-literals.md)
 - [x] [006 — Primitive binary expressions](006-primitive-binary-expressions.md)
 - [x] [007 — Conditional and short-circuit expressions](007-conditional-and-short-circuit-expressions.md)
-- [ ] [008 — Complete range/index owner deletion](008-range-index-owner-deletion.md)
+- [x] [008 — Complete range/index owner deletion](008-range-index-owner-deletion.md)
 - [ ] [009 — External base and interface resolution](009-external-base-interface-resolution.md)
 - [ ] [010 — Lambda definition placement and visibility](010-lambda-definition-placement.md)
 - [ ] [011 — Record-with lowering for value receivers](011-record-with-value-receivers.md)

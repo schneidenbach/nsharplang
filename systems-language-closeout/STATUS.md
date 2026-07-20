@@ -4,10 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/008-range-index-owner-deletion.md`
+- Current task: `tasks/009-external-base-interface-resolution.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (revalidate the 008 accept set against the current range/index owner surface)
-- Last accepted ownership commit: `e9df4eb60` (`Delete the dead short-circuit preflight branch`, task 007)
+- Active sub-slice: not yet selected (009 owns the Web API template gate failure group: external base and interface resolution)
+- Last accepted ownership commit: `23ced5034` (`Delete the complete C# range/index owner`, task 008)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -186,6 +186,20 @@ Completed slices:
     conditional product project 8/8 with executed side-effect-order and right-operand-not-evaluated
     proofs; 3,182/3,182 units; all native projects green; fresh non-VS-Code gate at the same four
     pre-existing later-owner failure groups (009/011/012/013/014); clean toolset repin.
+
+- Task 008 — complete range/index owner deletion; commit `23ced5034`.
+  - Deleted C# owners: every range/index decision from `399008ea9` and its expansions — five
+    static handles plus their resolver, thirteen lowering helpers, the case-11 index-from-end and
+    case-69 range arms, the case-10 string/array Index/Range reads, and both preflight
+    type-selection helpers with their dispatch arms. Only the Index/Range type-system entries
+    remain (typed locals/parameters, not lowering policy). Residual inventory: empty — no fallback
+    from N# to any old branch. `ColumnarIlEmitter.cs` fell from 21,497 to 21,209 (net −288).
+  - Added N# owners: none needed — `ColumnarRangeIndexPlanner`/`ColumnarRangeIndexHandles` already
+    owned the entire surface; the historical C# canonical test was migrated at `0206a1ed1`.
+  - Evidence: 41/41 range-index product contracts identical before and after the deletion (the
+    decisive dead-code proof); 619 BootstrapServices contracts against both feed and fresh SDK;
+    3,182/3,182 units; all native projects green; fresh Release self-emit clean; fresh non-VS-Code
+    gate at the same four pre-existing later-owner failure groups (009/011/012/013/014).
 
 After each accepted slice, record only:
 
