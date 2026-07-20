@@ -4,10 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/007-conditional-and-short-circuit-expressions.md`
+- Current task: `tasks/008-range-index-owner-deletion.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (revalidate the 007 accept set: &&/||, ternary, ?? remain C#-owned in the retained case-12/13 arms)
-- Last accepted ownership commit: `e57c80c8a` (`Delete owned binary emission from the C# emitter`, task 006)
+- Active sub-slice: not yet selected (revalidate the 008 accept set against the current range/index owner surface)
+- Last accepted ownership commit: `e9df4eb60` (`Delete the dead short-circuit preflight branch`, task 007)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -168,6 +168,24 @@ Completed slices:
     binary, 41 range-index, 14 direct-call, 3 interface-parameter, 18 ownership contracts;
     3,182/3,182 units; fresh non-VS-Code gate at the same four pre-existing later-owner failure
     groups (009/011/012/013/014) as the 005 acceptance; toolset repins at each two-stage bootstrap.
+
+- Task 007 — conditional and short-circuit expressions; commit `e9df4eb60` (routing commit
+  `7eaccb1e9`, Brtrue two-stage bootstrap with mid-stage toolset repin).
+  - Deleted C# owner: the `&&`/`||` sub-arm in `TryGetPreflightBinaryExpressionType` (proven dead —
+    N# types every plannable short-circuit at the front door; a residual short-circuit is only ever
+    emitted, never preflight-typed; zero hits across units, native contracts, examples, and the
+    self-emit). `ColumnarIlEmitter.cs` fell from 21,499 to 21,497. The case-12 short-circuit and
+    case-13 ternary EMIT arms are verify-first load-bearing (self-emit ternary null-comparison
+    conditions; example `||` chains over string equality) and are recut as precisely-fenced
+    whole-subtree residual servers retiring with task 015's nested-operand/equality surface growth.
+  - Added N# owners: `ColumnarConditionalPlanner` — Boolean `&&`/`||` with the exact case-12
+    short-circuit lowering and relocated ternary planning with widened operand recursion, claimed
+    at expression roots and value position across emit and preflight facades; the `Brtrue` schema
+    identity (contract id 58, condition-gated validation, allowlist name).
+  - Evidence: 619 BootstrapServices contracts (Debug and fresh Release-packed-SDK re-emit); new
+    conditional product project 8/8 with executed side-effect-order and right-operand-not-evaluated
+    proofs; 3,182/3,182 units; all native projects green; fresh non-VS-Code gate at the same four
+    pre-existing later-owner failure groups (009/011/012/013/014); clean toolset repin.
 
 After each accepted slice, record only:
 
