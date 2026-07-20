@@ -4129,13 +4129,22 @@ internal sealed class ColumnarIlEmitter
         ColumnarSemanticTypeResolution typeResolution,
         ILGenerator factoryIl,
         List<TypeBuilder> synthesizedTypes,
-        Type[] methodTypeParams)
+        Type[] methodTypeParams,
+        ColumnarIteratorShape? precomputedShape = null,
+        string memberLabel = "",
+        Type? enclosingType = null,
+        string[]? enclosingFieldNames = null,
+        FieldInfo[]? enclosingFields = null,
+        string[]? enclosingFieldCanonicals = null,
+        string[]? enclosingMethodNames = null,
+        MethodInfo[]? enclosingMethods = null)
     {
-        var shape = ColumnarIteratorPlanner.AnalyzeShape(
+        var declineLabel = memberLabel.Length == 0 ? fn.Name : memberLabel;
+        var shape = precomputedShape ?? ColumnarIteratorPlanner.AnalyzeShape(
             fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
             fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
         if (!shape.Supported)
-            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
+            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, declineLabel);
 
         // A GENERIC generator's machine mirrors the method's type-parameter list; the parameters flow
         // into the element/field types and the interface implementations.
@@ -4157,8 +4166,8 @@ internal sealed class ColumnarIlEmitter
         if (!TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out var elementType))
             return DeclineStatic(
                 "emit.iterator.element-type",
-                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
-                fn.Name);
+                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + declineLabel + "'",
+                declineLabel);
 
         var enumerableOfT = typeof(IEnumerable<>).MakeGenericType(elementType);
         var enumeratorOfT = typeof(IEnumerator<>).MakeGenericType(elementType);
@@ -4169,6 +4178,10 @@ internal sealed class ColumnarIlEmitter
         sm.AddInterfaceImplementation(typeof(IDisposable));
 
         var fields = new FieldInfo[shape.FieldCount];
+        // The canonical->runtime-type table the planner's sequence-handle resolvers read (loop-element
+        // and hoisted-local canonicals, resolved exactly as the fields were).
+        var knownTypeNames = new List<string>();
+        var knownTypes = new List<Type>();
         for (var i = 0; i < shape.FieldCount; i++)
         {
             Type fieldType;
@@ -4183,15 +4196,19 @@ internal sealed class ColumnarIlEmitter
                     || !IsSupportedType(enumeratorElementType))
                     return DeclineStatic(
                         "emit.iterator.field-type",
-                        "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
-                        fn.Name);
+                        "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
+                        declineLabel);
                 fieldType = typeof(IEnumerator<>).MakeGenericType(enumeratorElementType);
+                knownTypeNames.Add(enumeratorElement);
+                knownTypes.Add(enumeratorElementType);
             }
             else if (!TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType))
                 return DeclineStatic(
                     "emit.iterator.field-type",
-                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
-                    fn.Name);
+                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
+                    declineLabel);
+            else
+                { knownTypeNames.Add(shape.FieldCanonicals[i]); knownTypes.Add(fieldType); }
             fields[i] = sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public);
         }
 
@@ -4220,7 +4237,9 @@ internal sealed class ColumnarIlEmitter
         ctorIl.Emit(OpCodes.Ret);
 
         var context = new ColumnarIteratorEmitContext(
-            fn.BodyNodes, functionSource, fn.BodyRoot, shape, memberSmType, elementType, shape.FieldNames, memberFields, memberCtor);
+            fn.BodyNodes, functionSource, fn.BodyRoot, shape, memberSmType, elementType, shape.FieldNames, memberFields, memberCtor,
+            enclosingType, enclosingFieldNames, enclosingFields, enclosingFieldCanonicals,
+            enclosingMethodNames, enclosingMethods, knownTypeNames.ToArray(), knownTypes.ToArray());
         const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
         const MethodAttributes explicitImpl = MethodAttributes.Private | MethodAttributes.Virtual
@@ -4276,6 +4295,78 @@ internal sealed class ColumnarIlEmitter
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext), factoryIl);
         synthesizedTypes.Add(sm);
         return true;
+    }
+
+    // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
+    // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
+    // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
+    private static bool TryEmitMemberIterator(
+        ModuleBuilder module,
+        ColumnarStructDef structDef,
+        ColumnarFunctionInput method,
+        MethodBuilder builder,
+        bool isStatic,
+        ColumnarProgramInput program,
+        ColumnarSemanticTypeResolution typeResolution,
+        string methodSource,
+        List<TypeBuilder> synthesizedTypes,
+        int[] ordinalCounter)
+    {
+        var memberLabel = structDef.Builder.Name + "." + method.Name;
+        if (isStatic)
+            return TryEmitIteratorStateMachine(
+                module, method, ordinalCounter[0]++, methodSource, typeResolution,
+                builder.GetILGenerator(), synthesizedTypes, Type.EmptyTypes, memberLabel: memberLabel);
+        if (structDef.GenericParameters != null || method.TypeParamNames.Length > 0)
+            return DeclineStatic("emit.iterator.instance-unsupported", "generic instance iterator methods are not yet lowered", memberLabel);
+        ColumnarStructInput? input = null;
+        foreach (var candidate in program.Structs)
+        {
+            // DeclaredTypeName may be namespace-qualified; the input carries the registry short name.
+            if (candidate.Name == structDef.DeclaredTypeName
+                || structDef.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal))
+            { input = candidate; break; }
+        }
+        if (input == null)
+            return DeclineStatic("emit.iterator.instance-unsupported", "enclosing type facts are unavailable for '" + memberLabel + "'", memberLabel);
+        // Public (PascalCase) readable fields and callable non-overloaded instance methods only.
+        var fieldNames = new List<string>();
+        var fieldCanonicals = new List<string>();
+        var fieldHandles = new List<FieldInfo>();
+        for (var i = 0; i < input.FieldNames.Length; i++)
+        {
+            var name = input.FieldNames[i];
+            if (name.Length == 0 || !char.IsUpper(name[0]) || !structDef.Fields.TryGetValue(name, out var handle))
+                continue;
+            fieldNames.Add(name);
+            fieldCanonicals.Add(input.FieldTypeCanonicals[i]);
+            fieldHandles.Add(handle);
+        }
+        var methodNames = new List<string>();
+        var methodReturns = new List<string>();
+        var methodHandles = new List<MethodInfo>();
+        foreach (var m in input.Methods)
+        {
+            if (m.Name.Length == 0 || !char.IsUpper(m.Name[0]) || m.IsStatic
+                || !structDef.Methods.TryGetValue(m.Name, out var methodDef)
+                || (structDef.MethodOverloads.TryGetValue(m.Name, out var overloads) && overloads.Count > 1))
+                continue;
+            methodNames.Add(m.Name);
+            methodReturns.Add(m.ReturnCanonical);
+            methodHandles.Add(methodDef.Builder);
+        }
+        var shape = ColumnarIteratorPlanner.AnalyzeShape(
+            method.BodyNodes, methodSource, method.BodyRoot, method.Name, ordinalCounter[0]++,
+            method.ReturnCanonical, method.ParamNames, method.ParamCanonicals, method.TypeParamNames,
+            true, input.Name,
+            fieldNames.ToArray(), fieldCanonicals.ToArray(), methodNames.ToArray(), methodReturns.ToArray());
+        if (!shape.Supported)
+            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, memberLabel);
+        return TryEmitIteratorStateMachine(
+            module, method, 0, methodSource, typeResolution, builder.GetILGenerator(), synthesizedTypes,
+            Type.EmptyTypes, shape, memberLabel, structDef.Builder,
+            fieldNames.ToArray(), fieldHandles.ToArray(), fieldCanonicals.ToArray(),
+            methodNames.ToArray(), methodHandles.ToArray());
     }
 
     // Resolve an iterator field/element canonical: in a GENERIC machine the canonical resolves in the
@@ -5952,30 +6043,26 @@ internal sealed class ColumnarIlEmitter
         {
             var mil = job.Builder.GetILGenerator();
             var methodSource = program.GetSourceForFileId(job.Method.SourceFileId);
-            // TYPE-MEMBER GENERATORS (a body containing `yield`): classify through the iterator planner
-            // so the decline carries the planner's precise site (instance lowering is a later slice).
-            // The modifier facts for methods do not carry the generator bit, so the structural yield
-            // scan is the planner-owned detection.
+            // TYPE-MEMBER GENERATORS (a body containing `yield`; method modifier facts do not carry the
+            // generator bit, so the planner's structural scan detects them): lower through the member
+            // iterator host — the `this` receiver hoists as a captured field and the method body becomes
+            // the factory. Unsupported shapes decline at the planner's site.
             if (ColumnarIteratorPlanner.ContainsYield(job.Method.BodyNodes, job.Method.BodyRoot))
             {
+                var bodyTypeResolution2 = typeResolutionCatalog.For(job.Method.SourceFileId);
                 ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
                 try
                 {
-                    var memberShape = ColumnarIteratorPlanner.AnalyzeShape(
-                        job.Method.BodyNodes, methodSource, job.Method.BodyRoot, job.Method.Name, 0,
-                        job.Method.ReturnCanonical, job.Method.ParamNames, job.Method.ParamCanonicals,
-                        job.Method.TypeParamNames, isInstance: !job.IsStatic);
-                    return DeclineStatic(
-                        memberShape.Supported ? "emit.iterator.instance-unsupported" : memberShape.DeclineSite,
-                        memberShape.Supported
-                            ? "type-member generator functions are not yet lowered (only top-level func* lowers)"
-                            : memberShape.DeclineMessage,
-                        job.Struct.Builder.Name + "." + job.Method.Name);
+                    if (!TryEmitMemberIterator(
+                        module, job.Struct, job.Method, job.Builder, job.IsStatic, program,
+                        bodyTypeResolution2, methodSource, displayClasses, lambdaCounter))
+                        return false;
                 }
                 finally
                 {
                     ColumnarDeclineTrace.ClearSourceFileId();
                 }
+                continue;
             }
             var bodyTypeResolution = typeResolutionCatalog.For(
                 job.Method.SourceFileId,

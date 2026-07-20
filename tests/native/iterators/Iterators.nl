@@ -163,3 +163,30 @@ func* Repeat<T>(value: T, count: int): IEnumerable<T> {
         i = i + 1
     }
 }
+
+// An instance-method iterator (sub-slice 6b): the receiver hoists as a captured `<>__this` field;
+// the body reads enclosing members and recurses through a member-call for..in source.
+class TreeNode {
+    readonly Value: int
+    readonly Children: List<TreeNode>
+
+    constructor(value: int) {
+        Value = value
+        Children = new List<TreeNode>()
+    }
+
+    func AddChild(value: int): TreeNode {
+        child := new TreeNode(value)
+        Children.Add(child)
+        return child
+    }
+
+    func* DepthFirstTraversal(): IEnumerable<int> {
+        yield Value
+        for child in Children {
+            for childValue in child.DepthFirstTraversal() {
+                yield childValue
+            }
+        }
+    }
+}

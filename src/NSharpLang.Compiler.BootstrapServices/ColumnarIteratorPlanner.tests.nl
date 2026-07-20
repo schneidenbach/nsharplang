@@ -99,7 +99,8 @@ class ColumnarIteratorShapeProbe {
         BodyRoot = bodyRoot
         Source = source
         Shape = ColumnarIteratorPlanner.AnalyzeShape(
-            nodes, source, bodyRoot, "Gen", 0, returnCanonical, paramNames, paramCanonicals, typeParamNames, isInstance)
+            nodes, source, bodyRoot, "Gen", 0, returnCanonical, paramNames, paramCanonicals, typeParamNames, isInstance,
+            "", new string[](0), new string[](0), new string[](0), new string[](0))
     }
 }
 
@@ -1009,4 +1010,116 @@ test "iterator planner generic repeat plans run over a closed instantiation" {
     assert results[0] == 7
     assert results[1] == 7
     assert results[2] == 7
+}
+
+// Enclosing-type probe for instance iterators, and a machine probe with the captured receiver slot.
+public class ColumnarIteratorHostProbe {
+    public Value: int
+    public Worth: int
+
+    constructor(value: int, worth: int) {
+        Value = value
+        Worth = worth
+    }
+}
+
+public class ColumnarIteratorInstanceProbe {
+    public state: int
+    public current: int
+    public thisRef: ColumnarIteratorHostProbe?
+
+    constructor(initialState: int) {
+        state = initialState
+        current = 0
+        thisRef = null
+    }
+}
+
+test "iterator planner hoists the receiver and runs enclosing member reads" {
+    parseProbe := new ColumnarIteratorShapeProbe(
+        "func* Vals(): IEnumerable<int> { yield Value\n yield Worth }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+    memberNames := IteratorTwo("Value", "Worth")
+    memberCanonicals := IteratorTwo("int", "int")
+    shape := ColumnarIteratorPlanner.AnalyzeShape(
+        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Vals", 0, "IEnumerable<int>",
+        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
+        memberNames, memberCanonicals, IteratorNoStrings(), IteratorNoStrings())
+
+    assert shape.Supported
+    assert shape.YieldReturnCount == 2
+    assert shape.FieldCount == 3
+    assert shape.FieldNames[2] == "<>__this"
+    assert shape.FieldRoles[2] == ColumnarIteratorPlanner.CapturedParameterFieldRole()
+    assert shape.FieldCanonicals[2] == "HostProbe"
+
+    smType := typeof(ColumnarIteratorInstanceProbe)
+    hostType := typeof(ColumnarIteratorHostProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("thisRef")
+    hostFields := new FieldInfo[](2)
+    hostFields[0] = hostType.GetField("Value")
+    hostFields[1] = hostType.GetField("Worth")
+    context := new ColumnarIteratorEmitContext(
+        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, shape, smType, typeof(int),
+        shape.FieldNames, fields, null, hostType, memberNames, hostFields, memberCanonicals,
+        IteratorNoStrings(), new MethodInfo[](0), IteratorNoStrings(), new Type[](0))
+
+    moveNext := MakeIteratorDynamicMethod("InstanceMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("InstanceCurrent", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorInstanceProbe(0)
+    machine.thisRef = new ColumnarIteratorHostProbe(4, 9)
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    }
+
+    assert results.Count == 2
+    assert results[0] == 4
+    assert results[1] == 9
+}
+
+test "iterator planner declines enclosing member writes" {
+    parseProbe := new ColumnarIteratorShapeProbe(
+        "func* Bad(): IEnumerable<int> { Value = 3\n yield 1 }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+    shape := ColumnarIteratorPlanner.AnalyzeShape(
+        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Bad", 0, "IEnumerable<int>",
+        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
+        IteratorOne("Value"), IteratorOne("int"), IteratorNoStrings(), IteratorNoStrings())
+
+    assert !shape.Supported
+    assert shape.DeclineSite == "emit.iterator.unsupported-shape"
+}
+
+test "iterator planner classifies member-call for..in sources" {
+    parseProbe := new ColumnarIteratorShapeProbe(
+        "func* Walk(): IEnumerable<int> { yield Value\n for child in Children { for v in child.Walk() { yield v } } }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+    shape := ColumnarIteratorPlanner.AnalyzeShape(
+        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Walk", 0, "IEnumerable<int>",
+        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "TreeNode",
+        IteratorTwo("Value", "Children"), IteratorTwo("int", "List<TreeNode>"),
+        IteratorOne("Walk"), IteratorOne("IEnumerable<int>"))
+
+    assert shape.Supported
+    assert shape.YieldReturnCount == 2
+    assert shape.FieldCount == 7
+    assert shape.FieldNames[2] == "<>__this"
+    assert shape.FieldCanonicals[3] == "IEnumerator<TreeNode>"
+    assert shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
+    assert shape.FieldNames[4] == "child"
+    assert shape.FieldCanonicals[4] == "TreeNode"
+    assert shape.FieldCanonicals[5] == "IEnumerator<int>"
+    assert shape.FieldNames[6] == "v"
 }

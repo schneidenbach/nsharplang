@@ -199,3 +199,17 @@ test "a generic iterator repeats values of any element type" {
     }
     assert words == "haha"
 }
+
+test "a recursive instance iterator walks the tree depth first" {
+    root := new TreeNode(1)
+    childA := root.AddChild(2)
+    childB := root.AddChild(3)
+    childA.AddChild(4)
+    childA.AddChild(5)
+    childB.AddChild(6)
+    positional := 0
+    for v in root.DepthFirstTraversal() {
+        positional = positional * 10 + v
+    }
+    assert positional == 124536
+}
