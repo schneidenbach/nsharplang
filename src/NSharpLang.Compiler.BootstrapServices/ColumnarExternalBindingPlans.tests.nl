@@ -747,7 +747,52 @@ test "static call plans own String.Join over string sequences with the enumerabl
     assert joinMethod.get_ReturnType() == typeof(string)
 }
 
-test "String.Join plans decline outside the enumerable-of-string contract" {
+test "String.Join plans close the generic overload for int sequences with pinned type arguments" {
+    enumerableIntIdentity := typeof(IEnumerable<int>).get_AssemblyQualifiedName()
+
+    // int[], List<int>, and IEnumerable<int> all bind the generic String.Join<T> closed at
+    // T=Int32: int[] is not covariant to object[], so no non-generic overload can own them.
+    intArrayArguments := new string[](2)
+    intArrayArguments[0] = "System.String"
+    intArrayArguments[1] = "System.Int32[]"
+    arrayPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", intArrayArguments)
+    assert arrayPlan.IsSupported, "String.Join over an int[] must plan the pinned generic closure."
+    assert arrayPlan.Kind == ColumnarExternalCallKind.Call
+    assert arrayPlan.TypeArgumentNames.Length == 1
+    assert arrayPlan.TypeArgumentNames[0] == "System.Int32, System.Private.CoreLib"
+    assert arrayPlan.ParameterTypeNames.Length == 2
+    assert arrayPlan.ParameterTypeNames[0] == "System.String, System.Private.CoreLib"
+    assert arrayPlan.ParameterTypeNames[1] == enumerableIntIdentity
+    assert arrayPlan.ReturnTypeName == "System.String, System.Private.CoreLib"
+
+    intListArguments := new string[](2)
+    intListArguments[0] = "System.String"
+    intListArguments[1] = typeof(List<int>).FullName
+    listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", intListArguments)
+    assert listPlan.IsSupported, "String.Join over a List<int> must plan the pinned generic closure."
+    assert listPlan.TypeArgumentNames.Length == 1
+    assert listPlan.ParameterTypeNames[1] == enumerableIntIdentity
+
+    intEnumerableArguments := new string[](2)
+    intEnumerableArguments[0] = "System.String"
+    intEnumerableArguments[1] = typeof(IEnumerable<int>).FullName
+    enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", intEnumerableArguments)
+    assert enumerablePlan.IsSupported, "String.Join over an IEnumerable<int> must plan the pinned generic closure."
+    assert enumerablePlan.TypeArgumentNames.Length == 1
+    assert enumerablePlan.ParameterTypeNames[1] == enumerableIntIdentity
+
+    // The non-generic string rows stay exactly as before: no pinned type arguments.
+    stringListArguments := new string[](2)
+    stringListArguments[0] = "System.String"
+    stringListArguments[1] = typeof(List<string>).FullName
+    assert ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", stringListArguments).TypeArgumentNames.Length == 0
+}
+
+test "String.Join plans decline outside the modeled sequence contracts" {
     // A string[] argument binds the params overload, not the enumerable one, so it is declined
     // and stays with its existing owner.
     stringArrayArguments := new string[](2)
@@ -756,12 +801,12 @@ test "String.Join plans decline outside the enumerable-of-string contract" {
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String", "Join", stringArrayArguments).IsSupported
 
-    // A List<int> is not a string sequence.
-    intListArguments := new string[](2)
-    intListArguments[0] = "System.String"
-    intListArguments[1] = typeof(List<int>).FullName
+    // A List<double> is neither a string nor an int sequence.
+    doubleListArguments := new string[](2)
+    doubleListArguments[0] = "System.String"
+    doubleListArguments[1] = typeof(List<double>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", intListArguments).IsSupported
+        "String", "Join", doubleListArguments).IsSupported
 
     // A non-string separator, wrong arity, and mis-spelled member all decline.
     charSeparatorArguments := new string[](2)

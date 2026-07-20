@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -135,6 +136,42 @@ test "runtime direct calls materialize baked static and void plans exactly" {
     assert readerSelection.ReturnType == readerReturnType
     assert readerSelection.ReceiverIsReference
     assert readerSelection.UsesCallVirtual
+}
+
+test "runtime direct calls close plan-pinned generic methods and reject mismatched or unpinned generics" {
+    intArrayArguments := new string[](2)
+    intArrayArguments[0] = "System.String"
+    intArrayArguments[1] = "System.Int32[]"
+    joinPlan := ColumnarExternalBindingPlans.GetStaticCallPlan("String", "Join", intArrayArguments)
+    assert joinPlan.IsSupported
+    assert joinPlan.TypeArgumentNames.Length == 1
+
+    joinSelection := SelectRuntimeDirectCall(joinPlan, typeof(string), true)
+    assert joinSelection.Method != null
+    assert joinSelection.Method.get_IsGenericMethod(), "The selected Join handle must be the closed generic instantiation."
+    assert !joinSelection.Method.get_IsGenericMethodDefinition(), "The selected Join handle must not stay an open definition."
+    assert joinSelection.ParameterTypes.Length == 2
+    assert joinSelection.ParameterTypes[0] == typeof(string)
+    assert joinSelection.ParameterTypes[1] == typeof(IEnumerable<int>)
+    assert joinSelection.ReturnType == typeof(string)
+    assert joinSelection.Kind == ColumnarExternalCallKind.Call
+    assert joinSelection.IsStatic
+    assert !joinSelection.UsesCallVirtual
+
+    // A pin that cannot reproduce the planned CLOSED signature declines: Join<string> closes to
+    // IEnumerable<string>, never the planned IEnumerable<int>.
+    mismatched := ColumnarExternalBindingPlans.GetStaticCallPlan("String", "Join", intArrayArguments)
+    mismatchedArguments := new string[](1)
+    mismatchedArguments[0] = "System.String, System.Private.CoreLib"
+    mismatched.TypeArgumentNames = mismatchedArguments
+    mismatchedSelection := ColumnarRuntimeDirectCallSelection.Empty()
+    assert !ColumnarRuntimeDirectCallResolver.TrySelect(mismatched, typeof(string), true, out mismatchedSelection), "A pinned closure that cannot reproduce the planned signature must decline."
+
+    // Without a pin the original non-generic contract holds: no generic handle can be selected.
+    unpinned := ColumnarExternalBindingPlans.GetStaticCallPlan("String", "Join", intArrayArguments)
+    unpinned.TypeArgumentNames = new string[](0)
+    unpinnedSelection := ColumnarRuntimeDirectCallSelection.Empty()
+    assert !ColumnarRuntimeDirectCallResolver.TrySelect(unpinned, typeof(string), true, out unpinnedSelection), "An unpinned plan must never select a generic method."
 }
 
 test "runtime direct calls preserve overload inherited interface and value receiver facts" {

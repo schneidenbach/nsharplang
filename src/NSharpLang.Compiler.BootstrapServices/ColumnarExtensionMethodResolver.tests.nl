@@ -84,20 +84,79 @@ test "extension index build binds non-generic Linq extensions on interface and a
     assert arrayMax.ReturnType == typeof(int)
 }
 
-test "extension resolution declines generic-only, missing, and value-type receiver cases" {
+test "extension resolution declines generic arity mismatch, missing, and value-type receiver cases" {
     index := BuildLinqExtensionIndex()
     facts := ColumnarDirectCallArgumentFacts.Empty(0)
 
-    // Enumerable.Select/Where are generic-only; the index build excludes generic methods, so no
-    // non-generic candidate exists and resolution declines rather than binding a generic method.
+    // Every Enumerable.Select overload takes a selector argument; generic candidates require exact
+    // arity with no optional filling, so a zero-argument call declines rather than binding.
     genericOnly := ColumnarExtensionMethodResolver.Resolve(index, typeof(int[]), "Select", new Type[](0), facts)
-    assert !genericOnly.IsSelected, "A generic-only extension name must not bind."
+    assert !genericOnly.IsSelected, "A generic extension at the wrong arity must not bind."
 
     missing := ColumnarExtensionMethodResolver.Resolve(index, typeof(int[]), "TotallyMissingExtensionXyz", new Type[](0), facts)
     assert !missing.IsSelected, "An unknown extension name must decline."
 
     valueReceiver := ColumnarExtensionMethodResolver.Resolve(index, typeof(int), "Sum", new Type[](0), facts)
     assert !valueReceiver.IsSelected, "A value-type receiver is outside this extension-call surface."
+}
+
+test "generic extension inference closes Take and ToList from an exact interface receiver" {
+    index := BuildLinqExtensionIndex()
+    takeFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    take := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "Take", ExtensionOneType(typeof(int)), takeFacts)
+    assert take.IsSelected, "IEnumerable<int>.Take(int) must close Enumerable.Take<int> by receiver inference."
+    assert take.Method != null
+    assert take.Method.get_IsGenericMethod(), "The selected Take handle must be the closed generic instantiation."
+    assert !take.Method.get_IsGenericMethodDefinition(), "The selected Take handle must not stay an open definition."
+    assert take.ExplicitArgumentCount == 1
+    assert take.ParameterTypes.Length == 2
+    assert take.ParameterTypes[0] == typeof(IEnumerable<int>)
+    assert take.ParameterTypes[1] == typeof(int)
+    assert take.ReturnType == typeof(IEnumerable<int>)
+
+    toListFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+    toList := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "ToList", new Type[](0), toListFacts)
+    assert toList.IsSelected, "IEnumerable<int>.ToList() must close Enumerable.ToList<int>."
+    assert toList.ReturnType == typeof(List<int>)
+}
+
+test "generic extension inference unifies delegate arguments and rejects conflicts and widening" {
+    index := BuildLinqExtensionIndex()
+    oneArgumentFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    // Func<int, bool> unifies against Func<TSource, bool> with TSource already pinned by the
+    // receiver; the indexed Func<TSource, int, bool> overload differs in generic definition arity
+    // and is filtered, so exactly one candidate survives.
+    whereSelection := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "Where", ExtensionOneType(typeof(Func<int, bool>)), oneArgumentFacts)
+    assert whereSelection.IsSelected, "A delegate-typed argument must unify against the generic selector slot."
+    assert whereSelection.ReturnType == typeof(IEnumerable<int>)
+
+    matched := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "SequenceEqual", ExtensionOneType(typeof(IEnumerable<int>)), oneArgumentFacts)
+    assert matched.IsSelected, "Consistent inference across receiver and argument slots must close."
+    assert matched.ReturnType == typeof(bool)
+
+    conflicted := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "SequenceEqual", ExtensionOneType(typeof(IEnumerable<string>)), oneArgumentFacts)
+    assert !conflicted.IsSelected, "A type parameter bound to two different types must decline."
+
+    // Interface/variance widening is outside this owner: a List receiver does not unify against an
+    // IEnumerable<TSource> receiver slot even though the runtime conversion exists.
+    listReceiver := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<int>), "Take", ExtensionOneType(typeof(int)), oneArgumentFacts)
+    assert !listReceiver.IsSelected, "List<int>.Take(int) stays with later owners until interface-receiver inference lands."
+}
+
+test "a non-generic extension outranks an equally scored inference-closed generic" {
+    index := BuildLinqExtensionIndex()
+    facts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // Enumerable carries both the non-generic Max(IEnumerable<int>) and the generic
+    // Max<TSource>(IEnumerable<TSource>); both close to the identical signature here, and the
+    // non-generic declaration must win instead of declining as ambiguous.
+    interfaceMax := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "Max", new Type[](0), facts)
+    assert interfaceMax.IsSelected, "Equal-signature generic and non-generic candidates must prefer the non-generic."
+    assert interfaceMax.Method != null
+    assert !interfaceMax.Method.get_IsGenericMethod(), "The non-generic Max(IEnumerable<int>) declaration must be the selected handle."
+    assert interfaceMax.ReturnType == typeof(int)
 }
 
 test "extension resolution prefers exact arity over trailing-optional and rejects ambiguity" {

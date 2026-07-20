@@ -37,7 +37,8 @@ class ColumnarRuntimeDirectCallSelection {
 
 // Materializes an exact fixed-arity handle from an N#-owned external binding plan. The plan
 // supplies every identity, and no overload ranking, coercion, optional/default expansion, or
-// generic construction is permitted.
+// generic INFERENCE is permitted. A generic method definition closes ONLY when the plan itself
+// pins the exact type-argument identities alongside the exact closed signature.
 class ColumnarRuntimeDirectCallResolver {
     static func TrySelect(plan: ColumnarExternalCallPlan, lookupType: Type, expectedStatic: bool, out selection: ColumnarRuntimeDirectCallSelection): bool {
         selection = ColumnarRuntimeDirectCallSelection.Empty()
@@ -55,6 +56,10 @@ class ColumnarRuntimeDirectCallResolver {
             return false
         }
 
+        if plan.TypeArgumentNames.Length > 0 {
+            return TrySelectPinnedGenericClosure(plan, lookupType, expectedStatic, parameterTypes, plannedReturnType, out selection)
+        }
+
         method: MethodInfo? = null
         try {
             method = lookupType.GetMethod(plan.MemberName, parameterTypes)
@@ -69,6 +74,74 @@ class ColumnarRuntimeDirectCallResolver {
         candidates := new MethodInfo[](1)
         candidates[0] = method
         return TrySelectResolvedCandidates(plan, lookupType, expectedStatic, parameterTypes, plannedReturnType, candidates, out selection)
+    }
+
+    // Close every same-named generic method DEFINITION of the pinned arity with the plan's exact
+    // type arguments and demand that exactly ONE closure reproduces the planned signature
+    // identity-for-identity. A constraint-rejected closure is not a candidate; two reproducing
+    // closures are corrupt and decline.
+    static func TrySelectPinnedGenericClosure(plan: ColumnarExternalCallPlan, lookupType: Type, expectedStatic: bool, plannedParameterTypes: Type[], plannedReturnType: Type, out selection: ColumnarRuntimeDirectCallSelection): bool {
+        selection = ColumnarRuntimeDirectCallSelection.Empty()
+        typeArguments := new Type[](plan.TypeArgumentNames.Length)
+        if !TryResolveExactPlanTypes(plan.TypeArgumentNames, typeArguments) {
+            return false
+        }
+
+        methods: MethodInfo[]? = null
+        try {
+            methods = lookupType.GetMethods()
+        } catch {
+            return false
+        }
+
+        if methods == null {
+            return false
+        }
+
+        closed := ColumnarRuntimeDirectCallSelection.Empty()
+        closedCount := 0
+        index := 0
+        while index < methods.Length {
+            definition := methods[index]
+            if definition != null
+                && definition.get_Name() == plan.MemberName
+                && definition.get_IsGenericMethodDefinition()
+                && definition.GetGenericArguments().Length == typeArguments.Length {
+                candidate: MethodInfo? = null
+                try {
+                    candidate = definition.MakeGenericMethod(typeArguments)
+                } catch {
+                    candidate = null
+                }
+
+                candidateSelection := ColumnarRuntimeDirectCallSelection.Empty()
+                candidateMatches := false
+                if candidate != null {
+                    try {
+                        candidateMatches = TryDescribeExactCandidate(plan, lookupType, expectedStatic, plannedParameterTypes, plannedReturnType, candidate, out candidateSelection)
+                    } catch {
+                        candidateMatches = false
+                    }
+                }
+
+                if candidateMatches {
+                    closed = candidateSelection
+                    closedCount = closedCount + 1
+                    if closedCount > 1 {
+                        return false
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        if closedCount != 1 {
+            return false
+        }
+
+        selection = closed
+        return true
     }
 
     // This seam keeps corrupt/ambiguous-handle contracts native and deterministic. Production
@@ -153,7 +226,7 @@ class ColumnarRuntimeDirectCallResolver {
             return false
         }
 
-        if plan.ParameterTypeNames == null {
+        if plan.ParameterTypeNames == null || plan.TypeArgumentNames == null {
             return false
         }
 
@@ -196,11 +269,31 @@ class ColumnarRuntimeDirectCallResolver {
             return false
         }
 
-        if method.get_IsGenericMethod() {
+        if method.get_IsGenericMethodDefinition() {
             return false
         }
 
-        if method.get_IsGenericMethodDefinition() {
+        // A closed generic handle is admitted ONLY when the plan pins its exact type-argument
+        // identities; every pinned identity must match the handle's own arguments in order.
+        if method.get_IsGenericMethod() {
+            if plan.TypeArgumentNames.Length == 0 {
+                return false
+            }
+
+            handleArguments := method.GetGenericArguments()
+            if handleArguments == null || handleArguments.Length != plan.TypeArgumentNames.Length {
+                return false
+            }
+
+            argumentIndex := 0
+            while argumentIndex < handleArguments.Length {
+                if !ExternalAssemblyScan.HasExactTypeIdentity(handleArguments[argumentIndex], plan.TypeArgumentNames[argumentIndex]) {
+                    return false
+                }
+
+                argumentIndex = argumentIndex + 1
+            }
+        } else if plan.TypeArgumentNames.Length > 0 {
             return false
         }
 

@@ -474,6 +474,10 @@ public class ColumnarInterpolationSplitter {
             return true
         }
 
+        if ColumnarInterpolatedStringIsSupportedMultiArgumentCallExpression(literal, start, length) {
+            return true
+        }
+
         if ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal, start, length) {
             return true
         }
@@ -558,6 +562,79 @@ public class ColumnarInterpolationSplitter {
 
         return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
             && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    // A call hole with TWO OR MORE top-level arguments (`{String.Join(separator, numbers)}`): an
+    // identifier-chain callee followed by a balanced argument list whose comma-split segments each
+    // pass the shared call-argument scan. This gate only shapes the split; the parsed-expression
+    // hole plan's preflight typing decides emission, so an admitted-but-unmodeled call still
+    // declines precisely at the hole-resolution site.
+    static func ColumnarInterpolatedStringIsSupportedMultiArgumentCallExpression(literal: string, start: int, length: int): bool {
+        if length < 6 {
+            return false
+        }
+
+        if literal[start + length - 1] != ')' {
+            return false
+        }
+
+        openParen := -1
+        i := 0
+        while i < length {
+            if literal[start + i] == '(' {
+                openParen = i
+                break
+            }
+
+            i = i + 1
+        }
+
+        if openParen <= 0 || openParen >= length - 2 {
+            return false
+        }
+
+        if !ColumnarInterpolatedStringIsIdentifierChain(literal, start, openParen) {
+            return false
+        }
+
+        argumentCount := 0
+        parenDepth := 0
+        bracketDepth := 0
+        segmentStart := openParen + 1
+        j := openParen + 1
+        while j < length - 1 {
+            ch := literal[start + j]
+            if ch == ',' && parenDepth == 0 && bracketDepth == 0 {
+                if !ColumnarInterpolatedStringIsSupportedCallArgument(literal, start + segmentStart, j - segmentStart) {
+                    return false
+                }
+
+                argumentCount = argumentCount + 1
+                segmentStart = j + 1
+            } else if ch == '(' {
+                parenDepth = parenDepth + 1
+            } else if ch == ')' {
+                parenDepth = parenDepth - 1
+                if parenDepth < 0 {
+                    return false
+                }
+            } else if ch == '[' {
+                bracketDepth = bracketDepth + 1
+            } else if ch == ']' {
+                bracketDepth = bracketDepth - 1
+                if bracketDepth < 0 {
+                    return false
+                }
+            }
+
+            j = j + 1
+        }
+
+        if parenDepth != 0 || bracketDepth != 0 || argumentCount == 0 {
+            return false
+        }
+
+        return ColumnarInterpolatedStringIsSupportedCallArgument(literal, start + segmentStart, length - 1 - segmentStart)
     }
 
     static func ColumnarInterpolatedStringIsSupportedParsedHoleExpression(literal: string, start: int, length: int): bool {

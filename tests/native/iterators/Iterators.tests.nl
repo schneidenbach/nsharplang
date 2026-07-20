@@ -1,6 +1,8 @@
 namespace NSharpLang.Iterators.Tests
 
+import System
 import System.Collections.Generic
+import System.Linq
 
 // Executed in-project proofs: this test assembly's own `func*` definitions are lowered by the N#
 // iterator planner and consumed directly below — no compiler-harness indirection. The positional
@@ -212,4 +214,35 @@ test "a recursive instance iterator walks the tree depth first" {
         positional = positional * 10 + v
     }
     assert positional == 124536
+}
+
+// Consumer-surface proofs (sub-slice 6c): generic-extension closure and the pinned generic
+// String.Join<int> lowering over iterator results, arrays, and interpolated call holes.
+
+test "take on an infinite iterator closes the generic extension by receiver inference" {
+    positional := 0
+    for v in ArithmeticFrom(1, 1).Take(4) {
+        positional = positional * 10 + v
+    }
+    assert positional == 1234
+}
+
+test "string join closes its generic int overload over iterator array and hole arguments" {
+    separator := ", "
+    joined := String.Join(separator, CountTo(3))
+    assert joined == "0, 1, 2"
+
+    values: int[] = [4, 5, 6]
+    arrayJoined := String.Join(separator, values)
+    assert arrayJoined == "4, 5, 6"
+
+    holed := $"[{String.Join(separator, values)}]"
+    assert holed == "[4, 5, 6]"
+}
+
+test "a where select chain over an iterator materializes through the linq owners" {
+    result := CountTo(10).Where(x => x % 2 == 0).Select(x => x * x).ToList()
+    assert result.Count == 5
+    joined := String.Join(", ", result)
+    assert joined == "0, 4, 16, 36, 64"
 }

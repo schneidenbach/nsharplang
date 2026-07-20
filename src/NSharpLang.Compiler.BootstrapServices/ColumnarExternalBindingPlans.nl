@@ -45,6 +45,11 @@ public class ColumnarExternalCallPlan {
     public ParameterTypeNames: string[]
     public ReturnTypeName: string
 
+    // Non-empty ONLY for a plan that closes a generic method definition with plan-pinned type
+    // arguments (`String.Join<int>`). The parameter/return identities above always describe the
+    // CLOSED signature; an empty list keeps the original non-generic contract.
+    public TypeArgumentNames: string[]
+
     constructor(
         isSupported: bool,
         kind: ColumnarExternalCallKind,
@@ -58,6 +63,7 @@ public class ColumnarExternalCallPlan {
         MemberName = memberName
         ParameterTypeNames = parameterTypeNames
         ReturnTypeName = returnTypeName
+        TypeArgumentNames = new string[](0)
     }
 }
 
@@ -574,22 +580,38 @@ public class ColumnarExternalBindingPlans {
         if (typeName == "String" || typeName == "System.String")
             && memberName == "Join"
             && count == 2
-            && argumentTypeNames[0] == "System.String"
-            && IsStringSequenceJoinArgument(argumentTypeNames[1]) {
-            // `String.Join(sep, values)` over a `List<string>`/`IEnumerable<string>` binds the exact
-            // `String.Join(String, IEnumerable<String>)` overload; a concrete List flows to the
-            // enumerable parameter through the ordinary reference upcast (no cast instruction),
-            // matching the legacy special-arm lowering byte for byte. Only owner spellings that
-            // resolve to a runtime static owner are admitted — the lowercase `string` keyword is not
-            // a resolvable external owner, so it stays with the legacy string owner instead of a
-            // terminal ownership claim.
-            return StaticCall(
-                "System.String",
-                memberName,
-                Two(
+            && argumentTypeNames[0] == "System.String" {
+            if IsStringSequenceJoinArgument(argumentTypeNames[1]) {
+                // `String.Join(sep, values)` over a `List<string>`/`IEnumerable<string>` binds the exact
+                // `String.Join(String, IEnumerable<String>)` overload; a concrete List flows to the
+                // enumerable parameter through the ordinary reference upcast (no cast instruction),
+                // matching the legacy special-arm lowering byte for byte. Only owner spellings that
+                // resolve to a runtime static owner are admitted — the lowercase `string` keyword is not
+                // a resolvable external owner, so it stays with the legacy string owner instead of a
+                // terminal ownership claim.
+                return StaticCall(
                     "System.String",
-                    "System.Collections.Generic.IEnumerable`1[System.String]"),
-                "System.String")
+                    memberName,
+                    Two(
+                        "System.String",
+                        "System.Collections.Generic.IEnumerable`1[System.String]"),
+                    "System.String")
+            }
+            if IsInt32SequenceJoinArgument(argumentTypeNames[1]) {
+                // Int sequences have NO non-generic Join overload: `int[]`, `List<int>`, and
+                // `IEnumerable<int>` values all bind the generic `String.Join<T>(String,
+                // IEnumerable<T>)` closed at T=Int32 (int[] is not covariant to object[], so the
+                // params overload can never own these). Arrays and Lists flow to the enumerable
+                // parameter through the ordinary reference upcast, mirroring the string row.
+                return GenericStaticCall(
+                    "System.String",
+                    memberName,
+                    One("System.Int32"),
+                    Two(
+                        "System.String",
+                        "System.Collections.Generic.IEnumerable`1[System.Int32]"),
+                    "System.String")
+            }
         }
 
         if typeName == "Decimal" || typeName == "decimal" {
@@ -635,6 +657,19 @@ public class ColumnarExternalBindingPlans {
                 StringComparison.Ordinal)
             || typeName.StartsWith(
                 "System.Collections.Generic.IEnumerable`1[[System.String,",
+                StringComparison.Ordinal)
+    }
+
+    // An `int[]`, `List<int>`, or `IEnumerable<int>` argument that closes the generic
+    // `String.Join<T>(String, IEnumerable<T>)` overload at T=Int32. Same marker discipline as the
+    // string row: prefixes stop before the version to stay framework-version robust.
+    static func IsInt32SequenceJoinArgument(typeName: string): bool {
+        return typeName == "System.Int32[]"
+            || typeName.StartsWith(
+                "System.Collections.Generic.List`1[[System.Int32,",
+                StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "System.Collections.Generic.IEnumerable`1[[System.Int32,",
                 StringComparison.Ordinal)
     }
 
@@ -1275,6 +1310,28 @@ public class ColumnarExternalBindingPlans {
             ExactTypeIdentity(returnTypeName))
     }
 
+    // A static call that CLOSES a generic method definition with plan-pinned type arguments
+    // (`String.Join<int>(String, IEnumerable<Int32>)`). The host still may not substitute, score,
+    // or infer: the plan names the exact type arguments and the exact CLOSED signature, and the
+    // runtime resolver validates the closure against those identities member-for-member.
+    static func GenericStaticCall(
+        declaringTypeName: string,
+        memberName: string,
+        typeArgumentNames: string[],
+        parameterTypeNames: string[],
+        returnTypeName: string): ColumnarExternalCallPlan {
+        plan := StaticCall(declaringTypeName, memberName, parameterTypeNames, returnTypeName)
+        exactTypeArgumentNames := new string[](typeArgumentNames.Length)
+        i := 0
+        while i < typeArgumentNames.Length {
+            exactTypeArgumentNames[i] = ExactTypeIdentity(typeArgumentNames[i])
+            i = i + 1
+        }
+
+        plan.TypeArgumentNames = exactTypeArgumentNames
+        return plan
+    }
+
     static func NoCall(): ColumnarExternalCallPlan {
         return new ColumnarExternalCallPlan(
             false,
@@ -1312,7 +1369,8 @@ public class ColumnarExternalBindingPlans {
 
     static func ExactTypeIdentity(fullName: string): string {
         if fullName == "System.Threading.Tasks.Task`1[System.String]"
-            || fullName == "System.Collections.Generic.IEnumerable`1[System.String]" {
+            || fullName == "System.Collections.Generic.IEnumerable`1[System.String]"
+            || fullName == "System.Collections.Generic.IEnumerable`1[System.Int32]" {
             // Closed BCL generics must carry their fully version-qualified identity: the runtime
             // exact-identity check compares the assembly-qualified name (with the type argument's
             // own assembly and version), so a short `[System.String]` spelling would never match.
