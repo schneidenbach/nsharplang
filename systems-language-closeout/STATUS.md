@@ -4,10 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/012-readonly-field-initialization.md`
+- Current task: `tasks/013-synchronous-iterators.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (012 owns the last ilverify finding: InitOnly on
-  RecordsAndInterfaces' <InitializeFields>$ — readonly-field initialization placement)
+- Active sub-slice: not yet selected (013 owns the Iterators single-file gate failure:
+  synchronous yield-return iterator state machines)
 - Last accepted ownership commit: task 009's slice commits (`85c817440`, `5f9bf3fce`, extension-calls commit)
 - Queue: `tasks/README.md`
 
@@ -216,6 +216,19 @@ Completed slices:
   - Evidence: 625 BootstrapServices contracts; external-base-interface 18/18, extension-calls 4/4
     executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
     all native projects green; gate baseline shrunk to three groups.
+
+- Task 012 — readonly-field initialization placement; commit recorded in git ("Own readonly-field
+  initialization placement in N#").
+  - Deleted C# owners: the initialized-fields decision, unconditional helper synthesis, whole-body
+    helper emission, and the inline default-ctor body decision — the N# plan is the sole placement
+    authority.
+  - Added N# owners: `ColumnarFieldInitPlanner` — initonly stores inline in every base-reaching
+    constructor, mutable stores in a helper synthesized only when needed, static ownership
+    untouched.
+  - Evidence: RecordsAndInterfaces builds, runs, ILVerifies clean; estate-wide ILVerify 0 findings
+    (empty baseline); the gate's IL-verification step now PASSES — the gate is down to TWO groups
+    (013 Iterators, 014 AsyncStreams). New readonly-init project 18/18; 625 contracts; 3,182/3,182
+    units; fresh Release self-emit clean.
 
 - Task 011 — record-with lowering for value receivers; commit `8a90bcd92`.
   - Deleted C# owners: the case-52 arm's clone-always callvirt selection, receiver gate, per-field

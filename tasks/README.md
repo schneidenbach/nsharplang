@@ -32,7 +32,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [009 — External base and interface resolution](009-external-base-interface-resolution.md)
 - [x] [010 — Lambda definition placement and visibility](010-lambda-definition-placement.md)
 - [x] [011 — Record-with lowering for value receivers](011-record-with-value-receivers.md)
-- [ ] [012 — Readonly-field initialization placement](012-readonly-field-initialization.md)
+- [x] [012 — Readonly-field initialization placement](012-readonly-field-initialization.md)
 - [ ] [013 — Synchronous iterators](013-synchronous-iterators.md)
 - [ ] [014 — Async iterators](014-async-iterators.md)
 - [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
