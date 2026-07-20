@@ -9254,25 +9254,21 @@ internal sealed class ColumnarIlEmitter
 
     private static void SynthesizeRecordCloneMember(ColumnarStructDef def)
     {
-        if (def.RecordClone != null)
+        // Only a reference record needs a synthesized `<Clone>$` virtual: it is the copy source for the
+        // ReferenceClone strategy of a record-CLASS `with` expression (ColumnarRecordWithPlanner). A record
+        // STRUCT is copied by plain value assignment (the ValueCopy strategy) and, exactly like a C# record
+        // struct, carries no `<Clone>$` method — a value-type clone virtual would be called via `callvirt`
+        // on a value, which is unverifiable.
+        if (!def.IsReference || def.RecordClone != null)
             return;
         var tb = def.Builder;
         var clone = tb.DefineMethod(
             "<Clone>$", MethodAttributes.Public | MethodAttributes.HideBySig,
             tb, Type.EmptyTypes);
         var cil = clone.GetILGenerator();
-        if (def.IsReference)
-        {
-            cil.Emit(OpCodes.Ldarg_0);
-            cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
-            cil.Emit(OpCodes.Castclass, tb);
-        }
-        else
-        {
-            // A VALUE record clones by loading the value through the byref `this`.
-            cil.Emit(OpCodes.Ldarg_0);
-            cil.Emit(OpCodes.Ldobj, tb);
-        }
+        cil.Emit(OpCodes.Ldarg_0);
+        cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        cil.Emit(OpCodes.Castclass, tb);
         cil.Emit(OpCodes.Ret);
         def.RecordClone = clone;
     }
@@ -11808,45 +11804,62 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 52: // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`: callvirt
-            {        // the synthesized `<Clone>$` (PASS 0e), then stfld each named field on the clone — the
-                     // legacy emitter's EmitWithExpression verbatim. Receivers: NON-GENERIC records carrying the
-                     // synthesis; classes decline (their `with` falls to a raw cross-type MemberwiseClone
-                     // call legacy-emitter side — unverifiable IL), generic records decline (the legacy emitter's
-                     // with-on-generic emit is the known-broken B4 residual), builder-typed-field records
-                     // decline (no synthesis). Zero pairs = a pure clone.
+            case 52: // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`. N# owns
+            {        // the clone/copy strategy, the receiver address-versus-value shape, the ordered
+                     // replacement set, the readonly rule, the exact call form, and the result type
+                     // (ColumnarRecordWithPlanner). C# evaluates the receiver and each replacement value
+                     // through the recursive sub-emitter and applies the exact opcode shape the plan
+                     // prescribes: a reference record clones through `<Clone>$` and writes each field on the
+                     // cloned reference (ldloc; stfld); a value record copies by assignment into a local and
+                     // writes each field through the copy's address (ldloca; stfld), the shape a verifiable
+                     // value-type `with` requires (a value receiver is not an object reference, so `callvirt`
+                     // on it is unverifiable and an instance write needs the value's address). Zero pairs is a
+                     // pure copy. Generic records still decline: a constructed generic receiver is not a raw
+                     // TypeBuilder, so no definition is resolved and the plan declines to the residual.
                 if ((_nodes.ChildCount(idx) & 1) == 0)
                     return Decline("emit.with.shape", "with expression has an unsupported shape", idx);
-                if (!EmitExpression(Child(idx, 0), out var withReceiverType))
-                    return Decline("emit.with.receiver", "with expression receiver could not be emitted", Child(idx, 0));
-                if (withReceiverType is not TypeBuilder withTb
-                    || FindDefByBuilder(withTb) is not { IsRecord: true, RecordClone: not null } withDef)
-                    return Decline("emit.with.clone", "with expression receiver type does not have a modeled record clone", Child(idx, 0));
-                _il.Emit(OpCodes.Callvirt, withDef.RecordClone);
-                var cloneLocal = _il.DeclareLocal(withReceiverType);
-                _il.Emit(OpCodes.Stloc, cloneLocal);
-                for (var p = 1; p + 1 < _nodes.ChildCount(idx); p += 2)
+                var withPairCount = (_nodes.ChildCount(idx) - 1) / 2;
+                var withNames = new string[withPairCount];
+                for (var p = 0; p < withPairCount; p++)
                 {
-                    var withNameChild = Child(idx, p);
+                    var withNameChild = Child(idx, 1 + (2 * p));
                     if (_nodes.Kind(withNameChild) != 6 || _nodes.ValueStart(withNameChild) < 0)
                         return Decline("emit.with.field-name", "with expression field name is not modeled", withNameChild);
-                    if (!withDef.Fields.TryGetValue(Text(withNameChild), out var withField))
-                        return Decline("emit.with.field", "with expression field '" + Text(withNameChild) + "' does not exist on receiver type", withNameChild);
-                    _il.Emit(OpCodes.Ldloc, cloneLocal);
-                    if (TryEmitIntLiteralAsType(Child(idx, p + 1), withField.FieldType, out var withValueType))
+                    withNames[p] = Text(withNameChild);
+                }
+                if (!EmitExpression(Child(idx, 0), out var withReceiverType))
+                    return Decline("emit.with.receiver", "with expression receiver could not be emitted", Child(idx, 0));
+                var withPlan = withReceiverType is TypeBuilder withTb
+                    ? ColumnarRecordWithPlanner.PlanRecordWith(FindDefByBuilder(withTb), withNames)
+                    : null;
+                if (withPlan == null)
+                    return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0));
+                var withLocal = _il.DeclareLocal(withReceiverType);
+                if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone)
+                    _il.Emit(OpCodes.Callvirt, withPlan.CloneMethod!);
+                _il.Emit(OpCodes.Stloc, withLocal);
+                for (var p = 0; p < withPairCount; p++)
+                {
+                    var withField = withPlan.Fields[p];
+                    if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone)
+                        _il.Emit(OpCodes.Ldloc, withLocal);
+                    else
+                        _il.Emit(OpCodes.Ldloca, withLocal);
+                    var withValueNode = Child(idx, 2 + (2 * p));
+                    if (TryEmitIntLiteralAsType(withValueNode, withField.FieldType, out var withValueType))
                     {
                         // constant adoption (`with { X: 10 }` on a small-int field).
                     }
-                    else if (!EmitExpression(Child(idx, p + 1), out withValueType))
+                    else if (!EmitExpression(withValueNode, out withValueType))
                     {
-                        return Decline("emit.with.value", "with expression value for field '" + Text(withNameChild) + "' could not be emitted", Child(idx, p + 1));
+                        return Decline("emit.with.value", "with expression value for field '" + withField.Name + "' could not be emitted", withValueNode);
                     }
                     if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !TryEmitReferenceConversion(withValueType, withField.FieldType) && !TryEmitObjectConversion(withValueType, withField.FieldType) && !TryEmitAnonymousUnionConversion(withValueType, withField.FieldType))
-                        return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withField.FieldType.FullName + "'", Child(idx, p + 1));
+                        return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withField.FieldType.FullName + "'", withValueNode);
                     _il.Emit(OpCodes.Stfld, withField);
                 }
-                _il.Emit(OpCodes.Ldloc, cloneLocal);
-                type = withReceiverType;
+                _il.Emit(OpCodes.Ldloc, withLocal);
+                type = withPlan.ResultType;
                 return true;
             }
 
