@@ -10164,14 +10164,15 @@ internal sealed class ColumnarIlEmitter
             case 69: // RangeExpression [start?, end?] — construct System.Range from System.Index endpoints.
                 return TryEmitSystemRangeExpression(idx, out type);
 
-            case 12: // Binary [left, right] — int/long arithmetic & bitwise, shifts, short-circuit `&&`/`||`, or a
+            case 12: // Binary [left, right] — int/long arithmetic & bitwise, short-circuit `&&`/`||`, or a
             {        // comparison producing bool. Most operators need both operands the SAME type.
                 var op = Text(idx);
 
-                // Short-circuit `&&`/`||` MUST conditionally evaluate the right operand — both for production semantics
-                // and for safety (e.g. `i < n && a[i] == x` must not index a[i] when i >= n). So handle these
-                // BEFORE evaluating either operand: emit left, branch on it, evaluate right only on the
-                // non-short-circuiting path. Both operands and the result are bool.
+                // FENCED WHOLE-SUBTREE RESIDUAL — short-circuit `&&`/`||` (task 007). The N# conditional planner
+                // owns every FULLY-PLANNABLE `&&`/`||` at the front door; this arm serves ONLY the residual whose
+                // OPERAND is non-plannable (task-006 residual equality `x == null`/`s == "lit"`, member chains on
+                // call results, dictionary indexers). Mirrors the planner's lowering byte-for-byte, keeping
+                // short-circuit safety (`i < n && a[i] == x`); operands recurse via EmitExpression.
                 if (op == "&&" || op == "||")
                 {
                     if (!EmitExpression(Child(idx, 0), out var shortLeftType) || shortLeftType != typeof(bool))
@@ -12243,10 +12244,15 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 13: // Ternary [cond, then, else] — `cond ? then : else`, a branch/merge with ONE result on the
-            {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
-                     // rule); MIXED-type arms decline to the N# backend path (its implicit-conversion unification is a
-                     // widening-slice concern). The condition emits through the shared bool gate.
+            case 13: // Ternary [cond, then, else] — a branch/merge with ONE result; both arms must be the SAME
+            {        // type (TypesEquivalent — the match-arm unification rule).
+                     //
+                     // FENCED WHOLE-SUBTREE RESIDUAL (task 007). The N# conditional planner owns every
+                     // FULLY-PLANNABLE ternary at the front door; this arm serves ONLY the residual whose CONDITION
+                     // or ARM is non-plannable — a task-006 residual equality condition (`setter == null ? 0 : 1`;
+                     // enum/string equality) or a non-plannable arm (member chains on call results, indexers).
+                     // Mirrors the planner's lowering byte-for-byte; MIXED-type arms decline (widening is a later
+                     // concern), matching the planner's exact-type rule.
                 if (_nodes.ChildCount(idx) != 3)
                     return false;
                 if (!EmitCondition(Child(idx, 0)))
@@ -16928,17 +16934,9 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(node) != 12 || _nodes.ChildCount(node) != 2)
             return false;
         var op = Text(node);
-        if (op == "&&" || op == "||")
-        {
-            if (!TryGetPreflightExpressionType(Child(node, 0), out var shortLeft)
-                || !TryGetPreflightExpressionType(Child(node, 1), out var shortRight)
-                || shortLeft != typeof(bool)
-                || shortRight != typeof(bool))
-                return false;
-            type = typeof(bool);
-            return true;
-        }
-
+        // Short-circuit `&&`/`||` has NO preflight residual (task 007): N# types every plannable `&&`/`||` at
+        // the front door, and a residual one is only ever EMITTED (case-12 arm), never preflight-typed, so the
+        // old `&&`/`||` sub-arm here was dead and is deleted, not fenced.
         if (!TryGetPreflightExpressionType(Child(node, 0), out var leftType)
             || !TryGetPreflightExpressionType(Child(node, 1), out var rightType))
             return false;
