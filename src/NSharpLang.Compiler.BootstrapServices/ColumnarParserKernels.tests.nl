@@ -265,6 +265,7 @@ class ColumnarNestedStructDeclarationProbe {
             new int[](capacity),
             new int[](capacity),
             new int[](capacity),
+            new int[](capacity),
             StructIndices,
             ReferenceFlags,
             RecordFlags,
@@ -272,6 +273,170 @@ class ColumnarNestedStructDeclarationProbe {
             EnclosingTypeNames,
             result)
         Count = ScanStatus < 0 ? -1 : result[5]
+    }
+}
+
+// Runs the top-level declaration scan and captures the per-function async/generator facts. A `func*`
+// declaration sets GeneratorFlags[k] = 1 (parallel to AsyncFlags); an ordinary `func` leaves it 0.
+class ColumnarFunctionGeneratorScanProbe {
+    ScanStatus: int
+    FuncCount: int
+    FuncIndices: int[]
+    AsyncFlags: int[]
+    GeneratorFlags: int[]
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        FuncIndices = new int[](capacity)
+        AsyncFlags = new int[](capacity)
+        GeneratorFlags = new int[](capacity)
+        result := new int[](6)
+        ScanStatus = ColumnarProgramDeclarationIndicesInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenCounts[0],
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            FuncIndices,
+            AsyncFlags,
+            GeneratorFlags,
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new int[](capacity),
+            new string[](capacity),
+            result)
+        FuncCount = ScanStatus < 0 ? -1 : result[1]
+    }
+}
+
+// Parses a whole `func` (or `func*`) via the product function ABI and counts YieldStatement (kind 72)
+// nodes in the emitted body node table. Uses only raw int/string arrays and the product ABI, the same
+// emit shape the declaration-scan probes use, so it materializes under the stage-0 columnar backend.
+class ColumnarFunctionBodyYieldProbe {
+    Status: int
+    YieldNodeCount: int
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result)
+
+        YieldNodeCount = 0
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            n := 0
+            while n < bodyNodeCount {
+                if nodeKinds[n] == 72 {
+                    YieldNodeCount = YieldNodeCount + 1
+                }
+
+                n = n + 1
+            }
+        }
     }
 }
 
@@ -402,6 +567,44 @@ test "program declaration scanner appends nested lexical owner paths and declara
     assert probe.RecordFlags[4] == 0
     assert probe.VisibilityFlags[1] == 1
     assert probe.VisibilityFlags[2] == 0
+}
+
+test "declaration scanner parses func* and records the generator fact parallel to async" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func Plain(): int { return 1 }\nfunc* Gen(count: int): IEnumerable<int> { yield count }")
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 2
+    assert probe.GeneratorFlags[0] == 0
+    assert probe.AsyncFlags[0] == 0
+    assert probe.GeneratorFlags[1] == 1
+    assert probe.AsyncFlags[1] == 0
+}
+
+test "declaration scanner records async and generator facts independently for async func*" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "async func* Stream(): IAsyncEnumerable<int> { yield 1 }")
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 1
+    assert probe.AsyncFlags[0] == 1
+    assert probe.GeneratorFlags[0] == 1
+}
+
+test "function body parser lands a value yield as YieldStatement kind 72" {
+    probe := new ColumnarFunctionBodyYieldProbe(
+        "func* Gen(): IEnumerable<int> { yield 41 }")
+
+    assert probe.Status >= 0
+    assert probe.YieldNodeCount == 1
+}
+
+test "function body parser lands a yield break as YieldStatement kind 72" {
+    probe := new ColumnarFunctionBodyYieldProbe(
+        "func* Gen(): IEnumerable<int> { yield break }")
+
+    assert probe.Status >= 0
+    assert probe.YieldNodeCount == 1
 }
 
 test "columnar decimal literal spans preserve separators and value" {

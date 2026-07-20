@@ -7913,6 +7913,14 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 72: // YieldStatement (`yield <value>` / `yield break`) — the func*/yield iterator shape now
+                     // PARSES into the columnar node table (kind 72), but state-machine lowering is owned by
+                     // the N# iterator planner in a later ownership slice. Decline at a precise site until then.
+                return Decline(
+                    "emit.statement.yield-unsupported",
+                    "synchronous iterator lowering (func*/yield) is not yet emitted; this shape lands in a later N# ownership slice",
+                    idx);
+
             default:
                 return Decline(
                     "emit.statement.unhandled-kind",
@@ -9111,6 +9119,9 @@ internal sealed class ColumnarIlEmitter
             case 20: // Return
             case 48: // Throw — always exits (E1).
                 return true;
+            case 72: // YieldStatement — a value-less `yield break` (0 children) terminates the iterator,
+                     // exactly like return/throw; a `yield <value>` (1 child) produces a value and continues.
+                return _nodes.ChildCount(idx) == 0;
             case 49: // Try — the analyzer's rule VERBATIM: exits iff the TRY block exits AND there is at
             {        // least ONE catch AND every catch clause's block exits. The FINALLY (a trailing
                      // kind-25 child) is IGNORED — probe-pinned: a zero-catch `try {return} finally {}`

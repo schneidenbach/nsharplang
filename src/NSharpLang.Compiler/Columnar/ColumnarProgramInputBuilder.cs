@@ -7,6 +7,7 @@ namespace NSharpLang.Compiler.Columnar;
 internal static class ColumnarProgramInputBuilder
 {
     private const int NSharpModifierNativeImport = 131072;
+    private const int NSharpModifierGenerator = 4096; // `func*`; must mirror Modifiers.Generator
 
     private static bool Decline(string siteId, string message, int spanStart = -1, int spanLength = 0, string memberName = "")
     {
@@ -30,9 +31,8 @@ internal static class ColumnarProgramInputBuilder
         return Decline(siteId, message, memberName: memberName);
     }
 
-    // Body node tables are parsed into worst-case scratch arrays sized by the file's token count,
-    // but the program retains them for the whole compile. Copy down to the actual node count
-    // (keeping the kernel's count+1 sentinel row) so retained memory tracks tree size, not file size.
+    // Body node tables parse into worst-case scratch arrays (token-count sized) but are retained all
+    // compile; copy down to node count (+1 sentinel row) so retained memory tracks tree, not file, size.
     private static ColumnarNodeTable BuildTrimmedNodeTable(
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStarts, int[] childCounts, int[] childIndices,
@@ -64,6 +64,7 @@ internal static class ColumnarProgramInputBuilder
         var n = tokens.Count;
         var funcIndices = new int[n + 1];
         var funcAsyncFlags = new int[n + 1];
+        var funcGeneratorFlags = new int[n + 1];
         var enumIndices = new int[n + 1];
         var unionIndices = new int[n + 1];
         var interfaceIndices = new int[n + 1];
@@ -85,6 +86,7 @@ internal static class ColumnarProgramInputBuilder
             n,
             funcIndices,
             funcAsyncFlags,
+            funcGeneratorFlags,
             enumIndices,
             unionIndices,
             interfaceIndices,
@@ -109,7 +111,7 @@ internal static class ColumnarProgramInputBuilder
                 0);
         }
 
-        if (!TryGetColumnarFunctionInputs(source, tokens, funcIndices, funcAsyncFlags, declarationResult[1], out var inputs))
+        if (!TryGetColumnarFunctionInputs(source, tokens, funcIndices, funcAsyncFlags, funcGeneratorFlags, declarationResult[1], out var inputs))
         {
             return Decline("parse.function", "function declaration materialization failed");
         }
@@ -312,7 +314,7 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static bool TryGetColumnarFunctionInputs(
-        string source, ColumnarTokenizedSource tokens, int[] funcIndices, int[] funcAsyncFlags, int funcIndexCount,
+        string source, ColumnarTokenizedSource tokens, int[] funcIndices, int[] funcAsyncFlags, int[] funcGeneratorFlags, int funcIndexCount,
         out List<ColumnarFunctionInput> inputs)
     {
         inputs = [];
@@ -324,7 +326,8 @@ internal static class ColumnarProgramInputBuilder
 
             for (var fi = 0; fi < funcIndexCount; fi++)
             {
-                if (!TryParseColumnarFunctionAt(ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1))
+                var modifierFlags = funcGeneratorFlags[fi] == 1 ? NSharpModifierGenerator : 0;
+                if (!TryParseColumnarFunctionAt(ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1, modifierFlags: modifierFlags))
                     return DeclineAtToken("parse.function", "function declaration could not be parsed into columnar input", cs, cv, funcIndices[fi]);
                 inputs.Add(input);
             }
@@ -550,12 +553,9 @@ internal static class ColumnarProgramInputBuilder
 
                 var typeParamCount = outResult[2];
 
-                // Stage 6 union-ABI ownership: a small, closed, payload-free, non-generic union is the public
-                // allocation-free readonly tag struct (UnionValueLayout.IsValueStructEmittable). The
-                // columnar emitter now OWNS this layout (ColumnarIlEmitter emits the tag
-                // struct directly), so this flag selects the value-struct emit path instead of the class-hierarchy
-                // one — preserving the public value-struct ABI on the columnar-routed build. The eligibility
-                // decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
+                // A small, closed, payload-free, non-generic union is the public allocation-free readonly
+                // tag struct (matching UnionValueLayout.IsValueStructEmittable); this flag selects that emit
+                // path over the class hierarchy. Eligibility is N#-owned (ParserColumnarUnions.nl).
                 var isValueStruct = global::Program.ColumnarUnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1;
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)

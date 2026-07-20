@@ -770,9 +770,11 @@ class TopLevelStructLikeDeclarationTable {
 class TopLevelColumnarFunctionDeclarationTable {
     Indices: int[]
     AsyncFlags: int[]
-    constructor(indices: int[], asyncFlags: int[]) {
+    GeneratorFlags: int[]
+    constructor(indices: int[], asyncFlags: int[], generatorFlags: int[]) {
         Indices = indices
         AsyncFlags = asyncFlags
+        GeneratorFlags = generatorFlags
     }
 }
 
@@ -790,15 +792,17 @@ class TopLevelColumnarNominalDeclarationTable {
 class TopLevelColumnarProgramDeclarationTable {
     FuncIndices: int[]
     FuncAsyncFlags: int[]
+    FuncGeneratorFlags: int[]
     EnumIndices: int[]
     UnionIndices: int[]
     InterfaceIndices: int[]
     StructIndices: int[]
     StructReferenceFlags: int[]
     StructRecordFlags: int[]
-    constructor(funcIndices: int[], funcAsyncFlags: int[], enumIndices: int[], unionIndices: int[], interfaceIndices: int[], structIndices: int[], structReferenceFlags: int[], structRecordFlags: int[]) {
+    constructor(funcIndices: int[], funcAsyncFlags: int[], funcGeneratorFlags: int[], enumIndices: int[], unionIndices: int[], interfaceIndices: int[], structIndices: int[], structReferenceFlags: int[], structRecordFlags: int[]) {
         FuncIndices = funcIndices
         FuncAsyncFlags = funcAsyncFlags
+        FuncGeneratorFlags = funcGeneratorFlags
         EnumIndices = enumIndices
         UnionIndices = unionIndices
         InterfaceIndices = interfaceIndices
@@ -6139,6 +6143,37 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 20, -1, 0, -1, 0, returnStart, returnEnd - returnStart)
     }
 
+    // `yield <expr>` / `yield break` (Yield 30) -- YieldStatement kind 72. ZERO children = `yield break`
+    // (terminates the iterator; AlwaysReturns treats it like return/throw); ONE child = the yielded value
+    // expression (produces a value and continues). Only legal inside a generator (`func*`); the analyzer
+    // enforces that. The emitter DECLINES kind 72 today (`emit.statement.yield-unsupported`) -- iterator
+    // state-machine lowering lands in a later N# ownership slice.
+    if kind == 30 {
+        yieldStart := tokens.Starts[start]
+        yieldEnd := tokens.Starts[start] + tokens.ValueLengths[start]
+        st.Pos = start + 1
+
+        if st.Pos < count && tokens.Kinds[st.Pos] == 35 {
+            breakEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            return EmitExpressionNode(st, nodes, 72, -1, 0, -1, 0, yieldStart, breakEnd - yieldStart)
+        }
+
+        if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
+            return -1
+        }
+
+        yieldValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if yieldValue < 0 {
+            return -1
+        }
+
+        yieldValueEnd := nodes.SpanStarts[yieldValue] + nodes.SpanLengths[yieldValue]
+        yieldChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, yieldValue)
+        return EmitExpressionNode(st, nodes, 72, -1, 0, yieldChildRun, 1, yieldStart, yieldValueEnd - yieldStart)
+    }
+
     // `throw <expr>` (Throw 37) -- ThrowStatement kind 48, ONE child [the exception expression].
     // A bare `throw` (rethrow, catch-only) is unmodeled (-1) until the catch rung lands. Throw
     // ALWAYS EXITS: the emitter's AlwaysReturns mirror treats kind 48 like Return.
@@ -6784,6 +6819,11 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
                 decls.Kinds[outCount] = kind
                 decls.Indices[outCount] = i
                 nameIndex := i + 1
+                // Iterator declarations spell the generator marker as `func*`: skip the `*` (Star 90)
+                // so the name span reads the identifier that follows, exactly as a normal `func` does.
+                if kind == 7 && nameIndex < count && tokens.Kinds[nameIndex] == 90 {
+                    nameIndex = nameIndex + 1
+                }
                 if kind == 13 && nameIndex < count && tokens.Kinds[nameIndex] == 9 {
                     nameIndex = nameIndex + 1
                 }
@@ -6943,10 +6983,10 @@ func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, cou
     return outCount
 }
 
-func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outStructEnclosingTypeNames: string[], outResult: int[]): int {
+func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outFuncGeneratorFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outStructEnclosingTypeNames: string[], outResult: int[]): int {
     rawTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
     compactTokens := new ParserDeclarationTokenTable(compactTokenKinds, compactTokenStarts, compactTokenValueLengths)
-    outputs := new TopLevelColumnarProgramDeclarationTable(outFuncIndices, outFuncAsyncFlags, outEnumIndices, outUnionIndices, outInterfaceIndices, outStructIndices, outStructReferenceFlags, outStructRecordFlags)
+    outputs := new TopLevelColumnarProgramDeclarationTable(outFuncIndices, outFuncAsyncFlags, outFuncGeneratorFlags, outEnumIndices, outUnionIndices, outInterfaceIndices, outStructIndices, outStructReferenceFlags, outStructRecordFlags)
     result := new ParserDeclarationResultTable(outResult)
     declarationCount := TopLevelColumnarProgramDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, outputs, result)
     if declarationCount < 0 {
@@ -7102,7 +7142,7 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
         return -1
     }
 
-    functionOutputs := new TopLevelColumnarFunctionDeclarationTable(outputs.FuncIndices, outputs.FuncAsyncFlags)
+    functionOutputs := new TopLevelColumnarFunctionDeclarationTable(outputs.FuncIndices, outputs.FuncAsyncFlags, outputs.FuncGeneratorFlags)
     functionResult := new ParserDeclarationResultTable(new int[](2))
     functionCount := TopLevelColumnarFunctionDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, functionOutputs, functionResult)
     if functionCount < 0 {
@@ -7327,6 +7367,25 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
 
     if asyncCount != funcCount {
         return -1
+    }
+
+    // Generator (`func*`) fact, parallel to AsyncFlags: a top-level function is a generator when a `*`
+    // (Star 90) immediately follows its `func` keyword in the compact stream. The decision lives here in
+    // N#; the host only routes the flag into ColumnarFunctionInput.ModifierFlags (|= 4096).
+    gi := 0
+    while gi < funcCount {
+        if gi >= outputs.GeneratorFlags.Length {
+            return -1
+        }
+
+        generatorFlag := 0
+        funcTokenIndex := outputs.Indices[gi]
+        if funcTokenIndex + 1 < compactCount && compactTokens.Kinds[funcTokenIndex + 1] == 90 {
+            generatorFlag = 1
+        }
+
+        outputs.GeneratorFlags[gi] = generatorFlag
+        gi = gi + 1
     }
 
     if TopLevelFunctionPreamblesAreValidCore(compactTokens, compactCount, indices, funcCount) == 0 {
@@ -9580,6 +9639,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 methodFlags = methodFlags | 16
             }
 
+            // Generator (`func*`) method: a `*` (Star 90) immediately after `func` sets the generator bit
+            // (4096), routed through MethodModifierFlags into the method's ColumnarFunctionInput.
+            if tokens.Kinds[memberStart] == 7 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 90 {
+                methodFlags = methodFlags | 4096
+            }
+
             signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, memberStart)
             if signatureEnd < 0 || signatureEnd >= count {
                 return -1
@@ -10201,6 +10266,11 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
     }
 
     pos := funcIndex + 1
+    // `func*` generator marker: skip the `*` (Star 90) so parameter-default scanning finds the name and
+    // `(` exactly as an ordinary `func` does.
+    if pos < count && tokens.Kinds[pos] == 90 {
+        pos = pos + 1
+    }
     if tokens.Kinds[funcIndex] == 85 || tokens.Kinds[funcIndex] == 86 {
         if pos >= count || tokens.Kinds[pos] != 75 {
             return -1
@@ -10689,6 +10759,12 @@ func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex:
     conversionOperatorKind := 0
     st := new ParserState(0, 0, 0, 0, 0, 0)
     i := funcIndex + 1
+    // `func*` (generator/iterator) carries a `*` (Star 90) between the keyword and the name. Skip it so
+    // the name, type parameters, parameters, and return type parse exactly as an ordinary `func` does;
+    // the generator fact itself is recorded by the declaration/member scan, not the signature.
+    if i < count && tokens.Kinds[i] == 90 {
+        i = i + 1
+    }
     if funcIndex >= 0 && funcIndex < count && (tokens.Kinds[funcIndex] == 85 || tokens.Kinds[funcIndex] == 86) {
         conversionOperatorKind = tokens.Kinds[funcIndex]
         if i >= count || tokens.Kinds[i] != 75 {
@@ -12731,6 +12807,10 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
     }
 
     methodNameIndex := funcIndex + 1
+    // `func*` generator method: skip the `*` (Star 90) so the member name resolves to the identifier.
+    if methodNameIndex < tokens.Count && tokens.Kinds[methodNameIndex] == 90 {
+        methodNameIndex = methodNameIndex + 1
+    }
     if methodNameIndex < 0 || methodNameIndex >= tokens.Count {
         return ""
     }
