@@ -4,10 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/011-record-with-value-receivers.md`
+- Current task: `tasks/012-readonly-field-initialization.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (011 owns the RecordStructs ilverify gate findings:
-  CallVirtOnValueType and StackUnexpected in record-with lowering for value receivers)
+- Active sub-slice: not yet selected (012 owns the last ilverify finding: InitOnly on
+  RecordsAndInterfaces' <InitializeFields>$ — readonly-field initialization placement)
 - Last accepted ownership commit: task 009's slice commits (`85c817440`, `5f9bf3fce`, extension-calls commit)
 - Queue: `tasks/README.md`
 
@@ -217,7 +217,19 @@ Completed slices:
     executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
     all native projects green; gate baseline shrunk to three groups.
 
-- Task 011 pending. Task 010 — lambda definition placement and visibility; slice commit recorded
+- Task 011 — record-with lowering for value receivers; commit `8a90bcd92`.
+  - Deleted C# owners: the case-52 arm's clone-always callvirt selection, receiver gate, per-field
+    binding, and result-type decision, plus the value-record `<Clone>$` synthesis branch (record
+    structs now carry no Clone, matching C#). The arm is mechanical over the N# plan.
+  - Added N# owners: `ColumnarRecordWithPlanner` — clone/copy strategy (reference clone versus
+    verifiable value copy through an addressed temp), receiver shape, ordered member resolution,
+    readonly decline, exact call form, result type.
+  - Evidence: RecordStructs builds, runs correctly, ILVerifies clean (delta −2 findings);
+    whole-estate ILVerify over 91 assemblies leaves only the task-012 InitOnly finding; new
+    record-with product project 12/12 registered in the ilverify gate; 625 contracts; 3,182/3,182
+    units; fresh Release self-emit clean; gate steady at three groups.
+
+- Task 010 — lambda definition placement and visibility; slice commit recorded
   in git ("Own lambda definition placement in N#").
   - Deleted C# owners: the non-capturing lambda placement decisions — visibility attribute
     literals, name+counter construction, synthesized-signature guards, value-type/ctor guard,
