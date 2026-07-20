@@ -288,6 +288,12 @@ public class ColumnarCodePlanContract {
             || opCodeValue == Ldloca()
             || opCodeValue == Stloc()
     }
+
+    // Method-body opcodes (schema v4) that take no operand: ret and throw. Isinst/Stsfld/Leave carry
+    // Type/Field/Label operands and are recognized by their respective operand-typed appenders.
+    public static func IsMethodBodyNoOperandOpcode(opCodeValue: short): bool {
+        return opCodeValue == Ret() || opCodeValue == Throw()
+    }
 }
 
 // A checkpoint is an immutable logical snapshot. Array capacity is deliberately not part of the
@@ -568,6 +574,20 @@ public class ColumnarCodePlan {
         EnsureOperationCapacity(4)
         EnsureFragmentCapacity(4)
         EnsureOpenFragmentCapacity(4)
+        EnsureBranchCapacity(4)
+        EnsureInt64Capacity(4)
+        EnsureSingleCapacity(4)
+        EnsureDoubleCapacity(4)
+        EnsureStringCapacity(4)
+    }
+
+    // Open a schema-v4 method body for building: a flat operation stream (no fragments) that admits
+    // every scalar instruction/pool plus the method-body opcodes and exception regions.
+    public func PrepareMethodBody() {
+        Reset()
+        SchemaVersion = ColumnarCodePlanContract.MethodBodySchemaVersion()
+        Lifecycle = ColumnarCodePlanLifecycle.Building
+        EnsureOperationCapacity(4)
         EnsureBranchCapacity(4)
         EnsureInt64Capacity(4)
         EnsureSingleCapacity(4)
@@ -896,8 +916,10 @@ public class ColumnarCodePlan {
     public func AppendInstructionWithoutOperand(opCodeValue: short) {
         EnsureV2Building()
         if !ColumnarCodePlanContract.IsNoOperandOpcode(opCodeValue)
-            && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-                || !ColumnarCodePlanContract.IsScalarNoOperandOpcode(opCodeValue)) {
+            && !(AllowsScalarOrMethodBodyInstructions()
+                && ColumnarCodePlanContract.IsScalarNoOperandOpcode(opCodeValue))
+            && !(IsMethodBodySchema()
+                && ColumnarCodePlanContract.IsMethodBodyNoOperandOpcode(opCodeValue)) {
             throw new InvalidOperationException("The opcode does not use an operand-free row.")
         }
         AppendV2Row(
@@ -980,13 +1002,15 @@ public class ColumnarCodePlan {
     public func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Ldelem()
-                && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                && (!AllowsScalarOrMethodBodyInstructions()
                     || (opCodeValue != ColumnarCodePlanContract.Ldtoken()
                         && opCodeValue != ColumnarCodePlanContract.Box()
                         && opCodeValue != ColumnarCodePlanContract.Castclass()
                         && opCodeValue != ColumnarCodePlanContract.Initobj()
                         && opCodeValue != ColumnarCodePlanContract.Newarr()
-                        && opCodeValue != ColumnarCodePlanContract.Stelem())))
+                        && opCodeValue != ColumnarCodePlanContract.Stelem()))
+                && !(IsMethodBodySchema()
+                    && opCodeValue == ColumnarCodePlanContract.Isinst()))
             || typeIndex < 0
             || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
@@ -1061,10 +1085,12 @@ public class ColumnarCodePlan {
     public func AppendFieldInstruction(opCodeValue: short, fieldIndex: int) {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Ldfld()
-                && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                && (!AllowsScalarOrMethodBodyInstructions()
                     || (opCodeValue != ColumnarCodePlanContract.Ldflda()
                         && opCodeValue != ColumnarCodePlanContract.Stfld()
-                        && opCodeValue != ColumnarCodePlanContract.Ldsfld())))
+                        && opCodeValue != ColumnarCodePlanContract.Ldsfld()))
+                && !(IsMethodBodySchema()
+                    && opCodeValue == ColumnarCodePlanContract.Stsfld()))
             || fieldIndex < 0
             || fieldIndex >= FieldCount {
             throw new InvalidOperationException("The opcode does not use this field pool entry.")
@@ -1094,7 +1120,9 @@ public class ColumnarCodePlan {
         EnsureV2Building()
         if (opCodeValue != ColumnarCodePlanContract.Br()
                 && opCodeValue != ColumnarCodePlanContract.Brfalse()
-                && opCodeValue != ColumnarCodePlanContract.Brtrue())
+                && opCodeValue != ColumnarCodePlanContract.Brtrue()
+                && !(IsMethodBodySchema()
+                    && opCodeValue == ColumnarCodePlanContract.Leave()))
             || labelIndex < 0
             || labelIndex >= LabelCount {
             throw new InvalidOperationException("The opcode does not use this label entry.")
@@ -1116,6 +1144,48 @@ public class ColumnarCodePlan {
             ColumnarCodePlanContract.NoOpCode(),
             ColumnarCodePlanContract.LabelOperand(),
             labelIndex)
+    }
+
+    // Structured exception-region rows (schema v4 only). BeginExceptionBlock names a label operand: the
+    // executor writes the end label returned by ILGenerator.BeginExceptionBlock() into that slot, so
+    // `leave` rows inside the region target it. The handler starters and EndExceptionBlock take no operand.
+    public func AppendBeginExceptionBlock(labelIndex: int) {
+        EnsureV2Building()
+        if !IsMethodBodySchema() {
+            throw new InvalidOperationException("Exception regions require the method-body schema.")
+        }
+        if labelIndex < 0 || labelIndex >= LabelCount {
+            throw new InvalidOperationException("The begin-exception-block row references an unknown label.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.BeginExceptionBlockOperation(),
+            ColumnarCodePlanContract.NoOpCode(),
+            ColumnarCodePlanContract.LabelOperand(),
+            labelIndex)
+    }
+
+    public func AppendBeginFinallyBlock() {
+        AppendRegionMarker(ColumnarCodePlanContract.BeginFinallyBlockOperation())
+    }
+
+    public func AppendBeginFaultBlock() {
+        AppendRegionMarker(ColumnarCodePlanContract.BeginFaultBlockOperation())
+    }
+
+    public func AppendEndExceptionBlock() {
+        AppendRegionMarker(ColumnarCodePlanContract.EndExceptionBlockOperation())
+    }
+
+    func AppendRegionMarker(operationKind: int) {
+        EnsureV2Building()
+        if !IsMethodBodySchema() {
+            throw new InvalidOperationException("Exception regions require the method-body schema.")
+        }
+        AppendV2Row(
+            operationKind,
+            ColumnarCodePlanContract.NoOpCode(),
+            ColumnarCodePlanContract.NoOperand(),
+            -1)
     }
 
     public func CreateCheckpoint(): ColumnarCodePlanCheckpoint {
@@ -1337,6 +1407,36 @@ public class ColumnarCodePlan {
         Lifecycle = ColumnarCodePlanLifecycle.Consumed
     }
 
+    // Seal a method body. ResultType is the METHOD return type (typeof(void) for a void body); it is the
+    // arity the validator checks each `ret` against. There is no single-result invariant: the body
+    // terminates on every reachable path. Deep control-flow/stack validation runs in the executor's
+    // method-body validator, not here.
+    public func CompleteMethodBody(resultType: Type) {
+        EnsureV2Building()
+        if !IsMethodBodySchema() {
+            throw new InvalidOperationException("Only a method-body plan can be sealed as a method body.")
+        }
+        if resultType == null {
+            throw new InvalidOperationException("A method-body plan requires a return type (typeof(void) for a void body).")
+        }
+        if OperationCount == 0 {
+            throw new InvalidOperationException("A method-body plan requires at least one operation.")
+        }
+        ResultType = resultType
+        Status = ColumnarFragmentPlanStatus.Planned
+        Lifecycle = ColumnarCodePlanLifecycle.Sealed
+    }
+
+    public func ConsumeMethodBody() {
+        if !IsMethodBodySchema()
+            || Status != ColumnarFragmentPlanStatus.Planned
+            || Lifecycle != ColumnarCodePlanLifecycle.Sealed
+            || ResultType == null {
+            throw new InvalidOperationException("Columnar method-body plan is not ready for one-shot execution.")
+        }
+        Lifecycle = ColumnarCodePlanLifecycle.Consumed
+    }
+
     // This method is intentionally pure: it never repairs, grows, normalizes, or otherwise mutates
     // a payload. Executors can call it completely before the first Reflection.Emit operation.
     public func ValidateSealedStructure() {
@@ -1354,6 +1454,14 @@ public class ColumnarCodePlan {
         if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
             && ResultType != null
             && IsV3Structure(true, ResultType) {
+            return
+        }
+        // A sealed method body carries a return type and a non-empty flat operation stream. Its control
+        // flow and stack discipline are proven by the executor's method-body validator, not by the
+        // fragment-structure invariants the expression schemas use.
+        if SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+            && ResultType != null
+            && OperationCount > 0 {
             return
         }
         throw new InvalidOperationException("Columnar code-plan payload has an unknown or invalid schema.")
@@ -1392,7 +1500,13 @@ public class ColumnarCodePlan {
         opCodeValue: short,
         operandKind: int,
         operandIndex: int) {
-        if OpenFragmentCount == 0 {
+        // A method body (schema v4) is a FLAT operation stream with no fragment tree: its rows carry
+        // owner index -1. The recursive expression schemas still require every row to belong to an open
+        // fragment.
+        fragmentOwner := -1
+        if OpenFragmentCount > 0 {
+            fragmentOwner = OpenFragmentIndices[OpenFragmentCount - 1]
+        } else if !IsMethodBodySchema() {
             throw new InvalidOperationException("Schema-v2 operations must belong to an open fragment.")
         }
         EnsureOperationCapacity(OperationCount + 1)
@@ -1400,8 +1514,7 @@ public class ColumnarCodePlan {
         OpCodeValues[OperationCount] = opCodeValue
         OperandKinds[OperationCount] = operandKind
         OperandIndices[OperationCount] = operandIndex
-        OperationOwnerFragmentIndices[OperationCount] =
-            OpenFragmentIndices[OpenFragmentCount - 1]
+        OperationOwnerFragmentIndices[OperationCount] = fragmentOwner
         OperationCount = OperationCount + 1
     }
 
@@ -1420,7 +1533,8 @@ public class ColumnarCodePlan {
     }
 
     func EnsureV2Building() {
-        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() {
+        if SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            || SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion() {
             EnsureV3Building()
             return
         }
@@ -1431,12 +1545,24 @@ public class ColumnarCodePlan {
         }
     }
 
+    // Schema v4 (method body) is a superset of v3: it admits every scalar instruction and pool plus the
+    // method-body opcodes and exception regions, so it shares the v3 building gate.
     func EnsureV3Building() {
-        if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+        if (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
+                && SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion())
             || Status != ColumnarFragmentPlanStatus.NotOwned
             || Lifecycle != ColumnarCodePlanLifecycle.Building {
             throw new InvalidOperationException("Columnar code-plan schema v3 is not open for mutation.")
         }
+    }
+
+    func IsMethodBodySchema(): bool {
+        return SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    }
+
+    func AllowsScalarOrMethodBodyInstructions(): bool {
+        return SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+            || SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
     }
 
     func HasNoV2State(): bool {

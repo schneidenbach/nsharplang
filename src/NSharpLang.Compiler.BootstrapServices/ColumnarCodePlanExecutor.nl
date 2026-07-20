@@ -188,6 +188,10 @@ public class ColumnarCodePlanExecutor {
             ExecuteV2(plan, il)
             return
         }
+        if plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion() {
+            ExecuteMethodBody(plan, il)
+            return
+        }
         ExecuteV3(plan, il)
     }
 
@@ -201,6 +205,53 @@ public class ColumnarCodePlanExecutor {
             ValidateV2Semantics(plan)
         } else if plan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() {
             ValidateV3Semantics(plan)
+        } else if plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion() {
+            ValidateMethodBodySemantics(plan)
+        }
+    }
+
+    static func ExecuteMethodBody(plan: ColumnarCodePlan, il: ILGenerator) {
+        // Consume at the same pre-emission boundary as the recursive schemas: a failed declaration or
+        // emit must never leave a method body replayable.
+        plan.ConsumeMethodBody()
+        ExecuteMethodBodyRows(plan, il)
+    }
+
+    // Replay a flat method body. Labels are pre-declared so both forward and backward branches resolve;
+    // the four structured region operations map to the ILGenerator region calls, with BeginExceptionBlock's
+    // returned end label written into its operand slot so `leave` rows can target it.
+    static func ExecuteMethodBodyRows(plan: ColumnarCodePlan, il: ILGenerator) {
+        planLocals := new LocalBuilder[](plan.PlanLocalCount)
+        i := 0
+        while i < plan.PlanLocalCount {
+            planLocals[i] = il.DeclareLocal(plan.Types[plan.PlanLocalTypeIndices[i]])
+            i += 1
+        }
+
+        labels := new Label[](plan.LabelCount)
+        i = 0
+        while i < plan.LabelCount {
+            labels[i] = il.DefineLabel()
+            i += 1
+        }
+
+        i = 0
+        while i < plan.OperationCount {
+            operationKind := plan.OperationKinds[i]
+            if operationKind == ColumnarCodePlanContract.MarkLabelOperation() {
+                il.MarkLabel(labels[plan.OperandIndices[i]])
+            } else if operationKind == ColumnarCodePlanContract.BeginExceptionBlockOperation() {
+                labels[plan.OperandIndices[i]] = il.BeginExceptionBlock()
+            } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() {
+                il.BeginFinallyBlock()
+            } else if operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+                il.BeginFaultBlock()
+            } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
+                il.EndExceptionBlock()
+            } else {
+                EmitInstruction(plan, il, planLocals, labels, i)
+            }
+            i += 1
         }
     }
 
@@ -303,6 +354,8 @@ public class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.FieldOperand() {
             if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
                 il.Emit(OpCodes.Ldsfld, plan.Fields[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Stsfld() {
+                il.Emit(OpCodes.Stsfld, plan.Fields[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Ldflda() {
                 il.Emit(OpCodes.Ldflda, plan.Fields[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Stfld() {
@@ -315,6 +368,8 @@ public class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Br, labels[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Brtrue() {
                 il.Emit(OpCodes.Brtrue, labels[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Leave() {
+                il.Emit(OpCodes.Leave, labels[operandIndex])
             } else {
                 il.Emit(OpCodes.Brfalse, labels[operandIndex])
             }
@@ -325,6 +380,8 @@ public class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Box, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Castclass() {
                 il.Emit(OpCodes.Castclass, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Isinst() {
+                il.Emit(OpCodes.Isinst, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
@@ -486,6 +543,10 @@ public class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Stelem_R8)
         } else if opCodeValue == ColumnarCodePlanContract.StelemRef() {
             il.Emit(OpCodes.Stelem_Ref)
+        } else if opCodeValue == ColumnarCodePlanContract.Ret() {
+            il.Emit(OpCodes.Ret)
+        } else if opCodeValue == ColumnarCodePlanContract.Throw() {
+            il.Emit(OpCodes.Throw)
         }
     }
 
@@ -505,6 +566,417 @@ public class ColumnarCodePlanExecutor {
 
     static func ValidateV3Semantics(plan: ColumnarCodePlan) {
         ValidateRecursiveSemantics(plan, true)
+    }
+
+    // Method-body (schema v4) validation. Unlike the expression schemas, a method body is a flat stream
+    // that terminates on every reachable path (ret/throw/leave), permits backward branches (loops), and
+    // carries balanced exception regions. The pool checks are shared; control flow and stack discipline
+    // are proven by a stack-height fixpoint over a label/region pre-pass.
+    static func ValidateMethodBodySemantics(plan: ColumnarCodePlan) {
+        schemaName := "Schema-v4"
+        ValidateValuePools(plan, schemaName, true)
+
+        n := plan.OperationCount
+        if plan.LabelCount > n {
+            throw new InvalidOperationException(
+                schemaName + " label count exceeds its operation-row bound.")
+        }
+
+        labelMarkIndex := new int[](plan.LabelCount)
+        labelLeaveTarget := new int[](plan.LabelCount)
+        insideRegion := new bool[](n)
+        k := 0
+        while k < plan.LabelCount {
+            labelMarkIndex[k] = -1
+            labelLeaveTarget[k] = -1
+            k += 1
+        }
+
+        usedTypes := new bool[](plan.TypeCount)
+        usedInt32 := new bool[](plan.Int32Count)
+        usedInt64 := new bool[](plan.Int64Count)
+        usedSingle := new bool[](plan.SingleCount)
+        usedDouble := new bool[](plan.DoubleCount)
+        usedStrings := new bool[](plan.StringCount)
+        usedArguments := new bool[](plan.ArgumentCount)
+        usedAmbientLocals := new bool[](plan.AmbientLocalCount)
+        usedMethods := new bool[](plan.MethodCount)
+        usedConstructors := new bool[](plan.ConstructorCount)
+        usedFields := new bool[](plan.FieldCount)
+        usedPlanLocals := new bool[](plan.PlanLocalCount)
+        k = 0
+        while k < plan.ArgumentCount {
+            usedTypes[plan.ArgumentTypeIndices[k]] = true
+            k += 1
+        }
+        k = 0
+        while k < plan.PlanLocalCount {
+            usedTypes[plan.PlanLocalTypeIndices[k]] = true
+            k += 1
+        }
+
+        // Label classification + exception-region matching. Each label is either marked once by a
+        // MarkLabel row or bound once as the end label of a BeginExceptionBlock (leave targets it). A
+        // region's begin/handler/end must nest in balance, and every op between a begin and its end is
+        // "inside a protected region" (ret is invalid there; leave is the only exit).
+        regionLabelStack := new int[](n + 1)
+        regionHandlerStarted := new bool[](n + 1)
+        regionTop := 0
+        depth := 0
+        i := 0
+        while i < n {
+            insideRegion[i] = depth > 0
+            operationKind := plan.OperationKinds[i]
+            operandKind := plan.OperandKinds[i]
+            operandIndex := plan.OperandIndices[i]
+
+            if operandKind == ColumnarCodePlanContract.TypeOperand() {
+                usedTypes[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.Int32Operand() {
+                usedInt32[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.Int64Operand() {
+                usedInt64[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.SingleOperand() {
+                usedSingle[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.DoubleOperand() {
+                usedDouble[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.StringOperand() {
+                usedStrings[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.ArgumentOperand() {
+                usedArguments[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.AmbientLocalOperand() {
+                usedAmbientLocals[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.MethodOperand() {
+                usedMethods[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.ConstructorOperand() {
+                usedConstructors[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.FieldOperand() {
+                usedFields[operandIndex] = true
+            } else if operandKind == ColumnarCodePlanContract.PlanLocalOperand() {
+                usedPlanLocals[operandIndex] = true
+            }
+
+            if operationKind == ColumnarCodePlanContract.MarkLabelOperation() {
+                if labelMarkIndex[operandIndex] >= 0 || labelLeaveTarget[operandIndex] >= 0 {
+                    throw new InvalidOperationException(
+                        schemaName + " label must be marked or region-bound at most once.")
+                }
+                labelMarkIndex[operandIndex] = i
+            } else if operationKind == ColumnarCodePlanContract.BeginExceptionBlockOperation() {
+                if labelMarkIndex[operandIndex] >= 0 || labelLeaveTarget[operandIndex] >= 0 {
+                    throw new InvalidOperationException(
+                        schemaName + " exception-block end label must be bound once.")
+                }
+                regionLabelStack[regionTop] = operandIndex
+                regionHandlerStarted[regionTop] = false
+                regionTop += 1
+                depth += 1
+            } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation()
+                || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+                if regionTop == 0 || regionHandlerStarted[regionTop - 1] {
+                    throw new InvalidOperationException(
+                        schemaName + " finally/fault handler must open exactly one enclosing try region.")
+                }
+                regionHandlerStarted[regionTop - 1] = true
+            } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
+                if regionTop == 0 || !regionHandlerStarted[regionTop - 1] {
+                    throw new InvalidOperationException(
+                        schemaName + " exception region must open a handler before it ends.")
+                }
+                regionTop -= 1
+                depth -= 1
+                labelLeaveTarget[regionLabelStack[regionTop]] = i + 1
+            }
+            i += 1
+        }
+
+        if regionTop != 0 || depth != 0 {
+            throw new InvalidOperationException(schemaName + " exception regions are unbalanced.")
+        }
+
+        k = 0
+        while k < plan.LabelCount {
+            if labelMarkIndex[k] < 0 && labelLeaveTarget[k] < 0 {
+                throw new InvalidOperationException(
+                    schemaName + " label is never marked or region-bound.")
+            }
+            k += 1
+        }
+
+        ValidateAllUsed(usedTypes, "type", schemaName)
+        ValidateAllUsed(usedInt32, "Int32", schemaName)
+        ValidateAllUsed(usedInt64, "Int64", schemaName)
+        ValidateAllUsed(usedSingle, "Single", schemaName)
+        ValidateAllUsed(usedDouble, "Double", schemaName)
+        ValidateAllUsed(usedStrings, "String", schemaName)
+        ValidateAllUsed(usedArguments, "argument", schemaName)
+        ValidateAllUsed(usedAmbientLocals, "ambient local", schemaName)
+        ValidateAllUsed(usedMethods, "method", schemaName)
+        ValidateAllUsed(usedConstructors, "constructor", schemaName)
+        ValidateAllUsed(usedFields, "field", schemaName)
+        ValidateAllUsed(usedPlanLocals, "plan local", schemaName)
+
+        ValidateMethodBodyStack(plan, schemaName, labelMarkIndex, labelLeaveTarget, insideRegion)
+    }
+
+    // Stack-height dataflow to a fixpoint. Heights are set once per operation and merged across every
+    // control-flow edge (forward and backward); a disagreement is a plan bug. Terminators (ret/throw)
+    // end a path; leave empties the stack and branches; region boundaries require an empty stack. Every
+    // operation must be reachable and no path may fall off the final instruction.
+    static func ValidateMethodBodyStack(
+        plan: ColumnarCodePlan,
+        schemaName: string,
+        labelMarkIndex: int[],
+        labelLeaveTarget: int[],
+        insideRegion: bool[]) {
+        n := plan.OperationCount
+        heights := new int[](n + 1)
+        i := 0
+        while i <= n {
+            heights[i] = -1
+            i += 1
+        }
+        heights[0] = 0
+        // A finally/fault handler is entered by the runtime (on exception, or when a `leave` exits the
+        // protected try), not by static fall-through — its try body may exit via `leave` and never reach
+        // the handler op in the flat stream. Seed each handler start as a reachable entry at empty stack.
+        i = 0
+        while i < n {
+            if plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation()
+                || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+                heights[i] = 0
+            }
+            i += 1
+        }
+
+        voidReturn := IsVoidType(plan.ResultType)
+        changed := true
+        while changed {
+            changed = false
+            i = 0
+            while i < n {
+                if heights[i] != -1 {
+                    h := heights[i]
+                    operationKind := plan.OperationKinds[i]
+                    opCodeValue := plan.OpCodeValues[i]
+                    operandIndex := plan.OperandIndices[i]
+
+                    if operationKind == ColumnarCodePlanContract.MarkLabelOperation() {
+                        changed = MergeMethodBodyHeight(heights, i + 1, h, schemaName) || changed
+                    } else if operationKind == ColumnarCodePlanContract.BeginExceptionBlockOperation()
+                        || operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation()
+                        || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation()
+                        || operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
+                        if h != 0 {
+                            throw new InvalidOperationException(
+                                schemaName + " evaluation stack must be empty at an exception-region boundary.")
+                        }
+                        changed = MergeMethodBodyHeight(heights, i + 1, 0, schemaName) || changed
+                    } else if opCodeValue == ColumnarCodePlanContract.Ret() {
+                        if insideRegion[i] {
+                            throw new InvalidOperationException(
+                                schemaName + " `ret` cannot appear inside a protected region; use `leave`.")
+                        }
+                        expected := voidReturn ? 0 : 1
+                        if h != expected {
+                            throw new InvalidOperationException(
+                                schemaName + " `ret` leaves the wrong stack height for the return type.")
+                        }
+                    } else if opCodeValue == ColumnarCodePlanContract.Throw() {
+                        if h < 1 {
+                            throw new InvalidOperationException(
+                                schemaName + " `throw` requires an exception reference on the stack.")
+                        }
+                    } else if opCodeValue == ColumnarCodePlanContract.Leave() {
+                        if h != 0 {
+                            throw new InvalidOperationException(
+                                schemaName + " evaluation stack must be empty before a `leave`.")
+                        }
+                        target := MethodBodyLabelTarget(labelMarkIndex, labelLeaveTarget, operandIndex, schemaName)
+                        changed = MergeMethodBodyHeight(heights, target, 0, schemaName) || changed
+                    } else if opCodeValue == ColumnarCodePlanContract.Br() {
+                        target := MethodBodyLabelTarget(labelMarkIndex, labelLeaveTarget, operandIndex, schemaName)
+                        changed = MergeMethodBodyHeight(heights, target, h, schemaName) || changed
+                    } else if opCodeValue == ColumnarCodePlanContract.Brtrue()
+                        || opCodeValue == ColumnarCodePlanContract.Brfalse() {
+                        if h < 1 {
+                            throw new InvalidOperationException(
+                                schemaName + " conditional branch requires a value on the stack.")
+                        }
+                        target := MethodBodyLabelTarget(labelMarkIndex, labelLeaveTarget, operandIndex, schemaName)
+                        changed = MergeMethodBodyHeight(heights, target, h - 1, schemaName) || changed
+                        changed = MergeMethodBodyHeight(heights, i + 1, h - 1, schemaName) || changed
+                    } else {
+                        delta := MethodBodyStackDelta(plan, i)
+                        next := h + delta
+                        if next < 0 {
+                            throw new InvalidOperationException(
+                                schemaName + " instruction underflows the evaluation stack.")
+                        }
+                        changed = MergeMethodBodyHeight(heights, i + 1, next, schemaName) || changed
+                    }
+                }
+                i += 1
+            }
+        }
+
+        if heights[n] != -1 {
+            throw new InvalidOperationException(
+                schemaName + " method body must not fall through its final instruction; end every path with ret/throw/leave.")
+        }
+        i = 0
+        while i < n {
+            if heights[i] == -1 {
+                throw new InvalidOperationException(schemaName + " method body contains unreachable instructions.")
+            }
+            i += 1
+        }
+    }
+
+    static func MergeMethodBodyHeight(heights: int[], target: int, height: int, schemaName: string): bool {
+        if target < 0 || target >= heights.Length {
+            throw new InvalidOperationException(schemaName + " branch targets an unmarked label.")
+        }
+        if heights[target] == -1 {
+            heights[target] = height
+            return true
+        }
+        if heights[target] != height {
+            throw new InvalidOperationException(schemaName + " control-flow stack heights do not merge.")
+        }
+        return false
+    }
+
+    static func MethodBodyLabelTarget(
+        labelMarkIndex: int[],
+        labelLeaveTarget: int[],
+        labelIndex: int,
+        schemaName: string): int {
+        if labelMarkIndex[labelIndex] >= 0 {
+            return labelMarkIndex[labelIndex]
+        }
+        if labelLeaveTarget[labelIndex] >= 0 {
+            return labelLeaveTarget[labelIndex]
+        }
+        throw new InvalidOperationException(schemaName + " branch targets an unmarked label.")
+    }
+
+    // Net evaluation-stack change of an ordinary value instruction (never a terminator, branch, or region
+    // marker — those are handled by the caller). Calls and object creation read their arity from the
+    // declared signature when present, otherwise from the live handle.
+    static func MethodBodyStackDelta(plan: ColumnarCodePlan, i: int): int {
+        opCodeValue := plan.OpCodeValues[i]
+        operandKind := plan.OperandKinds[i]
+        operandIndex := plan.OperandIndices[i]
+
+        if operandKind == ColumnarCodePlanContract.Int32Operand()
+            || operandKind == ColumnarCodePlanContract.Int64Operand()
+            || operandKind == ColumnarCodePlanContract.SingleOperand()
+            || operandKind == ColumnarCodePlanContract.DoubleOperand()
+            || operandKind == ColumnarCodePlanContract.StringOperand()
+            || operandKind == ColumnarCodePlanContract.ArgumentOperand() {
+            return 1
+        }
+        if operandKind == ColumnarCodePlanContract.PlanLocalOperand()
+            || operandKind == ColumnarCodePlanContract.AmbientLocalOperand() {
+            if opCodeValue == ColumnarCodePlanContract.Stloc() {
+                return -1
+            }
+            return 1
+        }
+        if operandKind == ColumnarCodePlanContract.FieldOperand() {
+            if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
+                return 1
+            }
+            if opCodeValue == ColumnarCodePlanContract.Stsfld() {
+                return -1
+            }
+            if opCodeValue == ColumnarCodePlanContract.Stfld() {
+                return -2
+            }
+            return 0
+        }
+        if operandKind == ColumnarCodePlanContract.TypeOperand() {
+            if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
+                return 1
+            }
+            if opCodeValue == ColumnarCodePlanContract.Initobj() {
+                return -1
+            }
+            if opCodeValue == ColumnarCodePlanContract.Ldelem() {
+                return -1
+            }
+            if opCodeValue == ColumnarCodePlanContract.Stelem() {
+                return -3
+            }
+            return 0
+        }
+        if operandKind == ColumnarCodePlanContract.MethodOperand() {
+            return MethodBodyMethodDelta(plan, operandIndex)
+        }
+        if operandKind == ColumnarCodePlanContract.ConstructorOperand() {
+            return MethodBodyConstructorDelta(plan, operandIndex)
+        }
+        return MethodBodyNoOperandDelta(opCodeValue)
+    }
+
+    static func MethodBodyMethodDelta(plan: ColumnarCodePlan, methodIndex: int): int {
+        argCount := 0
+        isStatic := false
+        returnsVoid := true
+        if plan.MethodUsesDeclaredSignature[methodIndex] {
+            argCount = plan.MethodParameterTypes[methodIndex].Length
+            isStatic = plan.MethodIsStatic[methodIndex]
+            returnsVoid = IsVoidType(plan.MethodReturnTypes[methodIndex])
+        } else {
+            method := plan.Methods[methodIndex]
+            argCount = method.GetParameters().Length
+            isStatic = method.get_IsStatic()
+            returnsVoid = IsVoidType(method.get_ReturnType())
+        }
+        instanceCount := isStatic ? 0 : 1
+        returnCount := returnsVoid ? 0 : 1
+        return returnCount - argCount - instanceCount
+    }
+
+    static func MethodBodyConstructorDelta(plan: ColumnarCodePlan, constructorIndex: int): int {
+        argCount := 0
+        if plan.ConstructorUsesDeclaredSignature[constructorIndex] {
+            argCount = plan.ConstructorParameterTypes[constructorIndex].Length
+        } else {
+            argCount = plan.Constructors[constructorIndex].GetParameters().Length
+        }
+        return 1 - argCount
+    }
+
+    static func MethodBodyNoOperandDelta(opCodeValue: short): int {
+        if opCodeValue == ColumnarCodePlanContract.Ldnull()
+            || opCodeValue == ColumnarCodePlanContract.Dup()
+            || (opCodeValue >= ColumnarCodePlanContract.LdcI4_M1()
+                && opCodeValue <= ColumnarCodePlanContract.LdcI4_8()) {
+            return 1
+        }
+        if (opCodeValue >= ColumnarCodePlanContract.Add()
+                && opCodeValue <= ColumnarCodePlanContract.ShrUn())
+            || (opCodeValue >= ColumnarCodePlanContract.AddOvf()
+                && opCodeValue <= ColumnarCodePlanContract.SubOvfUn())
+            || opCodeValue == ColumnarCodePlanContract.Ceq()
+            || opCodeValue == ColumnarCodePlanContract.Cgt()
+            || opCodeValue == ColumnarCodePlanContract.CgtUn()
+            || opCodeValue == ColumnarCodePlanContract.Clt()
+            || opCodeValue == ColumnarCodePlanContract.CltUn() {
+            return -1
+        }
+        if (opCodeValue >= ColumnarCodePlanContract.LdelemU1()
+                && opCodeValue <= ColumnarCodePlanContract.LdelemRef()) {
+            return -1
+        }
+        if (opCodeValue >= ColumnarCodePlanContract.StelemI1()
+                && opCodeValue <= ColumnarCodePlanContract.StelemRef()) {
+            return -3
+        }
+        // Neg/Not, the conversion family, the typed byref loads, and ldlen are all pop-one push-one.
+        return 0
     }
 
     static func ValidateRecursiveSemantics(plan: ColumnarCodePlan, scalarSchema: bool) {

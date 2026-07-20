@@ -32,6 +32,10 @@ public class ColumnarExecutorFieldProbe {
     }
 }
 
+public class ColumnarMethodBodyStaticProbe {
+    public static Sink: int
+}
+
 func ExecutorRequiredMethod(owner: Type, name: string, parameters: Type[]): MethodInfo {
     method := owner.GetMethod(name, parameters)
     if method == null {
@@ -3375,6 +3379,270 @@ test "schema v3 executor rejects a brtrue over a non-Boolean condition before em
     plan.AppendMarkLabel(endLabel)
     plan.CompleteFragment(root, typeof(bool))
     plan.CompleteV3(typeof(bool))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}
+
+// ---- Schema v4 (method body) executor + validator contracts ----
+
+func ExecutorRunMethodBody(
+    plan: ColumnarCodePlan,
+    returnType: Type,
+    parameterTypes: Type[],
+    arguments: object[]): object? {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    constructorInfo := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if constructorInfo == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    constructorArguments := new object[](3)
+    ExecutorSetObject(constructorArguments, 0, "NSharpV4MethodBody")
+    ExecutorSetObject(constructorArguments, 1, returnType)
+    ExecutorSetObject(constructorArguments, 2, parameterTypes)
+    dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
+    il := dynamicMethod.GetILGenerator()
+    // A method-body plan emits its own terminators; unlike the fragment schemas, the harness adds no ret.
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    target: object? = null
+    return dynamicMethod.Invoke(target, arguments)
+}
+
+func ExecutorIntParameterTypes(): Type[] {
+    types := new Type[](1)
+    types[0] = typeof(int)
+    return types
+}
+
+func ExecutorIntArgument(value: int): object[] {
+    args := new object[](1)
+    ExecutorSetObject(args, 0, value)
+    return args
+}
+
+test "schema v4 method body returns from a void body" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(ExecutorVoidType())
+    result := ExecutorRunMethodBody(plan, ExecutorVoidType(), new Type[](0), new object[](0))
+    assert result == null
+}
+
+test "schema v4 method body returns a constant" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_5())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(typeof(int))
+    result := ExecutorRunMethodBody(plan, typeof(int), new Type[](0), new object[](0))
+    assert Convert.ToInt32(result) == 5
+}
+
+test "schema v4 method body returns its argument" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    intType := plan.AddType(typeof(int))
+    arg := plan.AddArgument(0, intType)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(typeof(int))
+    result := ExecutorRunMethodBody(plan, typeof(int), ExecutorIntParameterTypes(), ExecutorIntArgument(7))
+    assert Convert.ToInt32(result) == 7
+}
+
+test "schema v4 method body runs a backward-branch countdown loop" {
+    // int F(int n) { int i = n; int s = 0; while (i != 0) { s += i; i -= 1; } return s; }
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    intType := plan.AddType(typeof(int))
+    arg := plan.AddArgument(0, intType)
+    sLocal := plan.DeclarePlanLocal(intType)
+    iLocal := plan.DeclarePlanLocal(intType)
+    loopLabel := plan.DefineLabel()
+    endLabel := plan.DefineLabel()
+
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), iLocal)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sLocal)
+    plan.AppendMarkLabel(loopLabel)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), iLocal)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), endLabel)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sLocal)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), iLocal)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sLocal)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), iLocal)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), iLocal)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), loopLabel)
+    plan.AppendMarkLabel(endLabel)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sLocal)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(typeof(int))
+
+    result := ExecutorRunMethodBody(plan, typeof(int), ExecutorIntParameterTypes(), ExecutorIntArgument(5))
+    assert Convert.ToInt32(result) == 15
+}
+
+test "schema v4 method body throws" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    stringParams := new Type[](1)
+    stringParams[0] = typeof(string)
+    messageIndex := plan.AddString("boom")
+    ctorIndex := plan.AddConstructor(
+        ExecutorRequiredConstructor(typeof(InvalidOperationException), stringParams))
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), messageIndex)
+    plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+    plan.CompleteMethodBody(ExecutorVoidType())
+    assert throws Exception {
+        ExecutorRunMethodBody(plan, ExecutorVoidType(), new Type[](0), new object[](0))
+    }
+}
+
+test "schema v4 method body isinst passes a matching reference through" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    objectType := plan.AddType(typeof(object))
+    stringType := plan.AddType(typeof(string))
+    arg := plan.AddArgument(0, objectType)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), stringType)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(typeof(string))
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(object)
+    args := new object[](1)
+    ExecutorSetObject(args, 0, "hi")
+    result := ExecutorRunMethodBody(plan, typeof(string), parameterTypes, args)
+    assert (result as string) == "hi"
+}
+
+test "schema v4 method body stores a static field" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    intType := plan.AddType(typeof(int))
+    arg := plan.AddArgument(0, intType)
+    fieldIndex := plan.AddField(
+        ExecutorRequiredField(typeof(ColumnarMethodBodyStaticProbe), "Sink"))
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendFieldInstruction(ColumnarCodePlanContract.Stsfld(), fieldIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(ExecutorVoidType())
+    ExecutorRunMethodBody(plan, ExecutorVoidType(), ExecutorIntParameterTypes(), ExecutorIntArgument(41))
+    assert ColumnarMethodBodyStaticProbe.Sink == 41
+}
+
+func ExecutorListAddPlan(handlerIsFinally: bool): ColumnarCodePlan {
+    // void F(List<int> list) { try { list.Add(1); } (finally|fault) { list.Add(2); } }
+    intParams := new Type[](1)
+    intParams[0] = typeof(int)
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    listType := plan.AddType(typeof(List<int>))
+    arg := plan.AddArgument(0, listType)
+    addMethod := plan.AddMethod(ExecutorRequiredMethod(typeof(List<int>), "Add", intParams))
+    endLabel := plan.DefineLabel()
+
+    plan.AppendBeginExceptionBlock(endLabel)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), addMethod)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), endLabel)
+    if handlerIsFinally {
+        plan.AppendBeginFinallyBlock()
+    } else {
+        plan.AppendBeginFaultBlock()
+    }
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), addMethod)
+    plan.AppendEndExceptionBlock()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(ExecutorVoidType())
+    return plan
+}
+
+func ExecutorRunListAddPlan(plan: ColumnarCodePlan): List<int> {
+    list := new List<int>()
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(List<int>)
+    args := new object[](1)
+    ExecutorSetObject(args, 0, list)
+    ExecutorRunMethodBody(plan, ExecutorVoidType(), parameterTypes, args)
+    return list
+}
+
+test "schema v4 method body runs a try/finally, and leave runs the finally" {
+    list := ExecutorRunListAddPlan(ExecutorListAddPlan(true))
+    assert list.Count == 2
+    assert list[0] == 1
+    assert list[1] == 2
+}
+
+test "schema v4 method body runs a try/fault, and leave does NOT run the fault" {
+    list := ExecutorRunListAddPlan(ExecutorListAddPlan(false))
+    assert list.Count == 1
+    assert list[0] == 1
+}
+
+test "schema v4 validator rejects a stack-height merge conflict" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    mergeLabel := plan.DefineLabel()
+    // The branch reaches mergeLabel at height 1; the fall-through reaches it at height 2.
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), mergeLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    plan.AppendMarkLabel(mergeLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}
+
+test "schema v4 validator rejects an unbalanced exception region" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    endLabel := plan.DefineLabel()
+    plan.AppendBeginExceptionBlock(endLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), endLabel)
+    plan.CompleteMethodBody(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}
+
+test "schema v4 validator rejects a body that falls off its end" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.CompleteMethodBody(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}
+
+test "schema v4 validator rejects a ret inside a protected region" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    endLabel := plan.DefineLabel()
+    plan.AppendBeginExceptionBlock(endLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.AppendBeginFinallyBlock()
+    plan.AppendEndExceptionBlock()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(ExecutorVoidType())
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(plan)
     }
