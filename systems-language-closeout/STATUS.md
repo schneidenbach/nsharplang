@@ -4,10 +4,10 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/010-lambda-definition-placement.md`
+- Current task: `tasks/011-record-with-value-receivers.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (010 owns lambda definition placement and visibility;
-  contextual-lambda call operands are also the recorded 006/007 residual retirement key)
+- Active sub-slice: not yet selected (011 owns the RecordStructs ilverify gate findings:
+  CallVirtOnValueType and StackUnexpected in record-with lowering for value receivers)
 - Last accepted ownership commit: task 009's slice commits (`85c817440`, `5f9bf3fce`, extension-calls commit)
 - Queue: `tasks/README.md`
 
@@ -216,6 +216,22 @@ Completed slices:
   - Evidence: 625 BootstrapServices contracts; external-base-interface 18/18, extension-calls 4/4
     executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
     all native projects green; gate baseline shrunk to three groups.
+
+- Task 011 pending. Task 010 — lambda definition placement and visibility; slice commit recorded
+  in git ("Own lambda definition placement in N#").
+  - Deleted C# owners: the non-capturing lambda placement decisions — visibility attribute
+    literals, name+counter construction, synthesized-signature guards, value-type/ctor guard,
+    type-parameter ownership decision, static-versus-this classification branching, and the dual
+    sub-emitter constructions (unified). `ColumnarIlEmitter.cs` 21,164 → 21,150. The value-capture
+    display-class path is a precisely-fenced residual pending ModuleBuilder/DefineType modeling.
+  - Added N# owners: `ColumnarLambdaPlacementPlanner` — owning-type selection, generated method
+    identity, exact visibility (assembly-static for verifiable cross-type ldftn), signature
+    validation, and the physical DefineMethod, consumed mechanically by the emitter.
+  - Evidence: byte-identical IL across all three product reproducers (which run correctly and
+    ILVerify clean; the historical cross-type MethodAccess shapes are confirmed fixed); new
+    lambda-placement product project 9/9 registered in the ilverify gate; 625 BootstrapServices
+    contracts; 3,182/3,182 units; fresh Release self-emit clean; gate steady at three groups
+    (013/014 iterators, 011/012 ilverify).
 
 After each accepted slice, record only:
 
