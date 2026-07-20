@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Reflection
+import System.Reflection.Emit
 
 // Sub-slice 3a: the DECISION layer of the synchronous iterator (func*) state machine. This planner owns
 // every structural decision — element type, field layout, state numbering, member/override identities,
@@ -425,6 +427,11 @@ public class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported binary expression in an iterator body")
                 return
             }
+            if !IsSupportedBinaryOperator(nodes.Text(source, node)) {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "binary operator '" + nodes.Text(source, node) + "' is not yet lowered in an iterator body")
+                return
+            }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             WalkExpression(nodes, source, nodes.Child(node, 1), state)
             return
@@ -474,7 +481,13 @@ public class ColumnarIteratorPlanner {
 
     static func IsComparisonOperator(op: string): bool {
         return op == "<" || op == ">" || op == "<=" || op == ">="
-            || op == "==" || op == "!=" || op == "&&" || op == "||"
+            || op == "==" || op == "!="
+    }
+
+    public static func IsSupportedBinaryOperator(op: string): bool {
+        return op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
+            || op == "<" || op == ">" || op == "<=" || op == ">="
+            || op == "==" || op == "!="
     }
 
     // ---- return-canonical parsing ----
@@ -552,5 +565,318 @@ public class ColumnarIteratorPlanner {
             i = i + 1
         }
         return -1
+    }
+}
+
+// ---- sub-slice 3b: member body-plan generation ----
+
+// The handles the C# host passes back after defining the state-machine type, its fields, and methods
+// from the 3a facts. Field handles are parallel to ColumnarIteratorShape.FieldNames (state, current, then
+// captured parameters, then hoisted locals), so a body identifier resolves to a field by that name.
+public class ColumnarIteratorEmitContext {
+    public Nodes: ColumnarNodeTable
+    public Source: string
+    public BodyRoot: int
+    public Shape: ColumnarIteratorShape
+    public StateMachineType: Type
+    public ElementType: Type
+    public FieldNames: string[]
+    public Fields: FieldInfo[]
+
+    constructor(
+        nodes: ColumnarNodeTable,
+        source: string,
+        bodyRoot: int,
+        shape: ColumnarIteratorShape,
+        stateMachineType: Type,
+        elementType: Type,
+        fieldNames: string[],
+        fields: FieldInfo[]) {
+        Nodes = nodes
+        Source = source
+        BodyRoot = bodyRoot
+        Shape = shape
+        StateMachineType = stateMachineType
+        ElementType = elementType
+        FieldNames = fieldNames
+        Fields = fields
+    }
+
+    public func FieldForName(name: string): FieldInfo {
+        i := 0
+        while i < FieldNames.Length {
+            if FieldNames[i] == name {
+                return Fields[i]
+            }
+            i = i + 1
+        }
+        throw new InvalidOperationException("Iterator state machine has no field named '" + name + "'.")
+    }
+}
+
+// Mutable state threaded through the recursive MoveNext lowering.
+class ColumnarMoveNextEmit {
+    public Plan: ColumnarCodePlan
+    public Context: ColumnarIteratorEmitContext
+    public ThisArg: int
+    public StateFieldPool: int
+    public ResumeLabels: int[]
+    public EndLabel: int
+    public NextYield: int
+
+    constructor(
+        plan: ColumnarCodePlan,
+        context: ColumnarIteratorEmitContext,
+        thisArg: int,
+        stateFieldPool: int,
+        resumeLabels: int[],
+        endLabel: int) {
+        Plan = plan
+        Context = context
+        ThisArg = thisArg
+        StateFieldPool = stateFieldPool
+        ResumeLabels = resumeLabels
+        EndLabel = endLabel
+        NextYield = 0
+    }
+}
+
+public class ColumnarIteratorBodyPlanner {
+    // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its label;
+    // state 0 falls through to the body start (state set running = -1); every `yield return` stores current,
+    // sets its resume state, returns true, then resumes by resetting to running; `yield break` and the
+    // natural body end fall to the shared end label that returns false.
+    public static func BuildMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        smTypeIdx := plan.AddType(context.StateMachineType)
+        thisArg := plan.AddArgument(0, smTypeIdx)
+        stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
+
+        yieldCount := context.Shape.YieldReturnCount
+        resumeLabels := new int[](yieldCount + 1)
+        s := 1
+        while s <= yieldCount {
+            resumeLabels[s] = plan.DefineLabel()
+            s = s + 1
+        }
+        endLabel := plan.DefineLabel()
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel)
+
+        s = 1
+        while s <= yieldCount {
+            LoadThis(emit)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), stateFieldPool)
+            EmitInt(emit, s)
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), resumeLabels[s])
+            s = s + 1
+        }
+        // A state that is neither 0 nor a resume point (running/done) has finished.
+        LoadThis(emit)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), stateFieldPool)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), endLabel)
+        StoreState(emit, ColumnarIteratorPlanner.RunningState())
+
+        EmitStatement(emit, context.BodyRoot)
+
+        plan.AppendMarkLabel(endLabel)
+        EmitInt(emit, 0)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(typeof(bool))
+        return plan
+    }
+
+    // get_Current(): return the hoisted current field.
+    public static func BuildGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        smTypeIdx := plan.AddType(context.StateMachineType)
+        thisArg := plan.AddArgument(0, smTypeIdx)
+        currentPool := plan.AddField(context.FieldForName("<>__current"))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), currentPool)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(context.ElementType)
+        return plan
+    }
+
+    static func LoadThis(emit: ColumnarMoveNextEmit) {
+        emit.Plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), emit.ThisArg)
+    }
+
+    static func EmitInt(emit: ColumnarMoveNextEmit, value: int) {
+        idx := emit.Plan.AddInt32(value)
+        emit.Plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), idx)
+    }
+
+    static func StoreState(emit: ColumnarMoveNextEmit, value: int) {
+        LoadThis(emit)
+        EmitInt(emit, value)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.StateFieldPool)
+    }
+
+    static func FieldPool(emit: ColumnarMoveNextEmit, name: string): int {
+        return emit.Plan.AddField(emit.Context.FieldForName(name))
+    }
+
+    static func EmitStatement(emit: ColumnarMoveNextEmit, node: int) {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        kind := nodes.Kind(node)
+        if kind == 25 {
+            n := 0
+            while n < nodes.ChildCount(node) {
+                EmitStatement(emit, nodes.Child(node, n))
+                n = n + 1
+            }
+            return
+        }
+        if kind == 40 {
+            // typed local declaration: value span = type, child 0 = name, child 1 = init
+            name := nodes.Text(source, nodes.Child(node, 0))
+            LoadThis(emit)
+            EmitExpression(emit, nodes.Child(node, 1))
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            return
+        }
+        if kind == 24 {
+            // `:=` local declaration: value span = name, child 0 = init
+            name := nodes.Text(source, node)
+            LoadThis(emit)
+            EmitExpression(emit, nodes.Child(node, 0))
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            return
+        }
+        if kind == 23 {
+            // expression statement: a simple `=` assignment (kind 14) to a bound identifier
+            assign := nodes.Child(node, 0)
+            target := nodes.Child(assign, 0)
+            name := nodes.Text(source, target)
+            LoadThis(emit)
+            EmitExpression(emit, nodes.Child(assign, 1))
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            return
+        }
+        if kind == 26 {
+            // while [condition, body]
+            condLabel := emit.Plan.DefineLabel()
+            afterLabel := emit.Plan.DefineLabel()
+            emit.Plan.AppendMarkLabel(condLabel)
+            EmitExpression(emit, nodes.Child(node, 0))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
+            EmitStatement(emit, nodes.Child(node, 1))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
+            emit.Plan.AppendMarkLabel(afterLabel)
+            return
+        }
+        if kind == 27 {
+            // if [condition, then, else?]
+            elseLabel := emit.Plan.DefineLabel()
+            afterLabel := emit.Plan.DefineLabel()
+            EmitExpression(emit, nodes.Child(node, 0))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
+            EmitStatement(emit, nodes.Child(node, 1))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), afterLabel)
+            emit.Plan.AppendMarkLabel(elseLabel)
+            if nodes.ChildCount(node) == 3 {
+                EmitStatement(emit, nodes.Child(node, 2))
+            }
+            emit.Plan.AppendMarkLabel(afterLabel)
+            return
+        }
+        if kind == 72 {
+            if nodes.ChildCount(node) == 1 {
+                EmitYieldReturn(emit, nodes.Child(node, 0))
+            } else {
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
+            }
+            return
+        }
+        throw new InvalidOperationException(
+            "Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")
+    }
+
+    static func EmitYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {
+        emit.NextYield = emit.NextYield + 1
+        resumeState := emit.NextYield
+        LoadThis(emit)
+        EmitExpression(emit, valueNode)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, "<>__current"))
+        StoreState(emit, resumeState)
+        EmitInt(emit, 1)
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
+        StoreState(emit, ColumnarIteratorPlanner.RunningState())
+    }
+
+    static func EmitExpression(emit: ColumnarMoveNextEmit, node: int) {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        kind := nodes.Kind(node)
+        if kind == 0 {
+            EmitInt(emit, Int32.Parse(nodes.Text(source, node)))
+            return
+        }
+        if kind == 4 {
+            if nodes.Text(source, node) == "true" {
+                EmitInt(emit, 1)
+            } else {
+                EmitInt(emit, 0)
+            }
+            return
+        }
+        if kind == 6 {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, nodes.Text(source, node)))
+            return
+        }
+        if kind == 7 {
+            EmitExpression(emit, nodes.Child(node, 0))
+            return
+        }
+        if kind == 12 {
+            EmitExpression(emit, nodes.Child(node, 0))
+            EmitExpression(emit, nodes.Child(node, 1))
+            EmitBinaryOperator(emit, nodes.Text(source, node))
+            return
+        }
+        throw new InvalidOperationException(
+            "Iterator MoveNext lowering reached an unsupported expression kind " + kind.ToString() + ".")
+    }
+
+    static func EmitBinaryOperator(emit: ColumnarMoveNextEmit, op: string) {
+        if op == "+" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+        } else if op == "-" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
+        } else if op == "*" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Mul())
+        } else if op == "/" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Div())
+        } else if op == "%" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Rem())
+        } else if op == "<" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+        } else if op == ">" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Cgt())
+        } else if op == "==" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        } else if op == "<=" {
+            // a <= b  ==  !(a > b)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Cgt())
+            EmitInt(emit, 0)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        } else if op == ">=" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+            EmitInt(emit, 0)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        } else if op == "!=" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+            EmitInt(emit, 0)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        } else {
+            throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported operator '" + op + "'.")
+        }
     }
 }

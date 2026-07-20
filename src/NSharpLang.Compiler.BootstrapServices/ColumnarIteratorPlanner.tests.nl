@@ -1,12 +1,35 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
+
+// A plain class whose public fields stand in for a synthesized state machine's fields, so a contract can
+// execute the planner's MoveNext/get_Current plans onto DynamicMethods and run a real iterator without the
+// C# emitter host.
+public class ColumnarIteratorRunProbe {
+    public state: int
+    public current: int
+    public n: int
+    public i: int
+
+    constructor() {
+        state = 0
+        current = 0
+        n = 0
+        i = 0
+    }
+}
 
 // Parses a func* body into a columnar node table and runs the iterator planner's decision layer on it.
 // Signature facts (return canonical, parameters, type parameters, instance receiver) are supplied
 // explicitly so a contract exercises exactly one decision at a time.
 class ColumnarIteratorShapeProbe {
     public Shape: ColumnarIteratorShape
+    public Nodes: ColumnarNodeTable
+    public BodyRoot: int
+    public Source: string
 
     constructor(
         source: string,
@@ -72,9 +95,34 @@ class ColumnarIteratorShapeProbe {
         bodyRoot := result[6]
         nodes := new ColumnarNodeTable(
             nodeKinds, valueStarts, valueLengths, childStart, childCount, childIndices, spanStarts, spanLengths)
+        Nodes = nodes
+        BodyRoot = bodyRoot
+        Source = source
         Shape = ColumnarIteratorPlanner.AnalyzeShape(
             nodes, source, bodyRoot, "Gen", 0, returnCanonical, paramNames, paramCanonicals, typeParamNames, isInstance)
     }
+}
+
+func IteratorSetObject(values: object[], index: int, value: object) {
+    values[index] = value
+}
+
+func MakeIteratorDynamicMethod(name: string, returnType: Type, parameterType: Type): DynamicMethod {
+    constructorTypes := new Type[](3)
+    constructorTypes[0] = typeof(string)
+    constructorTypes[1] = typeof(Type)
+    constructorTypes[2] = typeof(Type[])
+    ctor := typeof(DynamicMethod).GetConstructor(constructorTypes)
+    if ctor == null {
+        throw new InvalidOperationException("Required DynamicMethod constructor was not found.")
+    }
+    paramTypes := new Type[](1)
+    paramTypes[0] = parameterType
+    args := new object[](3)
+    IteratorSetObject(args, 0, name)
+    IteratorSetObject(args, 1, returnType)
+    IteratorSetObject(args, 2, paramTypes)
+    return (DynamicMethod)ctor.Invoke(args)
 }
 
 func IteratorNoStrings(): string[] {
@@ -216,4 +264,53 @@ test "iterator planner declines an otherwise-unlowered body shape" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+}
+
+test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+
+    smType := typeof(ColumnarIteratorRunProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    fields[3] = smType.GetField("i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+
+    moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
+    getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
+
+    moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("get_Current", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(getCurrentPlan, getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorRunProbe()
+    machine.state = 0
+    machine.n = 5
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+
+    target: object? = null
+    results := new List<int>()
+    moveResult := moveNext.Invoke(target, invokeArgs)
+    hasNext := Convert.ToBoolean(moveResult)
+    while hasNext {
+        currentResult := getCurrent.Invoke(target, invokeArgs)
+        results.Add(Convert.ToInt32(currentResult))
+        moveResult = moveNext.Invoke(target, invokeArgs)
+        hasNext = Convert.ToBoolean(moveResult)
+    }
+
+    assert results.Count == 5
+    assert results[0] == 0
+    assert results[1] == 1
+    assert results[2] == 2
+    assert results[3] == 3
+    assert results[4] == 4
 }
