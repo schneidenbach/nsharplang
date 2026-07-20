@@ -1,5 +1,7 @@
 namespace NSharpLang.Iterators.Tests
 
+import System.Collections.Generic
+
 // Executed in-project proofs: this test assembly's own `func*` definitions are lowered by the N#
 // iterator planner and consumed directly below — no compiler-harness indirection. The positional
 // accumulator (`acc * 10 + v`) pins both the CONTENTS and the ORDER of each sequence.
@@ -141,4 +143,45 @@ test "the fibonacci iterator rotates its hoisted locals" {
     }
     assert count == 7
     assert positional == 112358
+}
+
+test "chained sequence iterators concatenate through hoisted enumerators" {
+    data: int[] = [4, 5]
+    positional := 0
+    for v in Chained(CountTo(3), Values(data)) {
+        positional = positional * 10 + v
+    }
+    assert positional == 1245
+}
+
+test "a nested iterator pipeline stays lazy end to end" {
+    positional := 0
+    for v in Doubled(CountTo(4)) {
+        positional = positional * 10 + v
+    }
+    assert positional == 246
+}
+
+test "a list-driven iterator yields every element" {
+    items := new List<int>()
+    items.Add(7)
+    items.Add(8)
+    positional := 0
+    for v in FromList(items) {
+        positional = positional * 10 + v
+    }
+    assert positional == 78
+}
+
+test "an infinite source consumed through a nested iterator stops with the consumer" {
+    taken := 0
+    total := 0
+    for v in Doubled(ArithmeticFrom(1, 1)) {
+        total = total + v
+        taken = taken + 1
+        if taken == 3 {
+            break
+        }
+    }
+    assert total == 12
 }

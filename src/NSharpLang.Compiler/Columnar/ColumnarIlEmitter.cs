@@ -4154,7 +4154,23 @@ internal sealed class ColumnarIlEmitter
         var fields = new FieldInfo[shape.FieldCount];
         for (var i = 0; i < shape.FieldCount; i++)
         {
-            if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var fieldType)
+            Type fieldType;
+            if (shape.FieldRoles[i] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole())
+            {
+                // A hoisted enumerator field is typed IEnumerator<element> from the planner's canonical.
+                // The interface sits outside the general supported-type surface, so it constructs from
+                // the planner's element fact instead of passing through the general gate.
+                var enumeratorElement = ColumnarIteratorPlanner.EnumeratorElementCanonicalOf(shape.FieldCanonicals[i]);
+                if (enumeratorElement.Length == 0
+                    || !TryResolveType(enumeratorElement, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var enumeratorElementType)
+                    || !IsSupportedType(enumeratorElementType))
+                    return DeclineStatic(
+                        "emit.iterator.field-type",
+                        "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
+                        fn.Name);
+                fieldType = typeof(IEnumerator<>).MakeGenericType(enumeratorElementType);
+            }
+            else if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType)
                 || !IsSupportedType(fieldType))
                 return DeclineStatic(
                     "emit.iterator.field-type",
@@ -5839,6 +5855,31 @@ internal sealed class ColumnarIlEmitter
         {
             var mil = job.Builder.GetILGenerator();
             var methodSource = program.GetSourceForFileId(job.Method.SourceFileId);
+            // TYPE-MEMBER GENERATORS (a body containing `yield`): classify through the iterator planner
+            // so the decline carries the planner's precise site (instance lowering is a later slice).
+            // The modifier facts for methods do not carry the generator bit, so the structural yield
+            // scan is the planner-owned detection.
+            if (ColumnarIteratorPlanner.ContainsYield(job.Method.BodyNodes, job.Method.BodyRoot))
+            {
+                ColumnarDeclineTrace.SetSourceFileId(job.Method.SourceFileId);
+                try
+                {
+                    var memberShape = ColumnarIteratorPlanner.AnalyzeShape(
+                        job.Method.BodyNodes, methodSource, job.Method.BodyRoot, job.Method.Name, 0,
+                        job.Method.ReturnCanonical, job.Method.ParamNames, job.Method.ParamCanonicals,
+                        job.Method.TypeParamNames, isInstance: !job.IsStatic);
+                    return DeclineStatic(
+                        memberShape.Supported ? "emit.iterator.instance-unsupported" : memberShape.DeclineSite,
+                        memberShape.Supported
+                            ? "type-member generator functions are not yet lowered (only top-level func* lowers)"
+                            : memberShape.DeclineMessage,
+                        job.Struct.Builder.Name + "." + job.Method.Name);
+                }
+                finally
+                {
+                    ColumnarDeclineTrace.ClearSourceFileId();
+                }
+            }
             var bodyTypeResolution = typeResolutionCatalog.For(
                 job.Method.SourceFileId,
                 job.Struct.GenericParameters,

@@ -230,10 +230,38 @@ test "iterator planner declines a generic iterator element" {
     assert probe.Shape.DeclineSite == "emit.iterator.generic-unsupported"
 }
 
-test "iterator planner declines for..in over a non-array source" {
+test "iterator planner hoists an enumerable for..in as an enumerator field" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(items: IEnumerable<int>): IEnumerable<int> { for x in items { yield x } }",
         "IEnumerable<int>", IteratorOne("items"), IteratorOne("IEnumerable<int>"), IteratorNoStrings(), false)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 5
+    assert probe.Shape.FieldNames[2] == "items"
+    assert probe.Shape.FieldCanonicals[2] == "IEnumerable<int>"
+    assert probe.Shape.FieldNames[3] == "<>__enum0"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
+    assert probe.Shape.FieldCanonicals[3] == "IEnumerator<int>"
+    assert probe.Shape.FieldNames[4] == "x"
+    assert probe.Shape.FieldRoles[4] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
+    assert probe.Shape.FieldCanonicals[4] == "int"
+}
+
+test "iterator planner hoists a list for..in through the same enumerator lowering" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Loop(items: List<int>): IEnumerable<int> { for x in items { yield x } }",
+        "IEnumerable<int>", IteratorOne("items"), IteratorOne("List<int>"), IteratorNoStrings(), false)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCanonicals[2] == "List<int>"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
+    assert probe.Shape.FieldCanonicals[3] == "IEnumerator<int>"
+}
+
+test "iterator planner declines for..in over a non-sequence source" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Loop(n: int): IEnumerable<int> { for x in n { yield x } }",
+        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
@@ -774,4 +802,120 @@ test "iterator planner declines a differently-typed local redeclaration" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+}
+
+// A run-probe machine for the enumerator-hoisting lowering. The enumerator slot is object-typed on
+// the probe (its interface type sits outside the probe class's declarable surface); the plans bind
+// fields by handle and DynamicMethods execute unverified, so the runtime behavior is exact.
+public class ColumnarIteratorEnumProbe {
+    public state: int
+    public current: int
+    public xs: List<int>
+    public en: object?
+    public item: int
+
+    constructor(initialState: int) {
+        state = initialState
+        current = 0
+        xs = new List<int>()
+        en = null
+        item = 0
+    }
+}
+
+func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("xs"), IteratorOne("List<int>"), IteratorNoStrings(), false)
+    if !probe.Shape.Supported {
+        throw new InvalidOperationException("Enum probe shape unexpectedly declined: " + probe.Shape.DeclineMessage)
+    }
+    smType := typeof(ColumnarIteratorEnumProbe)
+    fields := new FieldInfo[](5)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("xs")
+    fields[3] = smType.GetField("en")
+    fields[4] = smType.GetField("item")
+    return new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
+        probe.Shape.FieldNames, fields)
+}
+
+test "iterator planner enumerator for..in plans run and release the enumerator" {
+    context := IteratorEnumProbeContext(
+        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }")
+    moveNext := MakeIteratorDynamicMethod("EnumMoveNext", typeof(bool), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("EnumCurrent", typeof(int), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorEnumProbe(0)
+    machine.xs.Add(4)
+    machine.xs.Add(5)
+    machine.xs.Add(6)
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    // Suspended inside the loop: the hoisted enumerator is live.
+    assert machine.en != null
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    }
+
+    assert results.Count == 3
+    assert results[0] == 4
+    assert results[1] == 5
+    assert results[2] == 6
+    // The loop's normal exit disposed and nulled the enumerator.
+    assert machine.en == null
+}
+
+test "iterator planner dispose plan releases a suspended enumerator" {
+    context := IteratorEnumProbeContext(
+        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }")
+    moveNext := MakeIteratorDynamicMethod("EnumSuspendMoveNext", typeof(bool), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    dispose := MakeIteratorDynamicMethod("EnumSuspendDispose", IteratorVoidType(), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposePlan(context), dispose.GetILGenerator())
+
+    machine := new ColumnarIteratorEnumProbe(0)
+    machine.xs.Add(9)
+    machine.xs.Add(10)
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert machine.en != null
+
+    dispose.Invoke(target, invokeArgs)
+    assert machine.en == null
+    assert machine.state == -2
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+}
+
+test "iterator planner fault region disposes the enumerator on exception" {
+    context := IteratorEnumProbeContext(
+        "func* Boom(xs: List<int>): IEnumerable<int> { for item in xs { throw new InvalidOperationException(\"boom\") }\n yield 1 }")
+    moveNext := MakeIteratorDynamicMethod("EnumFaultMoveNext", typeof(bool), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+
+    machine := new ColumnarIteratorEnumProbe(0)
+    machine.xs.Add(1)
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    threwBoom := false
+    try {
+        moveNext.Invoke(target, invokeArgs)
+    } catch ex: Exception {
+        innerBox: object? = ex.get_InnerException()
+        threwBoom = innerBox != null && innerBox.GetType() == typeof(InvalidOperationException)
+    }
+
+    assert threwBoom
+    // The fault handler released and nulled the live enumerator.
+    assert machine.en == null
 }

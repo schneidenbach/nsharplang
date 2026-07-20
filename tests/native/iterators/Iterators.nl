@@ -6,7 +6,8 @@ import System.Collections.Generic
 // Covered-shape synchronous iterators (`func*`) lowered by the N# iterator planner through the
 // columnar backend. Every definition here stays inside the covered surface: captured value
 // parameters, hoisted typed/inferred locals, while loops, if/else branches, arithmetic and
-// comparison operators, `yield`, `yield break`, for..in over array parameters, and guard throws.
+// comparison operators, `yield`, `yield break`, for..in over array parameters, guard throws, and
+// for..in over IEnumerable<T>/List<T> sources (hoisted enumerators inside the try/fault region).
 
 // The canonical counting shape: one captured parameter and one hoisted local.
 func* CountTo(n: int): IEnumerable<int> {
@@ -126,5 +127,29 @@ func* Fib(count: int): IEnumerable<int> {
         a = b
         b = next
         i = i + 1
+    }
+}
+
+// Sequence-driven iterators (sub-slice 5): for..in over IEnumerable<T>/List<T> hoists the enumerator
+// into a state-machine field inside MoveNext's try/fault region.
+func* Chained(first: IEnumerable<int>, second: IEnumerable<int>): IEnumerable<int> {
+    for item in first {
+        yield item
+    }
+
+    for item in second {
+        yield item
+    }
+}
+
+func* Doubled(source: IEnumerable<int>): IEnumerable<int> {
+    for v in source {
+        yield v * 2
+    }
+}
+
+func* FromList(items: List<int>): IEnumerable<int> {
+    for item in items {
+        yield item
     }
 }
