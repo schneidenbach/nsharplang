@@ -680,8 +680,7 @@ func add(a: int, b: int): int {
     [Fact]
     public void NL012_UnusedParameter_NoErrorOnUnderscorePrefixed()
     {
-        // Convention: _-prefixed parameter names are an explicit "intentionally unused"
-        // signal, so the build-blocking NL012 error must not fire for them.
+        // Convention: _-prefixed parameter names are an explicit "intentionally unused" signal, so the build-blocking NL012 error must not fire for them.
         var source = @"
 func handler(event: int, _context: int) {
     x := event + 1
@@ -720,8 +719,7 @@ func outer(value: int): int {
     [Fact]
     public void NL012_StillFlags_GenuinelyUnusedParameter_WithNestedLocalFunction()
     {
-        // A parameter never read anywhere (even via a nested function) is still flagged,
-        // so the nested-function fix does not over-suppress real unused parameters.
+        // A parameter never read anywhere (even via a nested function) is still flagged, so the nested-function fix does not over-suppress real unused parameters.
         var source = @"
 func outer(used: int, unused: int): int {
     func inner(): int {
@@ -737,8 +735,7 @@ func outer(used: int, unused: int): int {
     [Fact]
     public void NL012_StillFlags_Parameter_ShadowedByLocalInNestedFunction()
     {
-        // Over-suppression guard: the nested function reads its OWN local 'value', not the
-        // enclosing parameter, so the parameter is genuinely unused and must still be flagged.
+        // Over-suppression guard: the nested function reads its OWN local 'value', not the enclosing parameter, so the parameter is genuinely unused and must still be flagged.
         var source = @"
 func outer(value: int): int {
     func inner(): int {
@@ -822,13 +819,18 @@ func Main() {
         Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL010").Severity);
     }
 
+    [Theory]
+    [InlineData("import System\n\nclass DataStore: Exception {}", 0)]
+    [InlineData("import System\n\nstruct Buffer: IDisposable {}", 0)]
+    [InlineData("import System\nimport System.Linq\n\nclass D: Exception {}", 1)]
+    public void NL010_UnusedImport_BaseTypeListCountsAsUsage(string src, int expectedNl010) =>
+        Assert.Equal(expectedNl010, Lint(src).Count(d => d.Code == "NL010"));
+
     [Fact]
     public void NL010_UnusedImport_SquiggleCoversNamespacePathNotKeyword()
     {
-        // Regression for the strictness/squiggle audit (PR #160): the NL010 span
-        // must underline the imported namespace path (`System.Linq`), not the
-        // `import` keyword. The directive only records the statement column, so
-        // the linter steps past the keyword to land on the path.
+        // Regression for the strictness/squiggle audit (PR #160): the NL010 span must underline the imported namespace path
+        // (`System.Linq`), not the `import` keyword. The directive only records the statement column, so the linter steps past the keyword to land on the path.
         var source = @"
 import System.Linq
 
@@ -836,8 +838,7 @@ func Main() {
     x := 5
     y := x + 1
 }";
-        // LintWithSource so the linter has the source line to resolve the span against
-        // (matches how the CLI and language server always supply source text).
+        // LintWithSource so the linter has the source line to resolve the span against (matches how the CLI and language server always supply source text).
         var diagnostics = LintWithSource(source);
         var nl010 = diagnostics.Single(d => d.Code == "NL010");
 
@@ -1332,8 +1333,7 @@ class MyClass {
         Assert.DoesNotContain(unusedVars, d => d.Message.Contains("'x'"));
     }
 
-    // Lambda test skipped due to parser limitations with inline lambda syntax
-    // The linter correctly handles lambdas when they're in the AST
+    // Lambda test skipped due to parser limitations with inline lambda syntax; the linter correctly handles lambdas when they're in the AST
 
     [Fact]
     public void Linter_ForeachLoop_CollectionVariableIsNotUnused()

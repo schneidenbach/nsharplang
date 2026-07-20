@@ -59,10 +59,9 @@ internal class LintVisitor
     private List<(string Name, int Line, int Column)> _currentFunctionParams = new();
     private HashSet<string> _currentFunctionParamUsages = new();
 
-    // NL012: A stack of parameter frames for every enclosing function. Reads inside a nested local
-    // function or lambda must be able to credit a captured parameter of any *enclosing* function — not
-    // just the innermost one — or valid closures wrongly trip the build-blocking "parameter never read".
-    // The last element is the innermost frame (mirrors _currentFunctionParams/_currentFunctionParamUsages).
+    // NL012: A stack of parameter frames for every enclosing function. Reads inside a nested local function or lambda must be
+    // able to credit a captured parameter of any *enclosing* function — not just the innermost one — or valid closures wrongly trip
+    // the build-blocking "parameter never read". The last element is the innermost frame (mirrors _currentFunctionParams/_currentFunctionParamUsages).
     private readonly List<(List<(string Name, int Line, int Column)> Params, HashSet<string> Usages, Dictionary<string, (int Line, int Column, bool Used)>? Scope)> _paramFrames = new();
 
     public List<Diagnostic> Diagnostics => _diagnostics;
@@ -198,12 +197,16 @@ internal class LintVisitor
                 VisitFunction(func);
                 break;
             case ClassDeclaration classDecl:
+                TrackTypeReference(classDecl.BaseClass);
+                foreach (var iface in classDecl.Interfaces) TrackTypeReference(iface);
                 VisitClass(classDecl);
                 break;
             case StructDeclaration structDecl:
+                foreach (var iface in structDecl.Interfaces) TrackTypeReference(iface);
                 VisitStruct(structDecl);
                 break;
             case RecordDeclaration recordDecl:
+                foreach (var iface in recordDecl.Interfaces) TrackTypeReference(iface);
                 VisitRecord(recordDecl);
                 break;
             case SoaRecordDeclaration soaRecordDecl:
@@ -213,6 +216,7 @@ internal class LintVisitor
                 }
                 break;
             case InterfaceDeclaration interfaceDecl:
+                foreach (var iface in interfaceDecl.BaseInterfaces) TrackTypeReference(iface);
                 VisitInterface(interfaceDecl);
                 break;
             case UnionDeclaration unionDecl:
@@ -820,10 +824,9 @@ internal class LintVisitor
                 break;
 
             default:
-                // Everything else is purely structural: visit every child expression. Routing
-                // through AstChildren (instead of per-node child lists) keeps this fail-safe —
-                // a node or child slot missing here cannot silently skip a subtree and produce
-                // false NL001/NL010-class diagnostics.
+                // Everything else is purely structural: visit every child expression. Routing through AstChildren
+                // (instead of per-node child lists) keeps this fail-safe — a node or child slot missing here cannot
+                // silently skip a subtree and produce false NL001/NL010-class diagnostics.
                 VisitChildExpressions(expression);
                 break;
         }
@@ -931,13 +934,11 @@ internal class LintVisitor
         // NL012: Track parameter usages.
         if (creditEnclosingParameter)
         {
-            // A genuine read of 'name' counts as a use of the parameter it lexically resolves to —
-            // including a parameter captured by a nested local function or lambda. Resolve to the
-            // nearest scope that binds the name (innermost first), then credit only the parameter
-            // frame whose dedicated parameter scope IS that resolved scope. This makes captured-
-            // parameter reads count (fixing the build-blocking "parameter never read" false
-            // positive) while a shadowing local/loop/catch/lambda binding — which lives in a nearer
-            // scope — correctly prevents the enclosing parameter from being marked read.
+            // A genuine read of 'name' counts as a use of the parameter it lexically resolves to — including a parameter
+            // captured by a nested local function or lambda. Resolve to the nearest scope that binds the name (innermost
+            // first), then credit only the parameter frame whose dedicated parameter scope IS that resolved scope. This makes
+            // captured-parameter reads count (fixing the build-blocking "parameter never read" false positive) while a shadowing
+            // local/loop/catch/lambda binding — which lives in a nearer scope — correctly prevents the enclosing parameter from being marked read.
             Dictionary<string, (int Line, int Column, bool Used)>? resolvedScope =
                 _declaredVariables.ContainsKey(name) ? _declaredVariables : null;
             if (resolvedScope == null)
@@ -966,10 +967,9 @@ internal class LintVisitor
         }
         else if (_currentFunctionParams.Any(p => p.Name == name))
         {
-            // Binding/declaration site (a parameter, loop variable, catch variable, or lambda
-            // parameter being introduced). Preserve the original behavior of only consulting the
-            // current function's parameter table, so re-declaring a name never marks an enclosing
-            // parameter as read.
+            // Binding/declaration site (a parameter, loop variable, catch variable, or lambda parameter being
+            // introduced). Preserve the original behavior of only consulting the current function's parameter
+            // table, so re-declaring a name never marks an enclosing parameter as read.
             _currentFunctionParamUsages.Add(name);
         }
 
