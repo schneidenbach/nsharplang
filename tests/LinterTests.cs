@@ -288,7 +288,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("List"));
         Assert.Contains(missingImports, d => d.Suggestion != null && d.Suggestion.Contains("System.Collections.Generic"));
     }
@@ -1226,9 +1225,8 @@ func GetString(): string {
         var linter = new Linter(config);
         var diagnostics = linter.Lint(result.CompilationUnit!, "test.nl");
 
-        var unusedVarDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
-        Assert.NotNull(unusedVarDiag);
-        Assert.Equal(DiagnosticSeverity.Error, unusedVarDiag!.Severity);
+        var unusedVarDiag = diagnostics.First(d => d.Code == "NL001");
+        Assert.Equal(DiagnosticSeverity.Error, unusedVarDiag.Severity);
     }
 
     [Fact]
