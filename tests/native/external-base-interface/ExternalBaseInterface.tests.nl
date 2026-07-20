@@ -307,3 +307,120 @@ test "an ambiguous cross-namespace base name declines rather than guessing" {
     assert !compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
+
+// -----------------------------------------------------------------------------------------------
+// Inherited external-base-method calls (`Ok(data)` -> ControllerBase.Ok inside a source subclass).
+//
+// The native test project itself compiles through the columnar pipeline, so the source classes
+// below and the bare/explicit-this inherited calls in their bodies ARE the executed emission
+// proof: if the inherited-external arm mis-selects an overload, emits the wrong receiver, or picks
+// the wrong dispatch instruction, this project fails to build and the executed asserts never run.
+// `System.Exception` and `System.Random` are stable CoreLib bases mirroring the generated Web API's
+// `WeatherController: ControllerBase` shape (`Ok(data)` -> ControllerBase.Ok(object)).
+//
+// Decline cases (arity mismatch, generic method) stay on the MultiFileCompiler harness because they
+// must fail compilation and so cannot live in this project's own source.
+// -----------------------------------------------------------------------------------------------
+
+class TracedException: System.Exception {
+    // Bare inherited call: `GetBaseException()` with no receiver binds System.Exception.GetBaseException()
+    // through the recorded external base, exactly as `Ok(data)` binds ControllerBase.Ok(object). With
+    // no inner exception the method returns the receiver itself.
+    func Root(): System.Exception {
+        return GetBaseException()
+    }
+
+    // Explicit-this form: the parser flattens `this.GetBaseException()` to the same leaf-identifier
+    // callee as the bare form, so it must resolve the inherited external method identically.
+    func RootThis(): System.Exception {
+        return this.GetBaseException()
+    }
+}
+
+class OverloadRoller: System.Random {
+    // Overload selection by arity: System.Random declares Next(), Next(int) and Next(int, int).
+    // Next(1) must select Next(int); its result is in [0, 1), i.e. deterministically 0, proving both
+    // that the arity-1 overload was chosen and that the emitted call executes.
+    func RollZero(): int {
+        return Next(1)
+    }
+
+    // Next(minValue, maxValue) with minValue == maxValue deterministically returns minValue, proving
+    // the arity-2 inherited overload is selected distinctly from the arity-1 one.
+    func RollFixed(): int {
+        return Next(5, 5)
+    }
+}
+
+class HidingRoller: System.Random {
+    // Source-declaration precedence: a source `Next()` hides the inherited external `Next()` (whose
+    // result is never negative). The bare call in Play() must bind this source override, not the
+    // external base method — this is the Web API-relevant "source hides external" rule.
+    func Next(): int {
+        return -777
+    }
+
+    func Play(): int {
+        return Next()
+    }
+}
+
+// Explicit-receiver (a local of a source type that extends an external base, NOT `this`) call to a
+// method inherited from that external base, mirroring `controller.Ok(data)`. This exercises the
+// explicit-member inherited arm, which loads the source receiver and dispatches the inherited method.
+func BaseExceptionOf(traced: TracedException): System.Exception {
+    return traced.GetBaseException()
+}
+
+test "a bare inherited external-base call executes and returns the receiver" {
+    traced := new TracedException()
+    assert Object.ReferenceEquals(traced, traced.Root()), "The bare inherited GetBaseException() call must return the receiver instance."
+}
+
+test "an explicit-this inherited external-base call executes and returns the receiver" {
+    traced := new TracedException()
+    assert Object.ReferenceEquals(traced, traced.RootThis()), "The explicit-this inherited GetBaseException() call must return the receiver instance."
+}
+
+test "an explicit-receiver inherited external-base call executes and returns the receiver" {
+    traced := new TracedException()
+    assert Object.ReferenceEquals(traced, BaseExceptionOf(traced)), "The explicit-receiver inherited GetBaseException() call must return the receiver instance."
+}
+
+test "an inherited external-base overload is selected by argument arity and executes" {
+    roller := new OverloadRoller()
+    assert roller.RollZero() == 0, "Next(1) must select the inherited Random.Next(int) overload and yield 0."
+    assert roller.RollFixed() == 5, "Next(5, 5) must select the inherited Random.Next(int, int) overload and yield 5."
+}
+
+test "a source method declaration hides the inherited external overload at runtime" {
+    roller := new HidingRoller()
+    assert roller.Play() == -777, "The source Next() override must run instead of the inherited external Random.Next()."
+}
+
+test "a bare inherited external-base call with a mismatched arity declines" {
+    // System.Random has no three-argument Next overload; the call must not bind a different arity.
+    compilation := CompileExternalBaseFixture("""
+class Dice: System.Random {
+    func Bad(): int {
+        return Next(1, 2, 3)
+    }
+}
+""")
+    assert !compilation.Succeeded, compilation.Diagnostics
+    Cleanup(compilation)
+}
+
+test "a generic method inherited from the external base is not bound and declines" {
+    // System.Random.Shuffle<T>(T[]) is a generic instance method; the fixed-arity fence excludes it,
+    // so the bare inherited call must decline rather than silently binding a generic method.
+    compilation := CompileExternalBaseFixture("""
+class Dice: System.Random {
+    func Mix(items: int[]) {
+        Shuffle(items)
+    }
+}
+""")
+    assert !compilation.Succeeded, compilation.Diagnostics
+    Cleanup(compilation)
+}

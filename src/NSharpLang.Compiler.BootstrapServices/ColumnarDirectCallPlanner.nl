@@ -152,11 +152,16 @@ class ColumnarDirectCallPlanner {
 
             hasSibling := bindings.HasSiblingCallable(bareName)
 
+            // A bare name with no source/static/sibling tier may still bind to a method inherited
+            // from an external runtime base (`Ok` -> ControllerBase.Ok). Keep those from bailing out
+            // early so the inherited-external arm in TryAppendBareCall can select and plan them.
+            hasInheritedExternal := currentDefinition != null && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, bareName) && HasInheritedExternalInstanceMethod(currentDefinition, bareName, argumentCount)
+
             // A delegate-typed local/parameter/lifted/boxed value with no same-named method tier is
             // invoked through its Invoke method. Let those bare calls flow to the delegate-invoke
             // owner instead of declining early.
             if !explicitThis && !hasInstance && !hasStatic && !hasSibling
-                && !bindings.IsSiblingShadowedByValue(bareName) {
+                && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) {
                 return false
             }
         }
@@ -269,6 +274,37 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        // Implicit-`this` (bare `Ok(data)`) or explicit-`this` (`this.Ok(data)`, which the parser
+        // flattens to this same leaf-identifier callee) call to a method INHERITED FROM AN EXTERNAL
+        // RUNTIME BASE class (-> Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object) inside a source
+        // `WeatherController: ControllerBase`). A source declaration of this name at any arity hides
+        // the entire external chain and was resolved above, so this branch fires only when the source
+        // hierarchy declares nothing of the name; a value binding shadows the bare form but not the
+        // explicit `this.` form. Selection reuses the exact runtime member-call machinery (fixed
+        // arity, non-generic, ordinary parameters, conversion-admitted overload ranking, and the
+        // receiver's call/callvirt instruction) applied to the recorded external base and its own
+        // inherited chain, loading the current instance as the receiver. A non-selected inherited
+        // shape (excluded generic/params/by-ref, arity mismatch, or ambiguous set) is not claimed.
+        if currentDefinition != null
+            && (explicitThis || !bindings.IsValueBinding(memberName))
+            && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName) {
+            externalBase := ResolveExternalRuntimeBase(currentDefinition)
+            if externalBase != null {
+                inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+
+                if inherited.IsSelected {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    if !AppendInheritedImplicitSelection(nodes, source, callNode, current.ExactType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, inherited, out resultType) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    ownership = ColumnarDirectCallOwnership.Planned
+                    return true
+                }
+            }
+        }
+
         if explicitThis {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             plan.Rollback(checkpoint)
@@ -306,6 +342,120 @@ class ColumnarDirectCallPlanner {
 
         ownership = ColumnarDirectCallOwnership.Planned
         return true
+    }
+
+    // Walk the source base chain to its terminal definition; its recorded ExactBaseType is the
+    // external runtime base (a fully baked Type, never a TypeBuilder) exactly when the terminal
+    // source type extends a runtime class. A source base carries a TypeBuilder ExactBaseType and a
+    // non-null BaseDef, so the walk continues through it; a terminal type with no external base
+    // (implicit System.Object, ExactBaseType null) yields no inherited external surface.
+    static func ResolveExternalRuntimeBase(definition: ColumnarStructDef): Type? {
+        current: ColumnarStructDef? = definition
+        guard := 0
+        while current != null {
+            baseDefinition := current.BaseDef
+            if baseDefinition == null {
+                candidate := current.ExactBaseType
+                if candidate != null && !(candidate is TypeBuilder) {
+                    return candidate
+                }
+
+                return null
+            }
+
+            current = baseDefinition
+            guard += 1
+            if guard > 200 {
+                return null
+            }
+        }
+
+        return null
+    }
+
+    // A loose existence check for the entry-gate only: does the recorded external base (or its own
+    // inherited chain) declare any public instance method of this name and arity? Exact overload
+    // selection, accessibility, and the excluded-shape fence run in the inherited-external arm; this
+    // just keeps a plausible inherited call from bailing out with the other unknown bare names.
+    static func HasInheritedExternalInstanceMethod(definition: ColumnarStructDef, memberName: string, argumentCount: int): bool {
+        externalBase := ResolveExternalRuntimeBase(definition)
+        if externalBase == null {
+            return false
+        }
+
+        candidates := externalBase.GetMethods()
+        if candidates == null {
+            return false
+        }
+
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && !candidate.get_IsStatic() && candidate.get_Name() == memberName {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length == argumentCount {
+                    return true
+                }
+            }
+
+            index += 1
+        }
+
+        return false
+    }
+
+    // Emit a bare implicit-`this` call to an inherited external-base instance method: load the
+    // current instance (argument zero) as the receiver value, emit each argument on its exact
+    // parameter type, and dispatch with the receiver's exact call/callvirt instruction. The
+    // declaring type is the external method's real CLR owner; the loaded instance is verifiably
+    // assignable to it, so no receiver cast is required.
+    static func AppendInheritedImplicitSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, inferredArgumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := selection.Method
+        if !selection.IsSelected || method == null || selection.IsStatic {
+            return false
+        }
+
+        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, receiverType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
+
+        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+
+        resultType = selection.ReturnType
+        return callFragment == 0 || !IsVoidType(resultType)
+    }
+
+    // Emit an explicit-receiver call to an inherited external-base instance method (`this.Ok(data)`
+    // or `controller.Ok(data)` where the receiver is a source type that extends a runtime base): load
+    // the source receiver as a value against its own exact type, emit each argument, and dispatch the
+    // inherited method. The loaded receiver is verifiably assignable to the method's declaring type.
+    static func AppendInheritedExplicitSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, inferredArgumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := selection.Method
+        if !selection.IsSelected || method == null || selection.IsStatic {
+            return false
+        }
+
+        if !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, receiverType, true) {
+            return false
+        }
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
+
+        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+
+        resultType = selection.ReturnType
+        return callFragment == 0 || !IsVoidType(resultType)
     }
 
     // A bare call to a top-level sibling function. The direct owner plans only the ordinary,
@@ -680,6 +830,30 @@ class ColumnarDirectCallPlanner {
         if sourceInstance.IsSourceType {
             sourceDefinition := sourceInstance.SourceDefinition
             if sourceDefinition == null || !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(sourceDefinition, memberName) {
+
+                // The source receiver declares nothing of this name, so a same-named method may be
+                // inherited from its EXTERNAL runtime base (`this.Ok`/`controller.Ok` ->
+                // ControllerBase.Ok). Resolve it with the runtime member-call machinery and emit the
+                // already-typed source receiver followed by the inherited dispatch, keeping the
+                // explicit-receiver form consistent with the bare inherited-external call.
+                if sourceDefinition != null {
+                    externalBase := ResolveExternalRuntimeBase(sourceDefinition)
+                    if externalBase != null {
+                        inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+
+                        if inherited.IsSelected {
+                            ownership = ColumnarDirectCallOwnership.OwnedRejected
+                            if !AppendInheritedExplicitSelection(nodes, source, callNode, receiverNode, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, inherited, out resultType) {
+                                plan.Rollback(checkpoint)
+                                return false
+                            }
+
+                            ownership = ColumnarDirectCallOwnership.Planned
+                            return true
+                        }
+                    }
+                }
+
                 legacyWholeSubtreePlanning = true
                 plan.Rollback(checkpoint)
                 return false
