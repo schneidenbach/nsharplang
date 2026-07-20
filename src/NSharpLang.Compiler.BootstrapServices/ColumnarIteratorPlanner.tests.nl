@@ -314,3 +314,160 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert results[3] == 3
     assert results[4] == 4
 }
+
+// A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
+public class ColumnarIteratorCloneProbe {
+    public state: int
+    public current: int
+    public n: int
+    public i: int
+
+    constructor(initialState: int) {
+        state = initialState
+        current = 0
+        n = 0
+        i = 0
+    }
+}
+
+func IteratorVoidType(): Type {
+    voidType := Type.GetType("System.Void")
+    if voidType == null {
+        throw new InvalidOperationException("System.Void was not found.")
+    }
+    return voidType
+}
+
+func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    smType := typeof(ColumnarIteratorCloneProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    fields[3] = smType.GetField("i")
+    ctorTypes := new Type[](1)
+    ctorTypes[0] = typeof(int)
+    smConstructor := smType.GetConstructor(ctorTypes)
+    if smConstructor == null {
+        throw new InvalidOperationException("ColumnarIteratorCloneProbe.ctor(int) was not found.")
+    }
+    return new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
+        probe.Shape.FieldNames, fields, smConstructor)
+}
+
+test "iterator planner dispose plan marks the machine done" {
+    context := IteratorCloneProbeContext()
+    disposePlan := ColumnarIteratorBodyPlanner.BuildDisposePlan(context)
+    dispose := MakeIteratorDynamicMethod("Dispose", IteratorVoidType(), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(disposePlan, dispose.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.state = 5
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    dispose.Invoke(target, invokeArgs)
+
+    assert machine.state == -2
+}
+
+test "iterator planner reset plan throws NotSupportedException" {
+    resetPlan := ColumnarIteratorBodyPlanner.BuildResetPlan()
+    context := IteratorCloneProbeContext()
+    reset := MakeIteratorDynamicMethod("Reset", IteratorVoidType(), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(resetPlan, reset.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    threwNotSupported := false
+    try {
+        reset.Invoke(target, invokeArgs)
+    } catch ex: Exception {
+        // reflection Invoke wraps the plan's NotSupportedException in TargetInvocationException.
+        innerBox: object? = ex.get_InnerException()
+        threwNotSupported = innerBox != null && innerBox.GetType() == typeof(NotSupportedException)
+    }
+
+    assert threwNotSupported
+}
+
+test "iterator planner interface current plan boxes the value element" {
+    context := IteratorCloneProbeContext()
+    currentPlan := ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(context)
+    boxedCurrent := MakeIteratorDynamicMethod("BoxedCurrent", typeof(object), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(currentPlan, boxedCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.current = 42
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    boxedResult := boxedCurrent.Invoke(target, invokeArgs)
+
+    assert Convert.ToInt32(boxedResult) == 42
+}
+
+test "iterator planner clone plan starts a fresh machine with captured parameters" {
+    context := IteratorCloneProbeContext()
+    clonePlan := ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(context)
+    getEnumerator := MakeIteratorDynamicMethod("GetEnumerator", typeof(object), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(clonePlan, getEnumerator.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.state = 3
+    machine.n = 7
+    machine.i = 5
+    machine.current = 9
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    clone := (ColumnarIteratorCloneProbe)getEnumerator.Invoke(target, invokeArgs)
+
+    assert !Object.ReferenceEquals(machine, clone)
+    assert clone.state == 0
+    assert clone.n == 7
+    assert clone.i == 0
+    assert clone.current == 0
+}
+
+test "iterator planner interface enumerator plan mirrors the clone body" {
+    context := IteratorCloneProbeContext()
+    clonePlan := ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context)
+    getEnumerator := MakeIteratorDynamicMethod("InterfaceGetEnumerator", typeof(object), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(clonePlan, getEnumerator.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.state = -2
+    machine.n = 11
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    clone := (ColumnarIteratorCloneProbe)getEnumerator.Invoke(target, invokeArgs)
+
+    assert !Object.ReferenceEquals(machine, clone)
+    assert clone.state == 0
+    assert clone.n == 11
+}
+
+test "iterator planner factory plan constructs the machine from arguments" {
+    context := IteratorCloneProbeContext()
+    factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(context)
+    factory := MakeIteratorDynamicMethod("Factory", typeof(object), typeof(int))
+    ColumnarCodePlanExecutor.Execute(factoryPlan, factory.GetILGenerator())
+
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, 11)
+    target: object? = null
+    machine := (ColumnarIteratorCloneProbe)factory.Invoke(target, invokeArgs)
+
+    assert machine.state == 0
+    assert machine.n == 11
+    assert machine.i == 0
+    assert machine.current == 0
+}

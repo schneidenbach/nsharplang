@@ -160,6 +160,7 @@ internal sealed class ColumnarIlEmitter
         typeof(ValueTuple<int, int>).GetField("Item2")
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
 
+    private const int NSharpModifierGenerator = 4096; // `func*`; must mirror Modifiers.Generator
     private const int NSharpModifierOverride = 65536;
     private const int NSharpModifierNativeImport = 131072;
     private const int NSharpParameterModifierParams = 3;
@@ -4111,6 +4112,112 @@ internal sealed class ColumnarIlEmitter
         return type != null;
     }
 
+    // Sub-slice 3b-ii HOST: mechanically realize the N# iterator planner's synchronous `func*` state
+    // machine. Every structural decision — decline classification, element type, field layout, state
+    // numbering, member/override identities — is a ColumnarIteratorShape fact from the N# planner, and
+    // every member body is a planner-built schema-4 code plan replayed by ColumnarCodePlanExecutor. This
+    // host only defines the CLR shells (DefineType/DefineField/DefineMethod/DefineMethodOverride), emits
+    // the spec'd `(int):void` ctor (chain object ctor, store the initial state), and executes the plans;
+    // the original function body becomes the planner's factory plan. The machine registers with the
+    // synthesized-type list so it bakes before the Program type, exactly like closure display classes.
+    private static bool TryEmitIteratorStateMachine(
+        ModuleBuilder module,
+        ColumnarFunctionInput fn,
+        int funcOrdinal,
+        string functionSource,
+        ColumnarSemanticTypeResolution typeResolution,
+        ILGenerator factoryIl,
+        List<TypeBuilder> synthesizedTypes)
+    {
+        var shape = ColumnarIteratorPlanner.AnalyzeShape(
+            fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
+            fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
+        if (!shape.Supported)
+            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
+        if (!TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType)
+            || !IsSupportedType(elementType))
+            return DeclineStatic(
+                "emit.iterator.element-type",
+                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
+                fn.Name);
+
+        var enumerableOfT = typeof(IEnumerable<>).MakeGenericType(elementType);
+        var enumeratorOfT = typeof(IEnumerator<>).MakeGenericType(elementType);
+        var sm = module.DefineType(
+            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+        sm.AddInterfaceImplementation(enumerableOfT);
+        sm.AddInterfaceImplementation(enumeratorOfT);
+        sm.AddInterfaceImplementation(typeof(System.Collections.IEnumerable));
+        sm.AddInterfaceImplementation(typeof(System.Collections.IEnumerator));
+        sm.AddInterfaceImplementation(typeof(IDisposable));
+
+        var fields = new FieldInfo[shape.FieldCount];
+        for (var i = 0; i < shape.FieldCount; i++)
+        {
+            if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var fieldType)
+                || !IsSupportedType(fieldType))
+                return DeclineStatic(
+                    "emit.iterator.field-type",
+                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
+                    fn.Name);
+            fields[i] = sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public);
+        }
+
+        var ctor = sm.DefineConstructor(
+            MethodAttributes.Public | MethodAttributes.HideBySig, CallingConventions.Standard, new[] { typeof(int) });
+        var ctorIl = ctor.GetILGenerator();
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldarg_1);
+        ctorIl.Emit(OpCodes.Stfld, fields[0]);
+        ctorIl.Emit(OpCodes.Ret);
+
+        var context = new ColumnarIteratorEmitContext(
+            fn.BodyNodes, functionSource, fn.BodyRoot, shape, sm, elementType, shape.FieldNames, fields, ctor);
+        const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
+            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        const MethodAttributes explicitImpl = MethodAttributes.Private | MethodAttributes.Virtual
+            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+
+        var moveNext = sm.DefineMethod(shape.MemberNames[1], publicImpl, typeof(bool), Type.EmptyTypes);
+        sm.DefineMethodOverride(moveNext, typeof(System.Collections.IEnumerator).GetMethod("MoveNext")!);
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator());
+
+        var getCurrent = sm.DefineMethod(
+            shape.MemberNames[2], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
+        sm.DefineMethodOverride(getCurrent, ResolveClosedGenericMethod(enumeratorOfT, typeof(IEnumerator<>).GetMethod("get_Current")!));
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
+
+        var interfaceCurrent = sm.DefineMethod(
+            shape.MemberNames[3], explicitImpl | MethodAttributes.SpecialName, typeof(object), Type.EmptyTypes);
+        sm.DefineMethodOverride(interfaceCurrent, typeof(System.Collections.IEnumerator).GetProperty("Current")!.GetGetMethod()!);
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(context), interfaceCurrent.GetILGenerator());
+
+        var reset = sm.DefineMethod(shape.MemberNames[4], explicitImpl, typeof(void), Type.EmptyTypes);
+        sm.DefineMethodOverride(reset, typeof(System.Collections.IEnumerator).GetMethod("Reset")!);
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildResetPlan(), reset.GetILGenerator());
+
+        var dispose = sm.DefineMethod(shape.MemberNames[5], explicitImpl, typeof(void), Type.EmptyTypes);
+        sm.DefineMethodOverride(dispose, typeof(IDisposable).GetMethod("Dispose")!);
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposePlan(context), dispose.GetILGenerator());
+
+        var getEnumerator = sm.DefineMethod(shape.MemberNames[6], publicImpl, enumeratorOfT, Type.EmptyTypes);
+        sm.DefineMethodOverride(getEnumerator, ResolveClosedGenericMethod(enumerableOfT, typeof(IEnumerable<>).GetMethod("GetEnumerator")!));
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(context), getEnumerator.GetILGenerator());
+
+        var interfaceGetEnumerator = sm.DefineMethod(
+            shape.MemberNames[7], explicitImpl, typeof(System.Collections.IEnumerator), Type.EmptyTypes);
+        sm.DefineMethodOverride(interfaceGetEnumerator, typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator")!);
+        ColumnarCodePlanExecutor.Execute(
+            ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context), interfaceGetEnumerator.GetILGenerator());
+
+        // The original function body IS the factory: new machine at the initial state + captured arguments.
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildFactoryPlan(context), factoryIl);
+        synthesizedTypes.Add(sm);
+        return true;
+    }
+
     /// <summary>
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
@@ -5260,6 +5367,17 @@ internal sealed class ColumnarIlEmitter
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
+            // A GENERIC generator (`func* Repeat<T>(...)`: IEnumerable over a method type parameter) is
+            // outside the declarable signature surface, so it can never reach the pass-2 iterator host.
+            // Classify it through the iterator planner HERE so the decline carries the planner's precise
+            // iterator site (emit.iterator.generic-unsupported) instead of the generic signature site.
+            if ((fn.ModifierFlags & NSharpModifierGenerator) != 0 && fn.TypeParamNames.Length > 0)
+            {
+                var generatorShape = ColumnarIteratorPlanner.AnalyzeShape(
+                    fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
+                    fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
+                return DeclineStatic(generatorShape.DeclineSite, generatorShape.DeclineMessage, fn.Name);
+            }
             // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
             // definition with open type parameters, instantiated per call site via MakeGenericMethod — exactly
             // the legacy emitter's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
@@ -5482,6 +5600,24 @@ internal sealed class ColumnarIlEmitter
             var fn = funcs[f];
             var typeResolution = typeResolutionsByFunc[f];
             var il = methods[f].GetILGenerator();
+            // GENERATOR functions (`func*`, modifier bit 4096) never emit a statement body: the N# iterator
+            // planner owns every structural decision (shape facts + schema-4 member body plans) and this host
+            // realizes them mechanically (sub-slice 3b-ii). Unsupported shapes decline at the planner's site.
+            if ((fn.ModifierFlags & NSharpModifierGenerator) != 0)
+            {
+                ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
+                try
+                {
+                    if (!TryEmitIteratorStateMachine(
+                        module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses))
+                        return false;
+                }
+                finally
+                {
+                    ColumnarDeclineTrace.ClearSourceFileId();
+                }
+                continue;
+            }
             // LOCAL FUNCTIONS (L4-i): declare each root-block local function as a `<parent>g__{n}` static
             // BEFORE the parent body emits (forward calls bake at Save); bodies emit after the parent's.
             // Product parser routing only materializes non-generic, non-nested local functions here; resolvable

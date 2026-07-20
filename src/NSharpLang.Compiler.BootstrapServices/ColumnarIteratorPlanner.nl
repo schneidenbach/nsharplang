@@ -582,6 +582,7 @@ public class ColumnarIteratorEmitContext {
     public ElementType: Type
     public FieldNames: string[]
     public Fields: FieldInfo[]
+    public Constructor: ConstructorInfo?
 
     constructor(
         nodes: ColumnarNodeTable,
@@ -591,7 +592,8 @@ public class ColumnarIteratorEmitContext {
         stateMachineType: Type,
         elementType: Type,
         fieldNames: string[],
-        fields: FieldInfo[]) {
+        fields: FieldInfo[],
+        smConstructor: ConstructorInfo? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -600,6 +602,7 @@ public class ColumnarIteratorEmitContext {
         ElementType = elementType
         FieldNames = fieldNames
         Fields = fields
+        Constructor = smConstructor
     }
 
     public func FieldForName(name: string): FieldInfo {
@@ -611,6 +614,16 @@ public class ColumnarIteratorEmitContext {
             i = i + 1
         }
         throw new InvalidOperationException("Iterator state machine has no field named '" + name + "'.")
+    }
+
+    // The state machine's `.ctor(int)` handle — required by the clone and factory plans, optional for
+    // contracts that exercise only the this-relative member bodies.
+    public func RequiredConstructor(): ConstructorInfo {
+        handle := Constructor
+        if handle == null {
+            throw new InvalidOperationException("Iterator emit context carries no state-machine constructor handle.")
+        }
+        return handle
     }
 }
 
@@ -699,6 +712,189 @@ public class ColumnarIteratorBodyPlanner {
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         plan.CompleteMethodBody(context.ElementType)
         return plan
+    }
+
+    // System.Collections.IEnumerator.get_Current(): the object view of the hoisted current field —
+    // a value-type element is boxed, a reference element returns as-is.
+    public static func BuildInterfaceGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        smTypeIdx := plan.AddType(context.StateMachineType)
+        thisArg := plan.AddArgument(0, smTypeIdx)
+        currentPool := plan.AddField(context.FieldForName("<>__current"))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), currentPool)
+        if context.ElementType.get_IsValueType() {
+            boxTypePool := plan.AddType(context.ElementType)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), boxTypePool)
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(typeof(object))
+        return plan
+    }
+
+    // System.IDisposable.Dispose(): a synchronous iterator with no hoisted finally regions (the only
+    // shape this slice lowers) just marks the machine done.
+    public static func BuildDisposePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        smTypeIdx := plan.AddType(context.StateMachineType)
+        thisArg := plan.AddArgument(0, smTypeIdx)
+        statePool := plan.AddField(context.FieldForName("<>__state"))
+        donePool := plan.AddInt32(ColumnarIteratorPlanner.DoneState())
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), donePool)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), statePool)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(VoidReturnType())
+        return plan
+    }
+
+    // System.Collections.IEnumerator.Reset(): the interface contract's canonical iterator behavior —
+    // throw NotSupportedException (exactly what C#-compiled iterators do).
+    public static func BuildResetPlan(): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        noTypes := new Type[](0)
+        resetConstructor := typeof(NotSupportedException).GetConstructor(noTypes)
+        if resetConstructor == null {
+            throw new InvalidOperationException("The parameterless NotSupportedException constructor was not found.")
+        }
+        ctorPool := plan.AddConstructor(resetConstructor)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+        plan.CompleteMethodBody(VoidReturnType())
+        return plan
+    }
+
+    // GetEnumerator(): clone semantics — every call yields a FRESH machine at the initial state with the
+    // captured parameters copied from the receiver; hoisted locals and current restart at default.
+    public static func BuildGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        AppendEnumeratorClone(plan, context)
+        plan.CompleteMethodBody(EnumeratorInterfaceTypeOf(context.ElementType))
+        return plan
+    }
+
+    // System.Collections.IEnumerable.GetEnumerator(): the identical clone body; only the declared result
+    // view differs (the non-generic IEnumerator).
+    public static func BuildInterfaceGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        AppendEnumeratorClone(plan, context)
+        plan.CompleteMethodBody(NonGenericEnumeratorType())
+        return plan
+    }
+
+    // The FACTORY body for the original func* function: construct the machine at the initial state and
+    // store each argument into its captured-parameter field (signature order = captured field order).
+    public static func BuildFactoryPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        ctorPool := AddStateMachineConstructor(plan, context)
+        statePool := plan.AddInt32(ColumnarIteratorPlanner.InitialState())
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), statePool)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
+        ordinal := 0
+        i := 0
+        while i < context.Shape.FieldRoles.Length {
+            if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
+                argTypePool := plan.AddType(context.Fields[i].get_FieldType())
+                argPool := plan.AddArgument(ordinal, argTypePool)
+                fieldPool := plan.AddField(context.Fields[i])
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argPool)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+                ordinal = ordinal + 1
+            }
+            i = i + 1
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(EnumerableInterfaceTypeOf(context.ElementType))
+        return plan
+    }
+
+    // Shared clone body: new SM(initial) + copy each captured-parameter field from `this` to the clone.
+    // The receiver argument enters the pool only when a captured field exists (pools must stay fully used).
+    static func AppendEnumeratorClone(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext) {
+        ctorPool := AddStateMachineConstructor(plan, context)
+        statePool := plan.AddInt32(ColumnarIteratorPlanner.InitialState())
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), statePool)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
+        if CapturedFieldCount(context) > 0 {
+            smTypeIdx := plan.AddType(context.StateMachineType)
+            thisArg := plan.AddArgument(0, smTypeIdx)
+            i := 0
+            while i < context.Shape.FieldRoles.Length {
+                if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
+                    fieldPool := plan.AddField(context.Fields[i])
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+                    plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+                    plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+                }
+                i = i + 1
+            }
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    }
+
+    static func CapturedFieldCount(context: ColumnarIteratorEmitContext): int {
+        count := 0
+        i := 0
+        while i < context.Shape.FieldRoles.Length {
+            if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    // The `.ctor(int)` pool entry. The handle is usually an unbaked ConstructorBuilder (no reflectable
+    // parameter list), so the planner-owned declared signature travels with it.
+    static func AddStateMachineConstructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext): int {
+        ctorParams := new Type[](1)
+        ctorParams[0] = typeof(int)
+        return plan.AddConstructorWithSignature(context.RequiredConstructor(), context.StateMachineType, ctorParams)
+    }
+
+    // N# has no `typeof(void)`; resolve the void marker through the runtime type system.
+    static func VoidReturnType(): Type {
+        voidType := Type.GetType("System.Void")
+        if voidType == null {
+            throw new InvalidOperationException("System.Void was not found.")
+        }
+        return voidType
+    }
+
+    static func EnumeratorInterfaceTypeOf(elementType: Type): Type {
+        definition := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        if definition == null {
+            throw new InvalidOperationException("System.Collections.Generic.IEnumerator`1 was not found.")
+        }
+        typeArgs := new Type[](1)
+        typeArgs[0] = elementType
+        return definition.MakeGenericType(typeArgs)
+    }
+
+    static func EnumerableInterfaceTypeOf(elementType: Type): Type {
+        definition := Type.GetType("System.Collections.Generic.IEnumerable`1")
+        if definition == null {
+            throw new InvalidOperationException("System.Collections.Generic.IEnumerable`1 was not found.")
+        }
+        typeArgs := new Type[](1)
+        typeArgs[0] = elementType
+        return definition.MakeGenericType(typeArgs)
+    }
+
+    static func NonGenericEnumeratorType(): Type {
+        enumeratorType := Type.GetType("System.Collections.IEnumerator")
+        if enumeratorType == null {
+            throw new InvalidOperationException("System.Collections.IEnumerator was not found.")
+        }
+        return enumeratorType
     }
 
     static func LoadThis(emit: ColumnarMoveNextEmit) {
