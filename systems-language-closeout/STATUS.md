@@ -6,7 +6,14 @@ Last updated: 2026-07-18
 
 - Current task: `tasks/009-external-base-interface-resolution.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (009 owns the Web API template gate failure group: external base and interface resolution)
+- Active sub-slice: base/interface RESOLUTION landed at `85c817440` (ColumnarBaseTypePlanner owns
+  ordered classification incl. external runtime class bases; the ControllerBase decline is fixed;
+  emitter 21,209 -> 21,164). The Web API template still fails on two call-resolution features that
+  are 009's remaining acceptance blockers: (1) bare calls to INHERITED EXTERNAL BASE methods
+  (`Ok(data)` -> ControllerBase.Ok, `emit.call.bare-unresolved`); (2) external EXTENSION-METHOD
+  chains (`builder.Services.AddControllers()`, `AddSwaggerGen`, `MapControllers`, `Run`). Next:
+  own inherited external-base-method bare calls (bounded direct-call extension), then the
+  extension-method chains.
 - Last accepted ownership commit: `23ced5034` (`Delete the complete C# range/index owner`, task 008)
 - Queue: `tasks/README.md`
 
