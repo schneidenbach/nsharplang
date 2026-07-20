@@ -4,17 +4,11 @@ Last updated: 2026-07-18
 
 ## Cursor
 
-- Current task: `tasks/009-external-base-interface-resolution.md`
+- Current task: `tasks/010-lambda-definition-placement.md`
 - Current iteration: one terminal slice
-- Active sub-slice: base/interface RESOLUTION landed at `85c817440` (ColumnarBaseTypePlanner owns
-  ordered classification incl. external runtime class bases; the ControllerBase decline is fixed;
-  emitter 21,209 -> 21,164). The Web API template still fails on two call-resolution features that
-  are 009's remaining acceptance blockers: (1) bare calls to INHERITED EXTERNAL BASE methods
-  (`Ok(data)` -> ControllerBase.Ok, `emit.call.bare-unresolved`); (2) external EXTENSION-METHOD
-  chains (`builder.Services.AddControllers()`, `AddSwaggerGen`, `MapControllers`, `Run`). Next:
-  own inherited external-base-method bare calls (bounded direct-call extension), then the
-  extension-method chains.
-- Last accepted ownership commit: `23ced5034` (`Delete the complete C# range/index owner`, task 008)
+- Active sub-slice: not yet selected (010 owns lambda definition placement and visibility;
+  contextual-lambda call operands are also the recorded 006/007 residual retirement key)
+- Last accepted ownership commit: task 009's slice commits (`85c817440`, `5f9bf3fce`, extension-calls commit)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -207,6 +201,21 @@ Completed slices:
     decisive dead-code proof); 619 BootstrapServices contracts against both feed and fresh SDK;
     3,182/3,182 units; all native projects green; fresh Release self-emit clean; fresh non-VS-Code
     gate at the same four pre-existing later-owner failure groups (009/011/012/013/014).
+
+- Task 009 — external base and interface resolution; slice commits `85c817440` (base/interface
+  classification), `5f9bf3fce` (inherited external-base-method calls), and the extension-calls
+  commit; ACCEPTANCE: the generated Web API template checks, builds, and ILVerifies clean, and the
+  fresh gate fell from four failure groups to three (013/014 iterators, 011/012 ilverify).
+  - Deleted C# owners: the emitter's PASS 0a' base/interface classification decision block
+    (`ColumnarIlEmitter.cs` 21,209 → 21,164); the remaining slices added zero C#.
+  - Added N# owners: `ColumnarBaseTypePlanner` (ordered base classification incl. external runtime
+    class bases with protected-ctor default chaining), inherited external-base-method bare/this
+    call planning over the recorded base chain, `ColumnarExtensionMethodResolver` (ExtensionAttribute
+    index with instance-beats-extension precedence and trailing-optional null-default fill),
+    IServiceCollection admission, and highest-version NuGet runtime-asset unification.
+  - Evidence: 625 BootstrapServices contracts; external-base-interface 18/18, extension-calls 4/4
+    executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
+    all native projects green; gate baseline shrunk to three groups.
 
 After each accepted slice, record only:
 
