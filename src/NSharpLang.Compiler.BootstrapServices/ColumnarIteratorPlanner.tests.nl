@@ -37,7 +37,8 @@ class ColumnarIteratorShapeProbe {
         paramNames: string[],
         paramCanonicals: string[],
         typeParamNames: string[],
-        isInstance: bool) {
+        isInstance: bool,
+        isAsync: bool = false) {
         capacity := source.Length * 3 + 16
         rawKinds := new int[](capacity)
         rawStarts := new int[](capacity)
@@ -100,7 +101,7 @@ class ColumnarIteratorShapeProbe {
         Source = source
         Shape = ColumnarIteratorPlanner.AnalyzeShape(
             nodes, source, bodyRoot, "Gen", 0, returnCanonical, paramNames, paramCanonicals, typeParamNames, isInstance,
-            "", new string[](0), new string[](0), new string[](0), new string[](0))
+            "", new string[](0), new string[](0), new string[](0), new string[](0), isAsync)
     }
 }
 
@@ -1044,7 +1045,7 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
     shape := ColumnarIteratorPlanner.AnalyzeShape(
         parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Vals", 0, "IEnumerable<int>",
         IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
-        memberNames, memberCanonicals, IteratorNoStrings(), IteratorNoStrings())
+        memberNames, memberCanonicals, IteratorNoStrings(), IteratorNoStrings(), false)
 
     assert shape.Supported
     assert shape.YieldReturnCount == 2
@@ -1096,7 +1097,7 @@ test "iterator planner declines enclosing member writes" {
     shape := ColumnarIteratorPlanner.AnalyzeShape(
         parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Bad", 0, "IEnumerable<int>",
         IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
-        IteratorOne("Value"), IteratorOne("int"), IteratorNoStrings(), IteratorNoStrings())
+        IteratorOne("Value"), IteratorOne("int"), IteratorNoStrings(), IteratorNoStrings(), false)
 
     assert !shape.Supported
     assert shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1110,7 +1111,7 @@ test "iterator planner classifies member-call for..in sources" {
         parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Walk", 0, "IEnumerable<int>",
         IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "TreeNode",
         IteratorTwo("Value", "Children"), IteratorTwo("int", "List<TreeNode>"),
-        IteratorOne("Walk"), IteratorOne("IEnumerable<int>"))
+        IteratorOne("Walk"), IteratorOne("IEnumerable<int>"), false)
 
     assert shape.Supported
     assert shape.YieldReturnCount == 2
@@ -1122,4 +1123,79 @@ test "iterator planner classifies member-call for..in sources" {
     assert shape.FieldCanonicals[4] == "TreeNode"
     assert shape.FieldCanonicals[5] == "IEnumerator<int>"
     assert shape.FieldNames[6] == "v"
+}
+
+// ---- async-iterator classification (`async func*` -> IAsyncEnumerable<T>) ----
+
+test "async iterator planner classifies element type with await and yield resume counts" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Numbers(): IAsyncEnumerable<int> { await Delay()\n yield 1 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.ElementCanonical == "int"
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.AwaitResumeCount == 1
+}
+
+test "async iterator planner counts each await as a distinct resume state" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Multi(): IAsyncEnumerable<int> { await A()\n yield 1\n await B()\n yield 2\n await C() }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.ElementCanonical == "int"
+    assert probe.Shape.YieldReturnCount == 2
+    assert probe.Shape.AwaitResumeCount == 3
+}
+
+test "async iterator planner classifies a yield-only body with zero awaits" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Just(): IAsyncEnumerable<int> { yield 7 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.AwaitResumeCount == 0
+}
+
+test "async iterator planner counts awaits inside a while loop body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Loop(): IAsyncEnumerable<int> { i := 0\n while i < 3 { await Delay()\n yield i } }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.AwaitResumeCount == 1
+    assert probe.Shape.YieldReturnCount == 1
+}
+
+test "async classification declines a non-IAsyncEnumerable async iterator return" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Wrong(): IEnumerable<int> { await A()\n yield 1 }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-return-unsupported"
+}
+
+test "synchronous iterator planner rejects IAsyncEnumerable without the async modifier" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Sync(): IAsyncEnumerable<int> { yield 1 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, false)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
+}
+
+test "synchronous iterator planner rejects an await expression" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Sync(): IEnumerable<int> { await A()\n yield 1 }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, false)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
 }

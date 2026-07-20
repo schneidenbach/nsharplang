@@ -5691,6 +5691,27 @@ internal sealed class ColumnarIlEmitter
             // it is handled here and NOT admitted by IsSupportedType (which gates params/locals/arrays/values).
             Type returnType;
             Type? asyncWrappedReturn = null;
+            if (fn.IsAsync && (fn.ModifierFlags & NSharpModifierGenerator) != 0)
+            {
+                // `async func*` is an ASYNC ITERATOR (returns IAsyncEnumerable<T>), NOT an async function —
+                // its declared return is the async sequence itself, never a Task/ValueTask wrap. Classify it
+                // through the N# iterator planner so the decline is iterator-scoped and precise. The async
+                // state-machine emission (MoveNextAsync/DisposeAsync/GetAsyncEnumerator + await-resume
+                // states) is the next slice, so a classified async iterator declines at
+                // `emit.iterator.async-emit-pending`; an unsupported body shape declines at its walk site.
+                var asyncShape = ColumnarIteratorPlanner.AnalyzeShape(
+                    fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
+                    fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames,
+                    isInstance: false, isAsync: true);
+                if (!asyncShape.Supported)
+                    return DeclineStatic(asyncShape.DeclineSite, asyncShape.DeclineMessage, fn.Name);
+                return DeclineStatic(
+                    "emit.iterator.async-emit-pending",
+                    "async iterator '" + fn.Name + "' classified (element '" + asyncShape.ElementCanonical
+                        + "', " + asyncShape.YieldReturnCount + " yields, " + asyncShape.AwaitResumeCount
+                        + " awaits); async state-machine emission lands in the next slice",
+                    fn.Name);
+            }
             if (fn.IsAsync)
             {
                 // ASYNC (the sync-lowering mirror): generic async declines; the declared return

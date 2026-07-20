@@ -33,6 +33,14 @@ public class ColumnarIteratorShape {
     public MemberNames: string[]
     public MemberSignatures: string[]
     public MemberOverrides: string[]
+    // Async-iterator classification facts (`async func*` returning IAsyncEnumerable<T>). IsAsync marks a
+    // shape produced by the async classification path; AwaitResumeCount is the number of `await` suspension
+    // points in the body. Each await, like each `yield return`, is a resume state — the state machine
+    // resumes at its await-resume label after the awaited operation completes. The async state-machine
+    // member surface (MoveNextAsync/DisposeAsync/GetAsyncEnumerator) and the awaiter/builder fields are the
+    // async EMISSION slice; the classification here computes element type and resume counts only.
+    public IsAsync: bool
+    public AwaitResumeCount: int
 
     constructor(
         supported: bool,
@@ -48,7 +56,9 @@ public class ColumnarIteratorShape {
         memberCount: int,
         memberNames: string[],
         memberSignatures: string[],
-        memberOverrides: string[]) {
+        memberOverrides: string[],
+        isAsync: bool,
+        awaitResumeCount: int) {
         Supported = supported
         DeclineSite = declineSite
         DeclineMessage = declineMessage
@@ -66,12 +76,18 @@ public class ColumnarIteratorShape {
         MemberNames = memberNames
         MemberSignatures = memberSignatures
         MemberOverrides = memberOverrides
+        IsAsync = isAsync
+        AwaitResumeCount = awaitResumeCount
     }
 }
 
 // Mutable accumulator for the single forward body walk.
 class ColumnarIteratorWalkState {
     public YieldReturnCount: int
+    public AwaitCount: int
+    // True while classifying an `async func*`: `await` expressions are then legal suspension points
+    // (each counts an await-resume state); in a synchronous iterator an `await` declines.
+    public IsAsync: bool
     public ForInCount: int
     public EnumeratorCount: int
     public LocalCount: int
@@ -99,8 +115,11 @@ class ColumnarIteratorWalkState {
         memberFieldNames: string[],
         memberFieldCanonicals: string[],
         memberMethodNames: string[],
-        memberMethodReturnCanonicals: string[]) {
+        memberMethodReturnCanonicals: string[],
+        isAsync: bool) {
         YieldReturnCount = 0
+        AwaitCount = 0
+        IsAsync = isAsync
         ForInCount = 0
         EnumeratorCount = 0
         LocalCount = 0
@@ -259,7 +278,8 @@ public class ColumnarIteratorPlanner {
         enclosingFieldNames: string[]? = null,
         enclosingFieldCanonicals: string[]? = null,
         enclosingMethodNames: string[]? = null,
-        enclosingMethodReturnCanonicals: string[]? = null): ColumnarIteratorShape {
+        enclosingMethodReturnCanonicals: string[]? = null,
+        isAsync: bool = false): ColumnarIteratorShape {
         if isInstance && receiverCanonical == "" {
             return Declined("emit.iterator.instance-unsupported",
                 "iterator methods with an instance receiver are not yet lowered")
@@ -268,20 +288,31 @@ public class ColumnarIteratorPlanner {
             return Declined("emit.iterator.instance-unsupported",
                 "generic instance iterator methods are not yet lowered")
         }
+        if isAsync && isInstance {
+            return Declined("emit.iterator.async-unsupported",
+                "async iterator methods with an instance receiver are not yet lowered")
+        }
 
-        // Element-type inference: only a synchronous IEnumerable<X> return is covered; IAsyncEnumerable is
-        // the async-iterator slice, and every other sequence return declines. The element may be one of
-        // the function's own type parameters — the state machine then becomes generic with the parameter
-        // flowing into the current/value fields (the host mirrors the type-parameter list onto the SM).
+        // Element-type inference. A synchronous iterator returns IEnumerable<X>; an `async func*` returns
+        // IAsyncEnumerable<X>. The element may be one of the function's own type parameters — the state
+        // machine then becomes generic with the parameter flowing into the current/value fields (the host
+        // mirrors the type-parameter list onto the SM).
         sequenceName := SequenceNameOf(returnCanonical)
         element := SequenceElementOf(returnCanonical)
-        if UnqualifiedName(sequenceName) == "IAsyncEnumerable" {
-            return Declined("emit.iterator.async-unsupported",
-                "async iterators (IAsyncEnumerable) are a later slice")
-        }
-        if element == "" || UnqualifiedName(sequenceName) != "IEnumerable" {
-            return Declined("emit.iterator.return-unsupported",
-                "only a typed IEnumerable<T> iterator return is lowered, not '" + returnCanonical + "'")
+        if isAsync {
+            if UnqualifiedName(sequenceName) != "IAsyncEnumerable" || element == "" {
+                return Declined("emit.iterator.async-return-unsupported",
+                    "an async iterator (`async func*`) must return IAsyncEnumerable<T>, not '" + returnCanonical + "'")
+            }
+        } else {
+            if UnqualifiedName(sequenceName) == "IAsyncEnumerable" {
+                return Declined("emit.iterator.async-unsupported",
+                    "IAsyncEnumerable<T> requires the 'async' modifier on the iterator")
+            }
+            if element == "" || UnqualifiedName(sequenceName) != "IEnumerable" {
+                return Declined("emit.iterator.return-unsupported",
+                    "only a typed IEnumerable<T> iterator return is lowered, not '" + returnCanonical + "'")
+            }
         }
 
         capacity := nodes.Kinds.Length + 1
@@ -290,12 +321,16 @@ public class ColumnarIteratorPlanner {
             enclosingFieldNames ?? new string[](0),
             enclosingFieldCanonicals ?? new string[](0),
             enclosingMethodNames ?? new string[](0),
-            enclosingMethodReturnCanonicals ?? new string[](0))
+            enclosingMethodReturnCanonicals ?? new string[](0),
+            isAsync)
         WalkStatement(nodes, source, bodyRoot, state)
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
         }
 
+        if isAsync {
+            return BuildSupportedAsyncShape(funcName, funcOrdinal, element, state)
+        }
         return BuildSupportedShape(
             funcName, funcOrdinal, element, paramNames, paramCanonicals, state,
             isInstance ? receiverCanonical : "")
@@ -357,7 +392,28 @@ public class ColumnarIteratorPlanner {
         return new ColumnarIteratorShape(
             true, "", "", typeName, element, state.YieldReturnCount,
             fieldCount, fieldNames, fieldCanonicals, fieldRoles,
-            memberNames.Length, memberNames, memberSignatures, memberOverrides)
+            memberNames.Length, memberNames, memberSignatures, memberOverrides,
+            false, 0)
+    }
+
+    // Async-iterator classification facts (`async func*` returning IAsyncEnumerable<T>). Stage 1 owns the
+    // DATA-shape classification only: the element type, the yield-resume count, and the await-resume count
+    // (each `await` is a suspension point that resumes at its own state, exactly like a `yield return`).
+    // The async state-machine member surface (MoveNextAsync/DisposeAsync/GetAsyncEnumerator + the private
+    // IAsyncStateMachine core) and the async fields (the method builder and the hoisted awaiters) are the
+    // async EMISSION slice, so the member/field arrays stay empty here — the classified shape never enters
+    // the synchronous emit host, which recognizes IsAsync and defers to the async emission path.
+    static func BuildSupportedAsyncShape(
+        funcName: string,
+        funcOrdinal: int,
+        element: string,
+        state: ColumnarIteratorWalkState): ColumnarIteratorShape {
+        typeName := "<" + funcName + ">d__" + funcOrdinal.ToString()
+        return new ColumnarIteratorShape(
+            true, "", "", typeName, element, state.YieldReturnCount,
+            0, new string[](0), new string[](0), new int[](0),
+            0, new string[](0), new string[](0), new string[](0),
+            true, state.AwaitCount)
     }
 
     // The eight state-machine members plus the constructor: the fixed interface surface of every
@@ -406,7 +462,8 @@ public class ColumnarIteratorPlanner {
         return new ColumnarIteratorShape(
             false, site, message, "", "", 0,
             0, new string[](0), new string[](0), new int[](0),
-            0, new string[](0), new string[](0), new string[](0))
+            0, new string[](0), new string[](0), new string[](0),
+            false, 0)
     }
 
     // ---- body walk (single forward pass; collects locals + counts yields + classifies declines) ----
@@ -469,6 +526,12 @@ public class ColumnarIteratorPlanner {
                 return false
             }
             inner := nodes.Child(node, 0)
+            // `await <task-expr>` as a bare statement (a unit await) is a suspension point in an async
+            // iterator; control falls through to the following statement at the await-resume label.
+            if state.IsAsync && nodes.Kind(inner) == 53 {
+                WalkExpression(nodes, source, inner, state)
+                return !state.Declined
+            }
             if nodes.Kind(inner) != 14 || nodes.ChildCount(inner) != 2 {
                 state.Decline("emit.iterator.unsupported-shape", "only simple `=` assignments are lowered in an iterator body")
                 return false
@@ -720,6 +783,23 @@ public class ColumnarIteratorPlanner {
             }
             return
         }
+        if kind == 53 {
+            // `await <operand>`: a suspension point, legal only inside an async iterator. Each await
+            // resumes at its own state (like a `yield return`), so classification counts it.
+            if !state.IsAsync {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "`await` is only valid inside an async iterator body")
+                return
+            }
+            if nodes.ChildCount(node) != 1 {
+                state.Decline("emit.iterator.async-await-unsupported",
+                    "malformed await expression in an async iterator body")
+                return
+            }
+            state.AwaitCount = state.AwaitCount + 1
+            WalkAwaitedOperand(nodes, source, nodes.Child(node, 0), state)
+            return
+        }
         if kind == 9 {
             // call — nested/recursive iterator calls and general calls are later slices
             state.Decline("emit.iterator.nested-unsupported",
@@ -728,6 +808,19 @@ public class ColumnarIteratorPlanner {
         }
         state.Decline("emit.iterator.unsupported-shape",
             "an iterator body expression (node kind " + kind.ToString() + ") is not yet lowered")
+    }
+
+    // The awaited operand of an `await` in an async iterator. It is a task-returning expression — a call
+    // (`Task.Delay(...)`), a bound task-typed identifier, a member access, or a parenthesized form. Its
+    // awaitable type is resolved when the await lowers; classification accepts the structural operand so an
+    // `await <call>` suspension point classifies without the general call-decline rule.
+    static func WalkAwaitedOperand(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        k := nodes.Kind(node)
+        if k == 9 || k == 6 || k == 8 || k == 7 {
+            return
+        }
+        state.Decline("emit.iterator.async-await-unsupported",
+            "the awaited operand shape (node kind " + k.ToString() + ") is not yet classified in an async iterator body")
     }
 
     // Simple canonical-string type inference over the covered expression forms: int/bool literals,
