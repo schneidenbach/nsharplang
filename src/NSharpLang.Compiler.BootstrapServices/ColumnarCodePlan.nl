@@ -31,9 +31,26 @@ public class ColumnarCodePlanContract {
     public static func CurrentSchemaVersion(): int { return 1 }
     public static func RecursiveSchemaVersion(): int { return 2 }
     public static func ScalarSchemaVersion(): int { return 3 }
+    // Schema v4 is a FULL METHOD BODY: it retains the flat operation stream but drops the
+    // single-reachable-result and forward-only-branch invariants of the expression fragment schemas.
+    // A method body terminates on every reachable path (Ret/Throw/Leave), permits backward branches
+    // (loops), and carries balanced exception regions. It is the wire shape the synchronous iterator
+    // state machine (MoveNext/Dispose) lowers into.
+    public static func MethodBodySchemaVersion(): int { return 4 }
 
     public static func EmitInstructionOperation(): int { return 1 }
     public static func MarkLabelOperation(): int { return 2 }
+    // Structured exception-region operations (schema v4). They carry no opcode; the executor maps them
+    // to the matching ILGenerator region calls. BeginExceptionBlock names a label operand: the executor
+    // stores the end label returned by ILGenerator.BeginExceptionBlock() into that label slot so `leave`
+    // instructions inside the region can target it. The three handler starters and EndExceptionBlock take
+    // no operand. A FAULT handler (runs only on exception, never on a normal `leave`) is what an iterator
+    // MoveNext uses to dispose a foreach enumerator without disposing on a `yield return` suspend; a
+    // FINALLY handler (runs on every exit including `leave`) backs the generated Dispose() finalizer.
+    public static func BeginExceptionBlockOperation(): int { return 3 }
+    public static func BeginFinallyBlockOperation(): int { return 4 }
+    public static func BeginFaultBlockOperation(): int { return 5 }
+    public static func EndExceptionBlockOperation(): int { return 6 }
 
     public static func NoOperand(): int { return 0 }
     public static func Int32Operand(): int { return 1 }
@@ -173,6 +190,18 @@ public class ColumnarCodePlanContract {
     public static func Ldloc(): short { return -500 }
     public static func Ldloca(): short { return -499 }
     public static func Stloc(): short { return -498 }
+
+    // Method-body opcodes (schema v4). Their signed OpCode.Value carries each single-byte CIL encoding,
+    // exactly like the expression-fragment opcodes above.
+    // ret (0x2A), throw (0x7A), isinst (0x75), stsfld (0x80), and leave (0xDD) stay positive as shorts.
+    // ret ends a path (empty stack in a void method, one value otherwise); throw ends a path consuming
+    // one reference; leave empties the eval stack and exits an exception region to its end label; isinst
+    // pops a reference and pushes a reference-or-null of the operand type; stsfld pops one value.
+    public static func Ret(): short { return 42 }
+    public static func Throw(): short { return 122 }
+    public static func Isinst(): short { return 117 }
+    public static func Stsfld(): short { return 128 }
+    public static func Leave(): short { return 221 }
 
     public static func IsBooleanInstructionRow(
         operationKind: int,

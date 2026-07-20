@@ -1173,6 +1173,13 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Stelem"
             || memberName == "Pop"
             || memberName == "Ret"
+            // Method-body opcodes (code-plan schema v4): the executor emits these when replaying a full
+            // method body (iterator MoveNext/Dispose). Isinst/Stsfld carry Type/FieldInfo operands and
+            // Leave carries a Label operand, all already supported emit operands; Throw takes no operand.
+            || memberName == "Throw"
+            || memberName == "Isinst"
+            || memberName == "Stsfld"
+            || memberName == "Leave"
     }
 
     static func StaticMember(
