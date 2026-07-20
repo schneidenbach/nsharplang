@@ -153,3 +153,13 @@ func* FromList(items: List<int>): IEnumerable<int> {
         yield item
     }
 }
+
+// A generic iterator (sub-slice 6): the state machine itself is generic, with T flowing through the
+// captured value, the current field, and the interface implementations.
+func* Repeat<T>(value: T, count: int): IEnumerable<T> {
+    i: int = 0
+    while i < count {
+        yield value
+        i = i + 1
+    }
+}

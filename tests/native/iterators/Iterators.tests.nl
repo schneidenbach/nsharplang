@@ -185,3 +185,17 @@ test "an infinite source consumed through a nested iterator stops with the consu
     }
     assert total == 12
 }
+
+test "a generic iterator repeats values of any element type" {
+    ints := 0
+    for v in Repeat(9, 3) {
+        ints = ints * 10 + v
+    }
+    assert ints == 999
+
+    words := ""
+    for w in Repeat("ha", 2) {
+        words = words + w
+    }
+    assert words == "haha"
+}

@@ -2725,7 +2725,8 @@ internal sealed class ColumnarIlEmitter
         {
             Type returnDef;
                 returnDef = declaredReturn.GetGenericTypeDefinition();
-            if (returnDef != typeof(List<>) && !IsDictionaryLikeCollectionDefinition(returnDef) && returnDef != typeof(HashSet<>))
+            if (returnDef != typeof(List<>) && !IsDictionaryLikeCollectionDefinition(returnDef) && returnDef != typeof(HashSet<>)
+                && returnDef != typeof(IEnumerable<>))
                 return false; // an unmodelled builder-bound generic return — decline, never leak it open.
             var collectionArgs = declaredReturn.GetGenericArguments();
             var substitutedCollectionArgs = new Type[collectionArgs.Length];
@@ -4127,15 +4128,33 @@ internal sealed class ColumnarIlEmitter
         string functionSource,
         ColumnarSemanticTypeResolution typeResolution,
         ILGenerator factoryIl,
-        List<TypeBuilder> synthesizedTypes)
+        List<TypeBuilder> synthesizedTypes,
+        Type[] methodTypeParams)
     {
         var shape = ColumnarIteratorPlanner.AnalyzeShape(
             fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
             fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
         if (!shape.Supported)
             return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
-        if (!TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType)
-            || !IsSupportedType(elementType))
+
+        // A GENERIC generator's machine mirrors the method's type-parameter list; the parameters flow
+        // into the element/field types and the interface implementations.
+        var sm = module.DefineType(
+            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+        Dictionary<string, Type>? smTypeParamMap = null;
+        var smTypeParams = Type.EmptyTypes;
+        if (fn.TypeParamNames.Length > 0)
+        {
+            var smGps = sm.DefineGenericParameters(fn.TypeParamNames);
+            smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+            smTypeParams = new Type[smGps.Length];
+            for (var g = 0; g < smGps.Length; g++)
+            {
+                smTypeParamMap[fn.TypeParamNames[g]] = smGps[g];
+                smTypeParams[g] = smGps[g];
+            }
+        }
+        if (!TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out var elementType))
             return DeclineStatic(
                 "emit.iterator.element-type",
                 "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
@@ -4143,8 +4162,6 @@ internal sealed class ColumnarIlEmitter
 
         var enumerableOfT = typeof(IEnumerable<>).MakeGenericType(elementType);
         var enumeratorOfT = typeof(IEnumerator<>).MakeGenericType(elementType);
-        var sm = module.DefineType(
-            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
         sm.AddInterfaceImplementation(enumerableOfT);
         sm.AddInterfaceImplementation(enumeratorOfT);
         sm.AddInterfaceImplementation(typeof(System.Collections.IEnumerable));
@@ -4170,8 +4187,7 @@ internal sealed class ColumnarIlEmitter
                         fn.Name);
                 fieldType = typeof(IEnumerator<>).MakeGenericType(enumeratorElementType);
             }
-            else if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType)
-                || !IsSupportedType(fieldType))
+            else if (!TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType))
                 return DeclineStatic(
                     "emit.iterator.field-type",
                     "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
@@ -4181,16 +4197,30 @@ internal sealed class ColumnarIlEmitter
 
         var ctor = sm.DefineConstructor(
             MethodAttributes.Public | MethodAttributes.HideBySig, CallingConventions.Standard, new[] { typeof(int) });
+        // Member-side handles: inside a GENERIC machine every this-relative member reference rebinds
+        // over the machine's self-instantiation (the TypeSpec form generic bodies require); a
+        // non-generic machine uses the raw builders directly.
+        Type memberSmType = sm;
+        var memberFields = fields;
+        ConstructorInfo memberCtor = ctor;
+        if (smTypeParamMap != null)
+        {
+            memberSmType = sm.MakeGenericType(smTypeParams);
+            memberFields = new FieldInfo[fields.Length];
+            for (var i = 0; i < fields.Length; i++)
+                memberFields[i] = TypeBuilder.GetField(memberSmType, (FieldBuilder)fields[i]);
+            memberCtor = TypeBuilder.GetConstructor(memberSmType, ctor);
+        }
         var ctorIl = ctor.GetILGenerator();
         ctorIl.Emit(OpCodes.Ldarg_0);
         ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
         ctorIl.Emit(OpCodes.Ldarg_0);
         ctorIl.Emit(OpCodes.Ldarg_1);
-        ctorIl.Emit(OpCodes.Stfld, fields[0]);
+        ctorIl.Emit(OpCodes.Stfld, memberFields[0]);
         ctorIl.Emit(OpCodes.Ret);
 
         var context = new ColumnarIteratorEmitContext(
-            fn.BodyNodes, functionSource, fn.BodyRoot, shape, sm, elementType, shape.FieldNames, fields, ctor);
+            fn.BodyNodes, functionSource, fn.BodyRoot, shape, memberSmType, elementType, shape.FieldNames, memberFields, memberCtor);
         const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
         const MethodAttributes explicitImpl = MethodAttributes.Private | MethodAttributes.Virtual
@@ -4228,10 +4258,66 @@ internal sealed class ColumnarIlEmitter
         ColumnarCodePlanExecutor.Execute(
             ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context), interfaceGetEnumerator.GetILGenerator());
 
-        // The original function body IS the factory: new machine at the initial state + captured arguments.
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildFactoryPlan(context), factoryIl);
+        // The original function body IS the factory: new machine at the initial state + captured
+        // arguments. A GENERIC factory constructs the machine instantiated over the METHOD's own
+        // type parameters (rebound handles); a non-generic factory reuses the member context.
+        var factoryContext = context;
+        if (smTypeParamMap != null)
+        {
+            var factorySmType = sm.MakeGenericType(methodTypeParams);
+            var factoryFields = new FieldInfo[fields.Length];
+            for (var i = 0; i < fields.Length; i++)
+                factoryFields[i] = TypeBuilder.GetField(factorySmType, (FieldBuilder)fields[i]);
+            var factoryCtor = TypeBuilder.GetConstructor(factorySmType, ctor);
+            factoryContext = new ColumnarIteratorEmitContext(
+                fn.BodyNodes, functionSource, fn.BodyRoot, shape, factorySmType, elementType,
+                shape.FieldNames, factoryFields, factoryCtor);
+        }
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext), factoryIl);
         synthesizedTypes.Add(sm);
         return true;
+    }
+
+    // Resolve an iterator field/element canonical: in a GENERIC machine the canonical resolves in the
+    // machine's own type-parameter scope (a bare parameter name resolves to the machine's parameter);
+    // otherwise through the ordinary resolution path. Generic parameters are admissible outcomes.
+    private static bool TryResolveIteratorCanonical(
+        string canonical,
+        Dictionary<string, Type>? smTypeParamMap,
+        ColumnarSemanticTypeResolution typeResolution,
+        out Type type)
+    {
+        if (smTypeParamMap != null)
+        {
+            // The MACHINE's own type parameters take priority: the job's type-resolution registry is
+            // scoped to the METHOD's parameters, whose MVARs are illegal in a type's field signatures.
+            if (smTypeParamMap.TryGetValue(canonical, out type!))
+                return true;
+            return TryResolveTypeWithTypeParams(canonical, smTypeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
+                && (type.IsGenericParameter || (type.IsSZArray && type.GetElementType()!.IsGenericParameter) || IsSupportedType(type))
+                && !ContainsMethodVarReference(type, smTypeParamMap);
+        }
+        return TryResolveType(canonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
+            && IsSupportedType(type);
+    }
+
+    // Guard against the method-scoped registry leaking a METHOD generic parameter (an MVAR) into a
+    // machine field signature — only the machine's OWN parameters are legal there.
+    private static bool ContainsMethodVarReference(Type type, Dictionary<string, Type> smTypeParamMap)
+    {
+        if (type.IsGenericParameter)
+            return !smTypeParamMap.ContainsValue(type);
+        if (type.IsSZArray)
+            return ContainsMethodVarReference(type.GetElementType()!, smTypeParamMap);
+        if (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            foreach (var arg in type.GetGenericArguments())
+            {
+                if (ContainsMethodVarReference(arg, smTypeParamMap))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -5383,17 +5469,6 @@ internal sealed class ColumnarIlEmitter
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
-            // A GENERIC generator (`func* Repeat<T>(...)`: IEnumerable over a method type parameter) is
-            // outside the declarable signature surface, so it can never reach the pass-2 iterator host.
-            // Classify it through the iterator planner HERE so the decline carries the planner's precise
-            // iterator site (emit.iterator.generic-unsupported) instead of the generic signature site.
-            if ((fn.ModifierFlags & NSharpModifierGenerator) != 0 && fn.TypeParamNames.Length > 0)
-            {
-                var generatorShape = ColumnarIteratorPlanner.AnalyzeShape(
-                    fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
-                    fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
-                return DeclineStatic(generatorShape.DeclineSite, generatorShape.DeclineMessage, fn.Name);
-            }
             // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
             // definition with open type parameters, instantiated per call site via MakeGenericMethod — exactly
             // the legacy emitter's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
@@ -5538,6 +5613,27 @@ internal sealed class ColumnarIlEmitter
             }
             else if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
+            else if (typeParamMap != null && (fn.ModifierFlags & NSharpModifierGenerator) != 0)
+            {
+                // A GENERIC generator returns IEnumerable<element> with the element resolved in the
+                // method's type-parameter scope (the general resolver has no IEnumerable<param> surface).
+                // An unlowerable return classifies through the planner for the precise iterator site.
+                var generatorElement = ColumnarIteratorPlanner.EnumerableElementCanonicalOf(fn.ReturnCanonical);
+                if (generatorElement.Length == 0
+                    || !TryResolveTypeWithTypeParams(generatorElement, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var generatorElementType))
+                {
+                    var generatorShape = ColumnarIteratorPlanner.AnalyzeShape(
+                        fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
+                        fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
+                    return DeclineStatic(
+                        generatorShape.Supported ? "emit.declaration.function-return" : generatorShape.DeclineSite,
+                        generatorShape.Supported
+                            ? "generic iterator return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'"
+                            : generatorShape.DeclineMessage,
+                        fn.Name);
+                }
+                returnType = typeof(IEnumerable<>).MakeGenericType(generatorElementType);
+            }
             else if (typeParamMap != null)
             {
                 if (!TryResolveTypeWithTypeParams(fn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType)
@@ -5625,7 +5721,8 @@ internal sealed class ColumnarIlEmitter
                 try
                 {
                     if (!TryEmitIteratorStateMachine(
-                        module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses))
+                        module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses,
+                        siblings[fn.Name].TypeParams))
                         return false;
                 }
                 finally

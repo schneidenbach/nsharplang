@@ -192,13 +192,11 @@ public class ColumnarIteratorPlanner {
             return Declined("emit.iterator.instance-unsupported",
                 "iterator methods with an instance receiver are not yet lowered")
         }
-        if typeParamNames.Length > 0 {
-            return Declined("emit.iterator.generic-unsupported",
-                "generic iterator functions are not yet lowered")
-        }
 
         // Element-type inference: only a synchronous IEnumerable<X> return is covered; IAsyncEnumerable is
-        // the async-iterator slice, and every other sequence return declines.
+        // the async-iterator slice, and every other sequence return declines. The element may be one of
+        // the function's own type parameters — the state machine then becomes generic with the parameter
+        // flowing into the current/value fields (the host mirrors the type-parameter list onto the SM).
         sequenceName := SequenceNameOf(returnCanonical)
         element := SequenceElementOf(returnCanonical)
         if UnqualifiedName(sequenceName) == "IAsyncEnumerable" {
@@ -208,10 +206,6 @@ public class ColumnarIteratorPlanner {
         if element == "" || UnqualifiedName(sequenceName) != "IEnumerable" {
             return Declined("emit.iterator.return-unsupported",
                 "only a typed IEnumerable<T> iterator return is lowered, not '" + returnCanonical + "'")
-        }
-        if NameIsTypeParameter(element, typeParamNames) {
-            return Declined("emit.iterator.generic-unsupported",
-                "iterators over a generic element type are not yet lowered")
         }
 
         capacity := nodes.Kinds.Length + 1
@@ -563,13 +557,26 @@ public class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported binary expression in an iterator body")
                 return
             }
-            if !IsSupportedBinaryOperator(nodes.Text(source, node)) {
+            op := nodes.Text(source, node)
+            if !IsSupportedBinaryOperator(op) {
                 state.Decline("emit.iterator.unsupported-shape",
-                    "binary operator '" + nodes.Text(source, node) + "' is not yet lowered in an iterator body")
+                    "binary operator '" + op + "' is not yet lowered in an iterator body")
                 return
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             WalkExpression(nodes, source, nodes.Child(node, 1), state)
+            if state.Declined {
+                return
+            }
+            // The emitted operators are the raw numeric opcodes, so both operands must be the SAME
+            // numeric canonical (bool is admitted for equality only). Strings, type parameters, and
+            // every other operand type decline rather than lower to a type-wrong opcode.
+            left := InferCanonical(nodes, source, nodes.Child(node, 0), state)
+            right := InferCanonical(nodes, source, nodes.Child(node, 1), state)
+            if !AreLowerableBinaryOperands(left, right, op) {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "binary operator '" + op + "' over '" + left + "'/'" + right + "' operands is not yet lowered in an iterator body")
+            }
             return
         }
         if kind == 9 {
@@ -620,6 +627,17 @@ public class ColumnarIteratorPlanner {
             || op == "==" || op == "!="
     }
 
+    static func IsNumericCanonical(canonical: string): bool {
+        return canonical == "int" || canonical == "long" || canonical == "float" || canonical == "double"
+    }
+
+    static func AreLowerableBinaryOperands(left: string, right: string, op: string): bool {
+        if left == right && IsNumericCanonical(left) {
+            return true
+        }
+        return left == "bool" && right == "bool" && (op == "==" || op == "!=")
+    }
+
     public static func IsSupportedBinaryOperator(op: string): bool {
         return op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
             || op == "<" || op == ">" || op == "<=" || op == ">="
@@ -662,17 +680,6 @@ public class ColumnarIteratorPlanner {
             return name.Substring(lastDot + 1)
         }
         return name
-    }
-
-    static func NameIsTypeParameter(name: string, typeParamNames: string[]): bool {
-        i := 0
-        while i < typeParamNames.Length {
-            if typeParamNames[i] == name {
-                return true
-            }
-            i = i + 1
-        }
-        return false
     }
 
     // The element canonical of a single-dimensional array canonical ("int[]" -> "int"); "" otherwise.
@@ -1080,7 +1087,9 @@ public class ColumnarIteratorBodyPlanner {
         currentPool := plan.AddField(context.FieldForName("<>__current"))
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), currentPool)
-        if context.ElementType.get_IsValueType() {
+        if context.ElementType.get_IsValueType() || context.ElementType.get_IsGenericParameter() {
+            // A value element boxes to object; an unconstrained type parameter boxes unconditionally
+            // (`box !T` is a no-op for reference instantiations).
             boxTypePool := plan.AddType(context.ElementType)
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), boxTypePool)
         }

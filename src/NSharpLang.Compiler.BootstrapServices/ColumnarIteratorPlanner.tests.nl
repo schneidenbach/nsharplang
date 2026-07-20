@@ -221,13 +221,46 @@ test "iterator planner exposes the eight member and override specs" {
     assert probe.Shape.MemberSignatures[6] == "():IEnumerator<int>"
 }
 
-test "iterator planner declines a generic iterator element" {
+test "iterator planner models a generic iterator element as the type parameter" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Repeat(): IEnumerable<T> { yield break }",
         "IEnumerable<T>", IteratorNoStrings(), IteratorNoStrings(), IteratorOne("T"), false)
 
+    assert probe.Shape.Supported
+    assert probe.Shape.ElementCanonical == "T"
+    assert probe.Shape.FieldCanonicals[1] == "T"
+}
+
+func IteratorTwo(a: string, b: string): string[] {
+    values := new string[](2)
+    values[0] = a
+    values[1] = b
+    return values
+}
+
+test "iterator planner captures type-parameter values in the repeat shape" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Repeat(value: T, count: int): IEnumerable<T> { i: int = 0\n while i < count { yield value\n i = i + 1 } }",
+        "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.FieldCount == 5
+    assert probe.Shape.FieldCanonicals[1] == "T"
+    assert probe.Shape.FieldNames[2] == "value"
+    assert probe.Shape.FieldCanonicals[2] == "T"
+    assert probe.Shape.FieldNames[3] == "count"
+    assert probe.Shape.FieldCanonicals[3] == "int"
+    assert probe.Shape.FieldNames[4] == "i"
+}
+
+test "iterator planner declines binaries over type-parameter operands" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Sum(value: T, count: int): IEnumerable<T> { yield value + value }",
+        "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+
     assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.generic-unsupported"
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
 }
 
 test "iterator planner hoists an enumerable for..in as an enumerator field" {
@@ -918,4 +951,62 @@ test "iterator planner fault region disposes the enumerator on exception" {
     assert threwBoom
     // The fault handler released and nulled the live enumerator.
     assert machine.en == null
+}
+
+// A generic run-probe machine: the repeat shape's fields with the element flowing through T. The
+// contract executes the plans against a CLOSED instantiation's runtime field handles.
+public class ColumnarIteratorGenericProbe<T> {
+    public state: int
+    public current: T
+    public value: T
+    public count: int
+    public i: int
+
+    constructor(initialState: int, seed: T, repeatCount: int) {
+        state = initialState
+        current = seed
+        value = seed
+        count = repeatCount
+        i = 0
+    }
+}
+
+test "iterator planner generic repeat plans run over a closed instantiation" {
+    source := "func* Repeat(value: T, count: int): IEnumerable<T> { i: int = 0\n while i < count { yield value\n i = i + 1 } }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+    assert probe.Shape.Supported
+
+    machine := new ColumnarIteratorGenericProbe<int>(0, 7, 3)
+    machineBox: object = machine
+    smType := machineBox.GetType()
+    fields := new FieldInfo[](5)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("value")
+    fields[3] = smType.GetField("count")
+    fields[4] = smType.GetField("i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
+        probe.Shape.FieldNames, fields)
+
+    moveNext := MakeIteratorDynamicMethod("GenericMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("GenericCurrent", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    }
+
+    assert results.Count == 3
+    assert results[0] == 7
+    assert results[1] == 7
+    assert results[2] == 7
 }
