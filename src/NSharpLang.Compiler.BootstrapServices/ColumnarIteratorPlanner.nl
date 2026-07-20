@@ -72,6 +72,7 @@ public class ColumnarIteratorShape {
 // Mutable accumulator for the single forward body walk.
 class ColumnarIteratorWalkState {
     public YieldReturnCount: int
+    public ForInCount: int
     public LocalCount: int
     public LocalNames: string[]
     public LocalCanonicals: string[]
@@ -83,6 +84,7 @@ class ColumnarIteratorWalkState {
 
     constructor(capacity: int, paramNames: string[], paramCanonicals: string[]) {
         YieldReturnCount = 0
+        ForInCount = 0
         LocalCount = 0
         LocalNames = new string[](capacity)
         LocalCanonicals = new string[](capacity)
@@ -122,11 +124,31 @@ class ColumnarIteratorWalkState {
     }
 
     public func AddLocal(name: string, canonical: string) {
-        // A parameter/local re-declaration collides with an existing hoist field.
-        if LookupCanonical(name) != "" {
-            Decline("emit.iterator.unsupported-shape",
-                "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
-            return
+        // A local that re-declares a parameter name collides with its captured field.
+        p := 0
+        while p < ParamNames.Length {
+            if ParamNames[p] == name {
+                Decline("emit.iterator.unsupported-shape",
+                    "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
+                return
+            }
+            p = p + 1
+        }
+        l := 0
+        while l < LocalCount {
+            if LocalNames[l] == name {
+                // A SAME-TYPED re-declaration (disjoint if/else branches both declaring `value := ...`,
+                // as the covered Range shape does) reuses the hoisted slot — each declaration writes the
+                // field before any use in its own scope, exactly like release-codegen slot sharing. A
+                // re-declaration at a DIFFERENT type cannot share a CLR field.
+                if LocalCanonicals[l] == canonical {
+                    return
+                }
+                Decline("emit.iterator.unsupported-shape",
+                    "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
+                return
+            }
+            l = l + 1
         }
         LocalNames[LocalCount] = name
         LocalCanonicals[LocalCount] = canonical
@@ -405,9 +427,72 @@ public class ColumnarIteratorPlanner {
             return false
         }
         if kind == 29 {
-            // Foreach / `for..in`
-            state.Decline("emit.iterator.for-in-unsupported",
-                "`for..in` inside an iterator body is a later slice")
+            // Foreach / `for..in` [source, body], loop-var name in the value span. This slice lowers
+            // for..in over a BOUND ARRAY identifier as an index loop over hoisted array/index fields
+            // (no enumerator, no fault region); every other source is the enumerator-hoisting slice.
+            // Each loop hoists a synthetic `<>__index{k}` int plus the user loop variable, in that
+            // order, so the emit walk resolves both by the same counter and name.
+            if nodes.ChildCount(node) != 2 {
+                state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
+                return false
+            }
+            sourceNode := nodes.Child(node, 0)
+            if nodes.Kind(sourceNode) != 6 {
+                state.Decline("emit.iterator.for-in-unsupported",
+                    "`for..in` in an iterator body is lowered only over a bound array identifier; other sources are a later slice")
+                return false
+            }
+            sourceName := nodes.Text(source, sourceNode)
+            sourceCanonical := state.LookupCanonical(sourceName)
+            if sourceCanonical == "" {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "unbound identifier '" + sourceName + "' in an iterator body")
+                return false
+            }
+            elementCanonical := ArrayElementCanonicalOf(sourceCanonical)
+            if elementCanonical == "" {
+                state.Decline("emit.iterator.for-in-unsupported",
+                    "`for..in` over a non-array value ('" + sourceCanonical + "') in an iterator body is a later slice")
+                return false
+            }
+            if !IsLowerableArrayElementCanonical(elementCanonical) {
+                state.Decline("emit.iterator.for-in-unsupported",
+                    "array element type '" + elementCanonical + "' is not yet lowered in an iterator for..in")
+                return false
+            }
+            state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
+            state.ForInCount = state.ForInCount + 1
+            state.AddLocal(nodes.Text(source, node), elementCanonical)
+            if state.Declined {
+                return false
+            }
+            // The empty-array exit edge always falls through; the body result drives dead-code dropping.
+            WalkStatement(nodes, source, nodes.Child(node, 1), state)
+            return !state.Declined
+        }
+        if kind == 48 {
+            // Throw [exception]: only `throw new <BclException>("literal")` is lowered — the covered
+            // examples' guard-clause form (ldstr + newobj(string) + throw). A throw never falls through.
+            if nodes.ChildCount(node) != 1 {
+                state.Decline("emit.iterator.unsupported-shape", "unsupported throw statement in an iterator body")
+                return false
+            }
+            creation := nodes.Child(node, 0)
+            if nodes.Kind(creation) != 15 || nodes.ChildCount(creation) != 2 {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "only `throw new <BclException>(\"message\")` is lowered in an iterator body")
+                return false
+            }
+            typeNode := nodes.Child(creation, 0)
+            messageNode := nodes.Child(creation, 1)
+            if nodes.Kind(typeNode) != 0
+                || !IsLowerableExceptionName(nodes.Text(source, typeNode))
+                || nodes.Kind(messageNode) != 3
+                || !IsPlainMessageLiteral(nodes.Text(source, messageNode)) {
+                state.Decline("emit.iterator.unsupported-shape",
+                    "only `throw new <BclException>(\"message\")` with a plain string literal is lowered in an iterator body")
+                return false
+            }
             return false
         }
         state.Decline("emit.iterator.unsupported-shape",
@@ -557,6 +642,63 @@ public class ColumnarIteratorPlanner {
         return false
     }
 
+    // The element canonical of a single-dimensional array canonical ("int[]" -> "int"); "" otherwise.
+    public static func ArrayElementCanonicalOf(canonical: string): string {
+        if canonical.Length < 3
+            || canonical[canonical.Length - 2] != '['
+            || canonical[canonical.Length - 1] != ']' {
+            return ""
+        }
+        return canonical.Substring(0, canonical.Length - 2)
+    }
+
+    // Array elements the MoveNext lowering has a typed ldelem opcode for.
+    public static func IsLowerableArrayElementCanonical(element: string): bool {
+        return element == "int" || element == "long" || element == "float" || element == "double"
+            || element == "bool" || element == "char" || element == "string"
+    }
+
+    // The System-namespace exception constructions the throw lowering resolves (mirrors the C#
+    // emitter's BCL exception whitelist for the System namespace).
+    public static func IsLowerableExceptionName(name: string): bool {
+        simple := SystemUnqualifiedExceptionName(name)
+        if simple == "" {
+            return false
+        }
+        return simple == "Exception"
+            || simple == "InvalidOperationException"
+            || simple == "ArgumentException"
+            || simple == "ArgumentNullException"
+            || simple == "ArgumentOutOfRangeException"
+            || simple == "NotSupportedException"
+            || simple == "NotImplementedException"
+            || simple == "FormatException"
+            || simple == "IndexOutOfRangeException"
+            || simple == "InvalidCastException"
+            || simple == "TimeoutException"
+            || simple == "OverflowException"
+            || simple == "DivideByZeroException"
+            || simple == "ArithmeticException"
+            || simple == "NullReferenceException"
+    }
+
+    // A bare exception name, or one qualified exactly by `System.`; "" for any other qualification.
+    public static func SystemUnqualifiedExceptionName(name: string): string {
+        simple := name
+        if name.Length > 7 && name.Substring(0, 7) == "System." {
+            simple = name.Substring(7)
+        }
+        if IndexOfChar(simple, '.') >= 0 {
+            return ""
+        }
+        return simple
+    }
+
+    // A plain (non-interpolated) quoted string literal span, exactly what StringLiteralDecoder decodes.
+    public static func IsPlainMessageLiteral(text: string): bool {
+        return text.Length >= 2 && text[0] == '"' && text[text.Length - 1] == '"'
+    }
+
     static func IndexOfChar(value: string, target: char): int {
         i := 0
         while i < value.Length {
@@ -634,6 +776,17 @@ public class ColumnarIteratorEmitContext {
         throw new InvalidOperationException("Iterator state machine has no field named '" + name + "'.")
     }
 
+    public func FieldCanonicalForName(name: string): string {
+        i := 0
+        while i < FieldNames.Length {
+            if FieldNames[i] == name {
+                return Shape.FieldCanonicals[i]
+            }
+            i = i + 1
+        }
+        throw new InvalidOperationException("Iterator state machine has no field named '" + name + "'.")
+    }
+
     // The state machine's `.ctor(int)` handle — required by the clone and factory plans, optional for
     // contracts that exercise only the this-relative member bodies.
     public func RequiredConstructor(): ConstructorInfo {
@@ -654,6 +807,7 @@ class ColumnarMoveNextEmit {
     public ResumeLabels: int[]
     public EndLabel: int
     public NextYield: int
+    public NextForIn: int
 
     constructor(
         plan: ColumnarCodePlan,
@@ -669,6 +823,7 @@ class ColumnarMoveNextEmit {
         ResumeLabels = resumeLabels
         EndLabel = endLabel
         NextYield = 0
+        NextForIn = 0
     }
 }
 
@@ -1024,8 +1179,110 @@ public class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
             return false
         }
+        if kind == 29 {
+            // for..in [source, body] over a bound array identifier: an index loop over the hoisted
+            // `<>__index{k}`/loop-variable fields (same counter and names the analysis walk assigned).
+            // The back edge and increment only exist when the body can complete (fall-through rules).
+            sourceName := nodes.Text(source, nodes.Child(node, 0))
+            indexName := "<>__index" + emit.NextForIn.ToString()
+            emit.NextForIn = emit.NextForIn + 1
+            varName := nodes.Text(source, node)
+            arrayPool := FieldPool(emit, sourceName)
+            indexPool := FieldPool(emit, indexName)
+            varPool := FieldPool(emit, varName)
+            // index = 0
+            LoadThis(emit)
+            EmitInt(emit, 0)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
+            condLabel := emit.Plan.DefineLabel()
+            afterLabel := emit.Plan.DefineLabel()
+            emit.Plan.AppendMarkLabel(condLabel)
+            // index < array.Length
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldlen())
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
+            // var = array[index]
+            LoadThis(emit)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+            AppendArrayElementLoad(emit, emit.Context.FieldCanonicalForName(varName))
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
+            if EmitStatement(emit, nodes.Child(node, 1)) {
+                // index = index + 1
+                LoadThis(emit)
+                LoadThis(emit)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+                EmitInt(emit, 1)
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
+            }
+            emit.Plan.AppendMarkLabel(afterLabel)
+            return true
+        }
+        if kind == 48 {
+            // throw new <BclException>("literal"): ldstr the decoded message, newobj the exception's
+            // (string) constructor, throw. A throw never falls through.
+            creation := nodes.Child(node, 0)
+            exceptionName := nodes.Text(source, nodes.Child(creation, 0))
+            messageText := nodes.Text(source, nodes.Child(creation, 1))
+            messagePool := emit.Plan.AddString(StringLiteralDecoder.Decode(messageText))
+            emit.Plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), messagePool)
+            ctorPool := emit.Plan.AddConstructor(LowerableExceptionConstructor(exceptionName))
+            emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+            return false
+        }
         throw new InvalidOperationException(
             "Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")
+    }
+
+    // The typed ldelem for a lowerable array element canonical (the walk admitted exactly this set).
+    static func AppendArrayElementLoad(emit: ColumnarMoveNextEmit, elementCanonical: string) {
+        if elementCanonical == "int" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemI4())
+        } else if elementCanonical == "long" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemI8())
+        } else if elementCanonical == "float" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR4())
+        } else if elementCanonical == "double" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR8())
+        } else if elementCanonical == "bool" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemU1())
+        } else if elementCanonical == "char" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemU2())
+        } else if elementCanonical == "string" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemRef())
+        } else {
+            throw new InvalidOperationException(
+                "Iterator for..in lowering has no element load for '" + elementCanonical + "'.")
+        }
+    }
+
+    // The (string) constructor of a walk-admitted System exception name.
+    static func LowerableExceptionConstructor(name: string): ConstructorInfo {
+        simple := ColumnarIteratorPlanner.SystemUnqualifiedExceptionName(name)
+        if simple == "" {
+            throw new InvalidOperationException("Iterator throw lowering reached a non-System exception name '" + name + "'.")
+        }
+        exceptionType := Type.GetType("System." + simple)
+        if exceptionType == null {
+            throw new InvalidOperationException("System." + simple + " was not found.")
+        }
+        ctorTypes := new Type[](1)
+        ctorTypes[0] = typeof(string)
+        ctor := exceptionType.GetConstructor(ctorTypes)
+        if ctor == null {
+            throw new InvalidOperationException("System." + simple + " has no (string) constructor.")
+        }
+        return ctor
     }
 
     static func EmitYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {

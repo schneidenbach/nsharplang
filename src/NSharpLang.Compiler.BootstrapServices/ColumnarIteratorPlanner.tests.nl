@@ -230,10 +230,19 @@ test "iterator planner declines a generic iterator element" {
     assert probe.Shape.DeclineSite == "emit.iterator.generic-unsupported"
 }
 
-test "iterator planner declines for..in inside the body" {
+test "iterator planner declines for..in over a non-array source" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* Loop(xs: int[]): IEnumerable<int> { for x in xs { yield x } }",
-        "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[]"), IteratorNoStrings(), false)
+        "func* Loop(items: IEnumerable<int>): IEnumerable<int> { for x in items { yield x } }",
+        "IEnumerable<int>", IteratorOne("items"), IteratorOne("IEnumerable<int>"), IteratorNoStrings(), false)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
+}
+
+test "iterator planner declines for..in over an unlowered array element" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Loop(xs: int[][]): IEnumerable<int> { for x in xs { yield 1 } }",
+        "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[][]"), IteratorNoStrings(), false)
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
@@ -257,9 +266,9 @@ test "iterator planner declines a nested or recursive call in the body" {
     assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
 }
 
-test "iterator planner declines an otherwise-unlowered body shape" {
+test "iterator planner declines an otherwise-unlowered throw shape" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* Throwing(): IEnumerable<int> { throw new InvalidOperationException(\"x\") }",
+        "func* Throwing(): IEnumerable<int> { throw MakeError() }",
         "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
 
     assert !probe.Shape.Supported
@@ -552,4 +561,217 @@ test "iterator planner factory plan constructs the machine from arguments" {
     assert machine.n == 11
     assert machine.i == 0
     assert machine.current == 0
+}
+
+// A run-probe machine for the array for..in lowering: a captured array parameter plus the loop's
+// synthetic index and element fields.
+public class ColumnarIteratorArrayProbe {
+    public state: int
+    public current: int
+    public xs: int[]
+    public idx: int
+    public x: int
+
+    constructor(initialState: int) {
+        state = initialState
+        current = 0
+        xs = new int[](0)
+        idx = 0
+        x = 0
+    }
+}
+
+test "iterator planner hoists array for..in loops as index plus element fields" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Pass(xs: int[]): IEnumerable<int> { for x in xs { yield x } }",
+        "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[]"), IteratorNoStrings(), false)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.FieldCount == 5
+    assert probe.Shape.FieldNames[2] == "xs"
+    assert probe.Shape.FieldRoles[2] == ColumnarIteratorPlanner.CapturedParameterFieldRole()
+    assert probe.Shape.FieldCanonicals[2] == "int[]"
+    assert probe.Shape.FieldNames[3] == "<>__index0"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
+    assert probe.Shape.FieldCanonicals[3] == "int"
+    assert probe.Shape.FieldNames[4] == "x"
+    assert probe.Shape.FieldRoles[4] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
+    assert probe.Shape.FieldCanonicals[4] == "int"
+}
+
+func IteratorArrayProbeContext(source: string): ColumnarIteratorEmitContext {
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[]"), IteratorNoStrings(), false)
+    if !probe.Shape.Supported {
+        throw new InvalidOperationException("Array probe shape unexpectedly declined: " + probe.Shape.DeclineMessage)
+    }
+    smType := typeof(ColumnarIteratorArrayProbe)
+    fields := new FieldInfo[](5)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("xs")
+    fields[3] = smType.GetField("idx")
+    fields[4] = smType.GetField("x")
+    return new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
+        probe.Shape.FieldNames, fields)
+}
+
+test "iterator planner array for..in plans run the full element sequence" {
+    context := IteratorArrayProbeContext(
+        "func* Pass(xs: int[]): IEnumerable<int> { for x in xs { yield x } }")
+    moveNext := MakeIteratorDynamicMethod("ArrayMoveNext", typeof(bool), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("ArrayCurrent", typeof(int), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorArrayProbe(0)
+    values := new int[](3)
+    values[0] = 7
+    values[1] = 8
+    values[2] = 9
+    machine.xs = values
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    }
+
+    assert results.Count == 3
+    assert results[0] == 7
+    assert results[1] == 8
+    assert results[2] == 9
+}
+
+test "iterator planner array for..in with a guard break stops mid-array" {
+    context := IteratorArrayProbeContext(
+        "func* Until(xs: int[]): IEnumerable<int> { for x in xs { if x < 0 { yield break }\n yield x } }")
+    moveNext := MakeIteratorDynamicMethod("GuardArrayMoveNext", typeof(bool), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("GuardArrayCurrent", typeof(int), context.StateMachineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorArrayProbe(0)
+    values := new int[](4)
+    values[0] = 5
+    values[1] = 6
+    values[2] = -1
+    values[3] = 9
+    machine.xs = values
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    }
+
+    assert results.Count == 2
+    assert results[0] == 5
+    assert results[1] == 6
+}
+
+test "iterator planner throw plans classify and raise the constructed exception" {
+    source := "func* Guard(n: int): IEnumerable<int> { if n == 0 { throw new ArgumentException(\"bad step\") }\n yield 1 }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+
+    smType := typeof(ColumnarIteratorCloneProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+    moveNext := MakeIteratorDynamicMethod("ThrowMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("ThrowCurrent", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    target: object? = null
+
+    throwingMachine := new ColumnarIteratorCloneProbe(0)
+    throwingMachine.n = 0
+    throwingArgs := new object[](1)
+    IteratorSetObject(throwingArgs, 0, throwingMachine)
+    threwArgument := false
+    thrownMessage := ""
+    try {
+        moveNext.Invoke(target, throwingArgs)
+    } catch ex: Exception {
+        innerBox: object? = ex.get_InnerException()
+        if innerBox != null && innerBox.GetType() == typeof(ArgumentException) {
+            threwArgument = true
+            inner := (Exception)innerBox
+            thrownMessage = inner.get_Message()
+        }
+    }
+    assert threwArgument
+    assert thrownMessage == "bad step"
+
+    yieldingMachine := new ColumnarIteratorCloneProbe(0)
+    yieldingMachine.n = 5
+    yieldingArgs := new object[](1)
+    IteratorSetObject(yieldingArgs, 0, yieldingMachine)
+    assert Convert.ToBoolean(moveNext.Invoke(target, yieldingArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, yieldingArgs)) == 1
+    assert !Convert.ToBoolean(moveNext.Invoke(target, yieldingArgs))
+}
+
+test "iterator planner reuses the hoisted slot for same-typed disjoint redeclarations" {
+    source := "func* UpOrDown(n: int): IEnumerable<int> { if n > 0 { v := n\n yield v } else { v := 0 - n\n yield v } }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+    assert probe.Shape.FieldNames[3] == "v"
+
+    smType := typeof(ColumnarIteratorCloneProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    fields[3] = smType.GetField("i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+    moveNext := MakeIteratorDynamicMethod("SlotReuseMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("SlotReuseCurrent", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    target: object? = null
+
+    upMachine := new ColumnarIteratorCloneProbe(0)
+    upMachine.n = 5
+    upArgs := new object[](1)
+    IteratorSetObject(upArgs, 0, upMachine)
+    assert Convert.ToBoolean(moveNext.Invoke(target, upArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, upArgs)) == 5
+    assert !Convert.ToBoolean(moveNext.Invoke(target, upArgs))
+
+    downMachine := new ColumnarIteratorCloneProbe(0)
+    downMachine.n = -3
+    downArgs := new object[](1)
+    IteratorSetObject(downArgs, 0, downMachine)
+    assert Convert.ToBoolean(moveNext.Invoke(target, downArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, downArgs)) == 3
+    assert !Convert.ToBoolean(moveNext.Invoke(target, downArgs))
+}
+
+test "iterator planner declines a differently-typed local redeclaration" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Mixed(n: int): IEnumerable<int> { if n > 0 { v := 1\n yield v } else { v := true\n yield 2 } }",
+        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
 }

@@ -77,3 +77,68 @@ test "if else branches inside the loop select each yielded value" {
     }
     assert pattern == 12003
 }
+
+test "an array iterator yields every element in order" {
+    data: int[] = [3, 1, 4]
+    count := 0
+    positional := 0
+    for v in Values(data) {
+        positional = positional * 10 + v
+        count = count + 1
+    }
+    assert count == 3
+    assert positional == 314
+}
+
+test "a guard yield break inside the array loop stops mid-array" {
+    data: int[] = [1, 2, -1, 9]
+    positional := 0
+    for v in UntilNegative(data) {
+        positional = positional * 10 + v
+    }
+    assert positional == 12
+}
+
+test "an array iterator filters and transforms per element" {
+    data: int[] = [1, 2, 3, 4, 5, 6]
+    positional := 0
+    for v in EvenSquares(data) {
+        positional = positional * 100 + v
+    }
+    assert positional == 41636
+}
+
+test "the range iterator walks both directions through the shared slot" {
+    ups := 0
+    for v in RangeBy(0, 10, 2) {
+        ups = ups * 100 + v
+    }
+    assert ups == 2040608
+
+    downs := 0
+    for w in RangeBy(10, 0, -3) {
+        downs = downs * 100 + w
+    }
+    assert downs == 10070401
+}
+
+test "the range iterator raises its guard lazily on first advance" {
+    hits := 0
+    assert throws ArgumentException {
+        for v in RangeBy(0, 5, 0) {
+            hits = hits + 1
+        }
+    }
+    assert hits == 0
+}
+
+test "the fibonacci iterator rotates its hoisted locals" {
+    count := 0
+    positional := 0
+    for v in Fib(7) {
+        positional = positional * 10 + v
+        count = count + 1
+    }
+    assert count == 7
+    assert positional == 112358
+}
