@@ -159,21 +159,6 @@ internal sealed class ColumnarIlEmitter
     private static readonly FieldInfo s_valueTupleItem2 =
         typeof(ValueTuple<int, int>).GetField("Item2")
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
-    private static readonly ConstructorInfo s_systemIndexCtor =
-        typeof(Index).GetConstructor(new[] { typeof(int), typeof(bool) })
-        ?? throw new InvalidOperationException("System.Index(int,bool) not found.");
-    private static readonly MethodInfo s_systemIndexGetOffset =
-        typeof(Index).GetMethod(nameof(Index.GetOffset), new[] { typeof(int) })
-        ?? throw new InvalidOperationException("System.Index.GetOffset(int) not found.");
-    private static readonly ConstructorInfo s_systemRangeCtor =
-        typeof(Range).GetConstructor(new[] { typeof(Index), typeof(Index) })
-        ?? throw new InvalidOperationException("System.Range(Index,Index) not found.");
-    private static readonly MethodInfo s_rangeGetOffsetAndLength =
-        typeof(Range).GetMethod(nameof(Range.GetOffsetAndLength), new[] { typeof(int) })
-        ?? throw new InvalidOperationException("System.Range.GetOffsetAndLength(int) not found.");
-    private static readonly MethodInfo s_runtimeHelpersGetSubArray =
-        ResolveRuntimeHelpersGetSubArray()
-        ?? throw new InvalidOperationException("RuntimeHelpers.GetSubArray<T>(T[], Range) not found.");
 
     private const int NSharpModifierOverride = 65536;
     private const int NSharpModifierNativeImport = 131072;
@@ -182,20 +167,6 @@ internal sealed class ColumnarIlEmitter
     private const int ColumnarNamedArgumentExpressionKind = 60;
     private const int ColumnarTargetTypedNewExpressionKind = 63;
     private const int ColumnarFieldInitializerExpressionKind = 1001;
-
-    private static MethodInfo? ResolveRuntimeHelpersGetSubArray() =>
-        Array.Find(
-            typeof(System.Runtime.CompilerServices.RuntimeHelpers).GetMethods(BindingFlags.Public | BindingFlags.Static),
-            method =>
-            {
-                if (method.Name != "GetSubArray" || !method.IsGenericMethodDefinition)
-                    return false;
-                var parameters = method.GetParameters();
-                return parameters.Length == 2
-                       && parameters[0].ParameterType.IsSZArray
-                       && parameters[0].ParameterType.GetElementType()!.IsGenericParameter
-                       && parameters[1].ParameterType == typeof(Range);
-            });
 
     private bool Decline(string siteId, string message, int nodeIdx = -1)
         => DeclineMember(siteId, message, nodeIdx, string.Empty);
@@ -9739,202 +9710,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private bool IsIndexFromEndExpression(int node)
-    {
-        node = UnwrapParenthesizedNode(node);
-        return _nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && Text(node) == "^";
-    }
-
-    private void EmitSystemIndexCtor(bool fromEnd)
-    {
-        _il.Emit(fromEnd ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
-        _il.Emit(OpCodes.Newobj, s_systemIndexCtor);
-    }
-
-    private void EmitDefaultRangeEndpoint(bool fromEnd)
-    {
-        _il.Emit(OpCodes.Ldc_I4_0);
-        EmitSystemIndexCtor(fromEnd);
-    }
-
-    private static bool CanUseSystemIndexOperand(Type type)
-        => CanUseImplicitNumericWidening(type, typeof(int)) || type.IsEnum;
-
-    private bool TryConvertSystemIndexOperand(Type type)
-    {
-        if (CanUseImplicitNumericWidening(type, typeof(int)))
-            return TypesEquivalent(type, typeof(int)) || TryEmitImplicitWidening(type, typeof(int));
-        if (!type.IsEnum)
-            return false;
-        _il.Emit(OpCodes.Conv_I4);
-        return true;
-    }
-
-    private bool TryEmitSystemIndexExpression(int node, out Type type)
-    {
-        node = UnwrapParenthesizedNode(node);
-        type = null!;
-        if (IsIndexFromEndExpression(node))
-        {
-            if (!EmitExpression(Child(node, 0), out var fromEndValueType)
-                || !TryConvertSystemIndexOperand(fromEndValueType))
-                return false;
-            EmitSystemIndexCtor(fromEnd: true);
-            type = typeof(Index);
-            return true;
-        }
-
-        if (!EmitExpression(node, out var indexValueType))
-            return false;
-        if (indexValueType == typeof(Index))
-        {
-            type = typeof(Index);
-            return true;
-        }
-        if (!TryConvertSystemIndexOperand(indexValueType))
-            return false;
-        EmitSystemIndexCtor(fromEnd: false);
-        type = typeof(Index);
-        return true;
-    }
-
-    private bool TryGetRangeEndpointNodes(int node, out int startNode, out int endNode)
-    {
-        node = UnwrapParenthesizedNode(node);
-        startNode = -1;
-        endNode = -1;
-        if (_nodes.Kind(node) != 69)
-            return false;
-
-        var childCount = _nodes.ChildCount(node);
-        if (childCount == 0)
-            return true;
-        if (childCount == 1)
-        {
-            var onlyChild = Child(node, 0);
-            if (_nodes.SpanStart(onlyChild) < _nodes.ValueStart(node))
-                startNode = onlyChild;
-            else
-                endNode = onlyChild;
-            return true;
-        }
-        if (childCount == 2)
-        {
-            startNode = Child(node, 0);
-            endNode = Child(node, 1);
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryEmitSystemRangeExpression(int node, out Type type)
-    {
-        type = null!;
-        if (!TryGetRangeEndpointNodes(node, out var startNode, out var endNode))
-            return false;
-
-        if (startNode >= 0)
-        {
-            if (!TryEmitSystemIndexExpression(startNode, out var startType) || startType != typeof(Index))
-                return false;
-        }
-        else
-        {
-            EmitDefaultRangeEndpoint(fromEnd: false);
-        }
-
-        if (endNode >= 0)
-        {
-            if (!TryEmitSystemIndexExpression(endNode, out var endType) || endType != typeof(Index))
-                return false;
-        }
-        else
-        {
-            EmitDefaultRangeEndpoint(fromEnd: true);
-        }
-
-        _il.Emit(OpCodes.Newobj, s_systemRangeCtor);
-        type = typeof(Range);
-        return true;
-    }
-
-    // Consume a string and a System.Index from the evaluation stack and leave the selected char.
-    private bool TryEmitStringSystemIndex(out Type type)
-    {
-        type = null!;
-        var indexTemp = _il.DeclareLocal(typeof(Index));
-        _il.Emit(OpCodes.Stloc, indexTemp);
-        var stringTemp = _il.DeclareLocal(typeof(string));
-        _il.Emit(OpCodes.Stloc, stringTemp);
-        _il.Emit(OpCodes.Ldloc, stringTemp);
-        _il.Emit(OpCodes.Ldloca, indexTemp);
-        _il.Emit(OpCodes.Ldloc, stringTemp);
-        _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
-        _il.Emit(OpCodes.Call, s_systemIndexGetOffset);
-        _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", new[] { typeof(int) })!);
-        type = typeof(char);
-        return true;
-    }
-
-    // Consume a string and a System.Range from the evaluation stack and leave the substring.
-    private bool TryEmitStringRangeSlice(out Type type)
-    {
-        type = null!;
-        var rangeTemp = _il.DeclareLocal(typeof(Range));
-        _il.Emit(OpCodes.Stloc, rangeTemp);
-        var stringTemp = _il.DeclareLocal(typeof(string));
-        _il.Emit(OpCodes.Stloc, stringTemp);
-        var offsetsTemp = _il.DeclareLocal(typeof(ValueTuple<int, int>));
-        _il.Emit(OpCodes.Ldloca, rangeTemp);
-        _il.Emit(OpCodes.Ldloc, stringTemp);
-        _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
-        _il.Emit(OpCodes.Call, s_rangeGetOffsetAndLength);
-        _il.Emit(OpCodes.Stloc, offsetsTemp);
-        _il.Emit(OpCodes.Ldloc, stringTemp);
-        _il.Emit(OpCodes.Ldloca, offsetsTemp);
-        _il.Emit(OpCodes.Ldfld, s_valueTupleItem1);
-        _il.Emit(OpCodes.Ldloca, offsetsTemp);
-        _il.Emit(OpCodes.Ldfld, s_valueTupleItem2);
-        _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod(nameof(string.Substring), new[] { typeof(int), typeof(int) })!);
-        type = typeof(string);
-        return true;
-    }
-
-    // Consume an SZ array and a System.Index from the evaluation stack and leave the selected element.
-    private bool TryEmitArraySystemIndex(Type indexedType, out Type type)
-    {
-        type = null!;
-        if (!indexedType.IsSZArray)
-            return false;
-        var elementType = indexedType.GetElementType()!;
-        var indexTemp = _il.DeclareLocal(typeof(Index));
-        _il.Emit(OpCodes.Stloc, indexTemp);
-        var arrayTemp = _il.DeclareLocal(indexedType);
-        _il.Emit(OpCodes.Stloc, arrayTemp);
-        _il.Emit(OpCodes.Ldloc, arrayTemp);
-        _il.Emit(OpCodes.Ldloca, indexTemp);
-        _il.Emit(OpCodes.Ldloc, arrayTemp);
-        _il.Emit(OpCodes.Ldlen);
-        _il.Emit(OpCodes.Conv_I4);
-        _il.Emit(OpCodes.Call, s_systemIndexGetOffset);
-        EmitArrayElementLoad(elementType);
-        type = elementType;
-        return true;
-    }
-
-    // Consume an SZ array and a System.Range from the evaluation stack and leave the copied slice.
-    private bool TryEmitArrayRangeSlice(Type indexedType, out Type type)
-    {
-        type = null!;
-        if (!indexedType.IsSZArray)
-            return false;
-        var elementType = indexedType.GetElementType()!;
-        _il.Emit(OpCodes.Call, s_runtimeHelpersGetSubArray.MakeGenericMethod(elementType));
-        type = indexedType;
-        return true;
-    }
-
     // Emit `idx` as a value on the stack and report its CLR type via `type`. Returns false (declining the whole
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
@@ -10112,10 +9887,8 @@ internal sealed class ColumnarIlEmitter
                 return _nodes.ChildCount(idx) == 1 && EmitExpression(Child(idx, 0), out type);
             }
 
-            case 11: // Unary [operand] — int/long prefix `-`/`~`, bool `!`, or index-from-end `^`.
-            {
-                if (Text(idx) == "^")
-                    return TryEmitSystemIndexExpression(idx, out type);
+            case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. Index-from-end `^` and every
+            {        // range/index read are owned by ColumnarRangeIndexPlanner ahead of this switch.
                 if (!EmitExpression(Child(idx, 0), out var operandType))
                     return false;
                 var sourceUnarySelection = ColumnarSourceOperatorResolver.ResolveUnary(
@@ -10160,9 +9933,6 @@ internal sealed class ColumnarIlEmitter
                     default: return false;
                 }
             }
-
-            case 69: // RangeExpression [start?, end?] — construct System.Range from System.Index endpoints.
-                return TryEmitSystemRangeExpression(idx, out type);
 
             case 12: // Binary [left, right] — int/long arithmetic & bitwise, short-circuit `&&`/`||`, or a
             {        // comparison producing bool. Most operators need both operands the SAME type.
@@ -10972,20 +10742,16 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 10: // IndexAccess [object, index] — element/index-from-end/range READ over arrays and strings.
-            {
+            case 10: // IndexAccess [object, index] — ordinary Int32 element READ over arrays, strings, and
+            {        // collections. Every Index (`^`) and Range (`..`) read is owned by
+                     // ColumnarRangeIndexPlanner ahead of this switch.
                 if (!EmitExpression(Child(idx, 0), out var indexedType))
                     return false;
                 var indexNode = Child(idx, 1);
                 if (indexedType == typeof(string))
                 {
-                    if (!EmitExpression(indexNode, out var stringIndexType))
-                        return false;
-                    if (stringIndexType == typeof(Range))
-                        return TryEmitStringRangeSlice(out type);
-                    if (stringIndexType == typeof(Index))
-                        return TryEmitStringSystemIndex(out type);
-                    if (stringIndexType != typeof(int))
+                    if (!EmitExpression(indexNode, out var stringIndexType)
+                        || stringIndexType != typeof(int))
                         return false;
                     _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", new[] { typeof(int) })!);
                     type = typeof(char);
@@ -11089,10 +10855,6 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 if (!EmitExpression(indexNode, out var arrayIndexType))
                     return false;
-                if (arrayIndexType == typeof(Range))
-                    return TryEmitArrayRangeSlice(indexedType, out type);
-                if (arrayIndexType == typeof(Index))
-                    return TryEmitArraySystemIndex(indexedType, out type);
                 var elementType = indexedType.GetElementType()!;
                 if (arrayIndexType != typeof(int))
                     return false;
@@ -16620,45 +16382,6 @@ internal sealed class ColumnarIlEmitter
                || TryEmitAnonymousUnionConversion(argType, expected)
                || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
-    private bool TryGetPreflightSystemIndexExpressionType(int node, out Type type)
-    {
-        node = UnwrapParenthesizedNode(node);
-        type = null!;
-        if (IsIndexFromEndExpression(node))
-        {
-            if (!TryGetPreflightExpressionType(Child(node, 0), out var fromEndValueType)
-                || !CanUseSystemIndexOperand(fromEndValueType))
-                return false;
-            type = typeof(Index);
-            return true;
-        }
-
-        if (!TryGetPreflightExpressionType(node, out var valueType))
-            return false;
-        if (valueType != typeof(Index)
-            && !CanUseSystemIndexOperand(valueType))
-            return false;
-        type = typeof(Index);
-        return true;
-    }
-
-    private bool TryGetPreflightSystemRangeExpressionType(int node, out Type type)
-    {
-        type = null!;
-        if (!TryGetRangeEndpointNodes(node, out var startNode, out var endNode))
-            return false;
-        if (startNode >= 0
-            && (!TryGetPreflightSystemIndexExpressionType(startNode, out var startType)
-                || startType != typeof(Index)))
-            return false;
-        if (endNode >= 0
-            && (!TryGetPreflightSystemIndexExpressionType(endNode, out var endType)
-                || endType != typeof(Index)))
-            return false;
-        type = typeof(Range);
-        return true;
-    }
-
     private bool TryGetPreflightExpressionType(int node, out Type type)
     {
         node = UnwrapParenthesizedNode(node);
@@ -16752,8 +16475,7 @@ internal sealed class ColumnarIlEmitter
             {
                 if (_nodes.ChildCount(node) != 1)
                     return false;
-                if (Text(node) == "^")
-                    return TryGetPreflightSystemIndexExpressionType(node, out type);
+                // Index-from-end `^` is owned by ColumnarRangeIndexPlanner ahead of this switch.
                 if (!TryGetPreflightExpressionType(Child(node, 0), out var unaryOperandType))
                     return false;
                 switch (Text(node))
@@ -16785,8 +16507,6 @@ internal sealed class ColumnarIlEmitter
             }
             case 12:
                 return TryGetPreflightBinaryExpressionType(node, out type);
-            case 69:
-                return TryGetPreflightSystemRangeExpressionType(node, out type);
             case 15:
                 return TryGetNewExpressionResultType(node, out type);
             case 16:
@@ -16852,15 +16572,11 @@ internal sealed class ColumnarIlEmitter
                 var indexNode = Child(node, 1);
                 if (indexedType == typeof(string))
                 {
+                    // Index/Range string reads are owned by ColumnarRangeIndexPlanner ahead of this switch.
                     if (!TryGetPreflightExpressionType(indexNode, out var stringIndexType))
                         return false;
-                    if (stringIndexType == typeof(Range))
-                    {
-                        type = typeof(string);
-                        return true;
-                    }
                     type = typeof(char);
-                    return stringIndexType == typeof(Index) || stringIndexType == typeof(int);
+                    return stringIndexType == typeof(int);
                 }
                 if (IsSupportedIndexableCollectionType(indexedType))
                 {
@@ -16903,12 +16619,8 @@ internal sealed class ColumnarIlEmitter
                 if (!IsSafeSzArrayType(indexedType)
                     || !TryGetPreflightExpressionType(indexNode, out var arrayIndexType))
                     return false;
-                if (arrayIndexType == typeof(Range))
-                {
-                    type = indexedType;
-                    return true;
-                }
-                if (arrayIndexType != typeof(int) && arrayIndexType != typeof(Index))
+                // Index/Range array reads are owned by ColumnarRangeIndexPlanner ahead of this switch.
+                if (arrayIndexType != typeof(int))
                     return false;
                 var elementType = indexedType.GetElementType()!;
                 if (!elementType.IsGenericParameter
