@@ -1111,26 +1111,6 @@ internal sealed class ColumnarIlEmitter
     private static bool IsZeroParamSynthesizedInitializer(ColumnarConstructorInput ctor)
         => ctor.IsSynthesizedInitializer && ctor.Body.ParamNames.Length == 0;
 
-    private static void CollectTopLevelFieldInitializerAssignments(ColumnarFunctionInput body, string source, HashSet<string> fieldNames)
-    {
-        var nodes = body.BodyNodes;
-        var bodyRoot = body.BodyRoot;
-        if (bodyRoot < 0 || nodes.Kind(bodyRoot) != 25)
-            return;
-        for (var n = 0; n < nodes.ChildCount(bodyRoot); n++)
-        {
-            var stmt = nodes.Child(bodyRoot, n);
-            if (nodes.Kind(stmt) != 23 || nodes.ChildCount(stmt) != 1)
-                continue;
-            var expr = nodes.Child(stmt, 0);
-            if (nodes.Kind(expr) != 14 || nodes.Text(source, expr) != "=" || nodes.ChildCount(expr) != 2)
-                continue;
-            var target = nodes.Child(expr, 0);
-            if (nodes.Kind(target) == 6 && nodes.ValueStart(target) >= 0)
-                fieldNames.Add(nodes.Text(source, target));
-        }
-    }
-
     private static bool HasCallableConstructor(ColumnarStructInput st)
     {
         foreach (var ctor in st.Constructors)
@@ -4956,6 +4936,10 @@ internal sealed class ColumnarIlEmitter
         var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         var structInitializerJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, MethodBuilder Builder)>();
+        // Synthesized default constructors whose body must run field initializers and/or a base chain are
+        // DEFINED here (a valid `newobj` target) but their bodies are DEFERRED to PASS 2, where the shared
+        // sub-emitter machinery (siblings/type/lambda scope) exists to emit inline readonly initializers.
+        var structDefaultCtorJobs = new List<(ColumnarStructDef Struct, ConstructorBuilder Builder)>();
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Constructors.Count == 0)
@@ -4968,15 +4952,27 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!def.IsReference)
                         return DeclineStatic("emit.ctor.instance-initializer-value-type", "instance field initializer constructor is only modeled for reference types", def.Builder.Name);
-                    var initializer = def.Builder.DefineMethod(
-                        "<InitializeFields>$",
-                        MethodAttributes.Private | MethodAttributes.HideBySig,
-                        typeof(void),
-                        Type.EmptyTypes);
-                    def.InstanceInitializerMethod = initializer;
+                    // N# owns the placement of each instance field initializer: readonly (initonly) stores
+                    // must run inline in every constructor (the only place a readonly store verifies), mutable
+                    // stores may keep the shared `<InitializeFields>$` helper. C# consumes the plan mechanically.
                     var ctorSource = program.GetSourceForFileId(ctor.Body.SourceFileId);
-                    CollectTopLevelFieldInitializerAssignments(ctor.Body, ctorSource, def.InstanceInitializerFields);
-                    structInitializerJobs.Add((def, ctor, initializer));
+                    var initPlan = ColumnarFieldInitPlanner.PlanFieldInitialization(ctor.Body, ctorSource, def);
+                    def.InstanceInitializerPlan = initPlan;
+                    def.InstanceInitializerCtor = ctor;
+                    foreach (var initializedField in initPlan.InitializedFieldNames)
+                        def.InstanceInitializerFields.Add(initializedField);
+                    // Synthesize the helper method only when at least one mutable initializer needs it; a type
+                    // whose only initializers are readonly emits every store inline and carries no helper.
+                    if (initPlan.NeedsHelper)
+                    {
+                        var initializer = def.Builder.DefineMethod(
+                            "<InitializeFields>$",
+                            MethodAttributes.Private | MethodAttributes.HideBySig,
+                            typeof(void),
+                            Type.EmptyTypes);
+                        def.InstanceInitializerMethod = initializer;
+                        structInitializerJobs.Add((def, ctor, initializer));
+                    }
                     continue;
                 }
                 if (ctor.ChainInitKind == 2 && def.BaseDef == null)
@@ -5027,19 +5023,21 @@ internal sealed class ColumnarIlEmitter
                 if (!st.IsReference || HasCallableConstructor(st))
                     continue;
                 var def = structDefsInOrder[s];
-                if (def.BaseDef == null && def.InstanceInitializerMethod == null)
+                // Inline readonly initializers make a body mandatory even without a base or a helper: a
+                // readonly-only type (no mutable helper) still has initonly stores that must run in the ctor.
+                var hasInlineInitializers = def.InstanceInitializerPlan != null && def.InstanceInitializerPlan.InlineOrdinals.Length > 0;
+                if (def.BaseDef == null && def.InstanceInitializerMethod == null && !hasInlineInitializers)
                 {
                     def.DefaultCtor = def.Builder.DefineDefaultConstructor(MethodAttributes.Public);
                     continue;
                 }
                 if (def.BaseDef != null && ResolveParameterlessCtor(def.BaseDef) == null)
                     return DeclineStatic("emit.ctor.default-base-chain", "default constructor requires a modeled base parameterless constructor", def.Builder.Name);
+                // Define the ctor now (a valid `newobj` target); defer its body — base chain, inline readonly
+                // initializers, helper call — to PASS 2 where the field-initializer sub-emitter is available.
                 var dcb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
-                var dcil = dcb.GetILGenerator();
-                EmitCtorBaseChain(dcil, def, objectCtor);
-                EmitInstanceInitializerCall(dcil, def);
-                dcil.Emit(OpCodes.Ret);
                 def.DefaultCtor = dcb;
+                structDefaultCtorJobs.Add((def, dcb));
             }
         }
 
@@ -5656,9 +5654,11 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        // Emit synthesized instance-field initializer methods before constructors that call them. The N# constructor
-        // parser builds these bodies as assignment statements (`field = initializer`) using the same columnar node
-        // shape as constructor bodies, so C# only wires the private method and invocation order.
+        // Emit the `<InitializeFields>$` helper before the constructors that call it. The N# constructor parser
+        // builds these bodies as assignment statements (`field = initializer`) using the same columnar node shape
+        // as constructor bodies; the helper carries ONLY the mutable-field stores (ColumnarFieldInitPlanner's
+        // HelperOrdinals) — readonly stores are emitted inline in each constructor instead, since an initonly
+        // store is unverifiable outside a `.ctor`. C# only wires the private method and invocation order.
         foreach (var job in structInitializerJobs)
         {
             var mil = job.Builder.GetILGenerator();
@@ -5683,8 +5683,9 @@ internal sealed class ColumnarIlEmitter
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId);
             try
             {
-                if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
+                if (!emitter.EmitSelectedInitializerStatements(job.Ctor.Body.BodyRoot, job.Struct.InstanceInitializerPlan!.HelperOrdinals))
                     return DeclineStatic("emit.body", "instance field initializer emission declined", job.Struct.Builder.Name + ".<InitializeFields>$");
+                mil.Emit(OpCodes.Ret);
             }
             finally
             {
@@ -5732,6 +5733,57 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
+        // Emit the readonly (initonly) field initializers INLINE into a constructor body — the only place a
+        // readonly store verifies. N# (ColumnarFieldInitPlanner) owns which stores these are (InlineOrdinals);
+        // C# mechanically drives a sub-emitter over the synthesized-initializer body, emitting exactly those
+        // ordinals into the supplied constructor IL stream (no trailing `ret` — the constructor body follows).
+        bool EmitInlineInstanceInitializers(ILGenerator constructorIl, ColumnarStructDef def)
+        {
+            var inlinePlan = def.InstanceInitializerPlan;
+            if (inlinePlan == null || inlinePlan.InlineOrdinals.Length == 0)
+                return true;
+            var initCtor = def.InstanceInitializerCtor!;
+            var initSource = program.GetSourceForFileId(initCtor.Body.SourceFileId);
+            var initTypeResolution = typeResolutionCatalog.For(
+                initCtor.Body.SourceFileId,
+                def.GenericParameters,
+                def.DeclaredTypeName);
+            var inlineEmitter = new ColumnarIlEmitter(
+                initCtor.Body.BodyNodes, initSource,
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, Type>(StringComparer.Ordinal),
+                typeof(void), constructorIl, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, def,
+                isSynthesizedInitializerBody: true,
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                referenceAssemblyPaths: referenceAssemblyPaths,
+                typeParameters: def.GenericParameters,
+                typeResolutionEnums: initTypeResolution.Enums,
+                typeResolutionStructs: initTypeResolution.Structs,
+                typeResolutionUnions: initTypeResolution.Unions);
+            ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId);
+            try
+            {
+                return inlineEmitter.EmitSelectedInitializerStatements(initCtor.Body.BodyRoot, inlinePlan.InlineOrdinals);
+            }
+            finally
+            {
+                ColumnarDeclineTrace.ClearSourceFileId();
+            }
+        }
+
+        // Emit the deferred synthesized default constructors (PASS 0d). Each chains to its base (or object),
+        // runs inline readonly initializers, then calls the mutable-field helper when one exists.
+        foreach (var job in structDefaultCtorJobs)
+        {
+            var dcil = job.Builder.GetILGenerator();
+            EmitCtorBaseChain(dcil, job.Struct, objectCtor);
+            if (!EmitInlineInstanceInitializers(dcil, job.Struct))
+                return DeclineStatic("emit.body", "default constructor inline field initializer emission declined", job.Struct.Builder.Name + ".constructor");
+            EmitInstanceInitializerCall(dcil, job.Struct);
+            dcil.Emit(OpCodes.Ret);
+        }
+
         // Emit user-constructor bodies. Each chains to the base `object` ctor first (`ldarg.0; call object::.ctor()`),
         // then emits the ctor body (field assignments via the reference-type field-write path), with `_currentStruct`
         // set and the ctor's param ordinals (arg 0 = `this`). The body is VOID (no return value), so EmitBody(isVoid:
@@ -5768,8 +5820,14 @@ internal sealed class ColumnarIlEmitter
                         return false;
                     if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
                         return false;
+                    // A `: base(...)` ctor runs field initializers (readonly inline, then the mutable helper); a
+                    // `: this(...)` ctor does not — the delegated-to ctor already ran them.
                     if (job.Ctor.ChainInitKind == 2)
+                    {
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct))
+                            return DeclineStatic("emit.body", "constructor inline field initializer emission declined", job.Struct.Builder.Name + ".constructor");
                         EmitInstanceInitializerCall(cil, job.Struct);
+                    }
                 }
                 else if (job.Struct.IsReference)
                 {
@@ -5788,6 +5846,9 @@ internal sealed class ColumnarIlEmitter
                     if (job.Struct.BaseDef != null && ResolveParameterlessCtor(job.Struct.BaseDef) == null)
                         return false; // base has only parameterized ctors — `: base(...)` is required.
                     EmitCtorBaseChain(cil, job.Struct, objectCtor);
+                    // Readonly initializers inline (verifiable only in a `.ctor`), then the mutable-field helper.
+                    if (!EmitInlineInstanceInitializers(cil, job.Struct))
+                        return DeclineStatic("emit.body", "constructor inline field initializer emission declined", job.Struct.Builder.Name + ".constructor");
                     EmitInstanceInitializerCall(cil, job.Struct);
                 }
                 else
@@ -6101,6 +6162,29 @@ internal sealed class ColumnarIlEmitter
         if (fallsThrough)
             _il.Emit(OpCodes.Ret);
         EmitProtectedReturnTail(isVoid: true);
+        return true;
+    }
+
+    // Emit ONLY the selected top-level statements of a synthesized instance-field-initializer block, in the
+    // given order, into this emitter's IL stream — without any trailing `ret`. The placement is owned by N#
+    // (ColumnarFieldInitPlanner): the initonly-field initializers emitted inline in each constructor, or the
+    // mutable-field initializers emitted into the shared helper. The caller (a constructor body or the helper
+    // method) supplies the ILGenerator and appends its own control flow. Each selected statement is a
+    // top-level `field = value` assignment, so it lowers to `ldarg.0; <value>; stfld <field>`.
+    internal bool EmitSelectedInitializerStatements(int bodyRoot, IReadOnlyList<int> ordinals)
+    {
+        if (_nodes.Kind(bodyRoot) != 25)
+            return false;
+        _bodyRoot = bodyRoot;
+        ComputeLiftedCandidates(bodyRoot);
+        for (var i = 0; i < ordinals.Count; i++)
+        {
+            var ordinal = ordinals[i];
+            if (ordinal < 0 || ordinal >= _nodes.ChildCount(bodyRoot))
+                return false;
+            if (!EmitStatement(Child(bodyRoot, ordinal)))
+                return false;
+        }
         return true;
     }
 

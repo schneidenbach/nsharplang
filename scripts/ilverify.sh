@@ -8,8 +8,7 @@
 # and fixtures with `nlc build`, plus selected native regression projects with
 # `nlc test`, then verifies every emitted assembly with BCL/ASP.NET references.
 #
-# `dotnet ilverify` exits 0 when it reports verification errors, so this gate
-# parses its output and rejects every finding outside the committed baseline.
+# `dotnet ilverify` exits 0 on verification errors, so this gate parses its output and rejects findings outside the baseline.
 #
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
 #
@@ -257,6 +256,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "erased-enum identity" "$REPO_ROOT/tests/native/erased-enum-identity" "$REPO_ROOT/tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll" || BUILD_FAILED=1
     build_native_test "lambda placement" "$REPO_ROOT/tests/native/lambda-placement" "$REPO_ROOT/tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll" || BUILD_FAILED=1
     build_native_test "record with" "$REPO_ROOT/tests/native/record-with" "$REPO_ROOT/tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll" || BUILD_FAILED=1
+    build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."
