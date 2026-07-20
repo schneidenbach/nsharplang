@@ -289,19 +289,28 @@ public class ColumnarIteratorPlanner {
 
     // ---- body walk (single forward pass; collects locals + counts yields + classifies declines) ----
 
-    static func WalkStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+    // Walks one statement and reports whether control can FALL THROUGH to the following statement.
+    // Statements after a non-falling statement in a block are dead: they are neither hoisted nor
+    // counted, and the body planner drops exactly the same statements — analysis and emission stay in
+    // lockstep, so every counted resume state has a reachable, marked label in the MoveNext plan.
+    static func WalkStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
         if state.Declined {
-            return
+            return false
         }
         kind := nodes.Kind(node)
         if kind == 25 {
-            // Block
+            // Block: stop at the first non-falling child (everything after it is dead code).
             n := 0
-            while n < nodes.ChildCount(node) && !state.Declined {
-                WalkStatement(nodes, source, nodes.Child(node, n), state)
+            while n < nodes.ChildCount(node) {
+                if state.Declined {
+                    return false
+                }
+                if !WalkStatement(nodes, source, nodes.Child(node, n), state) {
+                    return false
+                }
                 n = n + 1
             }
-            return
+            return true
         }
         if kind == 40 {
             // TypedLocalDeclaration: value span = declared type canonical, child 0 = name, child 1 = init.
@@ -312,7 +321,7 @@ public class ColumnarIteratorPlanner {
                 WalkExpression(nodes, source, nodes.Child(node, 1), state)
             }
             state.AddLocal(name, declaredType)
-            return
+            return true
         }
         if kind == 24 {
             // VariableDeclaration (`:=`): value span = name, child 0 = initializer (type inferred).
@@ -326,75 +335,84 @@ public class ColumnarIteratorPlanner {
             if inferred == "?" {
                 state.Decline("emit.iterator.unsupported-shape",
                     "the initializer type of local '" + name + "' could not be inferred for hoisting")
-                return
+                return false
             }
             state.AddLocal(name, inferred)
-            return
+            return true
         }
         if kind == 23 {
             // ExpressionStatement: only a simple assignment (kind 14) to a bound identifier is lowered.
             if nodes.ChildCount(node) != 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported expression statement in an iterator body")
-                return
+                return false
             }
             inner := nodes.Child(node, 0)
             if nodes.Kind(inner) != 14 || nodes.ChildCount(inner) != 2 {
                 state.Decline("emit.iterator.unsupported-shape", "only simple `=` assignments are lowered in an iterator body")
-                return
+                return false
             }
             target := nodes.Child(inner, 0)
             if nodes.Kind(target) != 6 {
                 state.Decline("emit.iterator.unsupported-shape", "an iterator assignment target must be a bound identifier")
-                return
+                return false
             }
             name := nodes.Text(source, target)
             if state.LookupCanonical(name) == "" {
                 state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
-                return
+                return false
             }
             WalkExpression(nodes, source, nodes.Child(inner, 1), state)
-            return
+            return true
         }
         if kind == 26 {
-            // While [condition, body]
+            // While [condition, body]: the loop's false-condition exit edge always falls through,
+            // whatever the body's own flow does — the body result only drives dead-code dropping.
             if nodes.ChildCount(node) != 2 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported while statement in an iterator body")
-                return
+                return false
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             WalkStatement(nodes, source, nodes.Child(node, 1), state)
-            return
+            return !state.Declined
         }
         if kind == 27 {
-            // If [condition, then, else?]
+            // If [condition, then, else?]: falls through when either branch does (a missing else is a
+            // trivially falling branch).
             childCount := nodes.ChildCount(node)
             if childCount < 2 || childCount > 3 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported if statement in an iterator body")
-                return
+                return false
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
-            WalkStatement(nodes, source, nodes.Child(node, 1), state)
+            thenFalls := WalkStatement(nodes, source, nodes.Child(node, 1), state)
+            elseFalls := true
             if childCount == 3 {
-                WalkStatement(nodes, source, nodes.Child(node, 2), state)
+                elseFalls = WalkStatement(nodes, source, nodes.Child(node, 2), state)
             }
-            return
+            if state.Declined {
+                return false
+            }
+            return thenFalls || elseFalls
         }
         if kind == 72 {
-            // YieldStatement: 1 child = yield return (a resume state), 0 children = yield break.
+            // YieldStatement: 1 child = yield return (a resume state, falls through at its resume
+            // label), 0 children = yield break (transfers to the shared end label — never falls).
             if nodes.ChildCount(node) == 1 {
                 WalkExpression(nodes, source, nodes.Child(node, 0), state)
                 state.YieldReturnCount = state.YieldReturnCount + 1
+                return true
             }
-            return
+            return false
         }
         if kind == 29 {
             // Foreach / `for..in`
             state.Decline("emit.iterator.for-in-unsupported",
                 "`for..in` inside an iterator body is a later slice")
-            return
+            return false
         }
         state.Decline("emit.iterator.unsupported-shape",
             "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
+        return false
     }
 
     static func WalkExpression(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
@@ -916,25 +934,34 @@ public class ColumnarIteratorBodyPlanner {
         return emit.Plan.AddField(emit.Context.FieldForName(name))
     }
 
-    static func EmitStatement(emit: ColumnarMoveNextEmit, node: int) {
+    // Emits one statement and reports whether control can FALL THROUGH past it. The rules mirror
+    // WalkStatement exactly: blocks drop dead statements after a non-falling child, an if only emits
+    // its join jump/label when the then-branch falls, and a while only emits its back edge when the
+    // body falls — so the plan never contains an unreachable row or an unmarked label.
+    static func EmitStatement(emit: ColumnarMoveNextEmit, node: int): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         kind := nodes.Kind(node)
         if kind == 25 {
             n := 0
             while n < nodes.ChildCount(node) {
-                EmitStatement(emit, nodes.Child(node, n))
+                if !EmitStatement(emit, nodes.Child(node, n)) {
+                    return false
+                }
                 n = n + 1
             }
-            return
+            return true
         }
         if kind == 40 {
-            // typed local declaration: value span = type, child 0 = name, child 1 = init
-            name := nodes.Text(source, nodes.Child(node, 0))
-            LoadThis(emit)
-            EmitExpression(emit, nodes.Child(node, 1))
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
-            return
+            // typed local declaration: value span = type, child 0 = name, child 1 = init. A declaration
+            // without an initializer hoists to a default-valued field — nothing to store.
+            if nodes.ChildCount(node) >= 2 {
+                name := nodes.Text(source, nodes.Child(node, 0))
+                LoadThis(emit)
+                EmitExpression(emit, nodes.Child(node, 1))
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            }
+            return true
         }
         if kind == 24 {
             // `:=` local declaration: value span = name, child 0 = init
@@ -942,7 +969,7 @@ public class ColumnarIteratorBodyPlanner {
             LoadThis(emit)
             EmitExpression(emit, nodes.Child(node, 0))
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
-            return
+            return true
         }
         if kind == 23 {
             // expression statement: a simple `=` assignment (kind 14) to a bound identifier
@@ -952,42 +979,50 @@ public class ColumnarIteratorBodyPlanner {
             LoadThis(emit)
             EmitExpression(emit, nodes.Child(assign, 1))
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
-            return
+            return true
         }
         if kind == 26 {
-            // while [condition, body]
+            // while [condition, body]: the back edge only exists when the body can complete.
             condLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
             emit.Plan.AppendMarkLabel(condLabel)
             EmitExpression(emit, nodes.Child(node, 0))
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
-            EmitStatement(emit, nodes.Child(node, 1))
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
-            emit.Plan.AppendMarkLabel(afterLabel)
-            return
-        }
-        if kind == 27 {
-            // if [condition, then, else?]
-            elseLabel := emit.Plan.DefineLabel()
-            afterLabel := emit.Plan.DefineLabel()
-            EmitExpression(emit, nodes.Child(node, 0))
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
-            EmitStatement(emit, nodes.Child(node, 1))
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), afterLabel)
-            emit.Plan.AppendMarkLabel(elseLabel)
-            if nodes.ChildCount(node) == 3 {
-                EmitStatement(emit, nodes.Child(node, 2))
+            if EmitStatement(emit, nodes.Child(node, 1)) {
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
             }
             emit.Plan.AppendMarkLabel(afterLabel)
-            return
+            return true
+        }
+        if kind == 27 {
+            // if [condition, then, else?]: the join label is defined and jumped to only when the
+            // then-branch falls through (otherwise the jump row would be unreachable).
+            elseLabel := emit.Plan.DefineLabel()
+            EmitExpression(emit, nodes.Child(node, 0))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
+            thenFalls := EmitStatement(emit, nodes.Child(node, 1))
+            afterLabel := -1
+            if thenFalls {
+                afterLabel = emit.Plan.DefineLabel()
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), afterLabel)
+            }
+            emit.Plan.AppendMarkLabel(elseLabel)
+            elseFalls := true
+            if nodes.ChildCount(node) == 3 {
+                elseFalls = EmitStatement(emit, nodes.Child(node, 2))
+            }
+            if afterLabel >= 0 {
+                emit.Plan.AppendMarkLabel(afterLabel)
+            }
+            return thenFalls || elseFalls
         }
         if kind == 72 {
             if nodes.ChildCount(node) == 1 {
                 EmitYieldReturn(emit, nodes.Child(node, 0))
-            } else {
-                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
+                return true
             }
-            return
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
+            return false
         }
         throw new InvalidOperationException(
             "Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")

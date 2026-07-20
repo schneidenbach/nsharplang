@@ -455,6 +455,88 @@ test "iterator planner interface enumerator plan mirrors the clone body" {
     assert clone.n == 11
 }
 
+test "iterator planner drops dead statements after yield break" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Dead(): IEnumerable<int> { yield break\n yield 5 }",
+        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 0
+}
+
+test "iterator planner guard yield break plans run for both branch outcomes" {
+    source := "func* Guarded(n: int): IEnumerable<int> { if n <= 0 { yield break }\n yield 1\n yield 2 }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 2
+    assert probe.Shape.FieldCount == 3
+
+    smType := typeof(ColumnarIteratorCloneProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+
+    moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
+    getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
+    moveNext := MakeIteratorDynamicMethod("GuardedMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("GuardedCurrent", typeof(int), smType)
+    ColumnarCodePlanExecutor.Execute(getCurrentPlan, getCurrent.GetILGenerator())
+
+    target: object? = null
+
+    guardedMachine := new ColumnarIteratorCloneProbe(0)
+    guardedMachine.n = 0
+    guardedArgs := new object[](1)
+    IteratorSetObject(guardedArgs, 0, guardedMachine)
+    assert !Convert.ToBoolean(moveNext.Invoke(target, guardedArgs))
+
+    yieldingMachine := new ColumnarIteratorCloneProbe(0)
+    yieldingMachine.n = 3
+    yieldingArgs := new object[](1)
+    IteratorSetObject(yieldingArgs, 0, yieldingMachine)
+    results := new List<int>()
+    hasNext := Convert.ToBoolean(moveNext.Invoke(target, yieldingArgs))
+    while hasNext {
+        results.Add(Convert.ToInt32(getCurrent.Invoke(target, yieldingArgs)))
+        hasNext = Convert.ToBoolean(moveNext.Invoke(target, yieldingArgs))
+    }
+    assert results.Count == 2
+    assert results[0] == 1
+    assert results[1] == 2
+}
+
+test "iterator planner while body ending in yield break omits the back edge" {
+    source := "func* LoopBreak(n: int): IEnumerable<int> { while n > 0 { yield break } }"
+    probe := new ColumnarIteratorShapeProbe(
+        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 0
+
+    smType := typeof(ColumnarIteratorCloneProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("n")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+
+    moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
+    moveNext := MakeIteratorDynamicMethod("LoopBreakMoveNext", typeof(bool), smType)
+    ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
+
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.n = 1
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+}
+
 test "iterator planner factory plan constructs the machine from arguments" {
     context := IteratorCloneProbeContext()
     factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(context)

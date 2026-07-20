@@ -12,8 +12,7 @@
 #
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
 #
-# `--built-dirs-file` verifies only caller-supplied outputs and needs no compiler.
-# Add `--build-native-tests` to emit selected native regression assemblies; standalone mode emits them by default.
+# `--built-dirs-file` verifies only caller-supplied outputs (no compiler); `--build-native-tests` also emits selected native regression assemblies (standalone mode emits them by default).
 #
 set -euo pipefail
 
@@ -257,6 +256,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "lambda placement" "$REPO_ROOT/tests/native/lambda-placement" "$REPO_ROOT/tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll" || BUILD_FAILED=1
     build_native_test "record with" "$REPO_ROOT/tests/native/record-with" "$REPO_ROOT/tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll" || BUILD_FAILED=1
     build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
+    build_native_test "iterator" "$REPO_ROOT/tests/native/iterators" "$REPO_ROOT/tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."
