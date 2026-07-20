@@ -448,6 +448,15 @@ class ColumnarStructDef {
         ExactBaseType = null
     }
 
+    // Record the resolved base of this source type. A source base supplies the sibling definition;
+    // an external runtime base supplies only the exact handle used by SetParent and base-constructor
+    // chaining. Base classification is decided by ColumnarBaseTypePlanner; this only stores the
+    // result on the owning definition.
+    func RecordBase(baseDefinition: ColumnarStructDef?, exactBaseType: Type) {
+        BaseDef = baseDefinition
+        ExactBaseType = exactBaseType
+    }
+
     // Define the exact user-constructor handle and its planner-visible signature as one N#
     // operation. The temporary C# assembly owner may attach parameter metadata and emit the body,
     // but it cannot construct or partially register semantic constructor facts.

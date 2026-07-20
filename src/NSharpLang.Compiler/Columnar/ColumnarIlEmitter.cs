@@ -4497,7 +4497,10 @@ internal sealed class ColumnarIlEmitter
         {
             var def = structDefsInOrder[s];
             var typeResolution = structTypeResolutions[s];
-            var seenImplementedInterfaces = new HashSet<TypeBuilder>();
+            // N# owns the base/interface classification: source-vs-runtime interface, source base,
+            // and external runtime base — with accessibility and the exact TypeBuilder metadata.
+            // C# only resolves each spelling to a live handle and reports the outcome.
+            var basePlanner = new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values);
             foreach (var baseName in structs[s].BaseNames)
             {
                 var baseTypeResolved = def.GenericParameters != null
@@ -4505,59 +4508,11 @@ internal sealed class ColumnarIlEmitter
                     : TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType);
                 if (!baseTypeResolved)
                     return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name);
-                if (TryResolveUserInterfaceDef(resolvedBaseType, typeResolution.Structs.Values, out var implementedInterfaceDef))
-                {
-                    var duplicateInterface = false;
-                    foreach (var candidate in def.ImplementedInterfaceTypes)
-                        duplicateInterface |= TypesEquivalent(candidate, resolvedBaseType);
-                    if (duplicateInterface)
-                        continue;
-                    def.ImplementedInterfaces.Add(implementedInterfaceDef);
-                    def.ImplementedInterfaceTypes.Add(resolvedBaseType);
-                    def.Builder.AddInterfaceImplementation(resolvedBaseType);
-                    seenImplementedInterfaces.Add(implementedInterfaceDef.Builder);
-                    if (ReferenceEquals(resolvedBaseType, implementedInterfaceDef.Builder))
-                    {
-                        foreach (var implemented in EnumerateInterfaceAndBases(implementedInterfaceDef))
-                        {
-                            if (!ReferenceEquals(implemented, implementedInterfaceDef)
-                                && seenImplementedInterfaces.Add(implemented.Builder))
-                                def.Builder.AddInterfaceImplementation(implemented.Builder);
-                        }
-                    }
-                    continue;
-                }
-                if (IsRuntimeInterfaceType(resolvedBaseType))
-                {
-                    def.ExternalInterfaces.Add(resolvedBaseType);
-                    def.Builder.AddInterfaceImplementation(resolvedBaseType);
-                    continue;
-                }
-                if (!TryResolveUserStructDef(resolvedBaseType, typeResolution.Structs.Values, out var baseDef))
+                var baseOutcome = basePlanner.Apply(resolvedBaseType);
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject)
+                    return false;
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable)
                     return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name);
-                if (!def.IsReference)
-                {
-                    return false; // a value-type struct cannot inherit.
-                }
-                if (def.IsRecord)
-                {
-                    return false; // record inheritance is unmodelled — only a CLASS may inherit.
-                }
-                if (!baseDef.IsReference || ReferenceEquals(baseDef, def))
-                {
-                    return false; // non-class / self base.
-                }
-                if (baseDef.IsRecord)
-                {
-                    return false; // a RECORD can never be a base type (the legacy emitter emits records SEALED).
-                }
-                if (def.BaseDef != null)
-                {
-                    return false; // multiple class bases.
-                }
-                def.BaseDef = baseDef;
-                def.ExactBaseType = resolvedBaseType;
-                def.Builder.SetParent(resolvedBaseType);
             }
         }
 
