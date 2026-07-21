@@ -6193,11 +6193,9 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     // `yield <expr>` / `yield break` (Yield 30) -- YieldStatement kind 72. ZERO children = `yield break`
     // (terminates the iterator; AlwaysReturns treats it like return/throw); ONE child = the yielded value
     // expression (produces a value and continues). Only legal inside a generator (`func*`); the analyzer
-    // enforces that. The emitter DECLINES kind 72 today (`emit.statement.yield-unsupported`) -- iterator
-    // state-machine lowering lands in a later N# ownership slice.
+    // enforces that. ColumnarIteratorPlanner lowers kind 72 into the iterator state machine.
     if kind == 30 {
         yieldStart := tokens.Starts[start]
-        yieldEnd := tokens.Starts[start] + tokens.ValueLengths[start]
         st.Pos = start + 1
 
         if st.Pos < count && tokens.Kinds[st.Pos] == 35 {
