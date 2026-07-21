@@ -1,15 +1,18 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Cursor
 
-- Current task: `tasks/014-async-iterators.md`
+- Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (014 owns the AsyncStreams single-file gate failure — the
-  LAST remaining gate failure group; expect the 013 staging pattern to apply: async machinery on
-  top of the schema-4/iterator-planner foundation)
-- Last accepted ownership commit: task 013's slice commits (`489895987`..`f1c1b3b9f`)
+- Active sub-slice: not yet selected (015 owns the recorded fenced residuals: lambda-taking LINQ
+  arms, the interpolation hole/emission core, the C# generic String.Join arm for non-int/string
+  elements, extension interface-receiver inference, preflight typing of legacy-owned static
+  calls, the case-12/13 numeric/conditional cores, and real async-func lowering to replace the
+  blocking consumer await model)
+- Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
+  `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -217,6 +220,42 @@ Completed slices:
   - Evidence: 625 BootstrapServices contracts; external-base-interface 18/18, extension-calls 4/4
     executed; 3,182/3,182 units; fresh Release self-emit clean; Web API ILVerify fully verified;
     all native projects green; gate baseline shrunk to three groups.
+
+- Task 014 — async iterators; staged commits `d396a847c` (async classification facts: IsAsync,
+  AwaitResumeCount, async return-shape admission/declines), `73ae226d5` (await-foreach parsing in
+  the N# kernels: awaited kind-29 form + kind-73 consumer statement, toolset repin), `0a33f1ff2`
+  (async state machines with REAL suspension: IAsyncEnumerable/IAsyncEnumerator/IAsyncDisposable
+  member specs, schema-4 catch regions op 7, awaiter/promise/result/continuation field roles 5-8,
+  MoveNextAsync fast-path vs TaskCompletionSource pending path, ldftn MoveNextCore continuation
+  ctor, both exception routes, clone/dispose discipline — proven resuming off-caller-thread),
+  `f3d1e89c9` (closing: classic C-style for kind 28, postfix ++/-- kind 44 incl. yield i++,
+  ToUpper/ToLower/Trim instance calls, kind-73 await-foreach consumer lowering via the accepted
+  blocking-await model; AsyncStreams.nl end-to-end).
+  - NEW SURFACE like 013: no C# async-iterator emitter ever existed; deletion contract satisfied
+    by planner-owned decline sites (emit.iterator.async-*) plus the deleted
+    emit.iterator.async-emit-pending gate and zero net C# decision growth (emitter net −2 across
+    the closing slice: 21,719/20,644 vs immutable epoch 21,723/20,646 — case-73 additions paid by
+    lossless comment compression).
+  - Added N# owners: ColumnarIteratorPlanner async classification + AnalyzeShape async facts +
+    BuildAsyncMoveNextCore/MoveNextAsync/DisposeAsync/GetAsyncEnumerator/AsyncFactory plans, the
+    kind-28/44/instance-string-call body surface, ColumnarCodePlan/Executor schema-4 catch
+    regions, parser-kernel await-foreach forms.
+  - Evidence: FULL VS Code-ENABLED GATE GREEN — ZERO failure groups (first fully-green gate of
+    the closeout; AsyncStreams cleared; 14m11s; gate exit 0 with ALL TESTS PASSED). 731/731
+    BootstrapServices contracts (717+14); 3,185/3,185 units; native iterators 25/25 (21+4 async);
+    ownership audit 18/18; AsyncStreams.nl builds via the columnar pipeline, output order exact,
+    real delays (1.273s wall for 10×100ms+4×50ms), ILVerify 2/2; nlc check/lint on the example
+    0 findings; post-commit SDK repin to ~/.nuget/local-feed + gate dependency-cache reseed
+    (nsharplang.* must be copied into the active Caches/NSharpLang/test-all/dependencies/<key>
+    after a repin — the isolated gate only sees nuget.org plus that cache). VS Code extension
+    rebuilt+reinstalled (reload-vscode-extension.sh exit 0); gate VS Code integration tests
+    (extension, diagnostics, hover, completion) pass. OUTSTANDING: the computer-use visual IDE
+    spot-check was attempted at this acceptance and screen-control access was DENIED at the
+    approval dialog again (second denial after 013); the automated VS Code integration evidence
+    stands in. Retry at the next IDE-affecting acceptance only if the user re-enables access.
+  - Residuals recorded for 015+: await foreach inside an async iterator body (machine
+    composition), async instance/generic iterators, awaited operands beyond statement-position
+    Task.Delay(int), real async-func lowering to retire the blocking consumer await model.
 
 - Task 013 — synchronous iterators; staged commits `489895987` (func*/yield parsing in the N#
   kernels, node kind 72, generator flag 4096, toolset repin), `71c5450b1` (schema-4 stage 1:

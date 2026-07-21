@@ -34,7 +34,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [011 — Record-with lowering for value receivers](011-record-with-value-receivers.md)
 - [x] [012 — Readonly-field initialization placement](012-readonly-field-initialization.md)
 - [x] [013 — Synchronous iterators](013-synchronous-iterators.md)
-- [ ] [014 — Async iterators](014-async-iterators.md)
+- [x] [014 — Async iterators](014-async-iterators.md)
 - [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
 - [ ] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
 - [ ] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
