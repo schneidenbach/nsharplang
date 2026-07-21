@@ -246,6 +246,8 @@ public class ColumnarCodePlanExecutor {
                 il.BeginFinallyBlock()
             } else if operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
                 il.BeginFaultBlock()
+            } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
+                il.BeginCatchBlock(plan.Types[plan.OperandIndices[i]])
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 il.EndExceptionBlock()
             } else {
@@ -671,11 +673,12 @@ public class ColumnarCodePlanExecutor {
                 regionHandlerStarted[regionTop] = false
                 regionTop += 1
                 depth += 1
-            } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation()
-                || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+            } else if (operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation()
+                || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation())
+                || operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
                 if regionTop == 0 || regionHandlerStarted[regionTop - 1] {
                     throw new InvalidOperationException(
-                        schemaName + " finally/fault handler must open exactly one enclosing try region.")
+                        schemaName + " finally/fault/catch handler must open exactly one enclosing try region.")
                 }
                 regionHandlerStarted[regionTop - 1] = true
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
@@ -742,8 +745,9 @@ public class ColumnarCodePlanExecutor {
         // the handler op in the flat stream. Seed each handler start as a reachable entry at empty stack.
         i = 0
         while i < n {
-            if plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation()
-                || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+            if (plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation()
+                || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation())
+                || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginCatchBlockOperation() {
                 heights[i] = 0
             }
             i += 1
@@ -763,6 +767,13 @@ public class ColumnarCodePlanExecutor {
 
                     if operationKind == ColumnarCodePlanContract.MarkLabelOperation() {
                         changed = MergeMethodBodyHeight(heights, i + 1, h, schemaName) || changed
+                    } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
+                        // The runtime enters a catch handler with the exception reference on the stack.
+                        if h != 0 {
+                            throw new InvalidOperationException(
+                                schemaName + " evaluation stack must be empty at an exception-region boundary.")
+                        }
+                        changed = MergeMethodBodyHeight(heights, i + 1, 1, schemaName) || changed
                     } else if operationKind == ColumnarCodePlanContract.BeginExceptionBlockOperation()
                         || operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation()
                         || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation()

@@ -3593,6 +3593,64 @@ test "schema v4 method body runs a try/fault, and leave does NOT run the fault" 
     assert list[0] == 1
 }
 
+// void F(List<int> list) { try { list.Add(1); <throw?> } catch (Exception ex) { list.Add(2); } }
+// The catch handler stores the runtime-pushed exception reference into a plan local and falls into
+// EndExceptionBlock (ILGenerator appends the implicit leave), the async MoveNextCore discipline.
+func ExecutorListAddCatchPlan(throwInsideTry: bool): ColumnarCodePlan {
+    intParams := new Type[](1)
+    intParams[0] = typeof(int)
+    stringParams := new Type[](1)
+    stringParams[0] = typeof(string)
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    listType := plan.AddType(typeof(List<int>))
+    arg := plan.AddArgument(0, listType)
+    addMethod := plan.AddMethod(ExecutorRequiredMethod(typeof(List<int>), "Add", intParams))
+    exceptionType := plan.AddType(typeof(Exception))
+    exceptionLocal := plan.DeclarePlanLocal(exceptionType)
+    endLabel := plan.DefineLabel()
+
+    plan.AppendBeginExceptionBlock(endLabel)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), addMethod)
+    if throwInsideTry {
+        boomText := plan.AddString("boom")
+        plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), boomText)
+        boomCtor := typeof(InvalidOperationException).GetConstructor(stringParams)
+        if boomCtor == null {
+            throw new InvalidOperationException("InvalidOperationException(string) was not found.")
+        }
+        boomCtorIndex := plan.AddConstructor(boomCtor)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), boomCtorIndex)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+    } else {
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), endLabel)
+    }
+    plan.AppendBeginCatchBlock(exceptionType)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), exceptionLocal)
+    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), arg)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), addMethod)
+    plan.AppendEndExceptionBlock()
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(ExecutorVoidType())
+    return plan
+}
+
+test "schema v4 method body catch handler receives and swallows a thrown exception" {
+    list := ExecutorRunListAddPlan(ExecutorListAddCatchPlan(true))
+    assert list.Count == 2
+    assert list[0] == 1
+    assert list[1] == 2
+}
+
+test "schema v4 method body skips the catch handler without an exception" {
+    list := ExecutorRunListAddPlan(ExecutorListAddCatchPlan(false))
+    assert list.Count == 1
+    assert list[0] == 1
+}
+
 test "schema v4 validator rejects a stack-height merge conflict" {
     plan := new ColumnarCodePlan()
     plan.PrepareMethodBody()

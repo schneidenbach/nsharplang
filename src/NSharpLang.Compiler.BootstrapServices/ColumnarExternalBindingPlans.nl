@@ -1103,7 +1103,16 @@ public class ColumnarExternalBindingPlans {
             || typeName == "System.Reflection.FieldInfo"
     }
 
+    // The OpCodes allowlist, split into three family predicates: a single 120-clause `||` chain nests
+    // one AST level per clause and overflows the legacy linter's 100-deep expression-visit guard.
     static func IsSupportedOpCodeMemberName(memberName: string): bool {
+        return IsSupportedValueOpCodeMemberName(memberName)
+            || IsSupportedComputeOpCodeMemberName(memberName)
+            || IsSupportedObjectModelOpCodeMemberName(memberName)
+    }
+
+    // Constants, locals/arguments, and indirect loads.
+    static func IsSupportedValueOpCodeMemberName(memberName: string): bool {
         return memberName == "Nop"
             || memberName == "Ldc_I4_M1"
             || memberName == "Ldc_I4_0"
@@ -1137,7 +1146,11 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Ldind_R4"
             || memberName == "Ldind_R8"
             || memberName == "Ldind_Ref"
-            || memberName == "Br"
+    }
+
+    // Branches, calls, arithmetic, comparisons, and conversions.
+    static func IsSupportedComputeOpCodeMemberName(memberName: string): bool {
+        return memberName == "Br"
             || memberName == "Brfalse"
             || memberName == "Brtrue"
             || memberName == "Call"
@@ -1179,7 +1192,11 @@ public class ColumnarExternalBindingPlans {
             || memberName == "Conv_U2"
             || memberName == "Conv_U4"
             || memberName == "Conv_U8"
-            || memberName == "Box"
+    }
+
+    // Object model, fields, arrays, and body terminators/regions.
+    static func IsSupportedObjectModelOpCodeMemberName(memberName: string): bool {
+        return memberName == "Box"
             || memberName == "Castclass"
             || memberName == "Ldnull"
             || memberName == "Initobj"

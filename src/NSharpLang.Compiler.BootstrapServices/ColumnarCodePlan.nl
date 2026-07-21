@@ -51,6 +51,9 @@ public class ColumnarCodePlanContract {
     public static func BeginFinallyBlockOperation(): int { return 4 }
     public static func BeginFaultBlockOperation(): int { return 5 }
     public static func EndExceptionBlockOperation(): int { return 6 }
+    // Catch handler (schema v4): the operand is the TYPE pool index of the caught exception type; the
+    // runtime enters the handler with that exception reference on the evaluation stack.
+    public static func BeginCatchBlockOperation(): int { return 7 }
 
     public static func NoOperand(): int { return 0 }
     public static func Int32Operand(): int { return 1 }
@@ -1166,6 +1169,23 @@ public class ColumnarCodePlan {
 
     public func AppendBeginFinallyBlock() {
         AppendRegionMarker(ColumnarCodePlanContract.BeginFinallyBlockOperation())
+    }
+
+    // Open a catch handler for the current region. The type-pool operand is the caught exception type;
+    // the handler's first row sees that exception reference already on the stack.
+    public func AppendBeginCatchBlock(typeIndex: int) {
+        EnsureV2Building()
+        if !IsMethodBodySchema() {
+            throw new InvalidOperationException("Exception regions require the method-body schema.")
+        }
+        if typeIndex < 0 || typeIndex >= TypeCount {
+            throw new InvalidOperationException("The begin-catch-block row references an unknown type.")
+        }
+        AppendV2Row(
+            ColumnarCodePlanContract.BeginCatchBlockOperation(),
+            ColumnarCodePlanContract.NoOpCode(),
+            ColumnarCodePlanContract.TypeOperand(),
+            typeIndex)
     }
 
     public func AppendBeginFaultBlock() {

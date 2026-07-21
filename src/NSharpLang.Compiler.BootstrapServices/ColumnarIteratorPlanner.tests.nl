@@ -4,6 +4,365 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+// An async-machine probe HOST: reflectively emits a real type whose public fields mirror an async
+// shape's exact layout (TaskAwaiter fields are not yet a modeled N# field surface, so the probe cannot
+// be a plain N# class), then realizes every async member from the planner's OWN plans — MoveNextCore,
+// MoveNextAsync, DisposeAsync, and a parameterless GetAsyncEnumerator clone — exactly like the C# emit
+// host. Contracts drive real machines end to end: suspension registers the continuation, the completed
+// Task.Delay re-drives MoveNextCore, and the pending ValueTask<bool> completes. The `(int)` constructor
+// stores the state only; NewMachine wires the re-drive Action afterwards (the C# host ctor's ldftn).
+class ColumnarAsyncProbeMachine {
+    public MachineType: Type
+    public Fields: FieldInfo[]
+    public StateConstructor: ConstructorInfo
+    public Shape: ColumnarIteratorShape
+
+    constructor(probe: ColumnarIteratorShapeProbe, probeName: string) {
+        shape := probe.Shape
+        Shape = shape
+        // The probe type is emitted through reflection invocations (only DynamicMethod-style reflective
+        // construction is a modeled N# surface here, exactly like MakeIteratorDynamicMethod below).
+        nameCtorTypes := new Type[](1)
+        nameCtorTypes[0] = typeof(string)
+        nameCtor := typeof(AssemblyName).GetConstructor(nameCtorTypes)
+        if nameCtor == null {
+            throw new InvalidOperationException("AssemblyName(string) was not found.")
+        }
+        nameArgs := new object[](1)
+        IteratorSetObject(nameArgs, 0, probeName)
+        target: object? = null
+
+        assemblyBuilderType := AsyncProbeRuntimeType("System.Reflection.Emit.AssemblyBuilder")
+        defineAssemblyTypes := new Type[](2)
+        defineAssemblyTypes[0] = AsyncProbeRuntimeType("System.Reflection.AssemblyName")
+        defineAssemblyTypes[1] = AsyncProbeRuntimeType("System.Reflection.Emit.AssemblyBuilderAccess")
+        defineAssemblyArgs := new object[](2)
+        IteratorSetObject(defineAssemblyArgs, 0, nameCtor.Invoke(nameArgs))
+        IteratorSetObject(defineAssemblyArgs, 1, AsyncProbeEnumValue("System.Reflection.Emit.AssemblyBuilderAccess", "Run"))
+        defineAssemblyMethod := AsyncProbeMethod(assemblyBuilderType, "DefineDynamicAssembly", defineAssemblyTypes)
+        assemblyBuilder := AsyncProbeInvoke(defineAssemblyMethod, target, defineAssemblyArgs)
+
+        defineModuleTypes := new Type[](1)
+        defineModuleTypes[0] = typeof(string)
+        defineModuleArgs := new object[](1)
+        IteratorSetObject(defineModuleArgs, 0, "probe")
+        defineModuleMethod := AsyncProbeMethod(assemblyBuilderType, "DefineDynamicModule", defineModuleTypes)
+        moduleBuilder := AsyncProbeInvoke(defineModuleMethod, assemblyBuilder, defineModuleArgs)
+
+        moduleBuilderType := AsyncProbeRuntimeType("System.Reflection.Emit.ModuleBuilder")
+        defineTypeTypes := new Type[](2)
+        defineTypeTypes[0] = typeof(string)
+        defineTypeTypes[1] = AsyncProbeRuntimeType("System.Reflection.TypeAttributes")
+        defineTypeArgs := new object[](2)
+        IteratorSetObject(defineTypeArgs, 0, probeName)
+        IteratorSetObject(defineTypeArgs, 1, AsyncProbeEnumValue("System.Reflection.TypeAttributes", "Public"))
+        defineTypeMethod := AsyncProbeMethod(moduleBuilderType, "DefineType", defineTypeTypes)
+        typeBuilderBox := AsyncProbeInvoke(defineTypeMethod, moduleBuilder, defineTypeArgs)
+        typeBuilder := (Type)typeBuilderBox
+
+        typeBuilderType := AsyncProbeRuntimeType("System.Reflection.Emit.TypeBuilder")
+        defineFieldTypes := new Type[](3)
+        defineFieldTypes[0] = typeof(string)
+        defineFieldTypes[1] = typeof(Type)
+        defineFieldTypes[2] = AsyncProbeRuntimeType("System.Reflection.FieldAttributes")
+        defineFieldMethod := AsyncProbeMethod(typeBuilderType, "DefineField", defineFieldTypes)
+        publicFieldAttribute := AsyncProbeEnumValue("System.Reflection.FieldAttributes", "Public")
+        fieldBuilders := new FieldInfo[](shape.FieldCount)
+        i := 0
+        while i < shape.FieldCount {
+            defineFieldArgs := new object[](3)
+            IteratorSetObject(defineFieldArgs, 0, shape.FieldNames[i])
+            IteratorSetObject(defineFieldArgs, 1, AsyncProbeFieldRuntimeType(shape, i))
+            IteratorSetObject(defineFieldArgs, 2, publicFieldAttribute)
+            fieldBox := AsyncProbeInvoke(defineFieldMethod, typeBuilderBox, defineFieldArgs)
+            fieldBuilders[i] = (FieldInfo)fieldBox
+            i = i + 1
+        }
+
+        ctorTypes := new Type[](1)
+        ctorTypes[0] = typeof(int)
+        defineConstructorTypes := new Type[](3)
+        defineConstructorTypes[0] = AsyncProbeRuntimeType("System.Reflection.MethodAttributes")
+        defineConstructorTypes[1] = AsyncProbeRuntimeType("System.Reflection.CallingConventions")
+        defineConstructorTypes[2] = typeof(Type[])
+        defineConstructorArgs := new object[](3)
+        IteratorSetObject(defineConstructorArgs, 0, AsyncProbeEnumValue("System.Reflection.MethodAttributes", "Public"))
+        IteratorSetObject(defineConstructorArgs, 1, AsyncProbeEnumValue("System.Reflection.CallingConventions", "Standard"))
+        IteratorSetObject(defineConstructorArgs, 2, ctorTypes)
+        defineConstructorMethod := AsyncProbeMethod(typeBuilderType, "DefineConstructor", defineConstructorTypes)
+        ctorBuilder := AsyncProbeInvoke(defineConstructorMethod, typeBuilderBox, defineConstructorArgs)
+        constructorBuilderType := AsyncProbeRuntimeType("System.Reflection.Emit.ConstructorBuilder")
+        ilGeneratorMethod := AsyncProbeMethod(constructorBuilderType, "GetILGenerator", new Type[](0))
+        ctorIlBox := AsyncProbeInvoke(ilGeneratorMethod, ctorBuilder, new object[](0))
+        ctorIl := (ILGenerator)ctorIlBox
+
+        // The ctor body replays a schema-4 plan (`this.<>__state = initialState`); System.Object's
+        // constructor is a no-op the runtime does not require dynamic-assembly ctors to chain.
+        ctorPlan := new ColumnarCodePlan()
+        ctorPlan.PrepareMethodBody()
+        probeTypeIdx := ctorPlan.AddType(typeBuilder)
+        thisArg := ctorPlan.AddArgument(0, probeTypeIdx)
+        intTypeIdx := ctorPlan.AddType(typeof(int))
+        stateArg := ctorPlan.AddArgument(1, intTypeIdx)
+        statePool := ctorPlan.AddField(fieldBuilders[0])
+        ctorPlan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        ctorPlan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), stateArg)
+        ctorPlan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), statePool)
+        ctorPlan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        voidType := Type.GetType("System.Void")
+        if voidType == null {
+            throw new InvalidOperationException("System.Void was not found.")
+        }
+        ctorPlan.CompleteMethodBody(voidType)
+        ColumnarCodePlanExecutor.Execute(ctorPlan, ctorIl)
+
+        // The four async members, each realized from the planner's own plan against the unbaked
+        // builder handles — the same discipline as the C# emit host.
+        methodBuilderType := AsyncProbeRuntimeType("System.Reflection.Emit.MethodBuilder")
+        defineMethodTypes := new Type[](4)
+        defineMethodTypes[0] = typeof(string)
+        defineMethodTypes[1] = AsyncProbeRuntimeType("System.Reflection.MethodAttributes")
+        defineMethodTypes[2] = typeof(Type)
+        defineMethodTypes[3] = typeof(Type[])
+        defineMethodMethod := AsyncProbeMethod(typeBuilderType, "DefineMethod", defineMethodTypes)
+        methodIlMethod := AsyncProbeMethod(methodBuilderType, "GetILGenerator", new Type[](0))
+        publicMethodAttribute := AsyncProbeEnumValue("System.Reflection.MethodAttributes", "Public")
+        noParameterTypes := new Type[](0)
+
+        coreBox := AsyncProbeDefineMethod(
+            defineMethodMethod, typeBuilderBox, "MoveNextCore", publicMethodAttribute, voidType, noParameterTypes)
+        context := new ColumnarIteratorEmitContext(
+            probe.Nodes, probe.Source, probe.BodyRoot, shape, typeBuilder, typeof(int),
+            shape.FieldNames, fieldBuilders, (ConstructorInfo)ctorBuilder,
+            null, null, null, null, null, null, null, null, (MethodInfo)coreBox)
+
+        coreIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, coreBox, new object[](0))
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context), coreIl)
+
+        valueTaskOfBool := AsyncProbeValueTaskOfBoolType()
+        moveNextAsyncBox := AsyncProbeDefineMethod(
+            defineMethodMethod, typeBuilderBox, "MoveNextAsync", publicMethodAttribute, valueTaskOfBool, noParameterTypes)
+        moveNextAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, moveNextAsyncBox, new object[](0))
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsyncIl)
+
+        disposeAsyncBox := AsyncProbeDefineMethod(
+            defineMethodMethod, typeBuilderBox, "DisposeAsync", publicMethodAttribute,
+            AsyncProbeRuntimeType("System.Threading.Tasks.ValueTask"), noParameterTypes)
+        disposeAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, disposeAsyncBox, new object[](0))
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsyncIl)
+
+        // The probe's clone view is parameterless and object-typed: the plan ignores the token and the
+        // probe type does not implement the async interfaces the real host declares.
+        cloneBox := AsyncProbeDefineMethod(
+            defineMethodMethod, typeBuilderBox, "GetAsyncEnumerator", publicMethodAttribute, typeof(object), noParameterTypes)
+        cloneIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, cloneBox, new object[](0))
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), cloneIl)
+
+        createTypeMethod := AsyncProbeMethod(typeBuilderType, "CreateType", new Type[](0))
+        bakedBox := AsyncProbeInvoke(createTypeMethod, typeBuilderBox, new object[](0))
+        MachineType = (Type)bakedBox
+        Fields = new FieldInfo[](shape.FieldCount)
+        i = 0
+        while i < shape.FieldCount {
+            field := MachineType.GetField(shape.FieldNames[i])
+            if field == null {
+                throw new InvalidOperationException("Async probe machine lost field '" + shape.FieldNames[i] + "'.")
+            }
+            Fields[i] = field
+            i = i + 1
+        }
+        bakedConstructor := MachineType.GetConstructor(ctorTypes)
+        if bakedConstructor == null {
+            throw new InvalidOperationException("Async probe machine lost its (int) constructor.")
+        }
+        StateConstructor = bakedConstructor
+    }
+
+    public func FieldNamed(name: string): FieldInfo {
+        i := 0
+        while i < Shape.FieldNames.Length {
+            if Shape.FieldNames[i] == name {
+                return Fields[i]
+            }
+            i = i + 1
+        }
+        throw new InvalidOperationException("Async probe machine has no field named '" + name + "'.")
+    }
+
+    // Construct a machine at the given state and wire the re-drive continuation to its own
+    // MoveNextCore — the exact Action the real host ctor creates with ldftn.
+    public func NewMachine(initialState: int): object {
+        args := new object[](1)
+        IteratorSetObject(args, 0, initialState)
+        machine := StateConstructor.Invoke(args)
+        actionType := AsyncProbeRuntimeType("System.Action")
+        createDelegateTypes := new Type[](3)
+        createDelegateTypes[0] = typeof(Type)
+        createDelegateTypes[1] = typeof(object)
+        createDelegateTypes[2] = typeof(string)
+        createDelegateMethod := AsyncProbeMethod(AsyncProbeRuntimeType("System.Delegate"), "CreateDelegate", createDelegateTypes)
+        createDelegateArgs := new object[](3)
+        IteratorSetObject(createDelegateArgs, 0, actionType)
+        IteratorSetObject(createDelegateArgs, 1, machine)
+        IteratorSetObject(createDelegateArgs, 2, "MoveNextCore")
+        target: object? = null
+        continuation := AsyncProbeInvoke(createDelegateMethod, target, createDelegateArgs)
+        WriteField(machine, "<>__continuation", continuation)
+        return machine
+    }
+
+    public func ReadInt(machine: object, name: string): int {
+        return Convert.ToInt32(FieldNamed(name).GetValue(machine))
+    }
+
+    public func ReadBool(machine: object, name: string): bool {
+        return Convert.ToBoolean(FieldNamed(name).GetValue(machine))
+    }
+
+    public func ReadField(machine: object, name: string): object? {
+        return FieldNamed(name).GetValue(machine)
+    }
+
+    public func WriteField(machine: object, name: string, value: object) {
+        FieldNamed(name).SetValue(machine, value)
+    }
+
+    // Invoke a value-returning probe member (MoveNextAsync/DisposeAsync/GetAsyncEnumerator).
+    public func InvokeMember(machine: object, name: string): object {
+        method := MachineType.GetMethod(name)
+        if method == null {
+            throw new InvalidOperationException("Async probe machine has no member named '" + name + "'.")
+        }
+        return AsyncProbeInvoke(method, machine, new object[](0))
+    }
+
+    public func InvokeVoidMember(machine: object, name: string) {
+        method := MachineType.GetMethod(name)
+        if method == null {
+            throw new InvalidOperationException("Async probe machine has no member named '" + name + "'.")
+        }
+        args := new object[](0)
+        method.Invoke(machine, args)
+    }
+}
+
+func AsyncProbeDefineMethod(
+    defineMethodMethod: MethodInfo,
+    typeBuilderBox: object,
+    name: string,
+    attribute: object,
+    returnType: Type,
+    parameterTypes: Type[]): object {
+    args := new object[](4)
+    IteratorSetObject(args, 0, name)
+    IteratorSetObject(args, 1, attribute)
+    IteratorSetObject(args, 2, returnType)
+    IteratorSetObject(args, 3, parameterTypes)
+    return AsyncProbeInvoke(defineMethodMethod, typeBuilderBox, args)
+}
+
+func AsyncProbeValueTaskOfBoolType(): Type {
+    boolArgs := new Type[](1)
+    boolArgs[0] = typeof(bool)
+    return AsyncProbeRuntimeType("System.Threading.Tasks.ValueTask`1").MakeGenericType(boolArgs)
+}
+
+// Read a completed ValueTask<bool>'s outcome (or a ValueTask's completion flag) through reflection —
+// the boxed struct's getters are the only modeled surface for the probe's return values.
+func AsyncProbeValueTaskGetter(valueTaskBox: object, getterName: string): bool {
+    method := valueTaskBox.GetType().GetMethod(getterName)
+    if method == null {
+        throw new InvalidOperationException("ValueTask getter '" + getterName + "' was not found.")
+    }
+    return Convert.ToBoolean(AsyncProbeInvoke(method, valueTaskBox, new object[](0)))
+}
+
+// Convert a pending ValueTask<bool> to its Task<bool>, wait for it (bounded), and return its result.
+func AsyncProbeAwaitValueTask(valueTaskBox: object, timeoutMilliseconds: int): bool {
+    asTaskMethod := valueTaskBox.GetType().GetMethod("AsTask")
+    if asTaskMethod == null {
+        throw new InvalidOperationException("ValueTask<bool>.AsTask was not found.")
+    }
+    taskBox := AsyncProbeInvoke(asTaskMethod, valueTaskBox, new object[](0))
+    waitTypes := new Type[](1)
+    waitTypes[0] = typeof(int)
+    waitMethod := AsyncProbeMethod(taskBox.GetType(), "Wait", waitTypes)
+    waitArgs := new object[](1)
+    IteratorSetObject(waitArgs, 0, timeoutMilliseconds)
+    if !Convert.ToBoolean(AsyncProbeInvoke(waitMethod, taskBox, waitArgs)) {
+        throw new InvalidOperationException("The pending ValueTask<bool> did not complete in time.")
+    }
+    resultMethod := AsyncProbeMethod(taskBox.GetType(), "get_Result", new Type[](0))
+    return Convert.ToBoolean(AsyncProbeInvoke(resultMethod, taskBox, new object[](0)))
+}
+
+func AsyncProbeFieldRuntimeType(shape: ColumnarIteratorShape, index: int): Type {
+    role := shape.FieldRoles[index]
+    if role == ColumnarIteratorPlanner.AwaiterFieldRole() {
+        return AsyncProbeRuntimeType("System.Runtime.CompilerServices.TaskAwaiter")
+    }
+    if role == ColumnarIteratorPlanner.PromiseFieldRole() {
+        boolArgs := new Type[](1)
+        boolArgs[0] = typeof(bool)
+        return AsyncProbeRuntimeType("System.Threading.Tasks.TaskCompletionSource`1").MakeGenericType(boolArgs)
+    }
+    if role == ColumnarIteratorPlanner.ContinuationFieldRole() {
+        return AsyncProbeRuntimeType("System.Action")
+    }
+    if role == ColumnarIteratorPlanner.ResultFieldRole() {
+        return typeof(bool)
+    }
+    canonical := shape.FieldCanonicals[index]
+    if canonical == "int" {
+        return typeof(int)
+    }
+    if canonical == "bool" {
+        return typeof(bool)
+    }
+    if canonical == "string" {
+        return typeof(string)
+    }
+    throw new InvalidOperationException("Async probe machine has no runtime type for '" + canonical + "'.")
+}
+
+func AsyncProbeRuntimeType(name: string): Type {
+    resolved := Type.GetType(name)
+    if resolved == null {
+        throw new InvalidOperationException(name + " was not found.")
+    }
+    return resolved
+}
+
+func AsyncProbeMethod(owner: Type, name: string, parameterTypes: Type[]): MethodInfo {
+    method := owner.GetMethod(name, parameterTypes)
+    if method == null {
+        throw new InvalidOperationException(owner.FullName + "." + name + " was not found.")
+    }
+    return method
+}
+
+func AsyncProbeInvoke(method: MethodInfo, receiver: object?, args: object[]): object {
+    result := method.Invoke(receiver, args)
+    if result == null {
+        throw new InvalidOperationException("An async probe reflection call unexpectedly returned null.")
+    }
+    return result
+}
+
+// A boxed enum constant read from its static field, so reflective Invoke sees the exact enum type.
+func AsyncProbeEnumValue(enumTypeName: string, memberName: string): object {
+    enumType := AsyncProbeRuntimeType(enumTypeName)
+    field := enumType.GetField(memberName)
+    if field == null {
+        throw new InvalidOperationException(enumTypeName + "." + memberName + " was not found.")
+    }
+    target: object? = null
+    value := field.GetValue(target)
+    if value == null {
+        throw new InvalidOperationException(enumTypeName + "." + memberName + " read as null.")
+    }
+    return value
+}
 
 // A plain class whose public fields stand in for a synthesized state machine's fields, so a contract can
 // execute the planner's MoveNext/get_Current plans onto DynamicMethods and run a real iterator without the
@@ -1129,7 +1488,7 @@ test "iterator planner classifies member-call for..in sources" {
 
 test "async iterator planner classifies element type with await and yield resume counts" {
     probe := new ColumnarIteratorShapeProbe(
-        "async func* Numbers(): IAsyncEnumerable<int> { await Delay()\n yield 1 }",
+        "async func* Numbers(): IAsyncEnumerable<int> { await Task.Delay(1)\n yield 1 }",
         "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
 
     assert probe.Shape.Supported
@@ -1141,7 +1500,7 @@ test "async iterator planner classifies element type with await and yield resume
 
 test "async iterator planner counts each await as a distinct resume state" {
     probe := new ColumnarIteratorShapeProbe(
-        "async func* Multi(): IAsyncEnumerable<int> { await A()\n yield 1\n await B()\n yield 2\n await C() }",
+        "async func* Multi(): IAsyncEnumerable<int> { await Task.Delay(1)\n yield 1\n await Task.Delay(2)\n yield 2\n await Task.Delay(3) }",
         "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
 
     assert probe.Shape.Supported
@@ -1164,7 +1523,7 @@ test "async iterator planner classifies a yield-only body with zero awaits" {
 
 test "async iterator planner counts awaits inside a while loop body" {
     probe := new ColumnarIteratorShapeProbe(
-        "async func* Loop(): IAsyncEnumerable<int> { i := 0\n while i < 3 { await Delay()\n yield i } }",
+        "async func* Loop(): IAsyncEnumerable<int> { i := 0\n while i < 3 { await Task.Delay(5)\n yield i } }",
         "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
 
     assert probe.Shape.Supported
@@ -1198,4 +1557,261 @@ test "synchronous iterator planner rejects an await expression" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+}
+
+// ---- async state-machine shape facts (task-014 stage 3) ----
+
+test "async iterator planner lays out awaiter, promise, result, and continuation fields" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Numbers(n: int): IAsyncEnumerable<int> { i := 0\n while i < n { await Task.Delay(1)\n yield i\n i = i + 1 } }",
+        "IAsyncEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.FieldCount == 8
+    assert probe.Shape.FieldNames[0] == "<>__state"
+    assert probe.Shape.FieldNames[1] == "<>__current"
+    assert probe.Shape.FieldNames[2] == "n"
+    assert probe.Shape.FieldRoles[2] == ColumnarIteratorPlanner.CapturedParameterFieldRole()
+    assert probe.Shape.FieldNames[3] == "i"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
+    assert probe.Shape.FieldNames[4] == "<>__awaiter0"
+    assert probe.Shape.FieldRoles[4] == ColumnarIteratorPlanner.AwaiterFieldRole()
+    assert probe.Shape.FieldCanonicals[4] == "TaskAwaiter"
+    assert probe.Shape.FieldNames[5] == "<>__promise"
+    assert probe.Shape.FieldRoles[5] == ColumnarIteratorPlanner.PromiseFieldRole()
+    assert probe.Shape.FieldCanonicals[5] == "TaskCompletionSource<bool>"
+    assert probe.Shape.FieldNames[6] == "<>__result"
+    assert probe.Shape.FieldRoles[6] == ColumnarIteratorPlanner.ResultFieldRole()
+    assert probe.Shape.FieldNames[7] == "<>__continuation"
+    assert probe.Shape.FieldRoles[7] == ColumnarIteratorPlanner.ContinuationFieldRole()
+    assert probe.Shape.FieldCanonicals[7] == "Action"
+}
+
+test "async iterator planner exposes the six async member and override specs" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Just(): IAsyncEnumerable<int> { yield 7 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert probe.Shape.MemberCount == 6
+    assert probe.Shape.MemberNames[0] == ".ctor"
+    assert probe.Shape.MemberSignatures[0] == "(int):void"
+    assert probe.Shape.MemberNames[1] == "MoveNextCore"
+    assert probe.Shape.MemberOverrides[1] == ""
+    assert probe.Shape.MemberNames[2] == "MoveNextAsync"
+    assert probe.Shape.MemberSignatures[2] == "():ValueTask<bool>"
+    assert probe.Shape.MemberOverrides[2] == "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync"
+    assert probe.Shape.MemberNames[3] == "get_Current"
+    assert probe.Shape.MemberSignatures[3] == "():int"
+    assert probe.Shape.MemberNames[4] == "DisposeAsync"
+    assert probe.Shape.MemberSignatures[4] == "():ValueTask"
+    assert probe.Shape.MemberOverrides[4] == "System.IAsyncDisposable.DisposeAsync"
+    assert probe.Shape.MemberNames[5] == "GetAsyncEnumerator"
+    assert probe.Shape.MemberSignatures[5] == "(CancellationToken):IAsyncEnumerator<int>"
+    assert probe.Shape.MemberOverrides[5] == "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator"
+}
+
+test "async iterator planner declines a generic async iterator" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Repeat(): IAsyncEnumerable<T> { yield break }",
+        "IAsyncEnumerable<T>", IteratorNoStrings(), IteratorNoStrings(), IteratorOne("T"), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
+}
+
+test "async iterator planner declines a non-Task-Delay awaited operand" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Bad(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+}
+
+test "async iterator planner declines an await in a value position" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Bad(): IAsyncEnumerable<int> { x := await Task.Delay(1)\n yield 1 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+}
+
+test "async iterator planner declines a non-int Task.Delay argument" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Bad(): IAsyncEnumerable<int> { await Task.Delay(true)\n yield 1 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+}
+
+test "async iterator planner declines for..in over a sequence source" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Bad(items: IEnumerable<int>): IAsyncEnumerable<int> { for x in items { yield x } }",
+        "IAsyncEnumerable<int>", IteratorOne("items"), IteratorOne("IEnumerable<int>"), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
+}
+
+test "async iterator planner declines await foreach inside an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Bad(xs: IAsyncEnumerable<int>): IAsyncEnumerable<int> { await foreach x in xs { yield x } }",
+        "IAsyncEnumerable<int>", IteratorOne("xs"), IteratorOne("IAsyncEnumerable<int>"), IteratorNoStrings(), false, true)
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+}
+
+// ---- async state-machine executed proofs (plans realized onto a reflective probe host) ----
+
+test "async iterator planner core plan completes a fast-path await and yield synchronously" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Fast(): IAsyncEnumerable<int> { await Task.Delay(0)\n yield 7 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.AwaitResumeCount == 1
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeFastCore")
+    machine := host.NewMachine(0)
+    host.InvokeVoidMember(machine, "MoveNextCore")
+    // Task.Delay(0) is complete at the awaiter check: the drive never suspends. The await is resume
+    // state 1 and the yield resume state 2 (one shared counter, body walk order).
+    assert host.ReadInt(machine, "<>__state") == 2
+    assert host.ReadInt(machine, "<>__current") == 7
+    assert host.ReadBool(machine, "<>__result")
+    assert host.ReadField(machine, "<>__promise") == null
+
+    host.InvokeVoidMember(machine, "MoveNextCore")
+    assert host.ReadInt(machine, "<>__state") == -2
+    assert !host.ReadBool(machine, "<>__result")
+}
+
+test "async iterator machine suspends on a real delay and resumes through the continuation" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Slow(): IAsyncEnumerable<int> { await Task.Delay(200)\n yield 42 }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+    assert probe.Shape.Supported
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeSlow")
+    machine := host.NewMachine(0)
+    pending := host.InvokeMember(machine, "MoveNextAsync")
+    // The 200ms delay cannot be complete at the awaiter check, so the drive suspended: the promise is
+    // live and the returned ValueTask<bool> is Task-backed. Await it — the completed Task.Delay fires
+    // the registered continuation, MoveNextCore re-drives, and the yield completes the promise.
+    assert host.ReadField(machine, "<>__promise") != null
+    assert AsyncProbeAwaitValueTask(pending, 20000)
+    assert host.ReadInt(machine, "<>__current") == 42
+    assert host.ReadInt(machine, "<>__state") == 2
+
+    second := host.InvokeMember(machine, "MoveNextAsync")
+    assert AsyncProbeValueTaskGetter(second, "get_IsCompleted")
+    assert !AsyncProbeAwaitValueTask(second, 20000)
+    assert host.ReadInt(machine, "<>__state") == -2
+
+    afterDone := host.InvokeMember(machine, "MoveNextAsync")
+    assert AsyncProbeValueTaskGetter(afterDone, "get_IsCompleted")
+    assert !AsyncProbeAwaitValueTask(afterDone, 20000)
+}
+
+test "async iterator machine routes a synchronous body exception to the caller" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Boom(): IAsyncEnumerable<int> { await Task.Delay(0)\n throw new InvalidOperationException(\"boom\") }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+    assert probe.Shape.Supported
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeBoom")
+    machine := host.NewMachine(0)
+    found := false
+    try {
+        host.InvokeMember(machine, "MoveNextAsync")
+    } catch ex: Exception {
+        cursorBox: object? = ex
+        depth := 0
+        while cursorBox != null && depth < 5 {
+            if cursorBox.GetType() == typeof(InvalidOperationException) {
+                found = true
+            }
+            cursorException := (Exception)cursorBox
+            cursorBox = cursorException.get_InnerException()
+            depth = depth + 1
+        }
+    }
+    assert found
+    assert host.ReadInt(machine, "<>__state") == -2
+}
+
+test "async iterator machine routes a post-suspension exception through the promise" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* LateBoom(): IAsyncEnumerable<int> { await Task.Delay(200)\n throw new InvalidOperationException(\"late\") }",
+        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+    assert probe.Shape.Supported
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeLateBoom")
+    machine := host.NewMachine(0)
+    pending := host.InvokeMember(machine, "MoveNextAsync")
+    assert host.ReadField(machine, "<>__promise") != null
+    found := false
+    try {
+        AsyncProbeAwaitValueTask(pending, 20000)
+    } catch ex: Exception {
+        cursorBox: object? = ex
+        depth := 0
+        while cursorBox != null && depth < 6 {
+            if cursorBox.GetType() == typeof(InvalidOperationException) {
+                found = true
+            }
+            cursorException := (Exception)cursorBox
+            cursorBox = cursorException.get_InnerException()
+            depth = depth + 1
+        }
+    }
+    assert found
+    assert host.ReadInt(machine, "<>__state") == -2
+}
+
+test "async iterator machine clone, dispose, and factory keep the sync machine discipline" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Capture(n: int): IAsyncEnumerable<int> { await Task.Delay(0)\n yield n }",
+        "IAsyncEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, true)
+    assert probe.Shape.Supported
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeCapture")
+    machine := host.NewMachine(0)
+    host.WriteField(machine, "n", 9)
+    first := host.InvokeMember(machine, "MoveNextAsync")
+    assert AsyncProbeValueTaskGetter(first, "get_IsCompleted")
+    assert AsyncProbeAwaitValueTask(first, 20000)
+    assert host.ReadInt(machine, "<>__current") == 9
+
+    // Clone semantics: a FRESH machine at the initial state with captured parameters copied.
+    clone := host.InvokeMember(machine, "GetAsyncEnumerator")
+    assert !Object.ReferenceEquals(machine, clone)
+    assert host.ReadInt(clone, "<>__state") == 0
+    assert host.ReadInt(clone, "n") == 9
+    assert host.ReadInt(clone, "<>__current") == 0
+
+    disposed := host.InvokeMember(machine, "DisposeAsync")
+    assert AsyncProbeValueTaskGetter(disposed, "get_IsCompleted")
+    assert host.ReadInt(machine, "<>__state") == -2
+    afterDispose := host.InvokeMember(machine, "MoveNextAsync")
+    assert !AsyncProbeAwaitValueTask(afterDispose, 20000)
+
+    // The async factory constructs the machine at the initial state from the method arguments.
+    factoryContext := new ColumnarIteratorEmitContext(
+        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, host.MachineType, typeof(int),
+        probe.Shape.FieldNames, host.Fields, host.StateConstructor)
+    factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(factoryContext)
+    factory := MakeIteratorDynamicMethod("AsyncFactory", typeof(object), typeof(int))
+    ColumnarCodePlanExecutor.Execute(factoryPlan, factory.GetILGenerator())
+    factoryArgs := new object[](1)
+    IteratorSetObject(factoryArgs, 0, 5)
+    target: object? = null
+    made := factory.Invoke(target, factoryArgs)
+    assert made != null
+    assert host.ReadInt(made, "<>__state") == 0
+    assert host.ReadInt(made, "n") == 5
 }

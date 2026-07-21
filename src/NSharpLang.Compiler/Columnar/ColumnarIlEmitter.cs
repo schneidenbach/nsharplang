@@ -17,21 +17,9 @@ using YamlParser = YamlDotNet.Core.IParser;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
-/// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
-/// drive IL emission END-TO-END with no object AST: for a single trivial function it emits a real .NET assembly
-/// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
-/// returns the assembly bytes so a caller can load + invoke it. This is the de-risking spike for Stage 4 — the
-    /// emit primitives (<c>ldarg</c> / <c>ldc.i4</c> / arithmetic / <c>ret</c>) are exactly what the full columnar
-    /// codegen emits as the supported surface grows.
-///
-/// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
-/// conversions this spike does not emit). Statements: <c>:=</c> int locals, a simple <c>local = expr</c>
-/// assignment, Return (value required), an <c>if</c>/<c>else</c> where BOTH branches always return (no
-/// fall-through), and a <c>while</c> loop whose body does not always return. Value expressions: a parameter, a
-/// <c>:=</c> local, an int literal, a parenthesized expr, an int unary <c>-</c>/<c>~</c>, or an int +/-/* binary.
-/// <c>if</c> conditions are an
-/// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
-/// → the N# backend path is unaffected).
+/// COLUMNAR PIPELINE IL emit host (docs/design/roadmap-to-done.md): emits real .NET assemblies DIRECTLY from
+/// the columnar statement/expression tables with no object AST. Grown from the original stage-4 spike into the
+/// production columnar backend; unsupported shapes return false (a precise decline — never a silent fallback).
 /// </summary>
 internal sealed class ColumnarIlEmitter
 {
@@ -804,16 +792,15 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // True when a type carries a Reflection.Emit builder-shaped type anywhere in its shape: a TypeBuilder/EnumBuilder/
-    // generic type parameter itself, an array over one, or a generic instantiation any of whose arguments
-    // does (List<Pt>, Dictionary<string,T>, KeyValuePair<string,Pt>, IEnumerable<Pt>, ...). Plain
-    // reflection member lookups (GetMethod/GetProperty/GetConstructor/GetField) throw NotSupportedException
-    // on such closed instantiations — members must REBIND from the open runtime definition. NOTE (spike-
-    // proven): neither `Module is ModuleBuilder` nor `Assembly is AssemblyBuilder` nor
-    // ContainsGenericParameters detects these — a BCL-headed TypeBuilderInstantiation reports the OPEN
-    // definition's CoreLib module/assembly, and ContainsGenericParameters is false even over an open T.
-    // Baked Reflection.Emit enums still surface as TypeBuilderImpl, so they stay builder-bound for member-token
-    // rebind purposes even though they are admissible as enum keys/elements.
+    // True when a type carries a Reflection.Emit builder-shaped type anywhere in its shape: a TypeBuilder/
+    // EnumBuilder/generic type parameter itself, an array over one, or a generic instantiation any of whose
+    // arguments does (List<Pt>, Dictionary<string,T>, IEnumerable<Pt>, ...). Plain reflection member lookups
+    // (GetMethod/GetProperty/GetConstructor/GetField) throw NotSupportedException on such closed
+    // instantiations — members must REBIND from the open runtime definition. NOTE (spike-proven): neither
+    // `Module is ModuleBuilder` nor `Assembly is AssemblyBuilder` nor ContainsGenericParameters detects these
+    // — a BCL-headed TypeBuilderInstantiation reports the OPEN definition's CoreLib module/assembly, and
+    // ContainsGenericParameters is false even over an open T. Baked Reflection.Emit enums still surface as
+    // TypeBuilderImpl, so they stay builder-bound for member-token rebinds though admissible as enum keys.
     private static bool ContainsBuilderBoundType(Type t)
     {
         if (t is TypeBuilder || t is EnumBuilder || t.IsGenericParameter)
@@ -4113,14 +4100,12 @@ internal sealed class ColumnarIlEmitter
         return type != null;
     }
 
-    // Sub-slice 3b-ii HOST: mechanically realize the N# iterator planner's synchronous `func*` state
-    // machine. Every structural decision — decline classification, element type, field layout, state
-    // numbering, member/override identities — is a ColumnarIteratorShape fact from the N# planner, and
-    // every member body is a planner-built schema-4 code plan replayed by ColumnarCodePlanExecutor. This
-    // host only defines the CLR shells (DefineType/DefineField/DefineMethod/DefineMethodOverride), emits
-    // the spec'd `(int):void` ctor (chain object ctor, store the initial state), and executes the plans;
-    // the original function body becomes the planner's factory plan. The machine registers with the
-    // synthesized-type list so it bakes before the Program type, exactly like closure display classes.
+    // Sub-slice 3b-ii HOST: mechanically realize the N# planner's synchronous `func*` state machine. Every
+    // structural decision (declines, element type, field layout, state numbering, member/override identities)
+    // is a ColumnarIteratorShape fact; every member body a planner-built schema-4 plan replayed by
+    // ColumnarCodePlanExecutor. This host only defines CLR shells, emits the spec'd `(int):void` ctor, and
+    // executes the plans; the original function body becomes the factory plan. The machine registers with
+    // the synthesized-type list so it bakes before the Program type (closure display-class discipline).
     private static bool TryEmitIteratorStateMachine(
         ModuleBuilder module,
         ColumnarFunctionInput fn,
@@ -4297,6 +4282,110 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
+    // ASYNC iterator HOST (task-014): realize the N# planner's `async func*` machine with the sync host's
+    // discipline — every structural decision is a planner fact, every member body a planner schema-4 plan.
+    // The ctor stores the initial state and creates the re-drive Action (`ldftn MoveNextCore`).
+    private static bool TryEmitAsyncIteratorStateMachine(
+        ModuleBuilder module,
+        ColumnarFunctionInput fn,
+        int funcOrdinal,
+        string functionSource,
+        ColumnarSemanticTypeResolution typeResolution,
+        ILGenerator factoryIl,
+        List<TypeBuilder> synthesizedTypes)
+    {
+        var shape = ColumnarIteratorPlanner.AnalyzeShape(
+            fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
+            fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false, isAsync: true);
+        if (!shape.Supported)
+            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
+        if (!TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType) || !IsSupportedType(elementType))
+            return DeclineStatic(
+                "emit.iterator.element-type",
+                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
+                fn.Name);
+
+        var sm = module.DefineType(
+            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+        var asyncEnumerable = typeof(IAsyncEnumerable<>).MakeGenericType(elementType);
+        var asyncEnumerator = typeof(IAsyncEnumerator<>).MakeGenericType(elementType);
+        sm.AddInterfaceImplementation(asyncEnumerable);
+        sm.AddInterfaceImplementation(asyncEnumerator);
+        sm.AddInterfaceImplementation(typeof(IAsyncDisposable));
+
+        var fields = new FieldInfo[shape.FieldCount];
+        FieldInfo? continuationField = null;
+        for (var i = 0; i < shape.FieldCount; i++)
+        {
+            Type fieldType;
+            var role = shape.FieldRoles[i];
+            if (role == ColumnarIteratorPlanner.AwaiterFieldRole())
+                fieldType = typeof(System.Runtime.CompilerServices.TaskAwaiter);
+            else if (role == ColumnarIteratorPlanner.PromiseFieldRole())
+                fieldType = typeof(System.Threading.Tasks.TaskCompletionSource<bool>);
+            else if (role == ColumnarIteratorPlanner.ResultFieldRole())
+                fieldType = typeof(bool);
+            else if (role == ColumnarIteratorPlanner.ContinuationFieldRole())
+                fieldType = typeof(Action);
+            else if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType) || !IsSupportedType(fieldType))
+                return DeclineStatic(
+                    "emit.iterator.field-type",
+                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
+                    fn.Name);
+            fields[i] = sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public);
+            if (role == ColumnarIteratorPlanner.ContinuationFieldRole())
+                continuationField = fields[i];
+        }
+
+        var core = sm.DefineMethod(shape.MemberNames[1], MethodAttributes.Public | MethodAttributes.HideBySig, typeof(void), Type.EmptyTypes);
+        var ctor = sm.DefineConstructor(
+            MethodAttributes.Public | MethodAttributes.HideBySig, CallingConventions.Standard, new[] { typeof(int) });
+        var ctorIl = ctor.GetILGenerator();
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldarg_1);
+        ctorIl.Emit(OpCodes.Stfld, fields[0]);
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldftn, core);
+        ctorIl.Emit(OpCodes.Newobj, typeof(Action).GetConstructor(new[] { typeof(object), typeof(IntPtr) })!);
+        ctorIl.Emit(OpCodes.Stfld, continuationField!);
+        ctorIl.Emit(OpCodes.Ret);
+
+        var context = new ColumnarIteratorEmitContext(
+            fn.BodyNodes, functionSource, fn.BodyRoot, shape, sm, elementType, shape.FieldNames, fields, ctor,
+            null, null, null, null, null, null, null, null, core);
+        const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
+            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context), core.GetILGenerator());
+
+        var moveNextAsync = sm.DefineMethod(
+            shape.MemberNames[2], publicImpl, typeof(System.Threading.Tasks.ValueTask<bool>), Type.EmptyTypes);
+        sm.DefineMethodOverride(moveNextAsync, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetMethod("MoveNextAsync")!));
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsync.GetILGenerator());
+
+        var getCurrent = sm.DefineMethod(
+            shape.MemberNames[3], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
+        sm.DefineMethodOverride(getCurrent, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetProperty("Current")!.GetGetMethod()!));
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
+
+        var disposeAsync = sm.DefineMethod(
+            shape.MemberNames[4], publicImpl, typeof(System.Threading.Tasks.ValueTask), Type.EmptyTypes);
+        sm.DefineMethodOverride(disposeAsync, typeof(IAsyncDisposable).GetMethod("DisposeAsync")!);
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsync.GetILGenerator());
+
+        var getAsyncEnumerator = sm.DefineMethod(
+            shape.MemberNames[5], publicImpl, asyncEnumerator, new[] { typeof(System.Threading.CancellationToken) });
+        sm.DefineMethodOverride(getAsyncEnumerator, ResolveClosedGenericMethod(asyncEnumerable, typeof(IAsyncEnumerable<>).GetMethod("GetAsyncEnumerator")!));
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), getAsyncEnumerator.GetILGenerator());
+
+        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context), factoryIl);
+        synthesizedTypes.Add(sm);
+        return true;
+    }
+
     // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
     // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
     // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
@@ -4313,6 +4402,8 @@ internal sealed class ColumnarIlEmitter
         int[] ordinalCounter)
     {
         var memberLabel = structDef.Builder.Name + "." + method.Name;
+        if (method.IsAsync)
+            return DeclineStatic("emit.iterator.async-unsupported", "async member iterator methods are not yet lowered", memberLabel);
         if (isStatic)
             return TryEmitIteratorStateMachine(
                 module, method, ordinalCounter[0]++, methodSource, typeResolution,
@@ -4834,16 +4925,12 @@ internal sealed class ColumnarIlEmitter
             structDepths[s] = depth;
         }
 
-        // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's methods (a second
-        // pass so a method's return type may reference any struct). INSTANCE methods: scalar/struct-returning, with
-        // or without parameters; `this` is arg 0, so user param ordinals shift by +1 (void instance methods decline
-        // — a later slice). STATIC methods (`static func`): declared with MethodAttributes.Static, NO implicit
-        // `this` (ordinals unshifted), void allowed (the body emits exactly like a top-level procedure), and
-        // OVERLOADS by distinct PARAM COUNT (same-name/same-arity static overload sets are parser declines because
-        // columnar static-call resolution is arity-based).
-        // The N# struct parser wrapper rejects method names that collide with fields, duplicate instance method
-        // names, and static/instance method name collisions before rows reach this pass. The builders + param types
-        // are stored for call resolution; bodies are emitted in PASS 2.
+        // PASS 0b (struct methods): with all struct TYPES defined, DECLARE each struct's methods (second pass so
+        // returns may reference any struct). INSTANCE methods: `this` = arg 0, user param ordinals shift +1 (void
+        // instance methods decline — later slice). STATIC methods: MethodAttributes.Static, unshifted ordinals,
+        // void allowed, OVERLOADS by distinct PARAM COUNT only (same-arity sets are parser declines; columnar
+        // static-call resolution is arity-based). The N# struct parser wrapper rejects field/method and
+        // static/instance name collisions before this pass. Builders + param types stored; bodies emit in PASS 2.
         var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Type BodyReturnType, Type? AsyncReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes, bool IsStatic)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -5375,20 +5462,14 @@ internal sealed class ColumnarIlEmitter
                 SynthesizeRecordCloneMember(def);
         }
 
-        // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
-        // case. The base has a protected (Family) parameterless ctor
-        // chaining to object::.ctor; each case has a public parameterless ctor chaining to the base ctor, plus a
-        // public field per case field. These trivial ctor bodies are emitted INLINE here (no user code), exactly as
-        // the de-risking spike proved. Case fields resolve via TryResolveType (enums/structs/earlier-unions in scope).
-        // Defined after structs so a case field may be an enum or struct; nested case types are finalized BEFORE their
-        // base (deepest-first — see the finalization block below).
-        //
-        // A GENERIC union (`union Opt<T>`) mirrors the legacy emitter's d1c41b6e machinery exactly (spike-proven): the base
-        // declares the parameters; every nested case REDECLARES them by the same names (CLR metadata does not
-        // inherit generic parameters into nested types) and SetParent()s to the base CLOSED over its own copies
-        // (Some<T> : Opt<T>); the case ctor's base-ctor call is REBOUND onto that instantiation via
-        // TypeBuilder.GetConstructor. Case fields may name the union's type parameters (`value: T` — the CASE's
-        // redeclared parameter, positionally identical to the base's).
+        // PASS 0 (unions): each user union = ABSTRACT base class (protected Family parameterless ctor chaining
+        // object::.ctor) + one SEALED nested case class per case (public parameterless ctor chaining base, public
+        // field per case field; trivial ctor bodies emitted INLINE). Case fields resolve via TryResolveType;
+        // defined after structs so case fields may be enums/structs; nested cases finalize BEFORE their base
+        // (deepest-first — see finalization below). A GENERIC union mirrors the legacy d1c41b6e machinery: the
+        // base declares the parameters, every case REDECLARES them by name (CLR metadata does not inherit generic
+        // parameters into nested types) and SetParent()s to the base CLOSED over its own copies (Some<T> : Opt<T>);
+        // the case ctor's base-ctor call REBINDS onto that instantiation via TypeBuilder.GetConstructor.
         for (var u = 0; u < unions.Count; u++)
         {
             var un = unions[u];
@@ -5693,26 +5774,22 @@ internal sealed class ColumnarIlEmitter
             Type? asyncWrappedReturn = null;
             if (fn.IsAsync && (fn.ModifierFlags & NSharpModifierGenerator) != 0)
             {
-                // `async func*` is an ASYNC ITERATOR (returns IAsyncEnumerable<T>), NOT an async function —
-                // its declared return is the async sequence itself, never a Task/ValueTask wrap. Classify it
-                // through the N# iterator planner so the decline is iterator-scoped and precise. The async
-                // state-machine emission (MoveNextAsync/DisposeAsync/GetAsyncEnumerator + await-resume
-                // states) is the next slice, so a classified async iterator declines at
-                // `emit.iterator.async-emit-pending`; an unsupported body shape declines at its walk site.
+                // `async func*` is an ASYNC ITERATOR: its declared return IS IAsyncEnumerable<element>, never
+                // a Task/ValueTask wrap; the body pass emits it via TryEmitAsyncIteratorStateMachine.
                 var asyncShape = ColumnarIteratorPlanner.AnalyzeShape(
                     fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
                     fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames,
                     isInstance: false, isAsync: true);
                 if (!asyncShape.Supported)
                     return DeclineStatic(asyncShape.DeclineSite, asyncShape.DeclineMessage, fn.Name);
-                return DeclineStatic(
-                    "emit.iterator.async-emit-pending",
-                    "async iterator '" + fn.Name + "' classified (element '" + asyncShape.ElementCanonical
-                        + "', " + asyncShape.YieldReturnCount + " yields, " + asyncShape.AwaitResumeCount
-                        + " awaits); async state-machine emission lands in the next slice",
-                    fn.Name);
+                if (!TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var asyncElement) || !IsSupportedType(asyncElement))
+                    return DeclineStatic(
+                        "emit.iterator.element-type",
+                        "iterator element type '" + asyncShape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
+                        fn.Name);
+                returnType = typeof(IAsyncEnumerable<>).MakeGenericType(asyncElement);
             }
-            if (fn.IsAsync)
+            else if (fn.IsAsync)
             {
                 // ASYNC (the sync-lowering mirror): generic async declines; the declared return
                 // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
@@ -5832,9 +5909,12 @@ internal sealed class ColumnarIlEmitter
                 ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId);
                 try
                 {
-                    if (!TryEmitIteratorStateMachine(
-                        module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses,
-                        siblings[fn.Name].TypeParams))
+                    if (fn.IsAsync
+                        ? !TryEmitAsyncIteratorStateMachine(
+                            module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses)
+                        : !TryEmitIteratorStateMachine(
+                            module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses,
+                            siblings[fn.Name].TypeParams))
                         return false;
                 }
                 finally
