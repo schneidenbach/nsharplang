@@ -2,7 +2,6 @@ namespace NSharpLang.Cli.Commands
 
 import NSharpLang.Compiler
 import System
-import System.Collections.Generic
 import System.IO
 import System.Text
 

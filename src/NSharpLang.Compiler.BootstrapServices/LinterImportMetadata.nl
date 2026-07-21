@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-
 public class LinterImportSpan {
     columnValue: int
     lengthValue: int

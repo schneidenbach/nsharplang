@@ -59,7 +59,7 @@ test "range handle owner rejects foreign generic definitions and null elements" 
     }
 
     assert throws InvalidOperationException {
-        rejected := new ColumnarRangeIndexHandles(
+        _rejected := new ColumnarRangeIndexHandles(
             handles.IndexConstructor,
             handles.IndexGetOffset,
             handles.RangeConstructor,

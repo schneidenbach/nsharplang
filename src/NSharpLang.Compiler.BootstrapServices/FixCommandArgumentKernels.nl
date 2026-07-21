@@ -1,6 +1,5 @@
 namespace NSharpLang.Cli.Commands
 
-import System
 import System.IO
 
 public class FixArgumentSummary {
