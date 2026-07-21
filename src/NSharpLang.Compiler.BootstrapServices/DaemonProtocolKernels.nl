@@ -1,7 +1,6 @@
 namespace NSharpLang.Cli.Daemon
 
 import System.Collections.Generic
-import System
 import System.IO
 import System.Text.Json
 

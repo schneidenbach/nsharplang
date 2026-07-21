@@ -1,7 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
 import NSharpLang.Compiler
-import System
 import System.Collections.Generic
 
 public class AddArgumentSummary {

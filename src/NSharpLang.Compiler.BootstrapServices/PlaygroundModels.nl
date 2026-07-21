@@ -1,6 +1,5 @@
 namespace NSharpLang.Playground
 
-import System
 import System.Collections.Generic
 
 public record PlaygroundCatalogResponse(

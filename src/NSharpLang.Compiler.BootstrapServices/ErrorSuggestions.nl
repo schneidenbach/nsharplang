@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-
 public class ErrorSuggestions {
     public static func GetSuggestion(
         code: ErrorCode,

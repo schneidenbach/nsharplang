@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
 
 public class DiagnosticCluster {

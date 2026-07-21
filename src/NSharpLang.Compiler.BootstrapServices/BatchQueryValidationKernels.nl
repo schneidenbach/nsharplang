@@ -1,7 +1,5 @@
 namespace NSharpLang.Cli
 
-import System
-
 public enum BatchQueryPayloadShapeKind {
     Invalid = 0,
     RootArray = 1,

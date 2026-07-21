@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Collections.Generic
 
 public class SymbolDeclaration {
