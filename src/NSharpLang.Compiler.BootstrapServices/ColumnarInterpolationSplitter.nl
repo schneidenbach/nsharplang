@@ -799,6 +799,67 @@ public class ColumnarInterpolationSplitter {
         return sawNumber && !expectNumber
     }
 
+    // Decompose a cast hole (`(int)priority`, `(int)task.Priority`, `(int)error.Code`) into its
+    // target-type NAME and operand TEXT — the split decision the C# emitter previously re-derived with
+    // its own ad-hoc string slicer. `text` is the already-trimmed hole body: a leading `(`, a first `)`
+    // that leaves a non-empty target and a non-empty operand, a trimmed target with no internal
+    // whitespace, and a trimmed non-empty operand are all required, so the C# cast tier resolves the
+    // target type, plans the operand chain, and emits the numeric conversion mechanically over these two
+    // strings. Any other shape returns false so the hole rides the equality/chain/parsed-expression path.
+    public static func TrySplitCast(text: string, out targetName: string, out operandText: string): bool {
+        targetName = ""
+        operandText = ""
+        length := text.Length
+        if length == 0 || text[0] != '(' {
+            return false
+        }
+
+        close := text.IndexOf(')')
+        if close <= 1 || close == length - 1 {
+            return false
+        }
+
+        targetName = text.Substring(1, close - 1).Trim()
+        operandText = text.Substring(close + 1).Trim()
+        if targetName.Length == 0 || operandText.Length == 0 {
+            return false
+        }
+
+        i := 0
+        targetLength := targetName.Length
+        while i < targetLength {
+            ch := targetName[i]
+            if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' {
+                return false
+            }
+
+            i = i + 1
+        }
+
+        return true
+    }
+
+    // Decompose an equality hole (`a == b`, `x != y`) into its left operand, operator, and right operand
+    // — the split decision the C# emitter previously re-derived. Exactly one top-level `==`/`!=` operator
+    // is required: ColumnarInterpolatedStringFindEqualityOperator returns -1 for none OR a second
+    // operator (both decline in the former C# splitter too), and both trimmed sides must be non-empty, so
+    // the C# equality tier resolves each side and the operand type mechanically. Any other shape returns
+    // false so the hole rides the chain/parsed-expression path unchanged.
+    public static func TrySplitEquality(text: string, out left: string, out op: string, out right: string): bool {
+        left = ""
+        op = ""
+        right = ""
+        found := ColumnarInterpolatedStringFindEqualityOperator(text, 0, text.Length)
+        if found < 0 {
+            return false
+        }
+
+        left = text.Substring(0, found).Trim()
+        op = text.Substring(found, 2)
+        right = text.Substring(found + 2).Trim()
+        return left.Length > 0 && right.Length > 0
+    }
+
     // Fold an integer-additive constant hole (`{1000 + 1000 - 500}`, `{42}`) to its Int32 VALUE — the
     // planning decision the C# emitter previously re-derived with its own ad-hoc string evaluator. Each
     // digit run must itself fit in Int32 and every +/- step must stay in Int32 range, mirroring the

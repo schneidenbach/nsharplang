@@ -20486,7 +20486,10 @@ internal sealed class ColumnarIlEmitter
     {
         plan = null!;
         text = text.Trim();
-        if (TrySplitInterpolationCast(text, out var castTargetName, out var castOperandText)
+        // The cast decomposition (target-type name + operand text) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitCast); this tier resolves the target type, plans the
+        // operand chain, and emits the numeric conversion mechanically over those two strings.
+        if (ColumnarInterpolationSplitter.TrySplitCast(text, out var castTargetName, out var castOperandText)
             && (TryResolveBuiltin(castTargetName, out var castTargetType)
                 || TryResolveBodyType(castTargetName, out castTargetType))
             && TryResolveInterpolationChainPlan(castOperandText, allowBuilderValue: true, out var castOperandPlan)
@@ -20501,7 +20504,10 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (TrySplitInterpolationEquality(text, out var equalityLeftText, out var equalityOperator, out var equalityRightText))
+        // The equality decomposition (left / operator / right) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitEquality); this tier resolves each side and the operand
+        // type mechanically over those three strings.
+        if (ColumnarInterpolationSplitter.TrySplitEquality(text, out var equalityLeftText, out var equalityOperator, out var equalityRightText))
         {
             if (!TryResolveInterpolationChainPlan(equalityLeftText, allowBuilderValue: true, out var equalityLeft)
                 || !TryResolveInterpolationChainPlan(equalityRightText, allowBuilderValue: true, out var equalityRight)
@@ -20907,22 +20913,6 @@ internal sealed class ColumnarIlEmitter
            && IsSupportedType(type)
            && (!ContainsBuilderBoundType(type) || IsKnownEnumType(type));
 
-    private bool TrySplitInterpolationCast(string text, out string targetName, out string operandText)
-    {
-        targetName = string.Empty;
-        operandText = string.Empty;
-        if (!text.StartsWith("(", StringComparison.Ordinal))
-            return false;
-        var close = text.IndexOf(')');
-        if (close <= 1 || close == text.Length - 1)
-            return false;
-        targetName = text.Substring(1, close - 1).Trim();
-        operandText = text.Substring(close + 1).Trim();
-        return targetName.Length > 0
-               && operandText.Length > 0
-               && targetName.IndexOfAny(new[] { ' ', '\t', '\r', '\n' }) < 0;
-    }
-
     private bool CanEmitInterpolationCast(Type sourceType, Type targetType)
     {
         if (TypesEquivalent(sourceType, targetType))
@@ -21315,33 +21305,6 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         return false;
-    }
-
-    private static bool TrySplitInterpolationEquality(string text, out string left, out string op, out string right)
-    {
-        left = "";
-        op = "";
-        right = "";
-        var found = -1;
-        for (var i = 0; i + 1 < text.Length; i++)
-        {
-            var ch = text[i];
-            var next = text[i + 1];
-            if ((ch == '=' && next == '=') || (ch == '!' && next == '='))
-            {
-                if (found >= 0)
-                    return false;
-                found = i;
-                i++;
-            }
-        }
-
-        if (found < 0)
-            return false;
-        left = text.Substring(0, found).Trim();
-        op = text.Substring(found, 2);
-        right = text.Substring(found + 2).Trim();
-        return left.Length > 0 && right.Length > 0;
     }
 
     private static MethodInfo FindAppendFormattedGeneric(Type handlerType, bool withFormat)

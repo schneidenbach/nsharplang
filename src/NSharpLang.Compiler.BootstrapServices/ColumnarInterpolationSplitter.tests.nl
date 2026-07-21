@@ -100,3 +100,98 @@ test "the integer additive fold declines overflow and non additive shapes" {
     empty := 0
     assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("   ", out empty), "Whitespace with no term must decline."
 }
+
+// Cast-hole split contracts: the splitter owns the decomposition the C# emitter previously re-derived.
+// A modeled `(Type)operand` hole splits into a trimmed target-type name (no internal whitespace) and a
+// trimmed non-empty operand; any other shape declines so the hole rides the equality/chain/parsed path.
+
+test "the cast split decomposes modeled cast holes" {
+    localTarget := ""
+    localOperand := ""
+    assert ColumnarInterpolationSplitter.TrySplitCast("(int)priority", out localTarget, out localOperand)
+    assert localTarget == "int"
+    assert localOperand == "priority"
+
+    memberTarget := ""
+    memberOperand := ""
+    assert ColumnarInterpolationSplitter.TrySplitCast("(int)task.Priority", out memberTarget, out memberOperand)
+    assert memberTarget == "int"
+    assert memberOperand == "task.Priority"
+
+    formatShapeTarget := ""
+    formatShapeOperand := ""
+    assert ColumnarInterpolationSplitter.TrySplitCast("(int)error.Code", out formatShapeTarget, out formatShapeOperand)
+    assert formatShapeTarget == "int"
+    assert formatShapeOperand == "error.Code"
+
+    spacedTarget := ""
+    spacedOperand := ""
+    assert ColumnarInterpolationSplitter.TrySplitCast("( int )priority", out spacedTarget, out spacedOperand)
+    assert spacedTarget == "int"
+    assert spacedOperand == "priority"
+}
+
+test "the cast split declines non cast shapes" {
+    noParenTarget := ""
+    noParenOperand := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCast("int priority", out noParenTarget, out noParenOperand), "A hole without a leading paren is not a cast."
+
+    emptyTarget := ""
+    emptyOperand := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCast("()priority", out emptyTarget, out emptyOperand), "An empty target is not a cast."
+
+    noOperandTarget := ""
+    noOperandOperand := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCast("(int)", out noOperandTarget, out noOperandOperand), "A cast with no operand declines."
+
+    spacedNameTarget := ""
+    spacedNameOperand := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCast("(unsigned int)x", out spacedNameTarget, out spacedNameOperand), "A target with internal whitespace declines."
+}
+
+// Equality-hole split contracts: the splitter owns the decomposition. A modeled hole with exactly one
+// top-level `==`/`!=` splits into trimmed non-empty sides; none, a second operator, or an empty side
+// declines so the hole rides the chain/parsed-expression path unchanged.
+
+test "the equality split decomposes modeled equality holes" {
+    eqLeft := ""
+    eqOp := ""
+    eqRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitEquality("a == b", out eqLeft, out eqOp, out eqRight)
+    assert eqLeft == "a"
+    assert eqOp == "=="
+    assert eqRight == "b"
+
+    neLeft := ""
+    neOp := ""
+    neRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitEquality("x != y", out neLeft, out neOp, out neRight)
+    assert neLeft == "x"
+    assert neOp == "!="
+    assert neRight == "y"
+
+    chainLeft := ""
+    chainOp := ""
+    chainRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitEquality("left.Value == right.Value", out chainLeft, out chainOp, out chainRight)
+    assert chainLeft == "left.Value"
+    assert chainOp == "=="
+    assert chainRight == "right.Value"
+}
+
+test "the equality split declines non equality shapes" {
+    noOpLeft := ""
+    noOpOp := ""
+    noOpRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitEquality("a + b", out noOpLeft, out noOpOp, out noOpRight), "A hole with no equality operator declines."
+
+    doubleLeft := ""
+    doubleOp := ""
+    doubleRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitEquality("a == b == c", out doubleLeft, out doubleOp, out doubleRight), "A second equality operator declines."
+
+    emptySideLeft := ""
+    emptySideOp := ""
+    emptySideRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitEquality("== b", out emptySideLeft, out emptySideOp, out emptySideRight), "An empty left side declines."
+}

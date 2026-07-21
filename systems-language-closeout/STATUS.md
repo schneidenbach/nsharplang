@@ -6,21 +6,27 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: DELETE the C# interpolation integer-additive constant-fold decision in
-  `ColumnarIlEmitter.cs` — the four ad-hoc string-evaluation helpers
-  `TryEvaluateInterpolationIntegerAdditiveExpression`, `TryReadInterpolationIntegerTerm`,
-  `SkipInterpolationExpressionSpace`, and `IsInterpolationAsciiDigit` (~lines 21344-21395). Move
-  the fold DECISION (`{1000 + 1000 - 500}` -> 1500, `{42}` -> 42) into the existing N# owner
-  `ColumnarInterpolationSplitter` as `TryEvaluateIntegerAdditive` (per-step checked Int32 parity;
-  digit-run and +/- overflow decline to the parsed-expression hole path unchanged); route the
-  `TryResolveInterpolationHolePlan` integer-additive branch to call it; the `plan.ConstantInt ->
-  ldc.i4` emission arm stays mechanical. Migrate the fold assertions to native N# contracts;
-  `examples/11-advanced-features/LockStatement/LockStatement.nl` is the byte-exact reproducer.
-  Remaining 015 interpolation residuals after this: the cast/equality/coalesce ad-hoc split
-  helpers, the chain/base-call/parsed-expression hole resolution and emission core, plus the
-  broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver inference,
-  preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and
-  real async-func lowering.
+- Active sub-slice: DELETE the C# interpolation-hole STRING-SPLIT decisions in `ColumnarIlEmitter.cs`
+  — the cast decomposition `TrySplitInterpolationCast` (primary) and its clean sibling the equality
+  decomposition `TrySplitInterpolationEquality`. Both are pure string-decomposition decisions with no
+  reflection and exactly one caller each in `TryResolveInterpolationHolePlan`; the equality sibling is
+  included because the N# splitter already hosts the operator scan `ColumnarInterpolatedStringFind-
+  EqualityOperator`, so its `TrySplitEquality` reuses it and the deletion is the identical theme, not
+  bloat. Move the split DECISIONS into the existing N# owner `ColumnarInterpolationSplitter` as
+  `TrySplitCast(text, out targetName, out operandText)` (mirror: text[0]=='(', first ')', trimmed
+  target with no internal whitespace, trimmed non-empty operand) and `TrySplitEquality(text, out left,
+  out op, out right)` (single `==`/`!=` via the existing scan, trimmed non-empty sides); route the
+  `TryResolveInterpolationHolePlan` cast/equality tiers to call them and consume the strings
+  mechanically. The reflection-bound `CanEmitInterpolationCast`/`EmitInterpolationCast` and
+  `EmitInterpolationEquality`/`IsSupportedInterpolationEqualityType` mechanical hosts stay. Corpus cast
+  reproducers: `examples/05-unions/UnionsAndMatch.nl` (`{(int)priority}`) and
+  `examples/16-task-cli/Services/Store.nl` (`{(int)task.Priority}`); `{(int)error.Code:D3}` is the
+  cast-with-format shape. IL byte-identical (downstream resolution/emission unchanged). Migrate the
+  split assertions to native N# splitter contracts. Remaining 015 interpolation residuals after this:
+  the inline coalesce split, the chain/base-call/parsed-expression hole resolution and emission core,
+  plus the broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver inference,
+  preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and real
+  async-func lowering.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
