@@ -20541,17 +20541,13 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        var coalesce = text.IndexOf("??", StringComparison.Ordinal);
-        if (coalesce >= 0)
+        // The single-top-level-`??` coalesce decomposition (left / right operand text) is decided by the
+        // N# splitter owner (ColumnarInterpolationSplitter.TrySplitCoalesce); this tier resolves each side
+        // and enforces the reference-type/type-equivalence guard mechanically over those two strings.
+        if (ColumnarInterpolationSplitter.TrySplitCoalesce(text, out var coalesceLeftText, out var coalesceRightText))
         {
-            if (text.IndexOf("??", coalesce + 2, StringComparison.Ordinal) >= 0)
-                return false;
-            var leftText = text.Substring(0, coalesce).Trim();
-            var rightText = text.Substring(coalesce + 2).Trim();
-            if (leftText.Length == 0 || rightText.Length == 0)
-                return false;
-            if (!TryResolveInterpolationChainPlan(leftText, out var left)
-                || !TryResolveInterpolationChainPlan(rightText, out var right)
+            if (!TryResolveInterpolationChainPlan(coalesceLeftText, out var left)
+                || !TryResolveInterpolationChainPlan(coalesceRightText, out var right)
                 || left.ValueType.IsValueType
                 || !TypesEquivalent(left.ValueType, right.ValueType))
                 return false;

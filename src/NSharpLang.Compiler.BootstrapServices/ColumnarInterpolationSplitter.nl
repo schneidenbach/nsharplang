@@ -518,22 +518,7 @@ public class ColumnarInterpolationSplitter {
                 && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
         }
 
-        coalesce := -1
-        i := 0
-        while i + 1 < length {
-            if literal[start + i] == '?' && literal[start + i + 1] == '?' {
-                if coalesce >= 0 {
-                    return false
-                }
-
-                coalesce = i
-                i = i + 2
-                continue
-            }
-
-            i = i + 1
-        }
-
+        coalesce := ColumnarInterpolatedStringFindCoalesceOperator(literal, start, length)
         if coalesce < 0 {
             return false
         }
@@ -757,6 +742,32 @@ public class ColumnarInterpolationSplitter {
         return found
     }
 
+    // Locate the single top-level `??` coalesce operator, mirroring the equality-operator scan: the index
+    // of the sole `??`, or -1 for none OR a second occurrence (both decline). The C# emitter's coalesce
+    // tier previously re-derived this with `text.IndexOf("??")` plus a second-`??` guard; stepping past a
+    // match by two characters detects "exactly one `??`" identically to that IndexOf pair.
+    static func ColumnarInterpolatedStringFindCoalesceOperator(literal: string, start: int, length: int): int {
+        found := -1
+        i := 0
+        while i + 1 < length {
+            ch := literal[start + i]
+            next := literal[start + i + 1]
+            if ch == '?' && next == '?' {
+                if found >= 0 {
+                    return -1
+                }
+
+                found = i
+                i = i + 2
+                continue
+            }
+
+            i = i + 1
+        }
+
+        return found
+    }
+
     static func ColumnarInterpolatedStringIsTrimSpace(ch: char): bool {
         if ch == ' ' {
             return true
@@ -856,6 +867,25 @@ public class ColumnarInterpolationSplitter {
 
         left = text.Substring(0, found).Trim()
         op = text.Substring(found, 2)
+        right = text.Substring(found + 2).Trim()
+        return left.Length > 0 && right.Length > 0
+    }
+
+    // Decompose a coalesce hole (`email ?? missingEmail`) into its left and right operand text — the last
+    // ad-hoc string-split decision the C# emitter previously re-derived inline. Exactly one top-level `??`
+    // is required: ColumnarInterpolatedStringFindCoalesceOperator returns -1 for none OR a second operator,
+    // and both trimmed sides must be non-empty, so the C# coalesce tier resolves each side and enforces the
+    // reference-type/type-equivalence guard mechanically over these two strings. Any other shape returns
+    // false so the hole rides the chain/base-call/parsed-expression path unchanged.
+    public static func TrySplitCoalesce(text: string, out left: string, out right: string): bool {
+        left = ""
+        right = ""
+        found := ColumnarInterpolatedStringFindCoalesceOperator(text, 0, text.Length)
+        if found < 0 {
+            return false
+        }
+
+        left = text.Substring(0, found).Trim()
         right = text.Substring(found + 2).Trim()
         return left.Length > 0 && right.Length > 0
     }

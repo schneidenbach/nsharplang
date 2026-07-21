@@ -195,3 +195,50 @@ test "the equality split declines non equality shapes" {
     emptySideRight := ""
     assert !ColumnarInterpolationSplitter.TrySplitEquality("== b", out emptySideLeft, out emptySideOp, out emptySideRight), "An empty left side declines."
 }
+
+// Coalesce-hole split contracts: the splitter owns the decomposition the C# emitter previously re-derived
+// inline (its last ad-hoc string-split decision). A modeled hole with exactly one top-level `??` splits
+// into trimmed non-empty sides; none, a second operator, an empty side, or a lone `?` declines so the hole
+// rides the chain/base-call/parsed-expression path unchanged.
+
+test "the coalesce split decomposes modeled coalesce holes" {
+    corpusLeft := ""
+    corpusRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitCoalesce("email ?? missingEmail", out corpusLeft, out corpusRight)
+    assert corpusLeft == "email"
+    assert corpusRight == "missingEmail"
+
+    tightLeft := ""
+    tightRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitCoalesce("a??b", out tightLeft, out tightRight)
+    assert tightLeft == "a"
+    assert tightRight == "b"
+
+    chainLeft := ""
+    chainRight := ""
+    assert ColumnarInterpolationSplitter.TrySplitCoalesce("user.Name ?? fallback.Name", out chainLeft, out chainRight)
+    assert chainLeft == "user.Name"
+    assert chainRight == "fallback.Name"
+}
+
+test "the coalesce split declines non coalesce shapes" {
+    noOpLeft := ""
+    noOpRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("email", out noOpLeft, out noOpRight), "A hole with no coalesce operator declines."
+
+    doubleLeft := ""
+    doubleRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("a ?? b ?? c", out doubleLeft, out doubleRight), "A second coalesce operator declines."
+
+    emptyLeftLeft := ""
+    emptyLeftRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("?? b", out emptyLeftLeft, out emptyLeftRight), "An empty left side declines."
+
+    emptyRightLeft := ""
+    emptyRightRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("a ??", out emptyRightLeft, out emptyRightRight), "An empty right side declines."
+
+    ternaryLeft := ""
+    ternaryRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("a ? b : c", out ternaryLeft, out ternaryRight), "A single `?` is not a coalesce operator."
+}

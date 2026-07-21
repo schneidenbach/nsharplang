@@ -6,27 +6,31 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: DELETE the C# interpolation-hole STRING-SPLIT decisions in `ColumnarIlEmitter.cs`
-  — the cast decomposition `TrySplitInterpolationCast` (primary) and its clean sibling the equality
-  decomposition `TrySplitInterpolationEquality`. Both are pure string-decomposition decisions with no
-  reflection and exactly one caller each in `TryResolveInterpolationHolePlan`; the equality sibling is
-  included because the N# splitter already hosts the operator scan `ColumnarInterpolatedStringFind-
-  EqualityOperator`, so its `TrySplitEquality` reuses it and the deletion is the identical theme, not
-  bloat. Move the split DECISIONS into the existing N# owner `ColumnarInterpolationSplitter` as
-  `TrySplitCast(text, out targetName, out operandText)` (mirror: text[0]=='(', first ')', trimmed
-  target with no internal whitespace, trimmed non-empty operand) and `TrySplitEquality(text, out left,
-  out op, out right)` (single `==`/`!=` via the existing scan, trimmed non-empty sides); route the
-  `TryResolveInterpolationHolePlan` cast/equality tiers to call them and consume the strings
-  mechanically. The reflection-bound `CanEmitInterpolationCast`/`EmitInterpolationCast` and
-  `EmitInterpolationEquality`/`IsSupportedInterpolationEqualityType` mechanical hosts stay. Corpus cast
-  reproducers: `examples/05-unions/UnionsAndMatch.nl` (`{(int)priority}`) and
-  `examples/16-task-cli/Services/Store.nl` (`{(int)task.Priority}`); `{(int)error.Code:D3}` is the
-  cast-with-format shape. IL byte-identical (downstream resolution/emission unchanged). Migrate the
-  split assertions to native N# splitter contracts. Remaining 015 interpolation residuals after this:
-  the inline coalesce split, the chain/base-call/parsed-expression hole resolution and emission core,
-  plus the broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver inference,
-  preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and real
-  async-func lowering.
+- Active sub-slice: DELETE the LAST ad-hoc interpolation STRING-SPLIT decision in `ColumnarIlEmitter.cs`
+  — the inline `??` coalesce decomposition in `TryResolveInterpolationHolePlan` (the `text.IndexOf("??")`
+  first-operator scan, the second-`??` guard, and the `Substring`/`Trim` side slicing). It is a pure
+  string-decomposition decision with no reflection and exactly one caller. Move the split DECISION into
+  the existing N# owner `ColumnarInterpolationSplitter` as `TrySplitCoalesce(text, out left, out right)`
+  (single top-level `??` via a new `ColumnarInterpolatedStringFindCoalesceOperator` scan that mirrors the
+  existing `...FindEqualityOperator`, then trimmed non-empty sides — the exact mirror of the C# emitter's
+  split), reusing the scan to refactor the duplicate inline coalesce scan already inside
+  `ColumnarInterpolatedStringIsSupportedHoleExpression`. Route the `TryResolveInterpolationHolePlan`
+  coalesce tier to call it and consume the two strings mechanically; the reference-type/type-equivalence
+  guard (`left.ValueType.IsValueType` / `TypesEquivalent`) and `CoalesceRight`/`Format`/`plan` wiring
+  stay mechanical in C#, mirroring the equality-tier routing structure landed in `9a3c20950`. Behavior
+  note: the original block is greedy (any `??` present commits and aborts on multi-`??`/empty-side); the
+  new routing falls through on those decline shapes exactly like the accepted equality/cast tiers —
+  proven unobservable because the `.nl` corpus has ONLY single-`??` non-empty holes (empty-side is a
+  syntax error downstream; no multi-`??` hole exists). Corpus reproducer:
+  `examples/11-advanced-features/FileScopedTypes/FileScopedTypes.nl` (`{email ?? missingEmail}`,
+  "Retrieved email: ..."). IL byte-identical (downstream resolution/emission unchanged). Migrate the
+  split assertions to native N# splitter contracts (accept + decline shapes: no `??`, multiple `??`,
+  empty sides, `?`-only). No sibling included: after this deletion the remaining interpolation surface
+  (base-call/chain/parsed-expression resolution) is reflection-coupled, not a pure string-split decision.
+  Remaining 015 interpolation residuals after this: the chain/base-call/parsed-expression hole resolution
+  and emission core, plus the broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver
+  inference, preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and
+  real async-func lowering.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
