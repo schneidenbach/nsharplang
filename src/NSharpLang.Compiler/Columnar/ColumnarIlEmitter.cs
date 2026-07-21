@@ -20521,7 +20521,10 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (TryEvaluateInterpolationIntegerAdditiveExpression(text, out var constantInt))
+        // The integer-additive constant FOLD is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive); this arm only records the
+        // pre-folded value and its int type, and the ConstantInt emission arm loads it mechanically.
+        if (ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive(text, out var constantInt))
         {
             plan = new ColumnarInterpolationHolePlan
             {
@@ -21340,59 +21343,6 @@ internal sealed class ColumnarIlEmitter
         right = text.Substring(found + 2).Trim();
         return left.Length > 0 && right.Length > 0;
     }
-
-    private static bool TryEvaluateInterpolationIntegerAdditiveExpression(string text, out int value)
-    {
-        value = 0;
-        var pos = 0;
-        if (!TryReadInterpolationIntegerTerm(text, ref pos, out value))
-            return false;
-
-        while (true)
-        {
-            SkipInterpolationExpressionSpace(text, ref pos);
-            if (pos >= text.Length)
-                return true;
-            var op = text[pos];
-            if (op != '+' && op != '-')
-                return false;
-            pos++;
-            if (!TryReadInterpolationIntegerTerm(text, ref pos, out var rhs))
-                return false;
-            try
-            {
-                value = op == '+' ? checked(value + rhs) : checked(value - rhs);
-            }
-            catch (OverflowException)
-            {
-                return false;
-            }
-        }
-    }
-
-    private static bool TryReadInterpolationIntegerTerm(string text, ref int pos, out int value)
-    {
-        value = 0;
-        SkipInterpolationExpressionSpace(text, ref pos);
-        var start = pos;
-        while (pos < text.Length && IsInterpolationAsciiDigit(text[pos]))
-            pos++;
-        if (pos == start)
-            return false;
-        return int.TryParse(
-            text.Substring(start, pos - start),
-            System.Globalization.NumberStyles.None,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out value);
-    }
-
-    private static void SkipInterpolationExpressionSpace(string text, ref int pos)
-    {
-        while (pos < text.Length && (text[pos] == ' ' || text[pos] == '\t'))
-            pos++;
-    }
-
-    private static bool IsInterpolationAsciiDigit(char ch) => ch is >= '0' and <= '9';
 
     private static MethodInfo FindAppendFormattedGeneric(Type handlerType, bool withFormat)
     {

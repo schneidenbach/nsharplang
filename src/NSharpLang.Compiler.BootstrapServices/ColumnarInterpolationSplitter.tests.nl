@@ -47,3 +47,56 @@ test "the splitter rejects malformed multi argument call holes" {
     parenthesizedCallee := new List<ColumnarInterpolationPart>()
     assert !ColumnarInterpolationSplitter.TrySplit("$\"bad={(x)(a, b)}\"", parenthesizedCallee), "A non-identifier callee must not split."
 }
+
+// Integer-additive constant FOLD contracts: the splitter owns the decision the C# emitter previously
+// re-derived. A modeled hole folds to its Int32 value; a run or step that would overflow Int32, or any
+// non-additive shape, declines so the hole rides the parsed-expression hole path unchanged.
+
+test "the integer additive fold evaluates modeled constant holes" {
+    corpus := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("1000 + 1000 - 500", out corpus)
+    assert corpus == 1500
+
+    single := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("42", out single)
+    assert single == 42
+
+    negative := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("5 - 10", out negative)
+    assert negative == -5
+
+    spaced := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("  7 + 3  ", out spaced)
+    assert spaced == 10
+
+    maxValue := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("2147483647", out maxValue)
+    assert maxValue == 2147483647
+
+    zeroBounded := 0
+    assert ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("2147483646 + 1", out zeroBounded)
+    assert zeroBounded == 2147483647
+}
+
+test "the integer additive fold declines overflow and non additive shapes" {
+    addOverflow := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("2147483647 + 1", out addOverflow), "An add that leaves Int32 must decline."
+
+    subOverflow := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("0 - 2147483647 - 2", out subOverflow), "A subtract that leaves Int32 must decline."
+
+    hugeRun := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("99999999999", out hugeRun), "A digit run wider than Int32 must decline."
+
+    identifier := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("a + b", out identifier), "A non-digit term must decline."
+
+    badOperator := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("1 * 2", out badOperator), "A non-additive operator must decline."
+
+    danglingOperator := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("1 +", out danglingOperator), "A trailing operator with no term must decline."
+
+    empty := 0
+    assert !ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive("   ", out empty), "Whitespace with no term must decline."
+}

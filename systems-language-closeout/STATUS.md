@@ -6,16 +6,21 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: DELETE the C# generic `String.Join<T>` arm for non-int/string element types
-  in `ColumnarIlEmitter.cs` `TryEmitStaticCall` (branch B, ~lines 14954-14965) plus its two dead
-  helpers `TryGetStringJoinGenericElementType` and `ResolveStringJoinGenericEnumerable`. Transfer
-  the capability to the N# front-door owner by generalizing
-  `ColumnarExternalBindingPlans.GetStaticCallPlan`'s Int32-only generic branch to the primitive
-  value-element set (Boolean/Char/SByte/Byte/Int16/UInt16/Int32/UInt32/Int64/UInt64/Single/Double)
-  and generalizing `ExactTypeIdentity`'s `IEnumerable\`1[...]` closure; migrate the branch-B
-  decision assertions to native N#. Remaining 015 residuals after this: lambda-taking LINQ arms,
-  the interpolation hole/emission core, extension interface-receiver inference, preflight typing of
-  legacy-owned static calls, the case-12/13 numeric/conditional cores, and real async-func lowering.
+- Active sub-slice: DELETE the C# interpolation integer-additive constant-fold decision in
+  `ColumnarIlEmitter.cs` — the four ad-hoc string-evaluation helpers
+  `TryEvaluateInterpolationIntegerAdditiveExpression`, `TryReadInterpolationIntegerTerm`,
+  `SkipInterpolationExpressionSpace`, and `IsInterpolationAsciiDigit` (~lines 21344-21395). Move
+  the fold DECISION (`{1000 + 1000 - 500}` -> 1500, `{42}` -> 42) into the existing N# owner
+  `ColumnarInterpolationSplitter` as `TryEvaluateIntegerAdditive` (per-step checked Int32 parity;
+  digit-run and +/- overflow decline to the parsed-expression hole path unchanged); route the
+  `TryResolveInterpolationHolePlan` integer-additive branch to call it; the `plan.ConstantInt ->
+  ldc.i4` emission arm stays mechanical. Migrate the fold assertions to native N# contracts;
+  `examples/11-advanced-features/LockStatement/LockStatement.nl` is the byte-exact reproducer.
+  Remaining 015 interpolation residuals after this: the cast/equality/coalesce ad-hoc split
+  helpers, the chain/base-call/parsed-expression hole resolution and emission core, plus the
+  broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver inference,
+  preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and
+  real async-func lowering.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`

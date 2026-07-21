@@ -799,6 +799,104 @@ public class ColumnarInterpolationSplitter {
         return sawNumber && !expectNumber
     }
 
+    // Fold an integer-additive constant hole (`{1000 + 1000 - 500}`, `{42}`) to its Int32 VALUE — the
+    // planning decision the C# emitter previously re-derived with its own ad-hoc string evaluator. Each
+    // digit run must itself fit in Int32 and every +/- step must stay in Int32 range, mirroring the
+    // emitter's former per-step checked semantics; a run or step that would overflow, or any non-additive
+    // shape, returns false so the hole rides the parsed-expression hole path unchanged.
+    public static func TryEvaluateIntegerAdditive(text: string, out value: int): bool {
+        value = 0
+        length := text.Length
+        nextPos := 0
+        firstValue := 0
+        if !ReadIntegerAdditiveTerm(text, 0, out nextPos, out firstValue) {
+            return false
+        }
+
+        acc := firstValue
+        pos := nextPos
+        maxInt := 2147483647
+        minInt := 0 - 2147483647 - 1
+        while pos < length {
+            while pos < length && ColumnarInterpolatedStringIsTrimSpace(text[pos]) {
+                pos = pos + 1
+            }
+
+            if pos >= length {
+                value = acc
+                return true
+            }
+
+            op := text[pos]
+            if op != '+' && op != '-' {
+                return false
+            }
+
+            pos = pos + 1
+            rhs := 0
+            if !ReadIntegerAdditiveTerm(text, pos, out nextPos, out rhs) {
+                return false
+            }
+
+            pos = nextPos
+            if op == '+' {
+                if acc > maxInt - rhs {
+                    return false
+                }
+
+                acc = acc + rhs
+            } else {
+                if acc < minInt + rhs {
+                    return false
+                }
+
+                acc = acc - rhs
+            }
+        }
+
+        value = acc
+        return true
+    }
+
+    // Read one non-negative decimal term (skipping leading space/tab), overflow-guarded to Int32 exactly
+    // as the version-component parser is; on success writes the term VALUE and the position just past its
+    // digits, otherwise returns false.
+    static func ReadIntegerAdditiveTerm(text: string, start: int, out newPos: int, out value: int): bool {
+        newPos = start
+        value = 0
+        length := text.Length
+        pos := start
+        while pos < length && ColumnarInterpolatedStringIsTrimSpace(text[pos]) {
+            pos = pos + 1
+        }
+
+        digitsStart := pos
+        parsed := 0
+        while pos < length && ColumnarInterpolatedStringIsAsciiDigit(text[pos]) {
+            digit := text[pos] - '0'
+            if parsed > 214748364 {
+                return false
+            }
+
+            if parsed == 214748364 {
+                if digit > 7 {
+                    return false
+                }
+            }
+
+            parsed = parsed * 10 + digit
+            pos = pos + 1
+        }
+
+        if pos == digitsStart {
+            return false
+        }
+
+        newPos = pos
+        value = parsed
+        return true
+    }
+
     static func ColumnarInterpolatedStringIsAsciiDigit(ch: char): bool {
         return ch >= '0' && ch <= '9'
     }
