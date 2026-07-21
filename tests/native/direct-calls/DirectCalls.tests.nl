@@ -89,3 +89,17 @@ test "direct calls compose with already-owned index and range plans" {
     assert window[^1] == 40
     assert PassSlicedValue("abcde") == 3
 }
+
+test "direct calls close the generic String.Join owner over non-int primitive element arrays" {
+    longs: long[] = [10L, 20L, 30L]
+    assert DirectJoinLongArray(longs) == "10, 20, 30"
+
+    doubles: double[] = [4.0, 5.0]
+    assert DirectJoinDoubleArray(doubles) == "4|5"
+
+    bytes: byte[] = [1, 2, 3]
+    assert DirectJoinByteArray(bytes) == "1-2-3"
+
+    chars: char[] = ['a', 'b', 'c']
+    assert DirectJoinCharArray(chars) == "a,b,c"
+}

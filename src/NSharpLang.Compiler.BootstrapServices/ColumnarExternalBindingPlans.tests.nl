@@ -792,6 +792,54 @@ test "String.Join plans close the generic overload for int sequences with pinned
         "String", "Join", stringListArguments).TypeArgumentNames.Length == 0
 }
 
+test "String.Join plans close the generic overload for supported primitive element sequences" {
+    // Ownership transferred from the deleted C# generic emitter arm: every supported primitive value
+    // element (not just Int32) closes String.Join<T> at the front door across array, List<T>,
+    // IReadOnlyList<T>, and IEnumerable<T> forms.
+    longArrayArguments := new string[](2)
+    longArrayArguments[0] = "System.String"
+    longArrayArguments[1] = "System.Int64[]"
+    longPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", longArrayArguments)
+    assert longPlan.IsSupported, "String.Join over a long[] must plan the generic closure."
+    assert longPlan.Kind == ColumnarExternalCallKind.Call
+    assert longPlan.TypeArgumentNames.Length == 1
+    assert longPlan.TypeArgumentNames[0] == "System.Int64, System.Private.CoreLib"
+    assert longPlan.ParameterTypeNames[0] == "System.String, System.Private.CoreLib"
+    assert longPlan.ParameterTypeNames[1] == typeof(IEnumerable<long>).get_AssemblyQualifiedName()
+    assert longPlan.ReturnTypeName == "System.String, System.Private.CoreLib"
+
+    // A List<double> now binds String.Join<Double> (previously legacy-owned by the deleted C# arm).
+    doubleListArguments := new string[](2)
+    doubleListArguments[0] = "System.String"
+    doubleListArguments[1] = typeof(List<double>).FullName
+    doublePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", doubleListArguments)
+    assert doublePlan.IsSupported, "String.Join over a List<double> must plan the generic closure."
+    assert doublePlan.TypeArgumentNames[0] == "System.Double, System.Private.CoreLib"
+    assert doublePlan.ParameterTypeNames[1] == typeof(IEnumerable<double>).get_AssemblyQualifiedName()
+
+    // A read-only list of byte binds String.Join<Byte>.
+    byteReadOnlyArguments := new string[](2)
+    byteReadOnlyArguments[0] = "System.String"
+    byteReadOnlyArguments[1] = typeof(IReadOnlyList<byte>).FullName
+    bytePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", byteReadOnlyArguments)
+    assert bytePlan.IsSupported, "String.Join over an IReadOnlyList<byte> must plan the generic closure."
+    assert bytePlan.TypeArgumentNames[0] == "System.Byte, System.Private.CoreLib"
+    assert bytePlan.ParameterTypeNames[1] == typeof(IEnumerable<byte>).get_AssemblyQualifiedName()
+
+    // An IEnumerable<char> binds String.Join<Char>.
+    charEnumerableArguments := new string[](2)
+    charEnumerableArguments[0] = "System.String"
+    charEnumerableArguments[1] = typeof(IEnumerable<char>).FullName
+    charPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "String", "Join", charEnumerableArguments)
+    assert charPlan.IsSupported, "String.Join over an IEnumerable<char> must plan the generic closure."
+    assert charPlan.TypeArgumentNames[0] == "System.Char, System.Private.CoreLib"
+    assert charPlan.ParameterTypeNames[1] == typeof(IEnumerable<char>).get_AssemblyQualifiedName()
+}
+
 test "String.Join plans decline outside the modeled sequence contracts" {
     // A string[] argument binds the params overload, not the enumerable one, so it is declined
     // and stays with its existing owner.
@@ -801,12 +849,13 @@ test "String.Join plans decline outside the modeled sequence contracts" {
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String", "Join", stringArrayArguments).IsSupported
 
-    // A List<double> is neither a string nor an int sequence.
-    doubleListArguments := new string[](2)
-    doubleListArguments[0] = "System.String"
-    doubleListArguments[1] = typeof(List<double>).FullName
+    // A List<decimal> is a value sequence, but decimal is outside the supported primitive Join
+    // element set, so it is declined (only the modeled primitive elements close the generic).
+    decimalListArguments := new string[](2)
+    decimalListArguments[0] = "System.String"
+    decimalListArguments[1] = typeof(List<decimal>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", doubleListArguments).IsSupported
+        "String", "Join", decimalListArguments).IsSupported
 
     // A non-string separator, wrong arity, and mis-spelled member all decline.
     charSeparatorArguments := new string[](2)

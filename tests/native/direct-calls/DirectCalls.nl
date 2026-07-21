@@ -332,3 +332,22 @@ func DirectValueRecordHashesMatch(value: int): bool {
     right := new DirectValueRecord(value)
     return left.GetHashCode() == right.GetHashCode()
 }
+
+// String.Join over non-int primitive element arrays. The N# front-door owner
+// (ColumnarExternalBindingPlans.GetStaticCallPlan) closes `String.Join<T>(String, IEnumerable<T>)`
+// at each element; this ownership was transferred from the deleted C# generic emitter arm.
+func DirectJoinLongArray(values: long[]): string {
+    return String.Join(", ", values)
+}
+
+func DirectJoinDoubleArray(values: double[]): string {
+    return String.Join("|", values)
+}
+
+func DirectJoinByteArray(values: byte[]): string {
+    return String.Join("-", values)
+}
+
+func DirectJoinCharArray(values: char[]): string {
+    return String.Join(",", values)
+}

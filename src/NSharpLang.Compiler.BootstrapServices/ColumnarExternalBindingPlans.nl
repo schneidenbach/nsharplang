@@ -597,19 +597,22 @@ public class ColumnarExternalBindingPlans {
                         "System.Collections.Generic.IEnumerable`1[System.String]"),
                     "System.String")
             }
-            if IsInt32SequenceJoinArgument(argumentTypeNames[1]) {
-                // Int sequences have NO non-generic Join overload: `int[]`, `List<int>`, and
-                // `IEnumerable<int>` values all bind the generic `String.Join<T>(String,
-                // IEnumerable<T>)` closed at T=Int32 (int[] is not covariant to object[], so the
-                // params overload can never own these). Arrays and Lists flow to the enumerable
-                // parameter through the ordinary reference upcast, mirroring the string row.
+            joinElementTypeName := ""
+            if TryGetGenericJoinElementTypeName(argumentTypeNames[1], out joinElementTypeName) {
+                // Non-string element sequences have NO non-generic Join overload: `T[]`, `List<T>`,
+                // `IEnumerable<T>`, `IReadOnlyList<T>`, and `IReadOnlyCollection<T>` over a supported
+                // primitive value element all bind the generic `String.Join<T>(String,
+                // IEnumerable<T>)` closed at that element (a value array is not covariant to
+                // object[], so the params overload can never own these). Arrays and lists flow to the
+                // enumerable parameter through the ordinary reference upcast, mirroring the string
+                // row. T=Int32 reproduces the historical int row byte for byte.
                 return GenericStaticCall(
                     "System.String",
                     memberName,
-                    One("System.Int32"),
+                    One(joinElementTypeName),
                     Two(
                         "System.String",
-                        "System.Collections.Generic.IEnumerable`1[System.Int32]"),
+                        "System.Collections.Generic.IEnumerable`1[" + joinElementTypeName + "]"),
                     "System.String")
             }
         }
@@ -660,17 +663,75 @@ public class ColumnarExternalBindingPlans {
                 StringComparison.Ordinal)
     }
 
-    // An `int[]`, `List<int>`, or `IEnumerable<int>` argument that closes the generic
-    // `String.Join<T>(String, IEnumerable<T>)` overload at T=Int32. Same marker discipline as the
-    // string row: prefixes stop before the version to stay framework-version robust.
-    static func IsInt32SequenceJoinArgument(typeName: string): bool {
-        return typeName == "System.Int32[]"
-            || typeName.StartsWith(
-                "System.Collections.Generic.List`1[[System.Int32,",
+    // A `T[]`, `List<T>`, `IEnumerable<T>`, `IReadOnlyList<T>`, or `IReadOnlyCollection<T>` argument
+    // whose element `T` is a supported primitive value type. The closure binds the generic
+    // `String.Join<T>(String, IEnumerable<T>)` overload at that element; string sequences are owned
+    // separately by the non-generic enumerable overload. The incoming names are runtime `FullName`
+    // values whose element is assembly-qualified inside `[[...]]`, so parsing stops at the element's
+    // own `FullName` (before its assembly/version) to stay framework-version robust.
+    static func TryGetGenericJoinElementTypeName(typeName: string, out elementTypeName: string): bool {
+        elementTypeName = ""
+        candidate := ""
+        if typeName.EndsWith("[]", StringComparison.Ordinal) {
+            candidate = typeName.Substring(0, typeName.Length - 2)
+        } else if IsGenericJoinSequenceOpen(typeName) {
+            markerIndex := typeName.IndexOf("`1[[", StringComparison.Ordinal)
+            if markerIndex < 0 {
+                return false
+            }
+
+            afterMarker := typeName.Substring(markerIndex + 4)
+            elementEnd := afterMarker.IndexOf(",", StringComparison.Ordinal)
+            if elementEnd < 0 {
+                return false
+            }
+
+            candidate = afterMarker.Substring(0, elementEnd)
+        } else {
+            return false
+        }
+
+        if IsGenericJoinElementTypeName(candidate) {
+            elementTypeName = candidate
+            return true
+        }
+
+        return false
+    }
+
+    // The closed generic collection definitions whose element flows to `IEnumerable<T>` for the
+    // generic Join overload. The `` `1[[ `` marker guarantees an assembly-qualified element follows.
+    static func IsGenericJoinSequenceOpen(typeName: string): bool {
+        return typeName.StartsWith(
+                "System.Collections.Generic.List`1[[",
                 StringComparison.Ordinal)
             || typeName.StartsWith(
-                "System.Collections.Generic.IEnumerable`1[[System.Int32,",
+                "System.Collections.Generic.IEnumerable`1[[",
                 StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "System.Collections.Generic.IReadOnlyList`1[[",
+                StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "System.Collections.Generic.IReadOnlyCollection`1[[",
+                StringComparison.Ordinal)
+    }
+
+    // The primitive value elements the generic Join owns. These are exactly the non-string primitive
+    // value types the legacy emitter arm closed through `String.Join<T>`; string uses the non-generic
+    // enumerable overload instead.
+    static func IsGenericJoinElementTypeName(typeName: string): bool {
+        return typeName == "System.Boolean"
+            || typeName == "System.Char"
+            || typeName == "System.SByte"
+            || typeName == "System.Byte"
+            || typeName == "System.Int16"
+            || typeName == "System.UInt16"
+            || typeName == "System.Int32"
+            || typeName == "System.UInt32"
+            || typeName == "System.Int64"
+            || typeName == "System.UInt64"
+            || typeName == "System.Single"
+            || typeName == "System.Double"
     }
 
     public static func GetInstanceCallPlan(
@@ -1386,11 +1447,13 @@ public class ColumnarExternalBindingPlans {
 
     static func ExactTypeIdentity(fullName: string): string {
         if fullName == "System.Threading.Tasks.Task`1[System.String]"
-            || fullName == "System.Collections.Generic.IEnumerable`1[System.String]"
-            || fullName == "System.Collections.Generic.IEnumerable`1[System.Int32]" {
+            || (fullName.StartsWith("System.Collections.Generic.IEnumerable`1[", StringComparison.Ordinal)
+                && fullName.EndsWith("]", StringComparison.Ordinal)) {
             // Closed BCL generics must carry their fully version-qualified identity: the runtime
             // exact-identity check compares the assembly-qualified name (with the type argument's
-            // own assembly and version), so a short `[System.String]` spelling would never match.
+            // own assembly and version), so a short `[System.String]`/`[System.Int64]` spelling would
+            // never match. Any `IEnumerable<T>` element resolvable from the default context (every
+            // supported Join element is a CoreLib primitive) closes to its full identity here.
             runtimeType := Type.GetType(fullName + ", System.Private.CoreLib")
             if runtimeType == null {
                 throw new InvalidOperationException(

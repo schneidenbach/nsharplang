@@ -6,11 +6,16 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: not yet selected (015 owns the recorded fenced residuals: lambda-taking LINQ
-  arms, the interpolation hole/emission core, the C# generic String.Join arm for non-int/string
-  elements, extension interface-receiver inference, preflight typing of legacy-owned static
-  calls, the case-12/13 numeric/conditional cores, and real async-func lowering to replace the
-  blocking consumer await model)
+- Active sub-slice: DELETE the C# generic `String.Join<T>` arm for non-int/string element types
+  in `ColumnarIlEmitter.cs` `TryEmitStaticCall` (branch B, ~lines 14954-14965) plus its two dead
+  helpers `TryGetStringJoinGenericElementType` and `ResolveStringJoinGenericEnumerable`. Transfer
+  the capability to the N# front-door owner by generalizing
+  `ColumnarExternalBindingPlans.GetStaticCallPlan`'s Int32-only generic branch to the primitive
+  value-element set (Boolean/Char/SByte/Byte/Int16/UInt16/Int32/UInt32/Int64/UInt64/Single/Double)
+  and generalizing `ExactTypeIdentity`'s `IEnumerable\`1[...]` closure; migrate the branch-B
+  decision assertions to native N#. Remaining 015 residuals after this: lambda-taking LINQ arms,
+  the interpolation hole/emission core, extension interface-receiver inference, preflight typing of
+  legacy-owned static calls, the case-12/13 numeric/conditional cores, and real async-func lowering.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
