@@ -246,3 +246,31 @@ test "a where select chain over an iterator materializes through the linq owners
     joined := String.Join(", ", result)
     assert joined == "0, 4, 16, 36, 64"
 }
+
+// Async iterator proofs (task 014): the async machines' factories, MoveNextAsync driving, real
+// Task.Delay suspensions, and await-foreach consumers all execute in-project; the positional
+// accumulator pins both contents and order.
+
+test "an async iterator yields its full sequence through await foreach" {
+    result := await SumDelayedAsync(4)
+    assert result == 123
+}
+
+test "an async iterator transforms string elements through instance calls" {
+    items: string[] = ["hello", "world"]
+    joined := await JoinUpperAsync(items)
+    assert joined == "|HELLO|WORLD"
+}
+
+test "an infinite async stream stops with the consumer break" {
+    result := await TakeTicksAsync(3)
+    assert result == 12
+}
+
+test "await foreach drives an async iterator directly in a test body" {
+    positional := 0
+    await foreach v in DelayedCountTo(3) {
+        positional = positional * 10 + v
+    }
+    assert positional == 12
+}

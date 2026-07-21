@@ -1,6 +1,7 @@
 namespace NSharpLang.Iterators.Tests
 
 import System.Collections.Generic
+import System.Threading.Tasks
 
 
 // Covered-shape synchronous iterators (`func*`) lowered by the N# iterator planner through the
@@ -189,4 +190,70 @@ class TreeNode {
             }
         }
     }
+}
+
+// Async iterators (task 014): `async func*` returning IAsyncEnumerable<T> lowers to the planner's
+// async state machine (MoveNextCore/MoveNextAsync/DisposeAsync/GetAsyncEnumerator); every awaited
+// operand is a statement-position `await Task.Delay(<int>)` suspension point. Consumers drive the
+// machines through `await foreach` (the blocking-await consumer lowering).
+
+// The canonical async counting shape: classic C-style for with an await before each yield.
+async func* DelayedCountTo(n: int): IAsyncEnumerable<int> {
+    for i := 0; i < n; i++ {
+        await Task.Delay(1)
+        yield i
+    }
+}
+
+// Array-driven async transformation: for..in over a captured array, a string instance call, and a
+// string element type.
+async func* DelayedUpper(items: string[]): IAsyncEnumerable<string> {
+    for item in items {
+        await Task.Delay(1)
+        result := item.ToUpper()
+        yield result
+    }
+}
+
+// An infinite async stream stepping a postfix counter; only consumer-side termination ends it.
+async func* TickStream(): IAsyncEnumerable<int> {
+    i := 0
+    while true {
+        await Task.Delay(1)
+        yield i++
+    }
+}
+
+// Await-foreach consumers: ordinary async funcs driving the async machines to completion (or to an
+// early break, which exits through the DisposeAsync tail).
+async func SumDelayedAsync(n: int): Task<int> {
+    positional := 0
+    await foreach v in DelayedCountTo(n) {
+        positional = positional * 10 + v
+    }
+
+    return positional
+}
+
+async func JoinUpperAsync(items: string[]): Task<string> {
+    joined := ""
+    await foreach s in DelayedUpper(items) {
+        joined = joined + "|" + s
+    }
+
+    return joined
+}
+
+async func TakeTicksAsync(count: int): Task<int> {
+    taken := 0
+    positional := 0
+    await foreach v in TickStream() {
+        positional = positional * 10 + v
+        taken = taken + 1
+        if taken == count {
+            break
+        }
+    }
+
+    return positional
 }

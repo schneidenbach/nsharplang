@@ -65,12 +65,11 @@ internal sealed class ColumnarIlEmitter
     private readonly ILGenerator _il;
     private readonly ColumnarCodePlan _codePlan = new();
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
-    // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
-    // a MethodBuilder whose body is not yet emitted — the token is baked at CreateType/Save. Includes this
-    // function itself, so direct recursion works. Param/return types are carried (rather than reflected) because
-    // MethodBuilder.GetParameters()/ReturnType is unsupported before the type is created — and a Call checks each
-    // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
-    // produce verifiable-but-wrong IL rather than declining).
+    // type). All are declared (pass 1) before any body emits (pass 2), so forward/self calls resolve to
+    // MethodBuilders whose tokens bake at CreateType/Save; includes this function itself (direct recursion).
+    // Param/return types are carried (not reflected) because MethodBuilder.GetParameters()/ReturnType is
+    // unsupported pre-bake — and a Call type-checks each argument (int/bool are both i4; a mismatch would
+    // otherwise produce verifiable-but-wrong IL rather than declining).
     private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> _siblings;
     // The N# direct-call planner owns bare sibling calls; it consults these routed facts to plan
     // the ordinary fixed-arity shape. Projected once from _siblings (the MethodBuilder handle plus
@@ -110,13 +109,11 @@ internal sealed class ColumnarIlEmitter
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
-    // Enclosing loops' break/continue targets (innermost on top). `break` branches to the loop's end label,
-    // `continue` to its condition-check label. A break/continue outside any loop declines.
-    // Loop branch targets, plus WHERE the loop was entered relative to exception regions: a break/continue
-    // from INSIDE a protected region whose loop began OUTSIDE it crosses the region boundary — `br` is
-    // invalid IL there; it must `leave` (which also runs an intervening finally). A loop wholly inside the
-    // region branches with a plain `br` (probe-pinned both ways against the fixed legacy emitter). A branch out of
-    // a FINALLY is illegal IL entirely — those decline.
+    // Enclosing loops' break/continue targets (innermost on top; outside any loop declines), plus WHERE the
+    // loop was entered relative to exception regions: a break/continue from INSIDE a protected region whose
+    // loop began OUTSIDE it crosses the region boundary — `br` is invalid IL there; it must `leave` (which
+    // also runs an intervening finally). A loop wholly inside the region branches with a plain `br`
+    // (probe-pinned both ways). A branch out of a FINALLY is illegal IL entirely — those decline.
     private readonly Stack<(Label Break, Label Continue, bool InProtectedRegion, bool InFinallyRegion)> _loopLabels = new();
 
     private static MethodInfo ResolveSimdReductionHelper(string name) =>
@@ -296,15 +293,11 @@ internal sealed class ColumnarIlEmitter
     private readonly List<TypeBuilder>? _displayClasses;
     // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
     private int _bodyRoot = -1;
-    // NL316 ACROSS NESTED-BODY BOUNDARIES: every binding name visible in the ENCLOSING function at the point
-    // this nested body (lambda / local function) was reached. The pipeline rejects ANY nested binding —
-    // lambda param, local-func param, `:=`/typed local, foreach var, deconstruction name, catch var — that
-    // shadows an enclosing binding ("'e' shadows an existing 'e' from an enclosing scope"), but a nested
-    // sub-emitter's own maps cannot see the parent's names, so every binding site must ALSO check this set
-    // (probe-found over-accepts: lambda locals/params, local-func locals/params, catch vars all compiled
-    // pipeline-rejected NL316 programs). Lambdas get the parent's LIVE snapshot (textual visibility); local
-    // functions get the parent's STRUCTURAL superset (their bodies emit after the parent's — extra declines
-    // are safe under-acceptance). Empty for top-level bodies.
+    // NL316 ACROSS NESTED-BODY BOUNDARIES: every binding name visible in the ENCLOSING function when this nested
+    // body (lambda/local function) was reached. The pipeline rejects ANY nested binding that shadows an enclosing
+    // one, but a sub-emitter's own maps cannot see the parent's names, so every binding site must ALSO check this
+    // set (probe-found over-accepts across lambda/local-func/catch bindings). Lambdas get the parent's LIVE
+    // snapshot; local functions the STRUCTURAL superset (safe under-acceptance). Empty for top-level bodies.
     private readonly HashSet<string> _enclosingBindingNames;
     private static readonly HashSet<string> s_noEnclosingBindings = new(StringComparer.Ordinal);
     private static readonly IReadOnlyDictionary<Type, Type[]> s_noGenericInterfaceConstraints =
@@ -792,15 +785,11 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // True when a type carries a Reflection.Emit builder-shaped type anywhere in its shape: a TypeBuilder/
-    // EnumBuilder/generic type parameter itself, an array over one, or a generic instantiation any of whose
-    // arguments does (List<Pt>, Dictionary<string,T>, IEnumerable<Pt>, ...). Plain reflection member lookups
-    // (GetMethod/GetProperty/GetConstructor/GetField) throw NotSupportedException on such closed
-    // instantiations — members must REBIND from the open runtime definition. NOTE (spike-proven): neither
-    // `Module is ModuleBuilder` nor `Assembly is AssemblyBuilder` nor ContainsGenericParameters detects these
-    // — a BCL-headed TypeBuilderInstantiation reports the OPEN definition's CoreLib module/assembly, and
-    // ContainsGenericParameters is false even over an open T. Baked Reflection.Emit enums still surface as
-    // TypeBuilderImpl, so they stay builder-bound for member-token rebinds though admissible as enum keys.
+    // True when a type carries a Reflection.Emit builder anywhere in its shape: a TypeBuilder/EnumBuilder/type
+    // parameter, an array over one, or a generic instantiation over one (List<Pt>, Dictionary<string,T>, ...).
+    // Plain reflection member lookups throw NotSupportedException on such closed instantiations — members must
+    // REBIND from the open runtime definition. Spike-proven: module/assembly checks and ContainsGenericParameters
+    // all FAIL to detect these; baked Reflection.Emit enums still surface as TypeBuilderImpl (rebind, enum keys ok).
     private static bool ContainsBuilderBoundType(Type t)
     {
         if (t is TypeBuilder || t is EnumBuilder || t.IsGenericParameter)
@@ -1062,17 +1051,11 @@ internal sealed class ColumnarIlEmitter
             return false;
         foreach (var arg in t.GetGenericArguments())
         {
-            // Exclude enum elements and user-struct TypeBuilder elements: enum-in-tuple remains outside this slice
-            // (value-comparison parity across independently emitted enum types needs its own proof), and a
-            // ValueTuple<…> instantiated over a builder type cannot resolve its ctor/ItemN fields via plain
-            // reflection (GetConstructor/GetField throw NotSupportedException at emit). Keep both as clean declines,
-            // consistent with the array-element decline. Enums and structs are modelled as scalars/locals only.
-            // Delegates are likewise excluded from tuple elements (the L1a delegate surface is params/locals only).
-            // CLOSED user-generic instantiations (Box<int>, Opt<int> — TypeBuilderInstantiation, not TypeBuilder)
-            // have the identical reflection-throw behavior, so they are excluded by the same rule (adversarial-
-            // review hardening — an uncaught NotSupportedException is a compiler crash, not a clean decline).
-            // Builder-bound COLLECTION elements ((int, List<Pt>)) are excluded by the same rule: the
-            // ValueTuple closed over them is a TypeBuilderInstantiation whose ctor/ItemN lookups throw.
+            // Exclude enum elements (value-comparison parity across emitted enum types needs its own proof) and every
+            // builder-shaped element — user-struct TypeBuilders, closed user generics (Box<int>), and builder-bound
+            // collections (List<Pt>): a ValueTuple<…> closed over any of them is a TypeBuilderInstantiation whose
+            // ctor/ItemN reflection lookups throw NotSupportedException at emit, so all stay clean declines (an
+            // uncaught throw is a compiler crash). Delegates are likewise excluded (L1a is params/locals only).
             if (IsEnumType(arg) || arg is TypeBuilder || IsClosedUserGenericInstantiation(arg)
                 || IsSupportedDelegateType(arg) || ContainsBuilderBoundType(arg) || !IsSupportedType(arg))
                 return false;
@@ -1499,16 +1482,12 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b) against its expected delegate
-    // type: synthesize an Assembly|Static `<Lambda>_{n}` method on the Program type whose signature comes from
-    // the delegate's Invoke (lambda params are UNTYPED by grammar — typing is purely contextual, exactly the
-    // legacy emitter's GetLambdaSignature), emit the body through a SUB-emitter whose scope holds ONLY the lambda
-    // parameters — an identifier reaching for an enclosing local/param fails to resolve and DECLINES, which
-    // is precisely the no-captures rule (sibling function calls are not captures and keep working) — then
-    // construct the delegate at the use site: `ldnull; ldftn <Lambda>_{n}; newobj <delegate>(object, IntPtr)`
-    // (the legacy emitter's EmitStaticDelegate minus the per-callsite cache, which is unobservable). Interleaved
-    // DefineMethod + forward-ldftn baking on PersistedAssemblyBuilder are spike-proven. A VOID-returning
-    // delegate requires a void body expression (a discarded non-void body is a later rung — decline).
+    // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b): synthesize an Assembly|Static
+    // `<Lambda>_{n}` method on Program typed from the delegate's Invoke (params are contextually typed — the legacy
+    // GetLambdaSignature), emit the body via a SUB-emitter scoped to ONLY the lambda params (an enclosing-binding
+    // read fails to resolve = the no-captures rule; sibling calls still work), then `ldnull; ldftn; newobj
+    // <delegate>(object, IntPtr)` at the use site (legacy EmitStaticDelegate minus the unobservable cache).
+    // Interleaved DefineMethod + forward-ldftn baking is spike-proven; a void delegate needs a void body (decline).
     private bool TryEmitLambdaLiteral(int lambdaIdx, Type expectedDelegateType)
     {
         if (_programType == null || _lambdaCounter == null
@@ -1985,14 +1964,11 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // True when any statement in the subtree WRITES one of `names`: an assignment (kind 14, incl. the
-    // compound forms — the for-loop increment is one of these) targeting the bare identifier OR any
-    // member/index path whose ROOT receiver is the name (`b.V = 99` on a captured value-struct local
-    // diverges from the legacy emitter, which box-lifts member-mutated value-type captures — adversarial-review
-    // finding, probe-confirmed 101 vs 199; root-receiver matching also conservatively declines reference-
-    // type member writes, which would be benign — under-accept), a foreach (kind 29) whose loop variable
-    // re-stores per iteration, or a tuple deconstruction (kind 30) binding it. `:=`/typed declarations
-    // cannot RE-declare an existing name (declined at declaration), so they are not writes.
+    // True when any statement in the subtree WRITES one of `names`: an assignment (kind 14, incl. compound
+    // forms) to the bare identifier OR any member/index path whose ROOT receiver is the name (`b.V = 99` on a
+    // captured value-struct local diverges from the legacy emitter's box-lifting — probe-confirmed 101 vs 199;
+    // root matching also conservatively declines benign reference member writes), a foreach re-storing its loop
+    // variable, or a deconstruction binding it. `:=`/typed declarations cannot re-declare, so they are not writes.
     private bool IsAnyNameWritten(int node, SortedSet<string> names)
     {
         switch (_nodes.Kind(node))
@@ -2700,14 +2676,11 @@ internal sealed class ColumnarIlEmitter
             substituted = declaredReturn.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
             return true;
         }
-        // A builder-bound BCL-COLLECTION return (`func same<T>(items: List<T>): List<T>`, or List<Pt>):
-        // substitute each argument by the binding and re-close the RUNTIME definition — with baked
-        // bindings this yields a real runtime List<int>, so the caller's downstream member binding
-        // reflects normally. This arm MUST intercept every builder-bound instantiation: the defensive
-        // ContainsGenericParameters tail below reports FALSE on a TypeBuilderInstantiation even over an
-        // open T (spike-proven), so falling through would leak an open MVAR into the caller (the exact
-        // BadImageFormatException class the user-generic arm above guards against). Fully BAKED generic
-        // returns (concrete tuples) keep falling through to the tail unchanged.
+        // A builder-bound BCL-COLLECTION return (List<T>/List<Pt>): substitute arguments by binding and re-close
+        // the RUNTIME definition (baked bindings yield a real List<int>, so downstream members reflect normally).
+        // This arm MUST catch every builder-bound instantiation — ContainsGenericParameters is FALSE on a
+        // TypeBuilderInstantiation even over an open T (spike-proven), so falling through would leak an open MVAR
+        // (BadImageFormatException). Fully baked generic returns keep falling to the tail unchanged.
         if (declaredReturn.IsGenericType && !declaredReturn.IsGenericTypeDefinition && ContainsBuilderBoundType(declaredReturn))
         {
             Type returnDef;
@@ -3763,14 +3736,12 @@ internal sealed class ColumnarIlEmitter
                 type = null!;
                 return false;
             }
-            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` / `SortedDictionary<K,V>` / `HashSet<T>` close over the runtime generics. A USER type
-            // named List/Dictionary/SortedDictionary/HashSet/Stack shadows the head entirely (declined above — the pipeline REJECTS such
-            // uses; the Action-style "user wins" ordering does NOT hold for these heads). Elements may be
-            // user TypeBuilders or nested collections (the builder-element rebind rung — member binding
-            // rebinds via ResolveClosedGenericMethod/Ctor); IsAdmissibleCollectionElement pins what stays
-            // out. Dictionary KEYS and HashSet ELEMENTS must stay BAKED: hashing over a builder type rides the
-            // key/element type's synthesized Equals/GetHashCode, and the columnar PASS 0e synthesis-skip rules
-            // (builder-typed-field records get none) would diverge from the legacy emitter — pinned decline.
+            // BCL COLLECTIONS — List/Dictionary/SortedDictionary/HashSet close over the runtime generics; a USER
+            // type of those names shadows the head entirely (declined above — the pipeline rejects such uses).
+            // Elements may be user TypeBuilders or nested collections (rebind via ResolveClosedGenericMethod/Ctor;
+            // IsAdmissibleCollectionElement pins what stays out), but Dictionary KEYS and HashSet ELEMENTS must
+            // stay BAKED: hashing over a builder type rides synthesized Equals/GetHashCode and the PASS 0e
+            // synthesis-skip rules would diverge from the legacy emitter — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
                 var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
@@ -5311,15 +5282,12 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        // PASS 0c (constructors): declare each user constructor. A constructor is a nameless,
-        // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
-        // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), optionally with a `: this(...)`
-        // (same-type) or `: base(...)` (declared base class) chaining initializer. The N# struct parser rejects exact
-        // duplicate constructor signatures before rows reach this pass; overload resolution at construction is still
-        // by PARAM COUNT (see case 15), so same-arity/different-type declarations decline only when an ambiguous
-        // construction/chaining call site is emitted. Value-type constructors arrive only for the parser-accepted
-        // positional shape: non-parameterless and without chain initializers. The ConstructorBuilder + its param types
-        // are stored for positional-construction resolution; the body (+ chained call) is emitted (+ validated) in PASS 2.
+        // PASS 0c (constructors): declare each user constructor (nameless, void-returning; `this` is arg 0 so
+        // user param ordinals shift by +1). Scope: OVERLOADED constructors on REFERENCE types, optionally with a
+        // `: this(...)`/`: base(...)` chaining initializer. The struct parser rejects exact duplicate signatures;
+        // construction overload resolution is still by PARAM COUNT (case 15), so same-arity/different-type pairs
+        // decline only at an ambiguous call site. Value-type ctors arrive only in the parser-accepted positional
+        // shape. The ConstructorBuilder + param types are stored; bodies (+ chained calls) emit in PASS 2.
         var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         var structInitializerJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, MethodBuilder Builder)>();
@@ -6368,20 +6336,14 @@ internal sealed class ColumnarIlEmitter
         foreach (var baseTb in unionBaseBuilders)
             baseTb.CreateType();
 
-        // Display classes (capturing lambdas) bake BEFORE the Program type — the legacy emitter's
-        // closure-types-first order; their instance methods are referenced by ldftn from Program bodies.
-        // Executable finalization — the legacy emitter's SaveAssembly rule: an exe assembly must be
-        // serialized through ManagedPEBuilder with the entry-point token set (PersistedAssemblyBuilder.Save
-        // never writes one). An async `main` cannot BE the CLR entry point (its CLR signature returns
-        // Task/Task<T>), so a sync __NSharpEntryPoint wrapper calls it and blocks on
-        // GetAwaiter().GetResult() — the legacy EnsureRuntimeEntryPointWrapper verbatim. The wrapper is
-        // declared BEFORE type.CreateType() so it bakes with the Program type.
-        // TEST DECLARATIONS — the legacy emitter's NSharpTests contract: one public module-level
-        // type holding every test as a public instance void method carrying
-        // Trait("NSharpDescription", <description>) + Fact, both resolved from the restored xunit
-        // at emit time (ResolveTestFrameworkType). Bodies emit through the standard body emitter
-        // with the sibling top-level functions in scope; `nlc test` (XunitFrontController or the
-        // attribute-free NSharpTests reflection fallback) and `dotnet test` both discover them.
+        // Display classes (capturing lambdas) bake BEFORE the Program type (closure-types-first; their
+        // instance methods are ldftn'd from Program bodies). Executable finalization — the legacy SaveAssembly
+        // rule: an exe serializes through ManagedPEBuilder with the entry-point token set (Save never writes
+        // one); an async `main` cannot BE the entry point (returns Task/Task<T>), so a sync __NSharpEntryPoint
+        // wrapper blocks on GetAwaiter().GetResult(), declared BEFORE CreateType() so it bakes with Program.
+        // TEST DECLARATIONS — the NSharpTests contract: one public module-level type, each test a public
+        // instance void method with Trait("NSharpDescription", ...) + Fact resolved from the restored xunit at
+        // emit time; bodies use the standard body emitter; `nlc test` and `dotnet test` both discover them.
         if (program.Tests is { Count: > 0 } testInputs)
         {
             Type factAttributeType;
@@ -6839,17 +6801,14 @@ internal sealed class ColumnarIlEmitter
 
             case 49: // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
             {        // span = exception TYPE name, -1 = bare; children [nameIdent?, block]). The clauses
-                     // emit as sequential BeginCatchBlock(type) regions, giving first-match-in-declaration-
-                     // order natively (probe-pinned, incl. base-before-derived). BeginCatchBlock implicitly
-                     // leaves the prior region and PUSHES the exception typed as the catch type — stloc the
-                     // bound variable (a fresh block-scoped local; shadowing declines = the pipeline's
-                     // NL316) or Pop when unbound. Unknown/non-whitelist exception types decline (the
-                     // pipeline silently resolves unknown names to a CATCH-ALL — known defect #16 — and
-                     // accepts non-exception types as dead clauses — #17; declining inherits neither).
-                     // Returns inside any region go through the body's leave tail. An optional trailing
-                     // kind-25 child is the FINALLY block (E4); break/continue inside the regions emit
-                     // `leave` when they cross the boundary (the case 21/22 rules), so try-inside-loop
-                     // emits. NESTED try declines (one level this rung).
+                     // emit as sequential BeginCatchBlock(type) regions — first-match-in-declaration-order
+                     // natively (probe-pinned, incl. base-before-derived). BeginCatchBlock implicitly leaves
+                     // the prior region and PUSHES the typed exception — stloc the bound variable (fresh
+                     // block-scoped local; shadowing = NL316 decline) or Pop when unbound. Unknown/non-
+                     // whitelist exception types decline (the pipeline's catch-all defect #16 and dead-clause
+                     // defect #17 are inherited by neither). Returns inside any region go through the leave
+                     // tail; an optional trailing kind-25 child is the FINALLY block (E4); break/continue emit
+                     // `leave` when crossing the boundary. NESTED try declines (one level this rung).
                 if (_nodes.ChildCount(idx) < 2 || _inProtectedRegion)
                     return false;
                 if (_protectedResult == null && _returnType != typeof(void))
@@ -7610,19 +7569,15 @@ internal sealed class ColumnarIlEmitter
                     if (TryEmitSupportedBclPropertyAssignment(fieldReceiver, memberName, Child(expr, 1)))
                         return true;
 
-                    // MEMBER WRITES through a resolved receiver CHAIN (D-18b, mirroring the post-#22
-                    // legacy emitter): roots are bare LOCALS and PARAMS; hops are instance FIELDS (`p.X = v`
-                    // on struct params, `c.X = v` on class/record locals and params, `o.i.X = v`,
-                    // `h.s.X = v`, `a.b.s.X = v`). The chain resolves BEFORE any emission (the
-                    // emit-ownership rule). A FIELD write emits locator; value; stfld — stfld accepts
-                    // an object ref OR a managed pointer, so value links use ldloca/ldarga/ldflda and
-                    // reference links ldloc/ldarg/ldfld and the chain composes uniformly. A PROPERTY
-                    // write needs a REFERENCE final receiver (value-type properties stay declined):
-                    // locator; value; callvirt setter. Record fields are NOT init-only in the pipeline
-                    // (probe-pinned `r.X = 5` -> 5) — they write exactly like class fields. DECLINES:
-                    // indexer/call-result receivers (pipeline-REJECTED, NL322 — parity by rejection
-                    // via the fallback), lifted/captured roots (the capture-mutation family stays
-                    // conservative), and closed-generic receivers (`Box<int>` — a later rebind rung).
+                    // MEMBER WRITES through a resolved receiver CHAIN (D-18b): roots are bare LOCALS and
+                    // PARAMS; hops are instance FIELDS (`p.X = v`, `o.i.X = v`, `a.b.s.X = v`). The chain
+                    // resolves BEFORE any emission. A FIELD write emits locator; value; stfld — stfld takes
+                    // an object ref OR a managed pointer, so value links use ldloca/ldarga/ldflda, reference
+                    // links ldloc/ldarg/ldfld, and the chain composes uniformly. A PROPERTY write needs a
+                    // REFERENCE final receiver (value-type properties decline): locator; value; callvirt
+                    // setter. Record fields are NOT init-only here (probe-pinned `r.X = 5` -> 5). DECLINES:
+                    // indexer/call-result receivers (pipeline-rejected NL322), lifted/captured roots
+                    // (conservative), and closed-generic receivers (a later rebind rung).
                     if (TryResolveMemberWriteChain(fieldReceiver, out var writeChain)
                         && writeChain.ReceiverType is TypeBuilder writeOwnerTb
                         && FindDefByBuilder(writeOwnerTb) is { } writeOwnerDef)
@@ -8184,6 +8139,72 @@ internal sealed class ColumnarIlEmitter
                 foreach (var name in new List<string>(_liftedLocals.Keys))
                 {
                     if (!outerLifted.Contains(name))
+                        _liftedLocals.Remove(name);
+                }
+                return true;
+            }
+
+            case 73: // AwaitForeach [collection, body] — consumer-side `await foreach <var> in <stream>`:
+            {        // GetAsyncEnumerator(default)/MoveNextAsync/Current/DisposeAsync driving, each
+                     // ValueTask resolved through the blocking-await model exactly like this pipeline's
+                     // other awaits (real async-func state machines are a later slice). `break` exits
+                     // through the disposal tail; `continue` re-drives MoveNextAsync.
+                var streamNode = Child(idx, 0);
+                var awaitBody = Child(idx, 1);
+                var awaitVarName = Text(idx);
+                if (AlwaysReturns(awaitBody) || IsVisibleBindingName(awaitVarName))
+                    return false;
+                var outerAwaitLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                var outerAwaitLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
+                if (!EmitExpression(streamNode, out var streamType))
+                    return false;
+                if (!streamType.IsGenericType || streamType.IsGenericTypeDefinition
+                    || streamType.GetGenericTypeDefinition() != typeof(IAsyncEnumerable<>)
+                    || ContainsBuilderBoundType(streamType))
+                    return Decline("emit.statement.await-foreach", "await foreach requires an IAsyncEnumerable<T> source", streamNode);
+                var streamElementType = streamType.GetGenericArguments()[0];
+                if (!IsSupportedType(streamElementType))
+                    return false;
+                var asyncEnumeratorType = typeof(IAsyncEnumerator<>).MakeGenericType(streamElementType);
+                var tokenLocal = _il.DeclareLocal(typeof(System.Threading.CancellationToken));
+                _il.Emit(OpCodes.Ldloca, tokenLocal);
+                _il.Emit(OpCodes.Initobj, typeof(System.Threading.CancellationToken));
+                _il.Emit(OpCodes.Ldloc, tokenLocal);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(streamType, typeof(IAsyncEnumerable<>).GetMethod("GetAsyncEnumerator")!));
+                var asyncEnumeratorLocal = _il.DeclareLocal(asyncEnumeratorType);
+                _il.Emit(OpCodes.Stloc, asyncEnumeratorLocal);
+                var awaitLoopStart = _il.DefineLabel();
+                var awaitDisposeLabel = _il.DefineLabel();
+                _il.MarkLabel(awaitLoopStart);
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<>).GetMethod("MoveNextAsync")!));
+                if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask<bool>), out _))
+                    return false;
+                _il.Emit(OpCodes.Brfalse, awaitDisposeLabel);
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<>).GetProperty("Current")!.GetGetMethod()!));
+                var awaitLoopVar = _il.DeclareLocal(streamElementType);
+                _il.Emit(OpCodes.Stloc, awaitLoopVar);
+                _locals[awaitVarName] = awaitLoopVar;
+                _loopLabels.Push((awaitDisposeLabel, awaitLoopStart, _inProtectedRegion, _inFinallyRegion));
+                var awaitBodyEmitted = EmitStatement(awaitBody);
+                _loopLabels.Pop();
+                if (!awaitBodyEmitted)
+                    return false;
+                _il.Emit(OpCodes.Br, awaitLoopStart);
+                _il.MarkLabel(awaitDisposeLabel);
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal);
+                _il.Emit(OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync))!);
+                if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask), out _))
+                    return false;
+                foreach (var name in new List<string>(_locals.Keys))
+                {
+                    if (!outerAwaitLocals.Contains(name))
+                        _locals.Remove(name);
+                }
+                foreach (var name in new List<string>(_liftedLocals.Keys))
+                {
+                    if (!outerAwaitLifted.Contains(name))
                         _liftedLocals.Remove(name);
                 }
                 return true;
@@ -10570,18 +10591,14 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                // FENCED WHOLE-SUBTREE RESIDUAL. This core serves ONLY binaries the N# front-door planner
-                // (ColumnarPrimitiveBinaryPlanner) declined as a whole subtree because an operand is outside
-                // its plannable surface: contextual-lambda call operands (task 010 owns lambda placement),
-                // member access / member chains on call results, unary-negated call operands, dictionary-indexer
-                // reads, and string-typed operands like enum string-constant reads or non-chain-provable
-                // indexer terms (task 015 grows the planner's nested-operand surface). It mirrors the planner's
-                // numeric promotion, arithmetic, bitwise, ordering, and equality selection exactly, keeps the
-                // two-operand string concat below, and keeps the non-numeric equality families
-                // (string/Type/user-reference/record-struct) that were never planner-owned, so a residual
-                // binary emits byte-identical IL. Shifts, the decimal op_* table, and the right-literal
-                // adoption path are NOT restored: no whole-subtree residual in the corpus reaches them (the
-                // planner owns every fully-plannable shift/decimal/adopting binary at the front door).
+                // FENCED WHOLE-SUBTREE RESIDUAL: serves ONLY binaries ColumnarPrimitiveBinaryPlanner declined
+                // as a whole subtree because an operand is outside its plannable surface (contextual-lambda
+                // call operands — task 010; member chains on call results; unary-negated call operands;
+                // dictionary-indexer reads; string-typed operands — task 015 grows that surface). Mirrors the
+                // planner's promotion/arithmetic/bitwise/ordering/equality selection exactly, keeps two-operand
+                // string concat and the never-planner-owned non-numeric equality families, so a residual binary
+                // emits byte-identical IL. Shifts, the decimal op_* table, and right-literal adoption are NOT
+                // restored: no whole-subtree residual in the corpus reaches them.
                 Type opType;
                 if (leftType == rightType)
                     opType = leftType;
@@ -11568,13 +11585,11 @@ internal sealed class ColumnarIlEmitter
                         type = defaultValueStructDef.Builder;
                         return true;
                     }
-                    // A user type with a positional constructor: `new T(args)`. The type names a registered
-                    // type with ≥1 user ctor; resolve by arg COUNT first, and when overloads share an arity use a
-                    // conservative type preflight to select exactly one compatible signature. Emit each arg
-                    // (type-checked against the chosen ctor's param type), then `newobj <ctor>`; the result's type is
-                    // the type. (`newobj` on a VALUE type zero-initializes then runs the ctor and pushes the value —
-                    // the legacy emitter's probed semantics for partially-assigning struct ctors. Fields-only value
-                    // structs construct via object-init.)
+                    // A user type with a positional constructor: `new T(args)` — resolve by arg COUNT first,
+                    // then a conservative type preflight when overloads share an arity; emit each type-checked
+                    // arg, then `newobj <ctor>`. (`newobj` on a VALUE type zero-initializes, runs the ctor, and
+                    // pushes the value — the probed semantics for partially-assigning struct ctors; fields-only
+                    // value structs construct via object-init.)
                     if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.Constructors.Count > 0)
                     {
                         if (!TrySelectUserConstructor(idx, ctorDef, out var chosenCtor, out var chosenParamTypes, out var chosenDefaultKinds, out var chosenDefaultTexts))
@@ -11651,13 +11666,11 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)` / `new SortedDictionary<string,int>()` / `new HashSet<int>()` /
-                    // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless ctor, or the
-                    // int-capacity ctor (both probe-pinned legacy-emitter working) — resolved from the OPEN
-                    // definition so builder-bound instantiations rebind. Other overloads decline.
-                    // (`new List<T>()` inside a generic BODY never reaches here: the canonical resolves
-                    // via the typeParams-less TryResolveType, so body-side construction declines — the
-                    // generic surface this rung is params/returns/foreach/indexing, pinned.)
+                    // A closed BCL COLLECTION (`new List<int>()`, `new Dictionary<string,int>(10)`, ..., incl.
+                    // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless or int-capacity ctor
+                    // (both probe-pinned) resolved from the OPEN definition so builder-bound instantiations
+                    // rebind; other overloads decline. (`new List<T>()` inside a generic BODY never reaches
+                    // here — the typeParams-less canonical resolution declines body-side construction, pinned.)
                     if (IsSupportedCollectionType(closedType))
                     {
                         var collectionOpenDef = closedType.GetGenericTypeDefinition();
@@ -12364,15 +12377,12 @@ internal sealed class ColumnarIlEmitter
             case 52: // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`. N# owns
             {        // the clone/copy strategy, the receiver address-versus-value shape, the ordered
                      // replacement set, the readonly rule, the exact call form, and the result type
-                     // (ColumnarRecordWithPlanner). C# evaluates the receiver and each replacement value
-                     // through the recursive sub-emitter and applies the exact opcode shape the plan
-                     // prescribes: a reference record clones through `<Clone>$` and writes each field on the
-                     // cloned reference (ldloc; stfld); a value record copies by assignment into a local and
-                     // writes each field through the copy's address (ldloca; stfld), the shape a verifiable
-                     // value-type `with` requires (a value receiver is not an object reference, so `callvirt`
-                     // on it is unverifiable and an instance write needs the value's address). Zero pairs is a
-                     // pure copy. Generic records still decline: a constructed generic receiver is not a raw
-                     // TypeBuilder, so no definition is resolved and the plan declines to the residual.
+                     // (ColumnarRecordWithPlanner). C# evaluates the receiver and each replacement value via
+                     // the recursive sub-emitter and applies the plan's exact opcode shape: a reference record
+                     // clones through `<Clone>$` then ldloc; stfld per field; a value record copies into a
+                     // local and writes through its address (ldloca; stfld — the verifiable value-type `with`
+                     // shape). Zero pairs is a pure copy. Generic records still decline (a constructed generic
+                     // receiver is not a raw TypeBuilder, so no definition resolves).
                 if ((_nodes.ChildCount(idx) & 1) == 0)
                     return Decline("emit.with.shape", "with expression has an unsupported shape", idx);
                 var withPairCount = (_nodes.ChildCount(idx) - 1) / 2;
@@ -12560,15 +12570,11 @@ internal sealed class ColumnarIlEmitter
                 var matchLocal = _il.DeclareLocal(matchValueType);
                 _il.Emit(OpCodes.Stloc, matchLocal);
 
-                // ENUM EXHAUSTIVENESS: N# requires an enum match to cover EVERY member or carry a catch-all (the
-                // analyzer's NL501 NonExhaustiveMatch). The columnar emit would otherwise compile a PARTIAL enum
-                // match (with a runtime throw for the missing members). Decline such a match so the columnar path
-                // never accepts a source shape the analyzer rejected.
-                // This is a DECLINE, not a diagnostic — consistent with how
-                // the emitter declines everything outside its faithfully-modelled subset. Coverage counts only
-                // TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding is a catch-all; an unguarded `Enum.Member`
-                // (kind 8) covers that member. Guarded and combinator/relational arms do not count (conservative — a
-                // richer-but-exhaustive form simply declines to , still correct).
+                // ENUM EXHAUSTIVENESS: an enum match must cover EVERY member or carry a catch-all (NL501); a
+                // partial match would otherwise compile with a runtime throw for the missing members, so it
+                // DECLINES (not a diagnostic — the emitter declines everything outside its modelled subset).
+                // Coverage counts only TOP-LEVEL UNGUARDED arms: `_`/binding = catch-all, `Enum.Member` (kind 8)
+                // covers that member; guarded and combinator/relational arms do not count (conservative).
                 ColumnarEnumDef? matchEnumDef = null;
                 foreach (var def in _enumRegistry.Values)
                 {
@@ -12597,14 +12603,11 @@ internal sealed class ColumnarIlEmitter
                         return false;
                 }
 
-                // UNION EXHAUSTIVENESS: union matches must cover EVERY case or carry a catch-all (NL501).
-                // A partial union match would otherwise emit a runtime throw for the missing cases, so decline it
-                // to the analyzer-backed N# backend path. Coverage
-                // counts only TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding (kind 6) is a catch-all; an
-                // unguarded union-case pattern (kind 37 over `Union.Case`) covers that case.
-                // A non-generic union's scrutinee is its open base TypeBuilder; a GENERIC union's is a CLOSED
-                // instantiation of the base (`Opt<int>`) — the helper resolves both (and the closed form's
-                // arguments drive the per-case isinst/field closing in the pattern emitters).
+                // UNION EXHAUSTIVENESS: union matches must cover EVERY case or carry a catch-all (NL501) —
+                // partial matches decline. Coverage counts only TOP-LEVEL UNGUARDED arms: `_`/binding (kind 6)
+                // is a catch-all; a union-case pattern (kind 37 over `Union.Case`) covers that case. A
+                // non-generic union's scrutinee is its open base TypeBuilder; a GENERIC union's is a CLOSED
+                // instantiation whose arguments drive the per-case isinst/field closing in the pattern emitters.
                 ColumnarUnionDef? matchUnionDef = null;
                 if (TryGetUnionDefForMatchValue(matchValueType, out var foundUnionDef, out _))
                     matchUnionDef = foundUnionDef;
@@ -20443,18 +20446,14 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): the kind-3 token carries the whole
-    // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
-    // (identifier-chain holes only — anything richer declines) and mirror the
-    // legacy emitter's formatted-hole lowering exactly. Empty/NO-hole literals are terminally
-    // owned by the N# scalar planner; remaining literals use DefaultInterpolatedStringHandler —
-    // ctor(literalLength = sum of DECODED text lengths, formattedCount), AppendLiteral per text
-    // segment, AppendFormatted per hole (string holes use the (string) overload, format clauses the
-    // generic (T, string), the rest the generic (T)), then ToStringAndClear. Hole chains resolve
-    // EMISSION-FREE first (the emit-ownership rule): roots are locals/params (lifted/boxed roots
-    // decline), hops are instance FIELDS on registered defs, and an optional final zero-argument user
-    // instance call is modelled for holes such as `{value.ToString()}`; builder-typed hole VALUES decline
-    // (the legacy emitter BOXES those through AppendFormatted(object, int, string) — a later rung).
+    // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): split the kind-3 literal via the shared
+    // ColumnarInterpolationSplitter (identifier-chain holes only) and mirror the legacy formatted-hole
+    // lowering: empty/no-hole literals are the N# scalar planner's; the rest use
+    // DefaultInterpolatedStringHandler — ctor(decoded literalLength, formattedCount), AppendLiteral per
+    // segment, AppendFormatted per hole ((string) / (T, string) with a format clause / (T)), then
+    // ToStringAndClear. Hole chains resolve EMISSION-FREE first: roots are locals/params (lifted/boxed
+    // decline), hops instance FIELDS, plus an optional final zero-argument user instance call
+    // (`{value.ToString()}`); builder-typed hole VALUES decline (legacy boxes those — a later rung).
     private bool TryEmitInterpolatedString(string literal, out Type type)
     {
         type = null!;

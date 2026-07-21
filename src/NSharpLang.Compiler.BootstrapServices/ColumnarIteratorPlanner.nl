@@ -633,6 +633,12 @@ public class ColumnarIteratorPlanner {
                 WalkUnitAwait(nodes, source, inner, state)
                 return !state.Declined
             }
+            // A bare `<ident>++` / `<ident>--` statement (the classic-for increment clause parses to
+            // exactly this shape) — the stepped value is discarded.
+            if nodes.Kind(inner) == 44 {
+                WalkPostfixStep(nodes, source, inner, state)
+                return !state.Declined
+            }
             if nodes.Kind(inner) != 14 || nodes.ChildCount(inner) != 2 {
                 state.Decline("emit.iterator.unsupported-shape", "only simple `=` assignments are lowered in an iterator body")
                 return false
@@ -684,6 +690,36 @@ public class ColumnarIteratorPlanner {
                 return false
             }
             return thenFalls || elseFalls
+        }
+        if kind == 28 {
+            // For [init, cond, incr, body] — the C-style counting loop. Every clause reuses the
+            // statement/expression walk unchanged: the init's local hoists like any declaration, the
+            // false-condition exit edge always falls through, and the body result only drives
+            // dead-code dropping (a non-falling body makes the increment dead — the emit walk skips
+            // it, and no admitted increment shape carries resume points or hoists, so the two passes
+            // stay in lockstep).
+            if nodes.ChildCount(node) != 4 {
+                state.Decline("emit.iterator.unsupported-shape", "unsupported for statement in an iterator body")
+                return false
+            }
+            initFalls := WalkStatement(nodes, source, nodes.Child(node, 0), state)
+            if state.Declined {
+                return false
+            }
+            WalkExpression(nodes, source, nodes.Child(node, 1), state)
+            incrFalls := WalkStatement(nodes, source, nodes.Child(node, 2), state)
+            if state.Declined {
+                return false
+            }
+            if !initFalls || !incrFalls {
+                // A non-falling initializer or increment (e.g. a clause-slot `yield break`) would leave
+                // dead rows after itself — decline the degenerate shape instead.
+                state.Decline("emit.iterator.unsupported-shape",
+                    "a for initializer or increment that cannot complete is not lowered in an iterator body")
+                return false
+            }
+            WalkStatement(nodes, source, nodes.Child(node, 3), state)
+            return !state.Declined
         }
         if kind == 72 {
             // YieldStatement: 1 child = yield return (a resume state, falls through at its resume
@@ -910,14 +946,75 @@ public class ColumnarIteratorPlanner {
                 "`await` in a value position is not yet lowered in an async iterator body")
             return
         }
+        if kind == 44 {
+            // postfix `++`/`--` in VALUE position (`yield i++`): pushes the pre-step value, then steps
+            // the binding — the same target admission as the statement form.
+            WalkPostfixStep(nodes, source, node, state)
+            return
+        }
         if kind == 9 {
-            // call — nested/recursive iterator calls and general calls are later slices
+            // call — an argument-free string instance call (`s.ToUpper()` and family) is the one
+            // admitted shape; nested/recursive iterator calls and general calls are later slices
+            if IsAdmittedStringCall(nodes, source, node, state) {
+                return
+            }
             state.Decline("emit.iterator.nested-unsupported",
                 "method calls inside an iterator body are not yet lowered")
             return
         }
         state.Decline("emit.iterator.unsupported-shape",
             "an iterator body expression (node kind " + kind.ToString() + ") is not yet lowered")
+    }
+
+    // `<ident>++` / `<ident>--`: a step of a bound (writable) int binding — the only stepped canonical
+    // the emitted ldc.i4 arithmetic is correct for. Enclosing member targets stay read-only, exactly
+    // like the assignment rule.
+    static func WalkPostfixStep(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        op := nodes.Text(source, node)
+        if nodes.ChildCount(node) != 1 || (op != "++" && op != "--") {
+            state.Decline("emit.iterator.unsupported-shape", "unsupported postfix mutation in an iterator body")
+            return
+        }
+        target := nodes.Child(node, 0)
+        if nodes.Kind(target) != 6 {
+            state.Decline("emit.iterator.unsupported-shape",
+                "a postfix step target must be a bound identifier in an iterator body")
+            return
+        }
+        name := nodes.Text(source, target)
+        canonical := state.LookupCanonical(name)
+        if canonical == "" {
+            state.Decline("emit.iterator.unsupported-shape",
+                "postfix step of an unbound or read-only identifier '" + name + "' in an iterator body")
+            return
+        }
+        if canonical != "int" {
+            state.Decline("emit.iterator.unsupported-shape",
+                "postfix step over a non-int binding ('" + name + "': '" + canonical + "') is not yet lowered in an iterator body")
+        }
+    }
+
+    // The admitted value-position call shape: `<string-binding>.<Method>()` with no arguments, where
+    // the method is a lowerable zero-argument string instance method. Reads resolve like identifiers
+    // (parameters and locals first, then enclosing-type fields).
+    static func IsAdmittedStringCall(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
+        if nodes.ChildCount(node) != 1 {
+            return false
+        }
+        callee := nodes.Child(node, 0)
+        if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 {
+            return false
+        }
+        receiver := nodes.Child(callee, 0)
+        if nodes.Kind(receiver) != 6 || state.LookupReadCanonical(nodes.Text(source, receiver)) != "string" {
+            return false
+        }
+        return IsLowerableStringInstanceMethod(nodes.Text(source, callee))
+    }
+
+    // Zero-argument string→string instance methods the emit walk resolves via GetMethod(name, none).
+    public static func IsLowerableStringInstanceMethod(name: string): bool {
+        return name == "ToUpper" || name == "ToLower" || name == "Trim"
     }
 
     // A statement-position `await <operand>` (a unit await): a suspension point that resumes at its own
@@ -984,6 +1081,17 @@ public class ColumnarIteratorPlanner {
                 return "?"
             }
             return left
+        }
+        if kind == 44 && nodes.ChildCount(node) == 1 {
+            // postfix step: the value IS the target's pre-step value.
+            stepped := state.LookupCanonical(nodes.Text(source, nodes.Child(node, 0)))
+            if stepped == "" {
+                return "?"
+            }
+            return stepped
+        }
+        if kind == 9 && IsAdmittedStringCall(nodes, source, node, state) {
+            return "string"
         }
         return "?"
     }
@@ -1957,11 +2065,15 @@ public class ColumnarIteratorBodyPlanner {
             return true
         }
         if kind == 23 {
-            // expression statement: a unit await (async bodies), or a simple `=` assignment (kind 14)
-            // to a bound identifier
+            // expression statement: a unit await (async bodies), a bare postfix step (value dropped),
+            // or a simple `=` assignment (kind 14) to a bound identifier
             assign := nodes.Child(node, 0)
             if nodes.Kind(assign) == 53 {
                 EmitUnitAwait(emit, assign)
+                return true
+            }
+            if nodes.Kind(assign) == 44 {
+                EmitPostfixStep(emit, assign, false)
                 return true
             }
             target := nodes.Child(assign, 0)
@@ -2013,6 +2125,23 @@ public class ColumnarIteratorBodyPlanner {
             }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
             return false
+        }
+        if kind == 28 {
+            // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
+            // while discipline with a trailing increment — the back edge (and the increment before it)
+            // only exists when the body can complete.
+            EmitStatement(emit, nodes.Child(node, 0))
+            condLabel := emit.Plan.DefineLabel()
+            afterLabel := emit.Plan.DefineLabel()
+            emit.Plan.AppendMarkLabel(condLabel)
+            EmitExpression(emit, nodes.Child(node, 1))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
+            if EmitStatement(emit, nodes.Child(node, 3)) {
+                EmitStatement(emit, nodes.Child(node, 2))
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
+            }
+            emit.Plan.AppendMarkLabel(afterLabel)
+            return true
         }
         if kind == 29 {
             // for..in [source, body]: hoisted array sources take the index loop; everything else
@@ -2559,8 +2688,52 @@ public class ColumnarIteratorBodyPlanner {
             EmitBinaryOperator(emit, nodes.Text(source, node))
             return
         }
+        if kind == 44 {
+            EmitPostfixStep(emit, node, true)
+            return
+        }
+        if kind == 9 {
+            // The walk-admitted argument-free string instance call: read the receiver, callvirt.
+            callee := nodes.Child(node, 0)
+            AppendIdentifierRead(emit, nodes.Text(source, nodes.Child(callee, 0)))
+            emit.Plan.AppendMethodInstruction(
+                ColumnarCodePlanContract.Callvirt(),
+                emit.Plan.AddMethod(StringInstanceMethod(nodes.Text(source, callee))))
+            return
+        }
         throw new InvalidOperationException(
             "Iterator MoveNext lowering reached an unsupported expression kind " + kind.ToString() + ".")
+    }
+
+    // `<ident>++` / `<ident>--` on a hoisted int field. keepValue pushes the PRE-step value first
+    // (N# postfix semantics); the step itself is a load/add-or-sub/store through `this`.
+    static func EmitPostfixStep(emit: ColumnarMoveNextEmit, node: int, keepValue: bool) {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        fieldPool := FieldPool(emit, nodes.Text(source, nodes.Child(node, 0)))
+        if keepValue {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        }
+        LoadThis(emit)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        EmitInt(emit, 1)
+        if nodes.Text(source, node) == "++" {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+        } else {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+    }
+
+    // The zero-argument string instance method handle for a walk-admitted call name.
+    static func StringInstanceMethod(name: string): MethodInfo {
+        method := typeof(string).GetMethod(name, new Type[](0))
+        if method == null {
+            throw new InvalidOperationException("string." + name + "() was not found.")
+        }
+        return method
     }
 
     static func EmitBinaryOperator(emit: ColumnarMoveNextEmit, op: string) {
