@@ -440,6 +440,130 @@ class ColumnarFunctionBodyYieldProbe {
     }
 }
 
+// Parses a whole `func` via the product function ABI and captures the shape of the first
+// AwaitForeachStatement (kind 73) in the emitted body node table: the loop-variable value-span text,
+// the child count, and the child kinds ([collection, body]). Same raw-array emit shape as the yield
+// probe so it materializes under the stage-0 columnar backend.
+class ColumnarFunctionBodyAwaitForeachProbe {
+    Status: int
+    AwaitForeachNodeCount: int
+    VarText: string
+    ChildCount: int
+    CollectionKind: int
+    BodyKind: int
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts)
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result)
+
+        AwaitForeachNodeCount = 0
+        VarText = ""
+        ChildCount = -1
+        CollectionKind = -1
+        BodyKind = -1
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            n := 0
+            while n < bodyNodeCount {
+                if nodeKinds[n] == 73 {
+                    if AwaitForeachNodeCount == 0 {
+                        VarText = source.Substring(valueStarts[n], valueLengths[n])
+                        ChildCount = childCount[n]
+                        if childCount[n] == 2 {
+                            CollectionKind = nodeKinds[childIndices[childStart[n]]]
+                            BodyKind = nodeKinds[childIndices[childStart[n] + 1]]
+                        }
+                    }
+
+                    AwaitForeachNodeCount = AwaitForeachNodeCount + 1
+                }
+
+                n = n + 1
+            }
+        }
+    }
+}
+
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
     probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression())
@@ -605,6 +729,51 @@ test "function body parser lands a yield break as YieldStatement kind 72" {
 
     assert probe.Status >= 0
     assert probe.YieldNodeCount == 1
+}
+
+test "function body parser lands await foreach as AwaitForeachStatement kind 73" {
+    probe := new ColumnarFunctionBodyAwaitForeachProbe(
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n in xs { print n } }")
+
+    assert probe.Status >= 0
+    assert probe.AwaitForeachNodeCount == 1
+    assert probe.VarText == "n"
+    assert probe.ChildCount == 2
+    assert probe.CollectionKind == 6
+    assert probe.BodyKind == 25
+}
+
+test "function body parser lands a call-collection await foreach as kind 73" {
+    probe := new ColumnarFunctionBodyAwaitForeachProbe(
+        "async func Consume() { await foreach item in GetItemsAsync() { print item } }")
+
+    assert probe.Status >= 0
+    assert probe.AwaitForeachNodeCount == 1
+    assert probe.VarText == "item"
+    assert probe.CollectionKind == 9
+    assert probe.BodyKind == 25
+}
+
+test "function body parser keeps a bare await statement an expression statement" {
+    probe := new ColumnarFunctionBodyAwaitForeachProbe(
+        "async func Wait(t: Task) { await t }")
+
+    assert probe.Status >= 0
+    assert probe.AwaitForeachNodeCount == 0
+}
+
+test "await foreach without the in keyword refuses" {
+    probe := new ColumnarFunctionBodyAwaitForeachProbe(
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n xs { print n } }")
+
+    assert probe.Status < 0
+}
+
+test "parenthesised await foreach stays deferred like foreach" {
+    probe := new ColumnarFunctionBodyAwaitForeachProbe(
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach (n in xs) { print n } }")
+
+    assert probe.Status < 0
 }
 
 test "columnar decimal literal spans preserve separators and value" {

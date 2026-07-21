@@ -676,6 +676,12 @@ class ParserExpressionNodeTable {
 //                                             token in the value span, ONE child [body block]. Kind 63 belongs
 //                                             to the expression kernel (TargetTypedNewExpression); kind 64 belongs
 //                                             to the expression kernel (SpreadArgumentExpression). )
+//   AwaitForeachStatement        -> kind 73  ( `await foreach <var> in <coll> { body }` -- the Await 69 +
+//                                             Foreach 26 two-token dispatch (Parser.cs:2249). Same shape as
+//                                             kind 29: var name in the value span, children [coll, body];
+//                                             the distinct kind marks asynchronous enumeration. A statement
+//                                             `await <expr>` whose lookahead is NOT `foreach` stays an
+//                                             ExpressionStatement over AwaitExpression kind 53. )
 //   Systems policy wrappers (`allow(...) {}`, `alloc {}`, `unsafe {}`) parse as transparent kind-25 blocks;
 //                                             systems analysis owns policy semantics before emission.
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
@@ -683,7 +689,7 @@ class ParserExpressionNodeTable {
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield,
+// Deferred: parenthesised `foreach (x in y)` / `await foreach (x in y)`, const/readonly declarations, using/switch,
 // and statements whose expression parts use a not-yet-supported form. Block statement-list gathers child
 // node ids on the LIFO `argStack` (recursion is LIFO) and appends the contiguous child run after `}`,
 // exactly as calls/generics do.
@@ -6077,6 +6083,47 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         AppendExpressionChild(st, children, collection)
         AppendExpressionChild(st, children, foreachBody)
         return EmitExpressionNode(st, nodes, 29, foreachVarStart, foreachVarLength, foreachChildRunStart, 2, foreachStart, foreachBodyEnd - foreachStart)
+    }
+
+    // `await foreach <var> in <collection> { body }` (Await 69 DIRECTLY followed by Foreach 26 -- the
+    // Parser.cs:2249 two-token dispatch) -- AwaitForeachStatement kind 73: the kind-29 shape (var name in
+    // the value span, children [collection, body]) under a distinct kind so async enumeration lowers
+    // separately. A parenthesised `await foreach (x in y)` refuses exactly like kind 29's parenthesised
+    // form; a statement-position `await <expr>` with any other lookahead falls through to the expression
+    // statement path (AwaitExpression kind 53).
+    if kind == 69 && start + 1 < count && tokens.Kinds[start + 1] == 26 {
+        awaitForeachStart := tokens.Starts[start]
+        st.Pos = start + 2
+
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
+            return -1
+        }
+
+        awaitForeachVarStart := tokens.Starts[st.Pos]
+        awaitForeachVarLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 1
+
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 28 {
+            return -1
+        }
+
+        st.Pos = st.Pos + 1
+
+        awaitForeachCollection := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if awaitForeachCollection < 0 {
+            return -1
+        }
+
+        awaitForeachBody := ParseStatementCoreNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if awaitForeachBody < 0 {
+            return -1
+        }
+
+        awaitForeachBodyEnd := nodes.SpanStarts[awaitForeachBody] + nodes.SpanLengths[awaitForeachBody]
+        awaitForeachChildRunStart := st.ChildCursor
+        AppendExpressionChild(st, children, awaitForeachCollection)
+        AppendExpressionChild(st, children, awaitForeachBody)
+        return EmitExpressionNode(st, nodes, 73, awaitForeachVarStart, awaitForeachVarLength, awaitForeachChildRunStart, 2, awaitForeachStart, awaitForeachBodyEnd - awaitForeachStart)
     }
 
     if kind == 23 {
