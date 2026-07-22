@@ -6,6 +6,15 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
+- CORRECTION (post-Stage-2): sub-slice 5's Min/Max deletion (`86f4c251b`) was PARTIALLY WRONG — its
+  "provably dead" claim held only for plannable receivers. `Select(v => ...).Min()/.Max()` chains
+  whole-subtree-exit to the legacy residual (contextual-lambda decline), where the deleted emit +
+  preflight arms were load-bearing: tests/native/lambda-placement failed to emit at the checkpoint
+  gate. The arms are RESTORED as fenced load-bearing residuals (retire with arc stages 3-4); the
+  resolver-side ownership of plannable Min/Max receivers stands. LESSON (bar raised): every
+  byte-exact corpus sweep MUST include the tests/native/* projects — the 59-assembly example/fixture
+  sweep alone missed this; sub-slice 6's refutation of the identical premise for ToArray/ToList/
+  Contains applied retroactively to 5 and nobody re-checked.
 - Active sub-slice (Stage 2 of the lambda-taking LINQ ownership ARC — THIS TURN): MOVE the contextual-lambda
   CAPTURE-SET decision out of `ColumnarIlEmitter.cs` into N#. `TryEmitLambdaLiteral` used the C#
   `CollectLambdaCaptures` recursive AST walk to decide which enclosing-scope names a lambda body closes over
