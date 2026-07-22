@@ -63,7 +63,85 @@ class ColumnarLambdaPlacement {
     }
 }
 
+// The contextual-lambda parameter-signature binding for one lambda literal. A lambda's parameter
+// types are not written in source; they are the TARGET delegate's parameter types, bound positionally
+// to the lambda's parameter NAMES. N# owns that binding and the language rules it enforces — the
+// parameter count must match the delegate arity, each parameter node must be an identifier, a repeated
+// parameter name is malformed, and a parameter that shadows a name already visible in the enclosing
+// scope is the pipeline's NL316. The C# host supplies the delegate's decomposed parameter types (its
+// mechanical delegate-signature reflection) and the enclosing visible-binding names, and consumes the
+// ordinals and per-name types to drive the lambda body sub-emitter; BodyNode is the lambda body child.
+class ColumnarLambdaSignature {
+    // Parameter name -> zero-based ordinal, in declaration order.
+    Ordinals: Dictionary<string, int>
+    // Parameter name -> its contextual type (the target delegate's parameter type at that ordinal).
+    ParameterTypesByName: Dictionary<string, Type>
+    // The lambda body node — the child after the last parameter.
+    BodyNode: int
+
+    constructor(
+        ordinals: Dictionary<string, int>,
+        parameterTypesByName: Dictionary<string, Type>,
+        bodyNode: int) {
+        if ordinals == null || parameterTypesByName == null {
+            throw new InvalidOperationException(
+                "A contextual-lambda signature requires its ordinal and parameter-type maps.")
+        }
+        Ordinals = ordinals
+        ParameterTypesByName = parameterTypesByName
+        BodyNode = bodyNode
+    }
+}
+
 class ColumnarLambdaPlacementPlanner {
+    // Bind a lambda literal's parameters to the target delegate's parameter types, or decline. The host
+    // passes the delegate's decomposed parameter types (from its mechanical delegate-signature
+    // reflection) and the names already visible where the lambda is written; N# owns the arity match,
+    // the identifier-node requirement, duplicate-name malformedness, and the NL316 enclosing shadow, and
+    // returns the parameter ordinals, per-name types, and the body node. A null result is the standard
+    // lambda decline. This owns only the signature decision; the delegate decomposition and return type,
+    // the body emission, and the delegate construction stay mechanical in the host.
+    public static func PlanContextualSignature(
+        nodes: ColumnarNodeTable,
+        source: string,
+        lambdaNode: int,
+        parameterTypes: Type[],
+        visibleBindingNames: HashSet<string>): ColumnarLambdaSignature? {
+        if nodes == null || source == null || parameterTypes == null || visibleBindingNames == null {
+            throw new InvalidOperationException(
+                "Contextual-lambda signature planning requires the node table, source, delegate parameter types, and visible bindings.")
+        }
+
+        parameterCount := nodes.ChildCount(lambdaNode) - 1
+        if parameterCount != parameterTypes.Length {
+            return null
+        }
+
+        ordinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        parameterTypesByName := new Dictionary<string, Type>(StringComparer.Ordinal)
+        p := 0
+        while p < parameterCount {
+            parameterNode := nodes.Child(lambdaNode, p)
+            if nodes.Kind(parameterNode) != ColumnarExpressionNodeKind.IdentifierExpression() {
+                return null
+            }
+
+            parameterName := nodes.Text(source, parameterNode)
+            if ordinals.ContainsKey(parameterName) {
+                return null
+            }
+            if visibleBindingNames.Contains(parameterName) {
+                return null
+            }
+
+            ordinals[parameterName] = p
+            parameterTypesByName[parameterName] = parameterTypes[p]
+            p = p + 1
+        }
+
+        return new ColumnarLambdaSignature(ordinals, parameterTypesByName, nodes.Child(lambdaNode, parameterCount))
+    }
+
     // Select the owning type, generated-method identity, and visibility for one non-capturing lambda
     // body and define the synthesized method. Returns null to decline — an invalid synthesized signature,
     // or a value-type/constructor-body `this` capture that cannot bind a delegate directly to the current

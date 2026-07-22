@@ -6,56 +6,69 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice (DONE this turn, awaiting commit): DELETE the C# extension-method INTERFACE-RECEIVER
-  int-aggregate inference in `ColumnarIlEmitter.cs` — the `.Min()`/`.Max()` enumerable-extension arm. This
-  is the deletion-ready slice of the recorded 015 "extension interface-receiver inference" residual: the
-  full non-lambda enumerable-arm family (`ToArray`/`ToList`/`Contains`/`Cast`/`OfType`) is NOT deletion-ready
-  because the N# `ColumnarExtensionMethodResolver` deliberately declines interface/variance receiver
-  widening for GENERIC candidates (`int[]`/`List<int>` against `IEnumerable<TSource>`), so those C# arms
-  stay live for concrete receivers; `Min`/`Max` alone is provably dead because the resolver already OWNS
-  it via the NON-generic `Enumerable.Min/Max(IEnumerable<int>)` overload bound by receiver identity
-  (`CandidateAppliesToReceiver` → `IsAssignableFrom(IEnumerable<int>, receiver)`), for both concrete-array
-  and interface-typed receivers. Deleted three C# decisions: the `(member == "Min" || "Max") && sourceType
-  == typeof(int)` emit arm in `TryEmitEnumerableExtensionCall`, the mirror arm in
-  `TryGetPreflightEnumerableExtensionCallType`, and the now-unused `FindEnumerableIntAggregateMethod`
-  helper (its only caller). `ColumnarIlEmitter.cs` 21,583 → 21,564 lines (20,518 → 20,500 nonblank); no C#
-  added beyond two fence comments; net −19/−18. Assertions migrated to native N#: the resolver contract
-  `extension index build binds non-generic Linq extensions on interface and array receivers` now also
-  asserts `int[].Min()` and `IEnumerable<int>.Min()` bind the non-generic handle (Max/Sum already covered).
-  Corpus reproducer proven byte-exact: `examples/12-multi-file-projects/WeatherDemo` (`temps.Min()` /
-  `temps.Max()` on `int[]`) — all WeatherDemo method bodies IL-identical before/after (the two `call`
-  tokens for Min/Max are emitted by the N# planner, confirming the C# arm was dead). Remaining 015
-  interpolation/extension residuals: lambda-taking LINQ arms (`TryEmitEnumerableExtensionCall`
-  Where/Select + `TryEmitLambdaLiteral`), interface/variance receiver widening for the generic non-lambda
-  arms (`ToArray`/`ToList`/`Contains`), explicit-type-argument extension binding
-  (`TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), the chain/base-call/parsed-expression
-  interpolation hole core, preflight typing of legacy-owned static calls, the case-12/13
-  numeric/conditional cores, and real async-func lowering.
-- Next smallest concrete sub-slice: NOT the enumerable widening — that premise is REFUTED (sub-slice 6
-  attempt, investigated + implemented + reverted, no commit). The `ToArray`/`ToList`/`Contains` family has
-  NO deletion-ready subset this turn. Three independent blockers, each empirically proven:
-  (1) the EMIT arms in `TryEmitEnumerableExtensionCall` are LOAD-BEARING for lambda chains in the C#
-      whole-subtree residual — `Select(f=>…).ToArray()` (WeatherDemo), `Where(i=>…).ToList()` and
-      `Where(i=>i.Tags.Contains(t))` (issue-tracker) — the N# planner declines contextual lambdas
-      (`ColumnarDirectCallPlanner.nl:108-115`) so the outer call routes to the arm; disabling the ToArray
-      emit arm makes WeatherDemo fail to build.
-  (2) the PREFLIGHT arms in `TryGetPreflightEnumerableExtensionCallType` are LOAD-BEARING for LAMBDA
-      RETURN-TYPE inference — `app.MapGet("/api/issues", () => …ToList())` (Endpoints.nl:28); deleting the
-      preflight ToList arm regresses that lambda's return type `List<IssueResponse>` → `object` (IL DIFFERS,
-      though it still builds + the full 3,185 unit suite still passes — builds/units do NOT catch this;
-      only the byte-exact corpus IL diff does).
-  (3) the receiver WIDENING itself is NOT admission-safe — it makes the resolver bind BCL
-      `Enumerable.First<int>`/`Last<int>` for `int[]` receivers, SHADOWING the user source extensions
-      `Program::First(int[])`/`Last(int[])` in `examples/07-interfaces/ExtensionMethods.nl` (byte-exact IL
-      diff: 2 of 59 assemblies changed — this one + issue-tracker). The baseline already shadows user
-      `Sum`/`Average` via the BCL non-generic overloads (accepted), but extending that to the generic
-      First/Last members is a SELECTION change the shared-resolver-risk clause forbids.
-  All three are coupled to the DEFERRED lambda-taking LINQ ownership (Where/Select/lambda-literal), which
-  would move the lambda chains AND the lambda-return-inference to the N# planner and retire the emit+preflight
-  arms together; the widening additionally needs user-source-extension precedence modeled in the resolver.
-  RECUT to either (a) defer the whole enumerable family until the lambda LINQ owner lands, or (b) a DIFFERENT
-  residual family outside the enumerable arms if a deletion is required this turn. The resolver widening logic
-  itself is correct in isolation (contracts 741/741 with it) but must not land until precedence is modeled.
+- Active sub-slice (Stage 1 of the lambda-taking LINQ ownership ARC — DONE this turn, awaiting commit):
+  MOVE the contextual-lambda SIGNATURE decision out of `ColumnarIlEmitter.cs` into N#. `TryEmitLambdaLiteral`
+  used to decide, in C#, how a lambda literal's parameter names bind to the target delegate's parameter
+  types — the arity match against the delegate, the identifier-node requirement per parameter, duplicate-name
+  malformedness, and the NL316 enclosing-shadow decline — building the ordinals and per-name type maps
+  itself. That decision is now owned by N#: `ColumnarLambdaPlacementPlanner.PlanContextualSignature`
+  (nodes/source/lambdaNode + the delegate's decomposed parameter types + the enclosing visible-binding
+  names → `ColumnarLambdaSignature{Ordinals, ParameterTypesByName, BodyNode}` or decline). The emitter now
+  consumes it mechanically; the delegate DECOMPOSITION (`TryGetSupportedDelegateSignature`, 6 shared
+  callers, mechanical reflection) and the decided return type stay C#, and the body sub-emitter + delegate
+  construction stay mechanical. Deleted the C# param-binding/validation loop (the `for (p...)` block with
+  its kind-6, `TryAdd` duplicate, and `IsVisibleBindingName` NL316 branches); `ColumnarIlEmitter.cs`
+  21,564 → 21,556 lines (20,500 → 20,492 nonblank), net −8/−8, no C# added beyond a 4-line fence comment +
+  the mechanical N# call. N# grew `ColumnarLambdaPlacementPlanner.nl` 147 → 225. Assertions migrated to
+  native N#: new `ColumnarLambdaSignaturePlan.tests.nl`, 7 contracts (single/multi/zero-parameter binding,
+  arity mismatch, non-identifier node, duplicate name, enclosing shadow) — BootstrapServices 740 → 747.
+  PROOF: byte-exact corpus IL diff over all 59 example/fixture assemblies (stash-baseline sweep pattern) is
+  ZERO — every lambda-bearing assembly (WeatherDemo `Select`, issue-tracker `Where`/`ToList`/`Contains` +
+  MapGet lambda return inference, minimal-api route handlers) is IL-identical, confirming the moved decision
+  reproduces the C# binding exactly. This is a signature-only move; the lambda-taking enumerable arms and
+  the display-class capture path are untouched and stay live (retired in later stages below).
+
+- Lambda-taking LINQ ownership ARC — staged plan (concrete owners + deletion targets; ordered by the
+  d2257f33c refutation, whose three blockers are the ground truth for why stages 3–5 must precede any
+  enumerable-arm deletion):
+  * Stage 1 (THIS TURN): contextual-lambda SIGNATURE binding → `ColumnarLambdaPlacementPlanner`; delete the
+    C# param-binding loop in `TryEmitLambdaLiteral`. DONE.
+  * Stage 2 (NEXT): contextual-lambda CAPTURE-SET collection → N#. Move `CollectLambdaCaptures` (the pure
+    AST capture-name scan against the enclosing local/param/lifted name sets) into an N# owner; the
+    non-capturing-vs-capturing branch consumes the N# capture set. Delete the C# `CollectLambdaCaptures`
+    walk (~35 lines). The this-capture member-chain scan `BodyReferencesEnclosingChain` (needs the emitter's
+    member-chain resolvers) and the display-class capturing residual stay C# until Stage 6.
+  * Stage 3: contextual-lambda PLANNING in `ColumnarDirectCallPlanner` — replace the blanket contextual-lambda
+    decline (`ColumnarDirectCallPlanner.nl:112-115`, `bindings.CurrentInstance != null && HasParameterOrdinal(0)`
+    → legacyWholeSubtreePlanning) with actual N# planning of lambda-taking chains, so `Select(f=>…).ToArray()`,
+    `Where(…).ToList()`, `Where(i=>i.Tags.Contains(t))` route through N#. Requires modeling contextual-lambda
+    RETURN-TYPE inference in N# (the `TryInferSingleParameterContextualDelegateReturnType` preflight that
+    decides `Select`'s result type and lambda return types — refutation blocker 2). This is the load-bearing
+    prerequisite for Stage 4.
+  * Stage 4: DELETE the lambda-taking enumerable EMIT + PREFLIGHT arms (`TryEmitEnumerableExtensionCall`
+    Where/Select/ToArray/ToList/Contains + `TryGetPreflightEnumerableExtensionCallType` mirror + the
+    explicit-type-argument `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), now that N# plans
+    the chains and their return types — retires refutation blockers 1+2 together.
+  * Stage 5: receiver WIDENING with user-source-extension precedence — model user-source extension precedence
+    in `ColumnarExtensionMethodResolver` so BCL generic `First`/`Last` never shadow user extensions
+    (`examples/07-interfaces/ExtensionMethods.nl`, refutation blocker 3), then admit interface/variance
+    receiver widening for the generic non-lambda arms. NOTE: the widening logic itself was proven correct in
+    isolation but the `ColumnarExtensionMethodResolver` widening test was REVERTED with the refuted slice —
+    contracts baseline is 740 (now 747 with Stage 1), NOT 741.
+  * Stage 6: value-capture DISPLAY-CLASS lowering → N# (the fenced capturing residual in `TryEmitLambdaLiteral`,
+    the `<>c__DisplayClass` `ModuleBuilder.DefineType` path) — model the reflection-emit display-class surface
+    in the columnar backend and retire the C# capturing path.
+- Refutation ground truth (d2257f33c, do not re-litigate): the `ToArray`/`ToList`/`Contains` family has NO
+  deletion-ready subset before Stages 3–4 land. (1) the EMIT arms are LOAD-BEARING for lambda chains routed
+  via the contextual-lambda decline; disabling ToArray makes WeatherDemo fail to build. (2) the PREFLIGHT
+  arms are LOAD-BEARING for lambda RETURN-TYPE inference (MapGet `() => …ToList()`, Endpoints.nl:28) — only
+  the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
+  unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
+  modeled (BCL `First`/`Last` shadow user extensions).
+- Next smallest concrete sub-slice: Stage 2 — contextual-lambda CAPTURE-SET collection into N#
+  (`CollectLambdaCaptures` → N# owner, consumed by the non-capturing/capturing branch); verify with the
+  same byte-exact corpus IL diff (any lambda with captures — the display-class fixtures — would differ on a
+  transcription error).
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`

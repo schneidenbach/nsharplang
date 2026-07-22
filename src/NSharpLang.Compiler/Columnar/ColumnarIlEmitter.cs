@@ -1494,26 +1494,18 @@ internal sealed class ColumnarIlEmitter
             || !TryGetSupportedDelegateSignature(
                 expectedDelegateType, allowBuilderBoundArguments: true, out var delegateReturnType, out var delegateParamTypes, out var delegateCtor))
             return false;
-        var paramCount = _nodes.ChildCount(lambdaIdx) - 1;
-        if (paramCount != delegateParamTypes.Length)
+        // N# owns the contextual-lambda signature binding: each lambda parameter name takes the target
+        // delegate's parameter type positionally, and the arity, identifier-node, duplicate-name, and
+        // NL316 enclosing-shadow rules are enforced there. The delegate decomposition above and the body
+        // sub-emitter and delegate construction below stay mechanical here.
+        var lambdaSignature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes, _source, lambdaIdx, delegateParamTypes, VisibleBindingNamesSnapshot());
+        if (lambdaSignature == null)
             return false;
-        var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
-        var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
-        var signatureTypes = new Type[paramCount];
-        for (var p = 0; p < paramCount; p++)
-        {
-            var paramNode = Child(lambdaIdx, p);
-            if (_nodes.Kind(paramNode) != 6)
-                return false;
-            var paramName = Text(paramNode);
-            if (!ordinals.TryAdd(paramName, p))
-                return false; // duplicate parameter names are malformed — decline.
-            if (IsVisibleBindingName(paramName))
-                return false; // a lambda param shadowing an ENCLOSING binding is the pipeline's NL316.
-            signatureTypes[p] = delegateParamTypes[p];
-            paramTypeMap[paramName] = signatureTypes[p];
-        }
-        var bodyNode = Child(lambdaIdx, paramCount);
+        var ordinals = lambdaSignature.Ordinals;
+        var paramTypeMap = lambdaSignature.ParameterTypesByName;
+        var signatureTypes = delegateParamTypes;
+        var bodyNode = lambdaSignature.BodyNode;
 
         // CAPTURE SET (L3a): kind-6 identifiers in the body that resolve in the ENCLOSING scope and are not
         // bound by this (or a nested) lambda's parameters. Empty -> the L1b static lowering below.
