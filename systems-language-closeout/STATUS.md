@@ -31,16 +31,31 @@ Last updated: 2026-07-21
   (`TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), the chain/base-call/parsed-expression
   interpolation hole core, preflight typing of legacy-owned static calls, the case-12/13
   numeric/conditional cores, and real async-func lowering.
-- Next smallest concrete sub-slice: EXTEND `ColumnarExtensionMethodResolver` with array/collection →
-  `IEnumerable<TSource>` receiver widening (infer `TSource` from the receiver's single implemented
-  `IEnumerable<T>` construction when the candidate's generic receiver slot is `IEnumerable<TSource>`),
-  which lets the resolver OWN `int[].ToArray()`/`List<int>.ToList()`/`int[].Contains(x)`; then DELETE the
-  `ToArray`/`ToList`/`Contains` arms from `TryEmitEnumerableExtensionCall` and
-  `TryGetPreflightEnumerableExtensionCallType`. RISK: the widening is in the shared resolver (touches all
-  generic extension selection) — gate it to a single `IEnumerable<T>` construction, keep the
-  non-generic-beats-generic tiebreak, and prove byte-exact across the whole example corpus (Cast/OfType
-  chains, WeatherDemo, issue-tracker) plus the full unit gate before deleting. `TryGetEnumerableElementType`
-  stays (still shared by the deferred lambda Where/Select arms).
+- Next smallest concrete sub-slice: NOT the enumerable widening — that premise is REFUTED (sub-slice 6
+  attempt, investigated + implemented + reverted, no commit). The `ToArray`/`ToList`/`Contains` family has
+  NO deletion-ready subset this turn. Three independent blockers, each empirically proven:
+  (1) the EMIT arms in `TryEmitEnumerableExtensionCall` are LOAD-BEARING for lambda chains in the C#
+      whole-subtree residual — `Select(f=>…).ToArray()` (WeatherDemo), `Where(i=>…).ToList()` and
+      `Where(i=>i.Tags.Contains(t))` (issue-tracker) — the N# planner declines contextual lambdas
+      (`ColumnarDirectCallPlanner.nl:108-115`) so the outer call routes to the arm; disabling the ToArray
+      emit arm makes WeatherDemo fail to build.
+  (2) the PREFLIGHT arms in `TryGetPreflightEnumerableExtensionCallType` are LOAD-BEARING for LAMBDA
+      RETURN-TYPE inference — `app.MapGet("/api/issues", () => …ToList())` (Endpoints.nl:28); deleting the
+      preflight ToList arm regresses that lambda's return type `List<IssueResponse>` → `object` (IL DIFFERS,
+      though it still builds + the full 3,185 unit suite still passes — builds/units do NOT catch this;
+      only the byte-exact corpus IL diff does).
+  (3) the receiver WIDENING itself is NOT admission-safe — it makes the resolver bind BCL
+      `Enumerable.First<int>`/`Last<int>` for `int[]` receivers, SHADOWING the user source extensions
+      `Program::First(int[])`/`Last(int[])` in `examples/07-interfaces/ExtensionMethods.nl` (byte-exact IL
+      diff: 2 of 59 assemblies changed — this one + issue-tracker). The baseline already shadows user
+      `Sum`/`Average` via the BCL non-generic overloads (accepted), but extending that to the generic
+      First/Last members is a SELECTION change the shared-resolver-risk clause forbids.
+  All three are coupled to the DEFERRED lambda-taking LINQ ownership (Where/Select/lambda-literal), which
+  would move the lambda chains AND the lambda-return-inference to the N# planner and retire the emit+preflight
+  arms together; the widening additionally needs user-source-extension precedence modeled in the resolver.
+  RECUT to either (a) defer the whole enumerable family until the lambda LINQ owner lands, or (b) a DIFFERENT
+  residual family outside the enumerable arms if a deletion is required this turn. The resolver widening logic
+  itself is correct in isolation (contracts 741/741 with it) but must not land until precedence is modeled.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
