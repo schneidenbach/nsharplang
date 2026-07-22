@@ -17386,11 +17386,9 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if ((member == "Min" || member == "Max") && argCount == 0 && sourceType == typeof(int))
-        {
-            type = typeof(int);
-            return true;
-        }
+        // Min()/Max() on an IEnumerable<int>-assignable receiver is owned by the N# planner
+        // (ColumnarExtensionMethodResolver binds the non-generic Enumerable.Min/Max(IEnumerable<int>)
+        // overload by receiver identity), so the residual never preflight-types it here.
 
         if (member == "Contains" && argCount == 1)
         {
@@ -17699,17 +17697,6 @@ internal sealed class ColumnarIlEmitter
                        && parameters[1].ParameterType.GetGenericTypeDefinition() == delegateDefinition;
             });
 
-    private static MethodInfo? FindEnumerableIntAggregateMethod(string name)
-        => Array.Find(
-            typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static),
-            method =>
-            {
-                if (method.Name != name || method.ReturnType != typeof(int))
-                    return false;
-                var parameters = method.GetParameters();
-                return parameters.Length == 1 && parameters[0].ParameterType == typeof(IEnumerable<int>);
-            });
-
     private bool TryInferSingleParameterLambdaReturnType(int lambdaNode, Type parameterType, out Type returnType)
     {
         returnType = null!;
@@ -17992,15 +17979,9 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if ((member == "Min" || member == "Max") && argCount == 0 && sourceType == typeof(int))
-        {
-            var aggregate = FindEnumerableIntAggregateMethod(member);
-            if (aggregate == null)
-                return false;
-            _il.Emit(OpCodes.Call, aggregate);
-            type = typeof(int);
-            return true;
-        }
+        // Min()/Max() over an IEnumerable<int>-assignable receiver is owned by the N# planner
+        // (ColumnarExtensionMethodResolver binds the non-generic Enumerable.Min/Max(IEnumerable<int>)
+        // overload by receiver identity), so the residual never re-emits it here.
 
         if (member == "Contains" && argCount == 1)
         {

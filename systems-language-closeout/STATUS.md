@@ -6,31 +6,41 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice: DELETE the LAST ad-hoc interpolation STRING-SPLIT decision in `ColumnarIlEmitter.cs`
-  — the inline `??` coalesce decomposition in `TryResolveInterpolationHolePlan` (the `text.IndexOf("??")`
-  first-operator scan, the second-`??` guard, and the `Substring`/`Trim` side slicing). It is a pure
-  string-decomposition decision with no reflection and exactly one caller. Move the split DECISION into
-  the existing N# owner `ColumnarInterpolationSplitter` as `TrySplitCoalesce(text, out left, out right)`
-  (single top-level `??` via a new `ColumnarInterpolatedStringFindCoalesceOperator` scan that mirrors the
-  existing `...FindEqualityOperator`, then trimmed non-empty sides — the exact mirror of the C# emitter's
-  split), reusing the scan to refactor the duplicate inline coalesce scan already inside
-  `ColumnarInterpolatedStringIsSupportedHoleExpression`. Route the `TryResolveInterpolationHolePlan`
-  coalesce tier to call it and consume the two strings mechanically; the reference-type/type-equivalence
-  guard (`left.ValueType.IsValueType` / `TypesEquivalent`) and `CoalesceRight`/`Format`/`plan` wiring
-  stay mechanical in C#, mirroring the equality-tier routing structure landed in `9a3c20950`. Behavior
-  note: the original block is greedy (any `??` present commits and aborts on multi-`??`/empty-side); the
-  new routing falls through on those decline shapes exactly like the accepted equality/cast tiers —
-  proven unobservable because the `.nl` corpus has ONLY single-`??` non-empty holes (empty-side is a
-  syntax error downstream; no multi-`??` hole exists). Corpus reproducer:
-  `examples/11-advanced-features/FileScopedTypes/FileScopedTypes.nl` (`{email ?? missingEmail}`,
-  "Retrieved email: ..."). IL byte-identical (downstream resolution/emission unchanged). Migrate the
-  split assertions to native N# splitter contracts (accept + decline shapes: no `??`, multiple `??`,
-  empty sides, `?`-only). No sibling included: after this deletion the remaining interpolation surface
-  (base-call/chain/parsed-expression resolution) is reflection-coupled, not a pure string-split decision.
-  Remaining 015 interpolation residuals after this: the chain/base-call/parsed-expression hole resolution
-  and emission core, plus the broader 015 residuals — lambda-taking LINQ arms, extension interface-receiver
-  inference, preflight typing of legacy-owned static calls, the case-12/13 numeric/conditional cores, and
-  real async-func lowering.
+- Active sub-slice (DONE this turn, awaiting commit): DELETE the C# extension-method INTERFACE-RECEIVER
+  int-aggregate inference in `ColumnarIlEmitter.cs` — the `.Min()`/`.Max()` enumerable-extension arm. This
+  is the deletion-ready slice of the recorded 015 "extension interface-receiver inference" residual: the
+  full non-lambda enumerable-arm family (`ToArray`/`ToList`/`Contains`/`Cast`/`OfType`) is NOT deletion-ready
+  because the N# `ColumnarExtensionMethodResolver` deliberately declines interface/variance receiver
+  widening for GENERIC candidates (`int[]`/`List<int>` against `IEnumerable<TSource>`), so those C# arms
+  stay live for concrete receivers; `Min`/`Max` alone is provably dead because the resolver already OWNS
+  it via the NON-generic `Enumerable.Min/Max(IEnumerable<int>)` overload bound by receiver identity
+  (`CandidateAppliesToReceiver` → `IsAssignableFrom(IEnumerable<int>, receiver)`), for both concrete-array
+  and interface-typed receivers. Deleted three C# decisions: the `(member == "Min" || "Max") && sourceType
+  == typeof(int)` emit arm in `TryEmitEnumerableExtensionCall`, the mirror arm in
+  `TryGetPreflightEnumerableExtensionCallType`, and the now-unused `FindEnumerableIntAggregateMethod`
+  helper (its only caller). `ColumnarIlEmitter.cs` 21,583 → 21,564 lines (20,518 → 20,500 nonblank); no C#
+  added beyond two fence comments; net −19/−18. Assertions migrated to native N#: the resolver contract
+  `extension index build binds non-generic Linq extensions on interface and array receivers` now also
+  asserts `int[].Min()` and `IEnumerable<int>.Min()` bind the non-generic handle (Max/Sum already covered).
+  Corpus reproducer proven byte-exact: `examples/12-multi-file-projects/WeatherDemo` (`temps.Min()` /
+  `temps.Max()` on `int[]`) — all WeatherDemo method bodies IL-identical before/after (the two `call`
+  tokens for Min/Max are emitted by the N# planner, confirming the C# arm was dead). Remaining 015
+  interpolation/extension residuals: lambda-taking LINQ arms (`TryEmitEnumerableExtensionCall`
+  Where/Select + `TryEmitLambdaLiteral`), interface/variance receiver widening for the generic non-lambda
+  arms (`ToArray`/`ToList`/`Contains`), explicit-type-argument extension binding
+  (`TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), the chain/base-call/parsed-expression
+  interpolation hole core, preflight typing of legacy-owned static calls, the case-12/13
+  numeric/conditional cores, and real async-func lowering.
+- Next smallest concrete sub-slice: EXTEND `ColumnarExtensionMethodResolver` with array/collection →
+  `IEnumerable<TSource>` receiver widening (infer `TSource` from the receiver's single implemented
+  `IEnumerable<T>` construction when the candidate's generic receiver slot is `IEnumerable<TSource>`),
+  which lets the resolver OWN `int[].ToArray()`/`List<int>.ToList()`/`int[].Contains(x)`; then DELETE the
+  `ToArray`/`ToList`/`Contains` arms from `TryEmitEnumerableExtensionCall` and
+  `TryGetPreflightEnumerableExtensionCallType`. RISK: the widening is in the shared resolver (touches all
+  generic extension selection) — gate it to a single `IEnumerable<T>` construction, keep the
+  non-generic-beats-generic tiebreak, and prove byte-exact across the whole example corpus (Cast/OfType
+  chains, WeatherDemo, issue-tracker) plus the full unit gate before deleting. `TryGetEnumerableElementType`
+  stays (still shared by the deferred lambda Where/Select arms).
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`

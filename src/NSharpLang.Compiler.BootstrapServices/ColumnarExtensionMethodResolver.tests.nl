@@ -82,6 +82,20 @@ test "extension index build binds non-generic Linq extensions on interface and a
     arrayMax := ColumnarExtensionMethodResolver.Resolve(index, typeof(int[]), "Max", new Type[](0), facts)
     assert arrayMax.IsSelected
     assert arrayMax.ReturnType == typeof(int)
+
+    // Min()/Max() over an int-sequence receiver bind the non-generic Enumerable.Min/Max(IEnumerable<int>)
+    // overload by receiver identity. This owner replaces the retired C# int-aggregate emitter arm, so
+    // both the concrete-array and the interface-typed receiver must select the same non-generic handle.
+    arrayMin := ColumnarExtensionMethodResolver.Resolve(index, typeof(int[]), "Min", new Type[](0), facts)
+    assert arrayMin.IsSelected, "int[].Min() must bind the non-generic Enumerable.Min(IEnumerable<int>) extension."
+    assert arrayMin.Method != null
+    assert !arrayMin.Method.get_IsGenericMethod(), "The non-generic Min(IEnumerable<int>) declaration must be the selected handle."
+    assert arrayMin.ReturnType == typeof(int)
+
+    interfaceMin := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "Min", new Type[](0), facts)
+    assert interfaceMin.IsSelected, "An interface-typed int receiver must resolve the same non-generic Min extension by identity."
+    assert !interfaceMin.Method.get_IsGenericMethod(), "The interface receiver must also select the non-generic Min(IEnumerable<int>) handle."
+    assert interfaceMin.ReturnType == typeof(int)
 }
 
 test "extension resolution declines generic arity mismatch, missing, and value-type receiver cases" {
