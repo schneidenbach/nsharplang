@@ -254,8 +254,7 @@ func main() {
         var diagnostics = Lint(source);
 
         var unusedVars = diagnostics.Where(d => d.Code == "NL001").ToList();
-        // x and y are unused
-        Assert.True(unusedVars.Count >= 2);
+        // x and y are unused; the two Contains below already prove Count >= 2.
         Assert.Contains(unusedVars, d => d.Message.Contains("'x'"));
         Assert.Contains(unusedVars, d => d.Message.Contains("'y'"));
     }
@@ -317,7 +316,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("Dictionary"));
     }
 
@@ -331,7 +329,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("StringBuilder"));
         Assert.Contains(missingImports, d => d.Suggestion != null && d.Suggestion.Contains("System.Text"));
     }
@@ -346,7 +343,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("HttpClient"));
         Assert.Contains(missingImports, d => d.Suggestion != null && d.Suggestion.Contains("System.Net.Http"));
     }
@@ -361,7 +357,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("Task"));
         Assert.Contains(missingImports, d => d.Suggestion != null && d.Suggestion.Contains("System.Threading.Tasks"));
     }
@@ -376,7 +371,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var missingImports = diagnostics.Where(d => d.Code == "NL002").ToList();
-        Assert.NotEmpty(missingImports);
         Assert.Contains(missingImports, d => d.Message.Contains("List"));
     }
 
@@ -435,7 +429,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var unnecessaryChecks = diagnostics.Where(d => d.Code == "NL003").ToList();
-        Assert.NotEmpty(unnecessaryChecks);
         Assert.Contains(unnecessaryChecks, d => d.Message.Contains("int"));
     }
 
@@ -451,7 +444,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var unnecessaryChecks = diagnostics.Where(d => d.Code == "NL003").ToList();
-        Assert.NotEmpty(unnecessaryChecks);
         Assert.Contains(unnecessaryChecks, d => d.Message.Contains("float"));
     }
 
@@ -467,7 +459,6 @@ func main() {
         var diagnostics = Lint(source);
 
         var unnecessaryChecks = diagnostics.Where(d => d.Code == "NL003").ToList();
-        Assert.NotEmpty(unnecessaryChecks);
         Assert.Contains(unnecessaryChecks, d => d.Message.Contains("bool"));
     }
 
@@ -520,7 +511,6 @@ async func process(): Task {
         var diagnostics = Lint(source);
 
         var asyncWarnings = diagnostics.Where(d => d.Code == "NL004").ToList();
-        Assert.NotEmpty(asyncWarnings);
         Assert.Contains(asyncWarnings, d => d.Message.Contains("process"));
     }
 
@@ -813,8 +803,7 @@ func Main() {
     y := x + 1
 }";
         var diagnostics = Lint(source);
-        // x and y are unused (NL001), but the import NL010 should also fire
-        Assert.Contains(diagnostics, d => d.Code == "NL010");
+        // x and y are unused (NL001), but the import NL010 should also fire; First() below throws if it does not.
         Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL010").Severity);
     }
 
@@ -825,11 +814,24 @@ func Main() {
     public void NL010_UnusedImport_BaseTypeListCountsAsUsage(string src, int expectedNl010) =>
         Assert.Equal(expectedNl010, Lint(src).Count(d => d.Code == "NL010"));
 
+    [Theory] // GAP B: typeof's operand (a TypeReference, not an Expression child) counts as usage; second case still flags the unused System.Linq.
+    [InlineData("import System.IO\n\nclass R {\n    func Run() {\n        t := typeof(MemoryStream)\n    }\n}", 0)]
+    [InlineData("import System.IO\nimport System.Linq\n\nclass R {\n    func Run() {\n        t := typeof(MemoryStream)\n    }\n}", 1)]
+    [InlineData("import System.Text.Json\n\nclass R {\n    func Run() {\n        t := typeof(JsonValueKind)\n    }\n}", 0)]
+    public void NL010_UnusedImport_TypeofOperandCountsAsUsage(string src, int expected) => Assert.Equal(expected, Lint(src).Count(d => d.Code == "NL010"));
+
+    [Theory] // GAP A: a positional (primary-constructor) parameter's declared type is a real import usage.
+    [InlineData("import System.Collections.Generic\n\nrecord Foo(items: List<int>)", 0)]
+    public void NL010_UnusedImport_PrimaryCtorParameterTypeCountsAsUsage(string src, int expected) => Assert.Equal(expected, Lint(src).Count(d => d.Code == "NL010"));
+
+    [Theory] // GAP C1: StringComparison/StringComparer/ValueTuple/Version/Index resolve to the System namespace.
+    [InlineData("import System\n\nfunc Main() {\n    c := StringComparison.Ordinal\n}", 0)]
+    public void NL010_UnusedImport_AdditionalSystemTypesCountAsUsage(string src, int expected) => Assert.Equal(expected, Lint(src).Count(d => d.Code == "NL010"));
+
     [Fact]
     public void NL010_UnusedImport_SquiggleCoversNamespacePathNotKeyword()
     {
-        // Regression for the strictness/squiggle audit (PR #160): the NL010 span must underline the imported namespace path
-        // (`System.Linq`), not the `import` keyword. The directive only records the statement column, so the linter steps past the keyword to land on the path.
+        // Regression for the strictness/squiggle audit (PR #160): the NL010 span must underline the imported namespace path (`System.Linq`), not the `import` keyword. The directive only records the statement column, so the linter steps past the keyword to land on the path.
         var source = @"
 import System.Linq
 

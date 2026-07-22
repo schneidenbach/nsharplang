@@ -6,9 +6,7 @@ using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Compiler;
 
-/// <summary>
-/// Main linter class that analyzes code and returns diagnostics
-/// </summary>
+/// <summary>Main linter class that analyzes code and returns diagnostics</summary>
 public class Linter
 {
     private readonly LinterConfig _config;
@@ -27,9 +25,7 @@ public class Linter
 
 }
 
-/// <summary>
-/// AST visitor that performs linting checks
-/// </summary>
+/// <summary>AST visitor that performs linting checks</summary>
 internal class LintVisitor
 {
     private readonly string? _filePath;
@@ -301,9 +297,7 @@ internal class LintVisitor
                 _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
 
-            // NL012: record the scope that holds this function's parameters so a read can be
-            // attributed to the parameter it lexically resolves to (a shadowing local binds the
-            // name in a nearer scope and must not credit this parameter).
+            // NL012: record the scope that holds this function's parameters so a read can be attributed to the parameter it lexically resolves to (a shadowing local binds the name in a nearer scope and must not credit this parameter).
             _paramFrames[_paramFrames.Count - 1] = (_currentFunctionParams, _currentFunctionParamUsages, _declaredVariables);
 
             VisitStatement(func.Body);
@@ -450,6 +444,7 @@ internal class LintVisitor
             foreach (var parameter in primaryConstructorParameters)
             {
                 names.Add(parameter.Name);
+                TrackTypeReference(parameter.Type); // NL010: a positional parameter's declared type is a real import usage.
             }
         }
 
@@ -809,6 +804,11 @@ internal class LintVisitor
                 VisitChildExpressions(awaitExpr);
                 break;
 
+            case TypeOfExpression typeofExpr:
+                // NL010: typeof's operand is a TypeReference, not an Expression child, so structural recursion never reaches it — track explicitly.
+                TrackTypeReference(typeofExpr.Type);
+                break;
+
             case LambdaExpression lambda:
                 PushScope();
                 foreach (var param in lambda.Parameters)
@@ -967,9 +967,7 @@ internal class LintVisitor
         }
         else if (_currentFunctionParams.Any(p => p.Name == name))
         {
-            // Binding/declaration site (a parameter, loop variable, catch variable, or lambda parameter being
-            // introduced). Preserve the original behavior of only consulting the current function's parameter
-            // table, so re-declaring a name never marks an enclosing parameter as read.
+            // Binding/declaration site (a parameter, loop variable, catch variable, or lambda parameter being introduced). Preserve the original behavior of only consulting the current function's parameter table, so re-declaring a name never marks an enclosing parameter as read.
             _currentFunctionParamUsages.Add(name);
         }
 
@@ -1340,7 +1338,7 @@ internal class LintVisitor
             { "JsonNamingPolicy", "System.Text.Json" },
             { "JsonElement", "System.Text.Json" },
             { "JsonDocument", "System.Text.Json" },
-            { "JsonNode", "System.Text.Json" },
+            { "JsonNode", "System.Text.Json" }, { "JsonValueKind", "System.Text.Json" },
 
             // System.Threading.Tasks
             { "Task", "System.Threading.Tasks" },
@@ -1394,6 +1392,8 @@ internal class LintVisitor
             { "Memory", "System" },
             { "ReadOnlySpan", "System" },
             { "ReadOnlyMemory", "System" },
+            { "StringComparison", "System" }, { "StringComparer", "System" }, { "ValueTuple", "System" },
+            { "Version", "System" }, { "Index", "System" },
             // System.Linq
             { "Enumerable", "System.Linq" },
             { "Queryable", "System.Linq" },
