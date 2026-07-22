@@ -142,6 +142,98 @@ class ColumnarLambdaPlacementPlanner {
         return new ColumnarLambdaSignature(ordinals, parameterTypesByName, nodes.Child(lambdaNode, parameterCount))
     }
 
+    // Collect the CAPTURE SET of a contextual lambda body: the enclosing-scope names the body reads and
+    // closes over. A capture is a kind-6 identifier that resolves in the enclosing local/parameter/lifted
+    // name set (the host passes the union) and is NOT bound by this lambda's — or a nested lambda's — own
+    // parameters. The host passes the lambda's own parameter names as the initial bound set and the union
+    // of its enclosing locals/parameters/lifted names as the capturable set; N# owns the pure AST scan and
+    // returns the captured names. The host's non-capturing-vs-capturing branch consumes the result — an
+    // empty set is the static lowering, a non-empty set drives the display-class capture. The this-capture
+    // member-chain scan and the display-class emission stay mechanical in the host.
+    public static func PlanCaptureSet(
+        nodes: ColumnarNodeTable,
+        source: string,
+        bodyNode: int,
+        boundParameterNames: HashSet<string>,
+        enclosingCapturableNames: HashSet<string>): HashSet<string> {
+        if nodes == null || source == null || boundParameterNames == null || enclosingCapturableNames == null {
+            throw new InvalidOperationException(
+                "Contextual-lambda capture-set planning requires the node table, source, bound parameter names, and enclosing capturable names.")
+        }
+
+        captures := new HashSet<string>(StringComparer.Ordinal)
+        CollectContextualLambdaCaptures(nodes, source, bodyNode, boundParameterNames, enclosingCapturableNames, captures)
+        return captures
+    }
+
+    // The recursive capture walk. TYPE-kernel subtrees never contribute a value name: a generic callee
+    // (kind 38 — its name lives in the value span), a bare-new (kind 42), and a typeof (kind 55) are
+    // skipped outright; the type child of a new-expression (kind 15) / cast (kind 16) and the type child of
+    // `is`/`as` (kind 46/47) are stepped over. A nested lambda (kind 39) binds its own parameter names
+    // before its body is walked, so those names shadow the enclosing scope inside it. A kind-6 identifier
+    // with a real value span is captured when it is unbound here and lives in the enclosing capturable set;
+    // a value-less identifier is a masquerading TYPE node and is never a name read.
+    static func CollectContextualLambdaCaptures(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bound: HashSet<string>,
+        enclosingCapturableNames: HashSet<string>,
+        captures: HashSet<string>) {
+        kind := nodes.Kind(node)
+        if kind == 38 || kind == 42 || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return
+        }
+
+        if kind == 39 {
+            nestedBound := new HashSet<string>(StringComparer.Ordinal)
+            foreach existing in bound {
+                nestedBound.Add(existing)
+            }
+
+            nestedParameterCount := nodes.ChildCount(node) - 1
+            p := 0
+            while p < nestedParameterCount {
+                parameterNode := nodes.Child(node, p)
+                if nodes.Kind(parameterNode) == ColumnarExpressionNodeKind.IdentifierExpression() {
+                    nestedBound.Add(nodes.Text(source, parameterNode))
+                }
+
+                p = p + 1
+            }
+
+            CollectContextualLambdaCaptures(
+                nodes, source, nodes.Child(node, nestedParameterCount), nestedBound, enclosingCapturableNames, captures)
+            return
+        }
+
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            if nodes.ValueStart(node) >= 0 {
+                name := nodes.Text(source, node)
+                if !bound.Contains(name) && enclosingCapturableNames.Contains(name) {
+                    captures.Add(name)
+                }
+            }
+        }
+
+        if kind == 46 || kind == 47 {
+            CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, 0), bound, enclosingCapturableNames, captures)
+            return
+        }
+
+        first := 0
+        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() {
+            first = 1
+        }
+
+        childCount := nodes.ChildCount(node)
+        c := first
+        while c < childCount {
+            CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, c), bound, enclosingCapturableNames, captures)
+            c = c + 1
+        }
+    }
+
     // Select the owning type, generated-method identity, and visibility for one non-capturing lambda
     // body and define the synthesized method. Returns null to decline — an invalid synthesized signature,
     // or a value-type/constructor-body `this` capture that cannot bind a delegate directly to the current

@@ -6,34 +6,34 @@ Last updated: 2026-07-21
 
 - Current task: `tasks/015-remaining-emitter-decisions.md`
 - Current iteration: one terminal slice
-- Active sub-slice (Stage 1 of the lambda-taking LINQ ownership ARC — DONE this turn, awaiting commit):
-  MOVE the contextual-lambda SIGNATURE decision out of `ColumnarIlEmitter.cs` into N#. `TryEmitLambdaLiteral`
-  used to decide, in C#, how a lambda literal's parameter names bind to the target delegate's parameter
-  types — the arity match against the delegate, the identifier-node requirement per parameter, duplicate-name
-  malformedness, and the NL316 enclosing-shadow decline — building the ordinals and per-name type maps
-  itself. That decision is now owned by N#: `ColumnarLambdaPlacementPlanner.PlanContextualSignature`
-  (nodes/source/lambdaNode + the delegate's decomposed parameter types + the enclosing visible-binding
-  names → `ColumnarLambdaSignature{Ordinals, ParameterTypesByName, BodyNode}` or decline). The emitter now
-  consumes it mechanically; the delegate DECOMPOSITION (`TryGetSupportedDelegateSignature`, 6 shared
-  callers, mechanical reflection) and the decided return type stay C#, and the body sub-emitter + delegate
-  construction stay mechanical. Deleted the C# param-binding/validation loop (the `for (p...)` block with
-  its kind-6, `TryAdd` duplicate, and `IsVisibleBindingName` NL316 branches); `ColumnarIlEmitter.cs`
-  21,564 → 21,556 lines (20,500 → 20,492 nonblank), net −8/−8, no C# added beyond a 4-line fence comment +
-  the mechanical N# call. N# grew `ColumnarLambdaPlacementPlanner.nl` 147 → 225. Assertions migrated to
-  native N#: new `ColumnarLambdaSignaturePlan.tests.nl`, 7 contracts (single/multi/zero-parameter binding,
-  arity mismatch, non-identifier node, duplicate name, enclosing shadow) — BootstrapServices 740 → 747.
-  PROOF: byte-exact corpus IL diff over all 59 example/fixture assemblies (stash-baseline sweep pattern) is
-  ZERO — every lambda-bearing assembly (WeatherDemo `Select`, issue-tracker `Where`/`ToList`/`Contains` +
-  MapGet lambda return inference, minimal-api route handlers) is IL-identical, confirming the moved decision
-  reproduces the C# binding exactly. This is a signature-only move; the lambda-taking enumerable arms and
-  the display-class capture path are untouched and stay live (retired in later stages below).
+- Active sub-slice (Stage 2 of the lambda-taking LINQ ownership ARC — THIS TURN): MOVE the contextual-lambda
+  CAPTURE-SET decision out of `ColumnarIlEmitter.cs` into N#. `TryEmitLambdaLiteral` used the C#
+  `CollectLambdaCaptures` recursive AST walk to decide which enclosing-scope names a lambda body closes over
+  — a kind-6 body identifier that resolves in the enclosing local/parameter/lifted name set and is not bound
+  by this (or a nested) lambda's parameters — with the type-subtree walk discipline (skip generic-callee 38,
+  bare-new 42, typeof 55; step over the type child of new 15 / cast 16 / `is`,`as` 46/47; bind a nested
+  lambda's 39 own parameters before walking its body; skip value-less masquerading TYPE identifiers). That
+  decision is now owned by N#: `ColumnarLambdaPlacementPlanner.PlanCaptureSet` (nodes/source/bodyNode + the
+  lambda's own parameter names + the union of the enclosing locals/parameters/lifted names →
+  `HashSet<string>` of captured names). The emitter builds the union capturable set mechanically, wraps the
+  N# result into its downstream `SortedSet<string>` order, and consumes it in the non-capturing-vs-capturing
+  branch exactly as before. Deleted the C# `CollectLambdaCaptures` method + its doc comment.
+  `ColumnarIlEmitter.cs` 21,556 → ~21,523 lines, net-negative, no C# added beyond the mechanical union-set
+  build + fence comment + the N# call. N# grew `ColumnarLambdaPlacementPlanner.nl` (new `PlanCaptureSet` +
+  recursive `CollectContextualLambdaCaptures`). Assertions migrated to native N#: new
+  `ColumnarLambdaCaptureSet.tests.nl` (capture detection over locals/params/lifted, lambda-param and
+  nested-lambda-param exclusion, member-access base, type-subtree skip, value-less identifier, zero-capture).
+  PROOF: byte-exact corpus IL diff over all 59 example/fixture assemblies (stash-baseline sweep pattern) must
+  be ZERO — the display-class capture fixtures are the sensitive cases where any transcription error in the
+  capture scan would show up. This is a capture-SET move only; the this-capture member-chain scan
+  (`BodyReferencesEnclosingChain`) and the display-class emission stay fenced C# until Stage 6.
 
 - Lambda-taking LINQ ownership ARC — staged plan (concrete owners + deletion targets; ordered by the
   d2257f33c refutation, whose three blockers are the ground truth for why stages 3–5 must precede any
   enumerable-arm deletion):
   * Stage 1 (THIS TURN): contextual-lambda SIGNATURE binding → `ColumnarLambdaPlacementPlanner`; delete the
     C# param-binding loop in `TryEmitLambdaLiteral`. DONE.
-  * Stage 2 (NEXT): contextual-lambda CAPTURE-SET collection → N#. Move `CollectLambdaCaptures` (the pure
+  * Stage 2 (THIS TURN): contextual-lambda CAPTURE-SET collection → N#. Move `CollectLambdaCaptures` (the pure
     AST capture-name scan against the enclosing local/param/lifted name sets) into an N# owner; the
     non-capturing-vs-capturing branch consumes the N# capture set. Delete the C# `CollectLambdaCaptures`
     walk (~35 lines). The this-capture member-chain scan `BodyReferencesEnclosingChain` (needs the emitter's
@@ -65,10 +65,14 @@ Last updated: 2026-07-21
   the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
   unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
   modeled (BCL `First`/`Last` shadow user extensions).
-- Next smallest concrete sub-slice: Stage 2 — contextual-lambda CAPTURE-SET collection into N#
-  (`CollectLambdaCaptures` → N# owner, consumed by the non-capturing/capturing branch); verify with the
-  same byte-exact corpus IL diff (any lambda with captures — the display-class fixtures — would differ on a
-  transcription error).
+- Next smallest concrete sub-slice: Stage 3 — contextual-lambda PLANNING in `ColumnarDirectCallPlanner`.
+  Replace the blanket contextual-lambda decline (`bindings.CurrentInstance != null && HasParameterOrdinal(0)`
+  → legacyWholeSubtreePlanning) with actual N# planning of lambda-taking chains, which requires modeling
+  contextual-lambda RETURN-TYPE inference in N# (the `TryInferSingleParameterContextualDelegateReturnType`
+  preflight — refutation blocker 2). This is the load-bearing prerequisite for the Stage 4 enumerable-arm
+  deletion. (Stage 2 — contextual-lambda CAPTURE-SET collection — landed this turn: `CollectLambdaCaptures`
+  → N# `ColumnarLambdaPlacementPlanner.PlanCaptureSet`, byte-exact corpus IL diff ZERO across all 59
+  assemblies incl. the 3 display-class capture fixtures.)
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`

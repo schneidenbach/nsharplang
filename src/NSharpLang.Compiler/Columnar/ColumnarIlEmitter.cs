@@ -1507,10 +1507,20 @@ internal sealed class ColumnarIlEmitter
         var signatureTypes = delegateParamTypes;
         var bodyNode = lambdaSignature.BodyNode;
 
-        // CAPTURE SET (L3a): kind-6 identifiers in the body that resolve in the ENCLOSING scope and are not
-        // bound by this (or a nested) lambda's parameters. Empty -> the L1b static lowering below.
-        var captures = new SortedSet<string>(StringComparer.Ordinal);
-        CollectLambdaCaptures(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal), captures);
+        // CAPTURE SET (L3a): N# owns the pure AST capture scan — kind-6 body identifiers that resolve in the
+        // enclosing local/parameter/lifted name set (passed as one union) and are not bound by this (or a
+        // nested) lambda's parameters, with the type-subtree walk discipline. The host builds that union,
+        // sorts the returned names into the downstream SortedSet order, and consumes the set below; an empty
+        // set is the L1b static lowering. The this-capture member-chain scan and the display-class capture
+        // emission below stay mechanical here.
+        var enclosingCapturableNames = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+        enclosingCapturableNames.UnionWith(_paramOrdinals.Keys);
+        enclosingCapturableNames.UnionWith(_liftedLocals.Keys);
+        var captures = new SortedSet<string>(
+            ColumnarLambdaPlacementPlanner.PlanCaptureSet(
+                _nodes, _source, bodyNode,
+                new HashSet<string>(ordinals.Keys, StringComparer.Ordinal), enclosingCapturableNames),
+            StringComparer.Ordinal);
 
         if (captures.Count == 0)
         {
@@ -1707,49 +1717,6 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Collect the CAPTURES of a lambda body: kind-6 identifiers resolving in the enclosing locals/params
-    // and not bound by this lambda's (or a nested lambda's) parameter list. TYPE-kernel subtrees never
-    // contribute (their kind space collides with expression kinds — a type node can masquerade as kind 6
-    // with a VALUELESS span): the walk skips the type child of casts (16) / new-expressions (15) and all
-    // children of generic callees (38), and the kind-6 branch refuses value-less nodes outright (a
-    // TYPE-tuple node carries nameStart -1 — Text() would throw). Field-name identifiers inside the
-    // remaining capture-opaque kinds are NOT excluded here — the capturing branch declines those bodies.
-    private void CollectLambdaCaptures(int node, HashSet<string> bound, SortedSet<string> captures)
-    {
-        var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42 || kind == 55)
-            return; // children are TYPE subtrees only (38: callee name lives in the value span; 42: bare-new).
-        if (kind == 39)
-        {
-            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
-            var nestedParams = _nodes.ChildCount(node) - 1;
-            for (var p = 0; p < nestedParams; p++)
-            {
-                if (_nodes.Kind(Child(node, p)) == 6)
-                    nestedBound.Add(Text(Child(node, p)));
-            }
-            CollectLambdaCaptures(Child(node, nestedParams), nestedBound, captures);
-            return;
-        }
-        if (kind == 6)
-        {
-            if (_nodes.ValueStart(node) < 0)
-                return; // a value-less masquerading TYPE node — never a name read.
-            var name = Text(node);
-            if (!bound.Contains(name)
-                && (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name) || _liftedLocals.ContainsKey(name)))
-                captures.Add(name);
-        }
-        if (kind == 46 || kind == 47) // is/as: child[1] is the TYPE subtree — walk the VALUE child only.
-        {
-            CollectLambdaCaptures(Child(node, 0), bound, captures);
-            return;
-        }
-        var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
-        for (var c = first; c < _nodes.ChildCount(node); c++)
-            CollectLambdaCaptures(Child(node, c), bound, captures);
-    }
-
     // True when a lambda body references a bare name that resolves on the ENCLOSING type's member chain
     // (and is not a sibling function — siblings beat members in the pinned bare-call order and need no
     // `this`). Such a body requires the instance-bound lowering: the delegate binds directly to the
@@ -1818,8 +1785,9 @@ internal sealed class ColumnarIlEmitter
         typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType).GetField("Value")!;
 
     // Collect every kind-6 name inside any LAMBDA subtree of `node`, excluding names bound by the lambda's
-    // (or a nested lambda's) own parameters — the same walk discipline as CollectLambdaCaptures, but with
-    // NO in-scope check (this runs at EmitBody entry, before any local exists).
+    // (or a nested lambda's) own parameters — the same walk discipline as the L3a capture scan (now owned by
+    // N# ColumnarLambdaPlacementPlanner.PlanCaptureSet), but with NO in-scope check (this runs at EmitBody
+    // entry, before any local exists).
     private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
     {
         var kind = _nodes.Kind(node);
