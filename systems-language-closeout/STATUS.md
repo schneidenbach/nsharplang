@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Cursor
 
@@ -15,37 +15,55 @@ Last updated: 2026-07-21
   byte-exact corpus sweep MUST include the tests/native/* projects — the 59-assembly example/fixture
   sweep alone missed this; sub-slice 6's refutation of the identical premise for ToArray/ToList/
   Contains applied retroactively to 5 and nobody re-checked.
-- Active sub-slice (Stage 3 of the lambda-taking LINQ ownership ARC — THIS TURN, per the recut authority):
-  MOVE the single-parameter contextual-delegate RETURN-TYPE inference DECISION out of `ColumnarIlEmitter.cs`
-  into N#, consuming the C# body-preflight result mechanically; chain EMISSION stays fenced for Stage 4 (the
-  blanket contextual-lambda decline in `ColumnarDirectCallPlanner.nl:112` is NOT touched — it is the emission
-  fence). Ground truth from the inventory: the inference's core — recursively preflight-typing the lambda body
-  via a scoped sub-emitter (`TryGetPreflightExpressionType`) — IS the C# expression-typing engine, which no
-  arc stage moves; likewise `IsSupportedType`/`TypesEquivalent` are intrinsically bound to the C# reflection
-  type model. So the movable decision is (a) the contextual-lambda parameter-SHAPE decision, already owned by
-  N# `PlanContextualSignature`, currently DUPLICATED in the three C# inference helpers, and (b) the
-  return-type SELECTION between the two argument forms (a contextual lambda body vs a visible local-function
-  method group). Concretely:
-  * `TryInferSingleParameterLambdaReturnType` (37 lines) and `TryInferZeroParameterLambdaReturnType`
-    (24 lines) — whose manual shape checks (kind-39 / arity / param-kind-6 / NL316 shadow / ordinal+paramType
-    map build) DUPLICATE `PlanContextualSignature`, and whose sub-emitter constructions are near-identical —
-    collapse into ONE mechanical host `TryPreflightContextualLambdaReturnType(lambdaNode, parameterTypes[])`:
-    kind-39 guard + `PlanContextualSignature` (the N#-owned shape decision) + the single sub-emitter
-    body-preflight + the supported-non-void gate. Its three call sites (AspNet MapGet/MapPost 0-param and
-    1-param route handlers, and the contextual composition) are inlined onto it.
-  * `TryInferSingleParameterContextualDelegateReturnType` (14 lines) keeps its name and two call sites (the
-    Select preflight arm and the Select emit arm) but its BODY now gathers the two mechanically-resolved
-    candidate return types (the lambda body-preflight result and the gated local-function method-group return)
-    and routes the SELECTION to N# `ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType`
-    (lambda candidate takes precedence; null → the standard inference decline).
-  Net emitter: 21,551 → ~21,516 (net-negative ~-35), NO C# added beyond the two mechanical hosts + the N#
-  calls + fence comments. N# grows `ColumnarLambdaPlacementPlanner.nl` (`PlanSingleParameterContextualReturnType`).
-  Assertions migrated to native N#: new `ColumnarLambdaContextualReturnType.tests.nl` (lambda precedence,
-  local-function fallback, both-null decline, lambda-and-local both present). PROOF: byte-exact corpus IL diff
-  over ALL example/fixture assemblies AND ALL tests/native/* projects (the slice-5 escape vector) must be
-  ZERO — refutation blocker 2 (MapGet `() => …ToList()` → `List<IssueResponse>`, Endpoints.nl) is the sensitive
-  case and rides the zero-param preflight path. FALLBACK per the recut: if the restructure is net-positive or
-  not byte-exact, PROVE the refutation (byte diffs incl. native), revert, record, report.
+- Active sub-slice (Stage 3b/4 RE-INVENTORY — THIS TURN, per the recut authority): with Stage 3a's
+  N#-owned return-type SELECTION decision now in the tree, re-inventory the lambda-taking enumerable arms
+  (`TryEmitEnumerableExtensionCall` Where/Select/ToArray/ToList/Contains + `TryGetPreflightEnumerableExtensionCallType`
+  mirror + `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType) for a net-negative DECISION deletion.
+  VERDICT: **Candidate C — the emission block is real; NO net-negative decision deletion exists this turn.**
+  This turn lands NO production code change (definitive proven record only; STATUS.md doc edit; no repin).
+  * Candidate A (chain ADMISSION — member-name/arity/receiver-shape — as an N# fact consumed by both arms):
+    REJECTED. Each `if (member == "Where"/"Select"/…)` guard is FUSED to arm-specific work (emit IL vs
+    preflight type); extracting admission to N# deletes no branch — both arms still branch per member, so an
+    inline string compare is merely replaced by an N# call + enum + switch in BOTH arms (net C# neutral-to-
+    positive, net N# positive, decision deleted = none). And the real per-arm gate is reflection-bound
+    (`IsSupportedContextualDelegateType`/`IsSupportedElementType`/`ContainsNonEnumBuilderBoundType`) plus, for
+    Select, the preflight engine (`TryInferSingleParameterContextualDelegateReturnType`): the pure shell is
+    thin, the load-bearing core immovable — the exact Stage-3a ground truth. Fails "named C# deletion,
+    net-negative"; it is the forbidden add-a-schema-for-a-relocation anti-pattern.
+  * Candidate B (Cast/OfType explicit-type-argument binding duplicates N# facts): REJECTED. The Cast/OfType
+    arm is LAMBDA-FREE (`ChildCount(callee)==1 && ChildCount(callIdx)==1` → zero value args), so it is separable
+    from the lambda block, but its type argument comes from EXPLICIT syntax `Cast<T>` resolved by the emitter's
+    general type-node machinery (`TryBuildTypeNodeCanonical`/`TryResolveBodyType`/`IsSupportedType`), and its
+    receiver by emitter-local member-chain resolution (`TryGetGenericExtensionReceiverChainType` over
+    locals/params/this) — NOT an N# fact. `ColumnarExternalBindingPlans.nl` has no Cast/OfType (only the unrelated
+    `Castclass` opcode); `ColumnarExtensionMethodResolver` STRUCTURALLY cannot bind it — `TResult` is a
+    return-type-only generic parameter never in a value parameter, so with the explicit arg unconsumed
+    `closedReturnType.ContainsGenericParameters()` stays true → `None`. Owning Cast/OfType needs a NEW capability
+    (explicit-type-argument extension calls + ported type-node/member-chain resolution), not consumption of an
+    existing fact — belongs in the re-sequenced arc (Stage 5), not this turn.
+  * The block (re-confirmed WITH Stage 3a in the tree): lambda BODIES are emitted by a recursive C# sub-emitter
+    — `TryEmitLambdaLiteral` builds `new ColumnarIlEmitter(...)` (ColumnarIlEmitter.cs:1551) and calls
+    `EmitLambdaBody(subEmitter, …)` (:1566), NOT `ColumnarCodePlanExecutor` plan rows — and the lambda return
+    type is inferred by the C# preflight engine (`TryPreflightContextualLambdaReturnType` → scoped sub-emitter
+    body preflight). Stage 3a moved only the SELECTION decision to N#; emission + body-typing stay C#.
+    `ColumnarDirectCallPlanner.nl:112` blanket-declines contextual lambdas
+    (`bindings.CurrentInstance != null && HasParameterOrdinal(0)` → legacyWholeSubtreePlanning), so N# does NOT
+    plan lambda chains and the C# enumerable arms are their sole emitter. The lambda-taking enumerable
+    EMIT+PREFLIGHT arms (Where/Select/ToArray/ToList/Contains + the Min/Max load-bearing residual) + the
+    Cast/OfType explicit-generic arm + the display-class capturing residual are the emitter's remaining FENCED
+    lambda surface; they retire ONLY with a plan-row lambda-body emitter (a whole-expression columnar emitter
+    port beyond a single slice) — a DEDICATED FUTURE TASK.
+  * PROOF (byte-exact, arms-off experiment, fresh Release CLIs at baseline and arms-off): baseline (tip
+    aad935f53, arms ON) = 57/57 builds, 208/208 native (18 proj), 162 IL, TOTAL_FAIL=0. Arms-off (three arms
+    `return false`) → the columnar emitter DECLINES these chains ("This product path requires successful N#
+    columnar emission after analysis passes"): 8 corpus targets FAIL TO BUILD — WeatherDemo (Select().ToArray()),
+    examples/16-task-cli, examples/17-issue-tracker/backend (MapGet `() => …ToList()` return inference),
+    tests/fixtures/issue-tracker, examples/03-functions/{GenericMethods,LocalFunctions,SimpleGenericCalls}.nl
+    (Cast/OfType), examples/09-linq-and-collections/Iterators.nl — and 3 native projects FAIL (rc=1): iterators,
+    lambda-placement, ownership-audit (the slice-5 escape vector, caught by the native sweep). IL diff: 16
+    baseline assemblies MISSING with arms-off (failed to emit) and **0 common-file IL diffs** — every assembly
+    that still built is byte-identical, the textbook load-bearing signature. Experiment reverted; emitter back
+    to 21,534 with an empty `git diff`. There is no "provably dead" subset; the block is proven.
 
 - Lambda-taking LINQ ownership ARC — staged plan (concrete owners + deletion targets; ordered by the
   d2257f33c refutation, whose three blockers are the ground truth for why stages 3–5 must precede any
@@ -70,22 +88,29 @@ Last updated: 2026-07-21
     inventory: the inference's core (recursive body preflight = the C# expression-typing engine) and its
     validity gates (`IsSupportedType`/`TypesEquivalent`, reflection-bound) cannot move without porting the
     whole preflight engine, so they stay mechanical; only the SHAPE + SELECTION decisions were movable.
-  * Stage 3b/4: contextual-lambda CHAIN PLANNING + EMISSION in `ColumnarDirectCallPlanner` — replace the
-    blanket contextual-lambda decline (`ColumnarDirectCallPlanner.nl:112`,
-    `bindings.CurrentInstance != null && HasParameterOrdinal(0)` → legacyWholeSubtreePlanning) with actual N#
-    planning of lambda-taking chains (`Select(f=>…).ToArray()`, `Where(…).ToList()`,
-    `Where(i=>i.Tags.Contains(t))`), and DELETE the lambda-taking enumerable EMIT + PREFLIGHT arms. BLOCKER
-    to weigh next turn: the columnar planner emits plan rows executed by `ColumnarCodePlanExecutor`, but a
-    lambda BODY is emitted by a recursive C# sub-emitter (not plan-row-based) and its return type is inferred
-    by the C# preflight engine (now consulted via the Stage-3a N# decision, but still C#-driven). N# cannot
-    own lambda-chain EMISSION until the lambda body is plan-row-emittable — likely a whole-expression-emitter
-    port beyond a single slice. Re-inventory whether a net-negative emit-arm deletion exists once Stage 3a's
-    N#-owned return-type decision is in the tree, else prove the emission block and record it.
-  * Stage 4: DELETE the lambda-taking enumerable EMIT + PREFLIGHT arms (`TryEmitEnumerableExtensionCall`
-    Where/Select/ToArray/ToList/Contains + `TryGetPreflightEnumerableExtensionCallType` mirror + the
-    explicit-type-argument `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), now that N# plans
-    the chains and their return types — retires refutation blockers 1+2 together.
-  * Stage 5: receiver WIDENING with user-source-extension precedence — model user-source extension precedence
+  * Stage 3b/4: PROVEN BLOCKED (re-inventoried THIS TURN, Candidate C). N# cannot own lambda-chain EMISSION
+    or DELETE the enumerable EMIT+PREFLIGHT arms until the lambda BODY is plan-row-emittable: today a lambda
+    body is emitted by a recursive C# sub-emitter (`new ColumnarIlEmitter(...)` at ColumnarIlEmitter.cs:1551 +
+    `EmitLambdaBody` at :1566, NOT `ColumnarCodePlanExecutor` plan rows) and typed by the C# preflight engine
+    (`TryPreflightContextualLambdaReturnType` → scoped sub-emitter body preflight). Stage 3a moved only the
+    return-type SELECTION to N#; it did NOT unblock emission. Neither the chain-admission decision (Candidate A)
+    nor the Cast/OfType type-argument binding (Candidate B) is a net-negative decision deletion (reasons in the
+    Active sub-slice above). Proven byte-exact: neutralizing the three arms fails 8 corpus builds + 3 native
+    projects with 0 common-file IL diffs — the arms are the sole load-bearing emitter of lambda-taking chains
+    and Cast/OfType. RE-SEQUENCED: this family retires as a DEDICATED FUTURE TASK "plan-row lambda-body emitter"
+    (whole-expression columnar emission of lambda bodies via schema plan rows executed by
+    `ColumnarCodePlanExecutor`, + N# lambda-chain planning that retires the `ColumnarDirectCallPlanner.nl:112`
+    contextual-lambda decline). Only after that lands can the old Stage 4 (below) delete the arms.
+  * Stage 4 (GATED on the plan-row lambda-body emitter task above): DELETE the lambda-taking enumerable EMIT +
+    PREFLIGHT arms (`TryEmitEnumerableExtensionCall` Where/Select/ToArray/ToList/Contains/Min/Max +
+    `TryGetPreflightEnumerableExtensionCallType` mirror) — retires refutation blockers 1+2 together.
+  * Stage 5 (Cast/OfType, separable from lambdas but a NEW-capability slice): the explicit-type-argument
+    `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType arm is lambda-free but its `TResult` is a
+    return-type-only generic parameter the N# `ColumnarExtensionMethodResolver` cannot structurally bind (the
+    explicit arg is never consumed by inference). Owning it needs N# explicit-type-argument extension-call
+    support + ported type-node/member-chain resolution — a new capability, not a duplicated-fact deletion.
+    Separable from Stage 4 and can precede or follow it.
+  * Stage 5' (was Stage 5): receiver WIDENING with user-source-extension precedence — model user-source extension precedence
     in `ColumnarExtensionMethodResolver` so BCL generic `First`/`Last` never shadow user extensions
     (`examples/07-interfaces/ExtensionMethods.nl`, refutation blocker 3), then admit interface/variance
     receiver widening for the generic non-lambda arms. NOTE: the widening logic itself was proven correct in
@@ -101,12 +126,15 @@ Last updated: 2026-07-21
   the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
   unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
   modeled (BCL `First`/`Last` shadow user extensions).
-- Next smallest concrete sub-slice: Stage 3b/4 — contextual-lambda CHAIN PLANNING + enumerable EMIT/PREFLIGHT
-  arm deletion in `ColumnarDirectCallPlanner`/`ColumnarIlEmitter`. Re-inventory next turn whether a
-  net-negative emit-arm deletion is now reachable with the Stage-3a N#-owned return-type decision in the tree;
-  the open blocker is that lambda-chain EMISSION needs the lambda body plan-row-emittable (the body is still
-  emitted by the recursive C# sub-emitter), so weigh a scoped emit-arm deletion vs. a proven emission-block
-  refutation. (Stage 3a — contextual-lambda RETURN-TYPE inference DECISION — landed this turn:
+- Next smallest concrete sub-slice: PIVOT off the lambda family (Stage 3b/4 is proven blocked until the
+  dedicated plan-row lambda-body emitter task lands — see the re-sequenced arc above). Select the next
+  deletion-ready residual that does NOT depend on the lambda-body emitter, from the families recorded across
+  013/014's residuals and the refutation: (a) preflight typing of legacy-owned static calls
+  (`TryGetPreflightEnumerableExtensionCallType`'s peers for non-lambda static/extension calls), or (b) the
+  case-12/13 numeric/conditional nested-operand cores (the fenced numeric/short-circuit/ternary residuals from
+  006/007 that grow with member-chain-on-call-result and enum string-constant operands). Inventory the emitter
+  only far enough to cut the smallest coherent net-negative deletion in one of those families; do not reopen the
+  lambda arms. (Stage 3a — contextual-lambda RETURN-TYPE inference DECISION — landed at aad935f53:
   `TryInferSingleParameterContextualDelegateReturnType` → N# `PlanSingleParameterContextualReturnType`;
   `TryInferSingleParameterLambdaReturnType` + `TryInferZeroParameterLambdaReturnType` collapsed into one
   mechanical `TryPreflightContextualLambdaReturnType` reusing N# `PlanContextualSignature`; emitter 21,551 →
