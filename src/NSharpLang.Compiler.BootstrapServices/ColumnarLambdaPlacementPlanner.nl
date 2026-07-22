@@ -234,6 +234,27 @@ class ColumnarLambdaPlacementPlanner {
         }
     }
 
+    // Select the RETURN TYPE of a single-parameter contextual delegate argument, or decline. A selector or
+    // predicate like the one `Select`/`Where` takes has no written return type; its return type is the type
+    // the argument's body produces. N# owns the SELECTION between the two admitted argument forms — a
+    // contextual lambda literal whose body the host has mechanically preflighted, and a visible
+    // local-function method group. The host resolves each form's candidate return type mechanically (the
+    // lambda candidate is the host's scoped sub-emitter body-preflight result, already gated to a supported
+    // non-void type; the local-function candidate is the resolved method-group return, already gated to a
+    // supported non-void type with a single parameter equivalent to the source element type) and passes
+    // null for a form that does not apply. The lambda form takes precedence; a null result is the standard
+    // inference decline the host reports. The body preflight and the reflection-bound validity/equivalence
+    // checks stay mechanical in the host — this owns only which candidate the return type comes from.
+    public static func PlanSingleParameterContextualReturnType(
+        lambdaBodyReturnType: Type?,
+        localFunctionReturnType: Type?): Type? {
+        if lambdaBodyReturnType != null {
+            return lambdaBodyReturnType
+        }
+
+        return localFunctionReturnType
+    }
+
     // Select the owning type, generated-method identity, and visibility for one non-capturing lambda
     // body and define the synthesized method. Returns null to decline — an invalid synthesized signature,
     // or a value-type/constructor-body `this` capture that cannot bind a delegate directly to the current

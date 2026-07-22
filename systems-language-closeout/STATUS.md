@@ -15,27 +15,37 @@ Last updated: 2026-07-21
   byte-exact corpus sweep MUST include the tests/native/* projects — the 59-assembly example/fixture
   sweep alone missed this; sub-slice 6's refutation of the identical premise for ToArray/ToList/
   Contains applied retroactively to 5 and nobody re-checked.
-- Active sub-slice (Stage 2 of the lambda-taking LINQ ownership ARC — THIS TURN): MOVE the contextual-lambda
-  CAPTURE-SET decision out of `ColumnarIlEmitter.cs` into N#. `TryEmitLambdaLiteral` used the C#
-  `CollectLambdaCaptures` recursive AST walk to decide which enclosing-scope names a lambda body closes over
-  — a kind-6 body identifier that resolves in the enclosing local/parameter/lifted name set and is not bound
-  by this (or a nested) lambda's parameters — with the type-subtree walk discipline (skip generic-callee 38,
-  bare-new 42, typeof 55; step over the type child of new 15 / cast 16 / `is`,`as` 46/47; bind a nested
-  lambda's 39 own parameters before walking its body; skip value-less masquerading TYPE identifiers). That
-  decision is now owned by N#: `ColumnarLambdaPlacementPlanner.PlanCaptureSet` (nodes/source/bodyNode + the
-  lambda's own parameter names + the union of the enclosing locals/parameters/lifted names →
-  `HashSet<string>` of captured names). The emitter builds the union capturable set mechanically, wraps the
-  N# result into its downstream `SortedSet<string>` order, and consumes it in the non-capturing-vs-capturing
-  branch exactly as before. Deleted the C# `CollectLambdaCaptures` method + its doc comment.
-  `ColumnarIlEmitter.cs` 21,556 → ~21,523 lines, net-negative, no C# added beyond the mechanical union-set
-  build + fence comment + the N# call. N# grew `ColumnarLambdaPlacementPlanner.nl` (new `PlanCaptureSet` +
-  recursive `CollectContextualLambdaCaptures`). Assertions migrated to native N#: new
-  `ColumnarLambdaCaptureSet.tests.nl` (capture detection over locals/params/lifted, lambda-param and
-  nested-lambda-param exclusion, member-access base, type-subtree skip, value-less identifier, zero-capture).
-  PROOF: byte-exact corpus IL diff over all 59 example/fixture assemblies (stash-baseline sweep pattern) must
-  be ZERO — the display-class capture fixtures are the sensitive cases where any transcription error in the
-  capture scan would show up. This is a capture-SET move only; the this-capture member-chain scan
-  (`BodyReferencesEnclosingChain`) and the display-class emission stay fenced C# until Stage 6.
+- Active sub-slice (Stage 3 of the lambda-taking LINQ ownership ARC — THIS TURN, per the recut authority):
+  MOVE the single-parameter contextual-delegate RETURN-TYPE inference DECISION out of `ColumnarIlEmitter.cs`
+  into N#, consuming the C# body-preflight result mechanically; chain EMISSION stays fenced for Stage 4 (the
+  blanket contextual-lambda decline in `ColumnarDirectCallPlanner.nl:112` is NOT touched — it is the emission
+  fence). Ground truth from the inventory: the inference's core — recursively preflight-typing the lambda body
+  via a scoped sub-emitter (`TryGetPreflightExpressionType`) — IS the C# expression-typing engine, which no
+  arc stage moves; likewise `IsSupportedType`/`TypesEquivalent` are intrinsically bound to the C# reflection
+  type model. So the movable decision is (a) the contextual-lambda parameter-SHAPE decision, already owned by
+  N# `PlanContextualSignature`, currently DUPLICATED in the three C# inference helpers, and (b) the
+  return-type SELECTION between the two argument forms (a contextual lambda body vs a visible local-function
+  method group). Concretely:
+  * `TryInferSingleParameterLambdaReturnType` (37 lines) and `TryInferZeroParameterLambdaReturnType`
+    (24 lines) — whose manual shape checks (kind-39 / arity / param-kind-6 / NL316 shadow / ordinal+paramType
+    map build) DUPLICATE `PlanContextualSignature`, and whose sub-emitter constructions are near-identical —
+    collapse into ONE mechanical host `TryPreflightContextualLambdaReturnType(lambdaNode, parameterTypes[])`:
+    kind-39 guard + `PlanContextualSignature` (the N#-owned shape decision) + the single sub-emitter
+    body-preflight + the supported-non-void gate. Its three call sites (AspNet MapGet/MapPost 0-param and
+    1-param route handlers, and the contextual composition) are inlined onto it.
+  * `TryInferSingleParameterContextualDelegateReturnType` (14 lines) keeps its name and two call sites (the
+    Select preflight arm and the Select emit arm) but its BODY now gathers the two mechanically-resolved
+    candidate return types (the lambda body-preflight result and the gated local-function method-group return)
+    and routes the SELECTION to N# `ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType`
+    (lambda candidate takes precedence; null → the standard inference decline).
+  Net emitter: 21,551 → ~21,516 (net-negative ~-35), NO C# added beyond the two mechanical hosts + the N#
+  calls + fence comments. N# grows `ColumnarLambdaPlacementPlanner.nl` (`PlanSingleParameterContextualReturnType`).
+  Assertions migrated to native N#: new `ColumnarLambdaContextualReturnType.tests.nl` (lambda precedence,
+  local-function fallback, both-null decline, lambda-and-local both present). PROOF: byte-exact corpus IL diff
+  over ALL example/fixture assemblies AND ALL tests/native/* projects (the slice-5 escape vector) must be
+  ZERO — refutation blocker 2 (MapGet `() => …ToList()` → `List<IssueResponse>`, Endpoints.nl) is the sensitive
+  case and rides the zero-param preflight path. FALLBACK per the recut: if the restructure is net-positive or
+  not byte-exact, PROVE the refutation (byte diffs incl. native), revert, record, report.
 
 - Lambda-taking LINQ ownership ARC — staged plan (concrete owners + deletion targets; ordered by the
   d2257f33c refutation, whose three blockers are the ground truth for why stages 3–5 must precede any
@@ -47,13 +57,30 @@ Last updated: 2026-07-21
     non-capturing-vs-capturing branch consumes the N# capture set. Delete the C# `CollectLambdaCaptures`
     walk (~35 lines). The this-capture member-chain scan `BodyReferencesEnclosingChain` (needs the emitter's
     member-chain resolvers) and the display-class capturing residual stay C# until Stage 6.
-  * Stage 3: contextual-lambda PLANNING in `ColumnarDirectCallPlanner` — replace the blanket contextual-lambda
-    decline (`ColumnarDirectCallPlanner.nl:112-115`, `bindings.CurrentInstance != null && HasParameterOrdinal(0)`
-    → legacyWholeSubtreePlanning) with actual N# planning of lambda-taking chains, so `Select(f=>…).ToArray()`,
-    `Where(…).ToList()`, `Where(i=>i.Tags.Contains(t))` route through N#. Requires modeling contextual-lambda
-    RETURN-TYPE inference in N# (the `TryInferSingleParameterContextualDelegateReturnType` preflight that
-    decides `Select`'s result type and lambda return types — refutation blocker 2). This is the load-bearing
-    prerequisite for Stage 4.
+  * Stage 3a (THIS TURN): contextual-lambda RETURN-TYPE inference DECISION → N#. DONE. The
+    `TryInferSingleParameterContextualDelegateReturnType` decision (which of the two admitted argument forms —
+    a contextual lambda body vs a visible local-function method group — supplies a single-parameter
+    contextual delegate's return type, refutation blocker 2's `Select`-result / MapGet-return machinery) now
+    routes to `ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType` (lambda precedence,
+    null → decline). The two duplicated single/zero-parameter inference helpers
+    (`TryInferSingleParameterLambdaReturnType` + `TryInferZeroParameterLambdaReturnType`) collapsed into one
+    mechanical host `TryPreflightContextualLambdaReturnType` that reuses the N#-owned `PlanContextualSignature`
+    for the parameter-SHAPE decision (removing the third duplicated C# shape authority) and consumes the
+    scoped sub-emitter body-preflight mechanically. Emitter 21,551 → 21,534 (net −17). GROUND TRUTH from the
+    inventory: the inference's core (recursive body preflight = the C# expression-typing engine) and its
+    validity gates (`IsSupportedType`/`TypesEquivalent`, reflection-bound) cannot move without porting the
+    whole preflight engine, so they stay mechanical; only the SHAPE + SELECTION decisions were movable.
+  * Stage 3b/4: contextual-lambda CHAIN PLANNING + EMISSION in `ColumnarDirectCallPlanner` — replace the
+    blanket contextual-lambda decline (`ColumnarDirectCallPlanner.nl:112`,
+    `bindings.CurrentInstance != null && HasParameterOrdinal(0)` → legacyWholeSubtreePlanning) with actual N#
+    planning of lambda-taking chains (`Select(f=>…).ToArray()`, `Where(…).ToList()`,
+    `Where(i=>i.Tags.Contains(t))`), and DELETE the lambda-taking enumerable EMIT + PREFLIGHT arms. BLOCKER
+    to weigh next turn: the columnar planner emits plan rows executed by `ColumnarCodePlanExecutor`, but a
+    lambda BODY is emitted by a recursive C# sub-emitter (not plan-row-based) and its return type is inferred
+    by the C# preflight engine (now consulted via the Stage-3a N# decision, but still C#-driven). N# cannot
+    own lambda-chain EMISSION until the lambda body is plan-row-emittable — likely a whole-expression-emitter
+    port beyond a single slice. Re-inventory whether a net-negative emit-arm deletion exists once Stage 3a's
+    N#-owned return-type decision is in the tree, else prove the emission block and record it.
   * Stage 4: DELETE the lambda-taking enumerable EMIT + PREFLIGHT arms (`TryEmitEnumerableExtensionCall`
     Where/Select/ToArray/ToList/Contains + `TryGetPreflightEnumerableExtensionCallType` mirror + the
     explicit-type-argument `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType), now that N# plans
@@ -74,14 +101,18 @@ Last updated: 2026-07-21
   the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
   unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
   modeled (BCL `First`/`Last` shadow user extensions).
-- Next smallest concrete sub-slice: Stage 3 — contextual-lambda PLANNING in `ColumnarDirectCallPlanner`.
-  Replace the blanket contextual-lambda decline (`bindings.CurrentInstance != null && HasParameterOrdinal(0)`
-  → legacyWholeSubtreePlanning) with actual N# planning of lambda-taking chains, which requires modeling
-  contextual-lambda RETURN-TYPE inference in N# (the `TryInferSingleParameterContextualDelegateReturnType`
-  preflight — refutation blocker 2). This is the load-bearing prerequisite for the Stage 4 enumerable-arm
-  deletion. (Stage 2 — contextual-lambda CAPTURE-SET collection — landed this turn: `CollectLambdaCaptures`
-  → N# `ColumnarLambdaPlacementPlanner.PlanCaptureSet`, byte-exact corpus IL diff ZERO across all 59
-  assemblies incl. the 3 display-class capture fixtures.)
+- Next smallest concrete sub-slice: Stage 3b/4 — contextual-lambda CHAIN PLANNING + enumerable EMIT/PREFLIGHT
+  arm deletion in `ColumnarDirectCallPlanner`/`ColumnarIlEmitter`. Re-inventory next turn whether a
+  net-negative emit-arm deletion is now reachable with the Stage-3a N#-owned return-type decision in the tree;
+  the open blocker is that lambda-chain EMISSION needs the lambda body plan-row-emittable (the body is still
+  emitted by the recursive C# sub-emitter), so weigh a scoped emit-arm deletion vs. a proven emission-block
+  refutation. (Stage 3a — contextual-lambda RETURN-TYPE inference DECISION — landed this turn:
+  `TryInferSingleParameterContextualDelegateReturnType` → N# `PlanSingleParameterContextualReturnType`;
+  `TryInferSingleParameterLambdaReturnType` + `TryInferZeroParameterLambdaReturnType` collapsed into one
+  mechanical `TryPreflightContextualLambdaReturnType` reusing N# `PlanContextualSignature`; emitter 21,551 →
+  21,534, net −17; byte-exact corpus IL diff ZERO across all 162 emitted assemblies incl. ALL tests/native/*
+  and the MapGet `List<IssueResponse>` fixtures; native 208/208, contracts 760/760, units 3,190/3,190,
+  webapi template IL identical, ownership audit 18/18.)
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`

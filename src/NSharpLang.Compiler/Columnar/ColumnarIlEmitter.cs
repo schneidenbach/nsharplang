@@ -17674,27 +17674,24 @@ internal sealed class ColumnarIlEmitter
                 return parameters.Length == 1 && parameters[0].ParameterType == typeof(IEnumerable<int>);
             });
 
-    private bool TryInferSingleParameterLambdaReturnType(int lambdaNode, Type parameterType, out Type returnType)
+    // Mechanically preflight a contextual lambda body under a given parameter binding and return its
+    // inferred type when that type is a supported non-void type. The parameter SHAPE decision — kind-39
+    // lambda, arity match against parameterTypes, identifier parameter nodes, duplicate-name malformedness,
+    // and the NL316 enclosing shadow — is owned by N# ColumnarLambdaPlacementPlanner.PlanContextualSignature;
+    // the scoped sub-emitter body preflight below is the C# expression-typing engine consumed mechanically.
+    // An empty parameterTypes serves a zero-parameter handler body; a single type serves a single-parameter
+    // selector/predicate body.
+    private bool TryPreflightContextualLambdaReturnType(int lambdaNode, Type[] parameterTypes, out Type returnType)
     {
         returnType = null!;
-        if (_nodes.Kind(lambdaNode) != 39 || _nodes.ChildCount(lambdaNode) != 2)
+        if (_nodes.Kind(lambdaNode) != 39)
             return false;
-        var parameterNode = Child(lambdaNode, 0);
-        if (_nodes.Kind(parameterNode) != 6)
+        var signature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes, _source, lambdaNode, parameterTypes, VisibleBindingNamesSnapshot());
+        if (signature == null)
             return false;
-        var parameterName = Text(parameterNode);
-        if (IsVisibleBindingName(parameterName))
-            return false;
-        var ordinals = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [parameterName] = 0,
-        };
-        var paramTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
-        {
-            [parameterName] = parameterType,
-        };
         var subEmitter = new ColumnarIlEmitter(
-            _nodes, _source, ordinals, paramTypes, typeof(void), _il, _siblings,
+            _nodes, _source, signature.Ordinals, signature.ParameterTypesByName, typeof(void), _il, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
             enclosingType: _enclosingType,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
@@ -17707,49 +17704,35 @@ internal sealed class ColumnarIlEmitter
             typeResolutionEnums: _typeResolutionEnums,
             typeResolutionStructs: _typeResolutionStructs,
             typeResolutionUnions: _typeResolutionUnions);
-        return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 1), out returnType)
+        return subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out returnType)
                && returnType != typeof(void)
                && IsSupportedType(returnType);
     }
 
+    // N# owns the single-parameter contextual-delegate return-type SELECTION: the contextual lambda body's
+    // preflighted type takes precedence over a visible local-function method group's return type. Both
+    // candidates are resolved mechanically here — the lambda body preflight above, and the method-group
+    // lookup with its reflection-bound single-parameter equivalence and supported-non-void gate — and
+    // handed to ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType, whose null result
+    // is the standard inference decline.
     private bool TryInferSingleParameterContextualDelegateReturnType(int delegateNode, Type parameterType, out Type returnType)
     {
         returnType = null!;
-        if (TryInferSingleParameterLambdaReturnType(delegateNode, parameterType, out returnType))
-            return true;
-        if (!TryGetVisibleLocalFunctionMethodGroup(delegateNode, out var localTarget)
-            || localTarget.ParamTypes.Length != 1
-            || !TypesEquivalent(localTarget.ParamTypes[0], parameterType)
-            || localTarget.ReturnType == typeof(void)
-            || !IsSupportedType(localTarget.ReturnType))
+        Type? lambdaCandidate = TryPreflightContextualLambdaReturnType(delegateNode, new[] { parameterType }, out var lambdaReturn)
+            ? lambdaReturn
+            : null;
+        Type? localCandidate = null;
+        if (TryGetVisibleLocalFunctionMethodGroup(delegateNode, out var localTarget)
+            && localTarget.ParamTypes.Length == 1
+            && TypesEquivalent(localTarget.ParamTypes[0], parameterType)
+            && localTarget.ReturnType != typeof(void)
+            && IsSupportedType(localTarget.ReturnType))
+            localCandidate = localTarget.ReturnType;
+        var inferred = ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType(lambdaCandidate, localCandidate);
+        if (inferred == null)
             return false;
-        returnType = localTarget.ReturnType;
+        returnType = inferred;
         return true;
-    }
-
-    private bool TryInferZeroParameterLambdaReturnType(int lambdaNode, out Type returnType)
-    {
-        returnType = null!;
-        if (_nodes.Kind(lambdaNode) != 39 || _nodes.ChildCount(lambdaNode) != 1)
-            return false;
-        var subEmitter = new ColumnarIlEmitter(
-            _nodes, _source, new Dictionary<string, int>(StringComparer.Ordinal),
-            new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), _il, _siblings,
-            _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
-            enclosingType: _enclosingType,
-            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-            localFuncs: _localFuncs, declaredLocalFuncNodes: _declaredLocalFuncNodes, visibleLocalFuncs: _visibleLocalFuncs,
-            siblingReturnTupleNames: _siblingReturnTupleNames,
-            enclosingBindingNames: VisibleBindingNamesSnapshot(),
-            referenceAssemblyPaths: _referenceAssemblyPaths,
-            genericInterfaceConstraints: _genericInterfaceConstraints,
-            typeParameters: _typeParameters,
-            typeResolutionEnums: _typeResolutionEnums,
-            typeResolutionStructs: _typeResolutionStructs,
-            typeResolutionUnions: _typeResolutionUnions);
-        return subEmitter.TryGetPreflightExpressionType(Child(lambdaNode, 0), out returnType)
-               && returnType != typeof(void)
-               && IsSupportedType(returnType);
     }
 
     private bool TryResolveAspNetReferencedType(string assemblySimpleName, string fullTypeName, out Type type)
@@ -17769,7 +17752,7 @@ internal sealed class ColumnarIlEmitter
             var parameterCount = _nodes.ChildCount(handlerNode) - 1;
             if (parameterCount == 0)
             {
-                var returnType = TryInferZeroParameterLambdaReturnType(handlerNode, out var inferredReturn)
+                var returnType = TryPreflightContextualLambdaReturnType(handlerNode, Type.EmptyTypes, out var inferredReturn)
                     ? inferredReturn
                     : typeof(object);
                 delegateType = typeof(Func<>).MakeGenericType(returnType);
@@ -17779,7 +17762,7 @@ internal sealed class ColumnarIlEmitter
 
             if (parameterCount == 1 && TryResolveAspNetHttpContextType(out var httpContextType))
             {
-                var returnType = TryInferSingleParameterLambdaReturnType(handlerNode, httpContextType, out var inferredReturn)
+                var returnType = TryPreflightContextualLambdaReturnType(handlerNode, new[] { httpContextType }, out var inferredReturn)
                     ? inferredReturn
                     : typeof(System.Threading.Tasks.Task);
                 delegateType = typeof(Func<,>).MakeGenericType(httpContextType, returnType);
