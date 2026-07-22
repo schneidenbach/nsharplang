@@ -15,55 +15,45 @@ Last updated: 2026-07-22
   byte-exact corpus sweep MUST include the tests/native/* projects — the 59-assembly example/fixture
   sweep alone missed this; sub-slice 6's refutation of the identical premise for ToArray/ToList/
   Contains applied retroactively to 5 and nobody re-checked.
-- Active sub-slice (Stage 3b/4 RE-INVENTORY — THIS TURN, per the recut authority): with Stage 3a's
-  N#-owned return-type SELECTION decision now in the tree, re-inventory the lambda-taking enumerable arms
-  (`TryEmitEnumerableExtensionCall` Where/Select/ToArray/ToList/Contains + `TryGetPreflightEnumerableExtensionCallType`
-  mirror + `TryEmitExplicitEnumerableExtensionGenericCall` Cast/OfType) for a net-negative DECISION deletion.
-  VERDICT: **Candidate C — the emission block is real; NO net-negative decision deletion exists this turn.**
-  This turn lands NO production code change (definitive proven record only; STATUS.md doc edit; no repin).
-  * Candidate A (chain ADMISSION — member-name/arity/receiver-shape — as an N# fact consumed by both arms):
-    REJECTED. Each `if (member == "Where"/"Select"/…)` guard is FUSED to arm-specific work (emit IL vs
-    preflight type); extracting admission to N# deletes no branch — both arms still branch per member, so an
-    inline string compare is merely replaced by an N# call + enum + switch in BOTH arms (net C# neutral-to-
-    positive, net N# positive, decision deleted = none). And the real per-arm gate is reflection-bound
-    (`IsSupportedContextualDelegateType`/`IsSupportedElementType`/`ContainsNonEnumBuilderBoundType`) plus, for
-    Select, the preflight engine (`TryInferSingleParameterContextualDelegateReturnType`): the pure shell is
-    thin, the load-bearing core immovable — the exact Stage-3a ground truth. Fails "named C# deletion,
-    net-negative"; it is the forbidden add-a-schema-for-a-relocation anti-pattern.
-  * Candidate B (Cast/OfType explicit-type-argument binding duplicates N# facts): REJECTED. The Cast/OfType
-    arm is LAMBDA-FREE (`ChildCount(callee)==1 && ChildCount(callIdx)==1` → zero value args), so it is separable
-    from the lambda block, but its type argument comes from EXPLICIT syntax `Cast<T>` resolved by the emitter's
-    general type-node machinery (`TryBuildTypeNodeCanonical`/`TryResolveBodyType`/`IsSupportedType`), and its
-    receiver by emitter-local member-chain resolution (`TryGetGenericExtensionReceiverChainType` over
-    locals/params/this) — NOT an N# fact. `ColumnarExternalBindingPlans.nl` has no Cast/OfType (only the unrelated
-    `Castclass` opcode); `ColumnarExtensionMethodResolver` STRUCTURALLY cannot bind it — `TResult` is a
-    return-type-only generic parameter never in a value parameter, so with the explicit arg unconsumed
-    `closedReturnType.ContainsGenericParameters()` stays true → `None`. Owning Cast/OfType needs a NEW capability
-    (explicit-type-argument extension calls + ported type-node/member-chain resolution), not consumption of an
-    existing fact — belongs in the re-sequenced arc (Stage 5), not this turn.
-  * The block (re-confirmed WITH Stage 3a in the tree): lambda BODIES are emitted by a recursive C# sub-emitter
-    — `TryEmitLambdaLiteral` builds `new ColumnarIlEmitter(...)` (ColumnarIlEmitter.cs:1551) and calls
-    `EmitLambdaBody(subEmitter, …)` (:1566), NOT `ColumnarCodePlanExecutor` plan rows — and the lambda return
-    type is inferred by the C# preflight engine (`TryPreflightContextualLambdaReturnType` → scoped sub-emitter
-    body preflight). Stage 3a moved only the SELECTION decision to N#; emission + body-typing stay C#.
-    `ColumnarDirectCallPlanner.nl:112` blanket-declines contextual lambdas
-    (`bindings.CurrentInstance != null && HasParameterOrdinal(0)` → legacyWholeSubtreePlanning), so N# does NOT
-    plan lambda chains and the C# enumerable arms are their sole emitter. The lambda-taking enumerable
-    EMIT+PREFLIGHT arms (Where/Select/ToArray/ToList/Contains + the Min/Max load-bearing residual) + the
-    Cast/OfType explicit-generic arm + the display-class capturing residual are the emitter's remaining FENCED
-    lambda surface; they retire ONLY with a plan-row lambda-body emitter (a whole-expression columnar emitter
-    port beyond a single slice) — a DEDICATED FUTURE TASK.
-  * PROOF (byte-exact, arms-off experiment, fresh Release CLIs at baseline and arms-off): baseline (tip
-    aad935f53, arms ON) = 57/57 builds, 208/208 native (18 proj), 162 IL, TOTAL_FAIL=0. Arms-off (three arms
-    `return false`) → the columnar emitter DECLINES these chains ("This product path requires successful N#
-    columnar emission after analysis passes"): 8 corpus targets FAIL TO BUILD — WeatherDemo (Select().ToArray()),
-    examples/16-task-cli, examples/17-issue-tracker/backend (MapGet `() => …ToList()` return inference),
-    tests/fixtures/issue-tracker, examples/03-functions/{GenericMethods,LocalFunctions,SimpleGenericCalls}.nl
-    (Cast/OfType), examples/09-linq-and-collections/Iterators.nl — and 3 native projects FAIL (rc=1): iterators,
-    lambda-placement, ownership-audit (the slice-5 escape vector, caught by the native sweep). IL diff: 16
-    baseline assemblies MISSING with arms-off (failed to emit) and **0 common-file IL diffs** — every assembly
-    that still built is byte-identical, the textbook load-bearing signature. Experiment reverted; emitter back
-    to 21,534 with an empty `git diff`. There is no "provably dead" subset; the block is proven.
+- Active sub-slice (PIVOT off the lambda family — THIS TURN, LANDED a net-negative deletion): the
+  lambda arc (Stage 3b/4) is PROVEN BLOCKED on a dedicated plan-row lambda-body emitter task (see the
+  ARC plan below and the prior sub-slice's byte-exact arms-off proof). Per the pivot mandate, inventoried
+  BOTH pivot candidates and landed candidate (b). CHOICE recorded pre-edit (probe-driven): prune the
+  case-12 primitive-binary whole-subtree residual to its live reaching-set. Four sub-arms proven DEAD
+  across ALL FOUR exercise surfaces — corpus+native (162 assemblies), units (3,190), and self-emit
+  (BootstrapServices kernels, full 228-arm run) — via IL-neutral arm instrumentation (0 IL diff baseline
+  vs instrumented across all 162 assemblies), then DELETED:
+  * `case "&"|"|"|"^"` bitwise residual arm
+  * record-struct structural-equality residual arm (`==`/`!=` boxing through the synthesized Equals)
+  * the `null == null` / `null != null` constant fold
+  * the multi-term string-concat CHAIN lowering (`TryEmitStringConcatChain` + its sole-caller
+    `CanProveStringExpression`) — the residual pair-concat (`String.Concat(string,string)`) STAYS.
+  ColumnarIlEmitter.cs 21,534 -> 21,438 (net -96 lines / -92 non-blank; epoch ceiling 21,723/20,646
+  untouched). N# delta: ZERO — ColumnarPrimitiveBinaryPlanner / ColumnarConditionalPlanner already own
+  these operators at the front door; the residual only served a non-plannable-OPERAND band that is
+  empty for these four families. No test migration (dead-code deletion; live coverage = native
+  primitive-binary 16/16 + conditional 8/8). SLICE-5 GUARD HONORED: a PARTIAL self-emit run (166 arms)
+  showed `stringcharconcat` dead, but the COMPLETE run (228 arms) caught it firing late, so it was
+  RETAINED — the exact slice-5 escape signature; every dead verdict waited for the full self-emit.
+  * Candidate (a) BLOCKED (definitive record): the live preflight static-call arm (case-9
+    `TryFindStaticMethodOnChain` on `_enclosingType`) types the user's OWN enclosing-type static-method
+    call results (bare identifier, no receiver) — NOT external `ColumnarExternalBindingPlans` catalog
+    facts (external static calls have a type-name receiver whose `TryGetPreflightExpressionType` returns
+    false, so they never reach this arm). It FIRED on the corpus -> load-bearing, not dead. Six lines
+    fused into the unified bare-call preflight tier (localfn->sibling->ownstruct->ownstatic); deleting it
+    regresses user-static-call-result typing. Rerouting to an N# planner return-type is the forbidden
+    add-a-planner-for-a-relocation anti-pattern (identical to the lambda-arc Candidate A rejection): no
+    decision deleted, net N#+plumbing positive. The other corpus-dead preflight arms are BCL-shape
+    (span/AsSpan/ArrayPool/MemoryPool/Stream — self-emit-live: the kernels use them) or lambda-family
+    (where/toarray/minmax/contains — blocked with the lambda arc). No net-negative deletion in (a).
+  * Candidate (b) partial blocks (definitive record): within the SAME residual, three more sub-arms fire
+    in SELF-EMIT (kernel compilation) though dead in corpus+native+units, so RETAINED: the case-13
+    ternary residual (kernels have 80 ternaries incl. `setter == null ? 0 : 1`, ColumnarDefinitions.nl:189,
+    the exact form task 007 flagged; the N# ColumnarConditionalPlanner declines non-Boolean conditions +
+    mixed-type arms, so the residual still serves them); reference-identity equality on user reference
+    types (`==`/`!=`); and string+char concat (`TryEmitStringCharConcat`). Residual arith (`+`/`-`/`*`/`/`)
+    and ordering (`<`/`<=`/`>`/`>=`) are all self-emit-live. These retire only as their non-plannable
+    OPERAND forms become N#-plannable — a future four-surface-gated cut, not this turn.
 
 - Lambda-taking LINQ ownership ARC — staged plan (concrete owners + deletion targets; ordered by the
   d2257f33c refutation, whose three blockers are the ground truth for why stages 3–5 must precede any
@@ -126,21 +116,24 @@ Last updated: 2026-07-22
   the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
   unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
   modeled (BCL `First`/`Last` shadow user extensions).
-- Next smallest concrete sub-slice: PIVOT off the lambda family (Stage 3b/4 is proven blocked until the
-  dedicated plan-row lambda-body emitter task lands — see the re-sequenced arc above). Select the next
-  deletion-ready residual that does NOT depend on the lambda-body emitter, from the families recorded across
-  013/014's residuals and the refutation: (a) preflight typing of legacy-owned static calls
-  (`TryGetPreflightEnumerableExtensionCallType`'s peers for non-lambda static/extension calls), or (b) the
-  case-12/13 numeric/conditional nested-operand cores (the fenced numeric/short-circuit/ternary residuals from
-  006/007 that grow with member-chain-on-call-result and enum string-constant operands). Inventory the emitter
-  only far enough to cut the smallest coherent net-negative deletion in one of those families; do not reopen the
-  lambda arms. (Stage 3a — contextual-lambda RETURN-TYPE inference DECISION — landed at aad935f53:
-  `TryInferSingleParameterContextualDelegateReturnType` → N# `PlanSingleParameterContextualReturnType`;
-  `TryInferSingleParameterLambdaReturnType` + `TryInferZeroParameterLambdaReturnType` collapsed into one
-  mechanical `TryPreflightContextualLambdaReturnType` reusing N# `PlanContextualSignature`; emitter 21,551 →
-  21,534, net −17; byte-exact corpus IL diff ZERO across all 162 emitted assemblies incl. ALL tests/native/*
-  and the MapGet `List<IssueResponse>` fixtures; native 208/208, contracts 760/760, units 3,190/3,190,
-  webapi template IL identical, ownership audit 18/18.)
+- Next smallest concrete sub-slice: continue pruning the case-12/13 residual ONLY where a full FOUR-surface
+  (corpus+native + units + self-emit) arm-liveness probe proves an operator/type family dead — the remaining
+  live residual families (case-13 ternary, reference-identity equality on user reference types, string+char
+  concat, signed arith `+`/`-`/`*`/`/`, ordering `<`/`<=`/`>`/`>=`) are ALL self-emit-load-bearing and retire
+  only as their non-plannable OPERAND forms become N#-plannable (member-chains-on-call-results, dictionary
+  indexers, enum string constants). Candidate (a) preflight static-call typing is load-bearing (types the
+  user's OWN enclosing-type statics — not catalog facts) and is not a net-negative deletion; do not reopen it.
+  Do NOT reopen the lambda arms (Stage 3b/4 blocked on the dedicated plan-row lambda-body emitter task). Reuse
+  the IL-neutral arm-instrumentation + full-self-emit probe method (scratchpad `sweepall.sh` + `twostage.sh`);
+  the four-surface map is the soundness arbiter (a partial self-emit run mis-labels a self-emit-live arm dead).
+- Method note (this turn): the byte-exact product-IL sweep has 12 EXPECTED non-product diffs — six native
+  reflection projects (extension-calls, external-base-interface, generic-scope-invalid, lambda-placement,
+  readonly-init, record-with) reference `src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll` +
+  `...BootstrapServices.dll` as a test dependency, so those C# COMPILER binaries reflect any emitter source
+  change; exclude them and compare only N#-EMITTED assemblies (0 diffs this turn).
+- Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
+  `0a33f1ff2`, `f3d1e89c9`). This turn's pivot deletion is NOT committed (mandate: do not commit); the working
+  tree carries the emitter deletion + repin (head `40cb7fa576abc6c2`) + this STATUS update.
 - Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
   `0a33f1ff2`, `f3d1e89c9`)
 - Queue: `tasks/README.md`
@@ -206,6 +199,31 @@ These are populated only when their task becomes current.
 ## Completion ledger
 
 Completed slices:
+
+- Task 015 pivot sub-slice — case-12 primitive-binary residual dead-arm prune (pivot off the blocked
+  lambda family). NOT committed this turn (mandate: do not commit); working tree carries the deletion +
+  repin + STATUS.
+  - Deleted C# owners: the case-12 primitive-binary whole-subtree residual's four provably-dead sub-arms —
+    the `&`/`|`/`^` bitwise arm, the record-struct structural-equality arm (`==`/`!=` boxing through the
+    synthesized Equals), the `null == null`/`null != null` constant fold, and the multi-term string-concat
+    CHAIN lowering (`TryEmitStringConcatChain` + its sole caller `CanProveStringExpression`). The residual
+    pair-concat (`String.Concat(string,string)`) and the reference-identity/string+char/ternary residuals
+    stay (self-emit-live). `ColumnarIlEmitter.cs` fell 21,534 -> 21,438 (net -96 lines / -92 non-blank;
+    epoch ceiling 21,723/20,646 untouched).
+  - Added N# owners: none — ColumnarPrimitiveBinaryPlanner / ColumnarConditionalPlanner already own the
+    plannable surface at the front door; the deleted arms served an empty non-plannable-operand band.
+  - Method: IL-neutral env-gated arm instrumentation (0 IL diff instrumented vs baseline across all 162
+    assemblies) built a FOUR-surface liveness map (corpus+native, units 3,190, full self-emit 228 arms).
+    The four deleted arms were 0 on all three logs; three sibling arms (ternary, ref-identity equality,
+    string+char) were caught firing in the FULL self-emit and RETAINED (a partial 166-arm run had missed
+    `stringcharconcat` — the slice-5 escape signature). Candidate (a) preflight static-call typing proven
+    load-bearing (types user-owned enclosing-type statics, not catalog facts) — blocked, recorded.
+  - Evidence: product IL BYTE-EXACT (0 diffs across all N#-emitted example/fixture/native assemblies; the
+    only 12 sweep diffs are the C# `Compiler.dll`/`BootstrapServices.dll` binaries copied as a reflection-test
+    dependency by 6 native projects — expected reflection of the emitter source change, not product IL);
+    native 208/208 (18 projects, ownership-audit 18/18 post-repin); BootstrapServices contracts 760/760
+    (two-stage, fresh deletion Release SDK); units 3,190/3,190 (Debug and Release); Web API template builds
+    via the IL backend; ratchet repin (audit 18/18, head `40cb7fa576abc6c2`); clean feed restored.
 
 - Task 001 — external static fields and properties; commit `6110bbbcf`.
   - Deleted C# owners: `TryUsePlannedExternalStaticMember`,

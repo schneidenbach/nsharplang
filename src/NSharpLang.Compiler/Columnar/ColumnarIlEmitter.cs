@@ -10436,22 +10436,12 @@ internal sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (op == "+" && TryEmitStringConcatChain(idx, out type))
-                    return true;
-
                 // NULL comparisons (`s == null` / `s != null`) and `??` COALESCING on REFERENCE types:
                 // handled BEFORE the operand pair (a bare null has no self-type to unify). The null
                 // literal as a LEFT operand (`null == s`) also works — both orders emit ldnull + ceq.
                 if ((op == "==" || op == "!=") && (_nodes.Kind(Child(idx, 0)) == 5 || _nodes.Kind(Child(idx, 1)) == 5))
                 {
                     var valueNode = _nodes.Kind(Child(idx, 0)) == 5 ? Child(idx, 1) : Child(idx, 0);
-                    if (_nodes.Kind(valueNode) == 5)
-                    {
-                        // null == null is constant true (the pipeline folds the same way at runtime).
-                        _il.Emit(OpCodes.Ldc_I4, op == "==" ? 1 : 0);
-                        type = typeof(bool);
-                        return true;
-                    }
                     if (!EmitExpression(valueNode, out var nullCmpType))
                         return false;
                     if (IsSupportedNullable(nullCmpType))
@@ -10555,10 +10545,12 @@ internal sealed class ColumnarIlEmitter
                 // as a whole subtree because an operand is outside its plannable surface (contextual-lambda
                 // call operands — task 010; member chains on call results; unary-negated call operands;
                 // dictionary-indexer reads; string-typed operands — task 015 grows that surface). Mirrors the
-                // planner's promotion/arithmetic/bitwise/ordering/equality selection exactly, keeps two-operand
-                // string concat and the never-planner-owned non-numeric equality families, so a residual binary
-                // emits byte-identical IL. Shifts, the decimal op_* table, and right-literal adoption are NOT
-                // restored: no whole-subtree residual in the corpus reaches them.
+                // planner's promotion/arithmetic/ordering/equality selection for the operator families a residual
+                // subtree actually reaches, keeps two-operand string concat and the never-planner-owned
+                // non-numeric equality families (string, System.Type, reference-identity on user reference types),
+                // so a residual binary emits byte-identical IL. Shifts, the decimal op_* table, right-literal
+                // adoption, bitwise (`&`/`|`/`^`), and record-struct structural equality are NOT restored: no
+                // whole-subtree residual across the corpus, native, unit, and self-emit surfaces reaches them.
                 Type opType;
                 if (leftType == rightType)
                     opType = leftType;
@@ -10570,10 +10562,8 @@ internal sealed class ColumnarIlEmitter
                 }
                 // Two-operand string CONCATENATION `s1 + s2` -> String.Concat(string, string). Retained in the
                 // residual because a residual-carrying string concat (e.g. `"x" + Status.Active` where the
-                // right is an enum string-constant member access, or `a + b + coll[i]` where an indexer term
-                // is not chain-provable) reaches here; the multi-term TryEmitStringConcatChain only fires when
-                // every term is a proven string literal/local/param, so mixed string operands fall through to
-                // this pair concat. The N# planner owns fully-plannable string-pair concat at the front door.
+                // right is an enum string-constant member access) reaches here; nested `+` chains recurse
+                // through this pair concat. The N# planner owns fully-plannable string-pair concat at the front door.
                 if (op == "+" && opType == typeof(string))
                 {
                     _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
@@ -10597,12 +10587,6 @@ internal sealed class ColumnarIlEmitter
                             op == "*" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf) : OpCodes.Mul) :
                             op == "/" ? (unsignedArithmetic ? OpCodes.Div_Un : OpCodes.Div) :
                             (unsignedArithmetic ? OpCodes.Rem_Un : OpCodes.Rem));
-                        type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
-                        return true;
-                    case "&": case "|": case "^":
-                        // Bitwise on the int-promotable set (result INT — N# promotes), long, ulong, or uint.
-                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
-                        _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
                         type = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
@@ -10636,23 +10620,6 @@ internal sealed class ColumnarIlEmitter
                         if (opType is TypeBuilder eqOperandTb && FindDefByBuilder(eqOperandTb) is { IsReference: true })
                         {
                             EmitComparison(op);
-                            type = typeof(bool);
-                            return true;
-                        }
-                        // RECORD STRUCT structural equality: routes through the synthesized Equals(object)
-                        // (box the right operand; call on the left's address).
-                        if (opType is TypeBuilder recordStructTb
-                            && FindDefByBuilder(recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
-                        {
-                            var recordRightTemp = _il.DeclareLocal(recordStructTb);
-                            _il.Emit(OpCodes.Stloc, recordRightTemp);
-                            var recordLeftTemp = _il.DeclareLocal(recordStructTb);
-                            _il.Emit(OpCodes.Stloc, recordLeftTemp);
-                            _il.Emit(OpCodes.Ldloca, recordLeftTemp);
-                            _il.Emit(OpCodes.Ldloc, recordRightTemp);
-                            _il.Emit(OpCodes.Box, recordStructTb);
-                            _il.Emit(OpCodes.Call, recordStructDef.RecordEquals);
-                            if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); }
                             type = typeof(bool);
                             return true;
                         }
@@ -15217,49 +15184,6 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    private bool TryEmitStringConcatChain(int idx, out Type type)
-    {
-        type = null!;
-        var terms = new List<int>();
-        var pending = new Stack<int>();
-        var seen = new HashSet<int>();
-        pending.Push(idx);
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            if (!seen.Add(current))
-                return false;
-            if (_nodes.Kind(current) == 12 && Text(current) == "+" && _nodes.ChildCount(current) == 2)
-            {
-                pending.Push(Child(current, 1));
-                pending.Push(Child(current, 0));
-                continue;
-            }
-            terms.Add(current);
-        }
-        if (terms.Count <= 2)
-            return false;
-        for (var i = 0; i < terms.Count; i++)
-        {
-            if (!CanProveStringExpression(terms[i]))
-                return false;
-        }
-
-        _il.Emit(OpCodes.Ldc_I4, terms.Count);
-        _il.Emit(OpCodes.Newarr, typeof(string));
-        for (var i = 0; i < terms.Count; i++)
-        {
-            _il.Emit(OpCodes.Dup);
-            _il.Emit(OpCodes.Ldc_I4, i);
-            if (!EmitExpression(terms[i], out var termType) || termType != typeof(string))
-                return false;
-            _il.Emit(OpCodes.Stelem_Ref);
-        }
-        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string[]) })!);
-	        type = typeof(string);
-	        return true;
-	    }
-
 	    private bool TryEmitStringCharConcat(Type leftType, Type rightType, out Type type)
 	    {
 	        type = null!;
@@ -15292,26 +15216,6 @@ internal sealed class ColumnarIlEmitter
 	        _il.Emit(OpCodes.Ldloca, value);
 	        _il.Emit(OpCodes.Call, typeof(char).GetMethod(nameof(char.ToString), Type.EmptyTypes)!);
 	    }
-
-	    private bool CanProveStringExpression(int idx)
-	    {
-        switch (_nodes.Kind(idx))
-        {
-            case 3:
-                return true;
-            case 6:
-            {
-                var name = Text(idx);
-                if (_locals.TryGetValue(name, out var local))
-                    return local.LocalType == typeof(string);
-                return _paramTypes.TryGetValue(name, out var paramType) && paramType == typeof(string);
-            }
-            case 7:
-                return _nodes.ChildCount(idx) == 1 && CanProveStringExpression(Child(idx, 0));
-            default:
-                return false;
-        }
-    }
 
     // N#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
     // already on the stack: the int-promotable set (int/char/small ints) -> long (conv.i8), -> double
