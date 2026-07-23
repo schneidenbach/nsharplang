@@ -2531,3 +2531,211 @@ test "016 match: well-formed list slice patterns report no parser diagnostic" {
     errors := RunPreamble("func f() {\n    match x {\n        [1, .., 3] => 1,\n        [.. rest] => 2\n    }\n}\n")
     assert errors.Count == 0
 }
+
+// ============================================================================
+// Stage 9: the CLOSING-DELIMITER recovery family (Parser.cs TryReportMissingClosingDelimiter :6103 +
+// the block / type-body missing-'}' reports + the parameter trailing-comma recovery). Every golden
+// below is the production Parser.cs output captured from the freshly built Release CLI (`nlc check
+// --json`), filtered to NL101-NL109 (excluding the columnar-backend emit-decline NL103, a backend
+// diagnostic anchored at Main.nl:1:1 — not a parser diagnostic). Both paths construct through the
+// identical live ParserErrorDiagnostics.Create, so matching these fields proves byte-exact parity.
+// ============================================================================
+
+// ---- the same-line-boundary trigger (found != null): the offender stands in for the close ----
+
+test "016 close: an unclosed positional pattern before a same-line '=>' reports NL107 anchored on the arrow" {
+    // The '=>' is a same-line boundary for ')' (IsSameLineMissingClosingDelimiterBoundary), so the
+    // recovery anchors on the arrow and synthesizes ')' so `=> 10` parses — one diagnostic only.
+    errors := RunPreamble("func f() {\n    match x {\n        (1, 2 => 10\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 3
+    assert e.Column == 15
+    assert e.Length == 2
+    assert e.SourceSnippet == "        (1, 2 => 10"
+    assert e.HumanExplanation == "I found '=>' while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before '=>'"
+}
+
+// ---- the next-line trigger (found == null): anchored on the unmatched opening delimiter ----
+
+test "016 close: an unclosed list pattern that crosses onto the next line reports NL108 anchored on the '['" {
+    // The next line begins before the ']' is found, so the recovery anchors on the unmatched '[' (no
+    // visible owner sits on its line — the match '{' is on the line above) and reads "reached the next line".
+    errors := RunPreamble("func f() {\n    match x {\n        [1, 2\n        => 10\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        [1, 2"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ']' that matches an earlier '['."
+    assert e.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+test "016 close: a 'new(' constraint left unclosed at end of file reports NL107 anchored on the '('" {
+    // where T: new( — the constraint's Consume(RightParen) routes through the closing-delimiter recovery.
+    // 'new' is not a visible delimiter owner, so the diagnostic falls to the opening '(' itself.
+    errors := RunPreamble("func f<T>() where T: new(\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 1
+    assert e.Column == 25
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f<T>() where T: new("
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+// ---- the decline branch: a mid-line offender takes the standard ExpectedToken path (NL102) ----
+
+test "016 close: a 'new(' immediately followed by a same-line comma declines recovery and reports the plain NL102" {
+    // The ',' sits on the same line and is not a boundary token, so the recovery declines (returns false)
+    // and the standard Consume ExpectedToken path fires — proving the boundary gate is byte-exact.
+    errors := RunPreamble("func g<T>() where T: new(, IFoo\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ')' after 'new('. Expected ')', got ','"
+    assert e.Line == 1
+    assert e.Column == 26
+    assert e.Length == 1
+    assert e.SourceSnippet == "func g<T>() where T: new(, IFoo"
+    assert e.HumanExplanation == "I was expecting ) here, but I found ',' instead."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == null
+}
+
+// ---- the parameter trailing-comma recovery (Parser.cs :761) ----
+
+test "016 close: a trailing comma in a parameter list reports NL102 spanning the last parameter through the comma" {
+    errors := RunPreamble("func f(a: int,)\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected parameter name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 7
+    assert e.SourceSnippet == "func f(a: int,)"
+    assert e.HumanExplanation == "Parameter lists need another parameter after a comma."
+    assert e.ContextualHint == "Add the missing parameter after the comma, or remove the trailing comma."
+    assert e.Suggestion == "Add a parameter after the comma"
+}
+
+// ---- the block's own missing-'}' (NL106) — end-of-file and found-declaration variants ----
+
+test "016 close: a block left open at end of file reports the NL106 missing-brace anchored on the function name" {
+    errors := RunPreamble("func f() {\n    x := 1\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 1
+    assert e.Column == 6
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f() {"
+    assert e.HumanExplanation == "The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this block."
+}
+
+test "016 close: a type declaration mid-block signals the missing '}' with the found-declaration NL106" {
+    // 'class' cannot appear as a statement (IsBlockClosingDeclarationStart), so the block is presumed
+    // unclosed and the class is left for the outer declaration loop (which parses it cleanly).
+    errors := RunPreamble("func f() {\n    x := 1\nclass C {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 1
+    assert e.Column == 6
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f() {"
+    assert e.HumanExplanation == "The block that started on line 1 appears to be missing its closing brace. I found 'class' on line 3, which looks like a new declaration."
+    assert e.ContextualHint == "Add a '}' before this declaration to close the previous block."
+}
+
+// ---- panic-model interactions ----
+
+test "016 close: two unclosed positional patterns in one match report ONCE - the case loop does not reset panic" {
+    // The first NL107 sets shared panic; the per-case EnsureProgress boundary does NOT reset it, so the
+    // second case's own unclosed-')' (and the intervening missing comma) are suppressed.
+    errors := RunPreamble("func f() {\n    match x {\n        (1, 2\n        => 10\n        (3, 4\n        => 20\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+}
+
+test "016 close: two functions each with an unclosed 'new(' each report - the declaration boundary resets panic" {
+    errors := RunPreamble("func f<T>() where T: new(\nfunc g<T>() where T: new(\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.MissingClosingParen
+    assert e0.Message == "Missing closing ')'"
+    assert e0.Line == 1
+    assert e0.Column == 25
+    assert e0.Length == 1
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.MissingClosingParen
+    assert e1.Message == "Missing closing ')'"
+    assert e1.Line == 2
+    assert e1.Column == 25
+    assert e1.Length == 1
+}
+
+test "016 close: a found-declaration break then an unclosed type body report two NL106 (block then type-body)" {
+    // The mid-block 'class' fires the block found-declaration NL106; the declaration boundary resets panic;
+    // then the class body reaches end-of-file unclosed and reports the type-body NL106 anchored on the name.
+    errors := RunPreamble("func f() {\n    x := 1\nclass C {\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.MissingClosingBrace
+    assert e0.Message == "Missing closing '}'"
+    assert e0.Line == 1
+    assert e0.Column == 6
+    assert e0.Length == 1
+    assert e0.HumanExplanation == "The block that started on line 1 appears to be missing its closing brace. I found 'class' on line 3, which looks like a new declaration."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.MissingClosingBrace
+    assert e1.Message == "Missing closing '}'"
+    assert e1.Line == 3
+    assert e1.Column == 7
+    assert e1.Length == 1
+    assert e1.HumanExplanation == "The type body that started on line 3 is missing its closing brace. I reached the end of the file without finding it."
+}
+
+// ---- negatives: closed delimiters report NO parser diagnostic ----
+
+test "016 close: a closed 'new()' constraint reports no parser diagnostic" {
+    // The oracle emits only the columnar-backend emit-decline NL103 (a backend diagnostic, not a parser
+    // one); the recovery owner produces no parser diagnostic here.
+    errors := RunPreamble("func f<T>() where T: new()\n")
+    assert errors.Count == 0
+}
+
+test "016 close: a type declaration AFTER a properly closed block reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    x := 1\n}\nclass C {\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 close: well-formed closed positional and list patterns report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        (1, 2) => 1,\n        [3, 4] => 2\n    }\n}\n")
+    assert errors.Count == 0
+}

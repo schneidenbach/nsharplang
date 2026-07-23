@@ -35,6 +35,47 @@ public class ExprResult {
     }
 }
 
+// Stage 9: the outcome of TryReportMissingClosingDelimiter (Parser.cs :6103, whose C# signature
+// is `bool Try…(out Token recoveredToken)`). N# has no reference-typed out args, so the shared
+// result is carried in an explicit result object (the established recovery-owner precedent):
+// Handled mirrors the bool return (the closing-delimiter recovery path was taken — a diagnostic
+// was reported subject to the shared panic, and a synthetic closing token stands in), and
+// RecoveredToken mirrors the out parameter (the synthesized `)` / `]` the caller returns).
+public class ClosingDelimiterRecovery {
+    Handled: bool
+    RecoveredToken: Token
+
+    constructor(handled: bool, recoveredToken: Token) {
+        Handled = handled
+        RecoveredToken = recoveredToken
+    }
+}
+
+// Stage 9: the outcome of TryFindUnmatchedOpeningDelimiter (Parser.cs :6194) and
+// TryGetPreviousTokenOnLine (Parser.cs :6290) — both `bool Try…(out Token token)`. Carried as an
+// explicit result object for the same reason. When Found is false the Token field carries the
+// Parser.cs fallback (the `previous` token) so callers can read it uniformly.
+public class TokenLookupResult {
+    Found: bool
+    Token: Token
+
+    constructor(found: bool, token: Token) {
+        Found = found
+        Token = token
+    }
+}
+
+// Stage 9: the outcome of TryGetDelimiterOwnerSpan (Parser.cs :6237, `bool Try…(out (int,int,int) span)`).
+public class OwnerSpanResult {
+    Found: bool
+    Span: RecoverySpan
+
+    constructor(found: bool, span: RecoverySpan) {
+        Found = found
+        Span = span
+    }
+}
+
 // Stage 1 of the task-016 parser-front-end arc: a faithful N# reproduction of the
 // Parser.cs shared-panic recovery model, carrying the import / namespace / package
 // diagnostic family end-to-end.
@@ -906,36 +947,68 @@ public class ColumnarParserRecovery {
 
     func ParseParameterListRecovery() {
         // Minimal recovery vehicle. Attributes, the params/ref/out/this modifiers, scoped/lifetime
-        // annotations, default values, the trailing-comma recovery, and the missing-')'
-        // closing-delimiter recovery are LATER arc stages; the member/parameter corpus uses none of
-        // them (every corpus parameter list is closed by a present ')').
+        // annotations, default values, and the IsParameterListRecoveryBoundary early break are LATER arc
+        // stages; the member/parameter corpus uses none of them. Stage 9 carries the trailing-comma
+        // recovery (Parser.cs :761) and routes the closing ')' through ConsumeToken so the missing-')'
+        // closing-delimiter recovery (NL107) is reachable.
         if !Check(TokenType.LeftParen) {
             return
         }
         Advance()                               // consume '('
 
         if !Check(TokenType.RightParen) {
+            // The start token of the last SUCCESSFULLY-parsed parameter, for the trailing-comma span
+            // (Parser.cs `lastParameterStartToken`, :755/:814).
+            lastParameterStartToken: Token? = null
             parsing := true
             while parsing {
-                paramLine := Current().Line
-                paramColumn := Current().Column
-                paramName := ConsumeNameWithSpan("Expected parameter name", GetMissingParameterNameDiagnosticSpan())
-                ConsumeParameterColon(paramName, paramLine, paramColumn)
-                ParseParameterTypeReference(paramName, paramLine, paramColumn)
-
-                // Parser.cs's `do { … } while (Match(Comma))`.
-                if Check(TokenType.Comma) {
-                    Advance()
-                } else {
+                // Trailing comma before ')' (Parser.cs :761): `f(a,)` reports "Expected parameter name"
+                // spanning the last parameter through the comma, then stops.
+                if Check(TokenType.RightParen) && Previous().Type == TokenType.Comma && lastParameterStartToken != null {
+                    startToken := lastParameterStartToken ?? Current()
+                    ReportMissingParameterAfterTrailingComma(DiagnosticSpanFromTokenRange(startToken, Previous()))
                     parsing = false
+                } else {
+                    paramStartToken := Current()
+                    paramLine := Current().Line
+                    paramColumn := Current().Column
+                    paramName := ConsumeNameWithSpan("Expected parameter name", GetMissingParameterNameDiagnosticSpan())
+                    ConsumeParameterColon(paramName, paramLine, paramColumn)
+                    ParseParameterTypeReference(paramName, paramLine, paramColumn)
+
+                    if paramName != "<error>" {
+                        lastParameterStartToken = paramStartToken
+                    }
+
+                    // Parser.cs's `do { … } while (Match(Comma))`.
+                    if Check(TokenType.Comma) {
+                        Advance()
+                    } else {
+                        parsing = false
+                    }
                 }
             }
         }
 
-        // Corpus parameter lists are always closed; the missing-')' recovery is a later stage.
-        if Check(TokenType.RightParen) {
-            Advance()
-        }
+        // Parser.cs Consume(RightParen) (:819): a present ')' advances; a missing one routes through the
+        // Stage-9 closing-delimiter recovery (NL107) or the standard ExpectedToken path.
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+    }
+
+    // Parser.cs ReportMissingParameterAfterTrailingComma (:6487).
+    func ReportMissingParameterAfterTrailingComma(span: RecoverySpan) {
+        suggestions := new List<string>()
+        suggestions.Add("Add a parameter after the comma")
+        suggestions.Add("Remove the trailing comma")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected parameter name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            "Parameter lists need another parameter after a comma.",
+            "Add the missing parameter after the comma, or remove the trailing comma.",
+            suggestions,
+            span.Length)
     }
 
     // Parser.cs ConsumeIdentifier(message, diagnosticSpan?) overload (:6720). A parameter name is
@@ -1057,19 +1130,20 @@ public class ColumnarParserRecovery {
     // found-other case (`class {` / `struct {`) that the member-list parse now makes reachable;
     // every other '<error>'-name shape keeps the Stage-2 return-early behavior unchanged (the
     // missing-'{' diagnostic for a valid name without a body is the closing-delimiter stage's).
-    func ParseTypeBodyIfPresent(name: string) {
+    func ParseTypeBodyIfPresent(name: string, typeBodyDiagnosticSpan: RecoverySpan) {
         if !Check(TokenType.LeftBrace) {
             return
         }
         Advance()                               // consume '{'
-        ParseMemberList()
+        ParseMemberList(typeBodyDiagnosticSpan)
     }
 
     // Parser.cs ParseMemberList (:1359): reset panic at each MEMBER boundary (:1365), parse one
     // member, force-advance on no progress (:1379). Stage 4 parses FIELD members only; nested-type /
-    // constructor / method / record-positional / union-case member grammars, and the missing-'}'
-    // (NL106) end-of-file report, are LATER arc stages (no corpus shape reaches EOF without '}').
-    func ParseMemberList() {
+    // constructor / method / record-positional / union-case member grammars are LATER arc stages.
+    // Stage 9 carries the type-body end-of-file missing-'}' (NL106) report (:1396), anchored on the
+    // type-body diagnostic span (the type name, or the declaration keyword for a '<error>' name).
+    func ParseMemberList(ownerSpan: RecoverySpan?) {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
             SplitGreaterDepth = 0
@@ -1085,6 +1159,21 @@ public class ColumnarParserRecovery {
 
         if Check(TokenType.RightBrace) {
             Advance()
+        } else {
+            if IsAtEnd() {
+                if ownerSpan != null {
+                    span := ownerSpan ?? new RecoverySpan(1, 1, 1)
+                    Report(
+                        ErrorCode.MissingClosingBrace,
+                        "Missing closing '}'",
+                        span.Line,
+                        span.Column,
+                        "The type body that started on line " + IntToString(span.Line) + " is missing its closing brace. I reached the end of the file without finding it.",
+                        "Add a '}' to close this type declaration.",
+                        null,
+                        span.Length)
+                }
+            }
         }
     }
 
@@ -1250,21 +1339,34 @@ public class ColumnarParserRecovery {
     func ParseClassName() {
         classToken := Current()
         Advance()
+        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :937)
         name := ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
+        // The type-body missing-'}' diagnostic (Stage 9) anchors on the name, or the declaration keyword
+        // for a '<error>' name (Parser.cs :940-942, "class".Length == 5).
+        typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            typeBodyDiagnosticSpan = new RecoverySpan(classToken.Line, classToken.Column, MaxInt(1, 5))
+        }
         // Type parameter list `<T>` (Stage 5, Parser.cs :943) — parsed after the name, before the body,
         // so a malformed `class C<> { }` reports ReportMissingTypeParameterName. A no-op for the
         // non-generic Stage-4 class corpus (Check(Less) is false → returns immediately). Primary-ctor
         // params `(…)` and base lists `: …` are a later arc stage; the Stage-5 class corpus has neither.
         ParseTypeParameters()
-        ParseTypeBodyIfPresent(name)
+        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
     func ParseStructName() {
         structToken := Current()
         Advance()
+        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :982)
         name := ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
+        // Parser.cs :985-987 ("struct".Length == 6).
+        typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            typeBodyDiagnosticSpan = new RecoverySpan(structToken.Line, structToken.Column, MaxInt(1, 6))
+        }
         ParseTypeParameters()
-        ParseTypeBodyIfPresent(name)
+        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
     func ParseRecordName() {
@@ -1469,12 +1571,21 @@ public class ColumnarParserRecovery {
         return Current()
     }
 
-    // ---- generic Consume (Parser.cs Consume :6048), for the type-parameter `>` close and constraint `:` ----
-    // The RightParen/RightBracket TryReportMissingClosingDelimiter branch (:6052) is a later
-    // closing-delimiter arc stage; the Stage-5 corpus never reaches an unclosed `)` / `]` here.
+    // ---- generic Consume (Parser.cs Consume :6048) ----
+    // Stage 9: the closing-delimiter recovery branch (Parser.cs :6052) fires FIRST when the awaited
+    // token is a `)` or `]` that is missing at a line/same-line boundary — it reports NL107/NL108 and
+    // returns a synthetic closing token so parsing continues past the unclosed construct (the `new(`
+    // constraint, the list `]` / positional `)` pattern closes, and any call/index close route here).
+    // For every other token, and for a `)`/`]` whose boundary test declines (the offender sits on the
+    // same line and is not a same-line boundary token), it falls through to the standard EOF /
+    // ExpectedToken path below, exactly as Parser.cs's Consume does.
     func ConsumeToken(tokenType: TokenType, message: string, expected: string): Token {
         if Check(tokenType) {
             return Advance()
+        }
+        recovery := TryReportMissingClosingDelimiter(tokenType)
+        if recovery.Handled {
+            return recovery.RecoveredToken
         }
         if IsAtEnd() {
             ownerSpan := LastVisibleTokenSpan()
@@ -1527,6 +1638,278 @@ public class ColumnarParserRecovery {
             return fallback
         }
         return hint ?? fallback
+    }
+
+    // ============================================================================
+    // Stage 9: the CLOSING-DELIMITER recovery family — carried through the SAME shared-panic model.
+    // Parser.cs's Consume (:6048) tries this recovery FIRST for a missing `)` / `]`: instead of the
+    // plain ExpectedToken diagnostic, it reports the position-aware NL107 (`Missing closing ')'`) /
+    // NL108 (`Missing closing ']'`) and returns a SYNTHETIC closing token so the parser can continue
+    // past the unclosed construct (Parser.cs TryReportMissingClosingDelimiter :6103). Two triggers:
+    //   * we crossed onto a LATER line (or reached EOF) while awaiting the close → the diagnostic is
+    //     anchored on the unmatched opening delimiter's OWNER token (the identifier / keyword that owns
+    //     it, or the assigned name), falling back to the opening delimiter itself, and the human text
+    //     reads "I reached the next line …".
+    //   * a same-line BOUNDARY token sits where the close should be (`{`/`}`/`]`/`:`/`=>`/`;` for `)`,
+    //     `}`/`)`/`;` for `]`) → the diagnostic is anchored on that offender and reads "I found 'X' …".
+    // A `)`/`]` whose offender is mid-line (not a boundary) is NOT recovered here — it falls through to
+    // the standard ExpectedToken path (byte-exact with the `new(, IFoo` shape). RightBrace is NEVER
+    // handled here (Parser.cs :6119 declines it); the missing-'}' NL106 is reported directly at the
+    // block / type-body ends below. DECISIONS + CONSTRUCTION reuse the same primitives Parser.cs uses,
+    // so codes / messages / spans / snippets / hints / suggestions match automatically.
+    // ============================================================================
+
+    // Parser.cs TryReportMissingClosingDelimiter (:6103). Returns Handled=true (with a synthetic close)
+    // whenever the recovery path is taken — the diagnostic itself is still subject to the shared panic.
+    func TryReportMissingClosingDelimiter(tokenType: TokenType): ClosingDelimiterRecovery {
+        // Only `)` and `]` route here (Parser.cs :6107-6120: `code == default` declines every other
+        // token, RightBrace included).
+        if tokenType != TokenType.RightParen && tokenType != TokenType.RightBracket {
+            return new ClosingDelimiterRecovery(false, Current())
+        }
+
+        expected := "]"
+        opening := "["
+        code := ErrorCode.MissingClosingBracket
+        hint := "Every opening bracket '[' needs a matching closing bracket ']'."
+        if tokenType == TokenType.RightParen {
+            expected = ")"
+            opening = "("
+            code = ErrorCode.MissingClosingParen
+            hint = "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+        }
+
+        previous := Previous()
+        if previous.Type == TokenType.Eof {
+            return new ClosingDelimiterRecovery(false, Current())
+        }
+
+        // A same-line boundary token stands in for the missing close (Parser.cs :6129-6131).
+        sameLineBoundary := false
+        if Current().Type != TokenType.Eof {
+            if Current().Line == previous.Line {
+                if IsSameLineMissingClosingDelimiterBoundary(tokenType) {
+                    sameLineBoundary = true
+                }
+            }
+        }
+
+        // Recover only when we crossed a line (or reached EOF) or hit a same-line boundary; a mid-line
+        // offender takes the standard ExpectedToken path (Parser.cs :6133-6134).
+        if Current().Type != TokenType.Eof {
+            if Current().Line <= previous.Line {
+                if !sameLineBoundary {
+                    return new ClosingDelimiterRecovery(false, Current())
+                }
+            }
+        }
+
+        previousLength := MaxInt(1, previous.Value.Length)
+        insertionLine := previous.Line
+        insertionColumn := previous.Column + previousLength
+        if sameLineBoundary {
+            insertionLine = Current().Line
+            insertionColumn = Current().Column
+        }
+
+        span := GetMissingClosingDelimiterDiagnosticSpan(tokenType, previous, sameLineBoundary)
+
+        // The human explanation + the primary suggestion vary by whether we found a same-line offender
+        // (Parser.cs :6148-6156).
+        explanation := "I reached the next line while looking for the closing '" + expected + "' that matches an earlier '" + opening + "'."
+        primarySuggestion := "Add '" + expected + "' before starting the next line"
+        if sameLineBoundary {
+            found := Current().Value
+            explanation = "I found '" + found + "' while looking for the closing '" + expected + "' that matches an earlier '" + opening + "'."
+            primarySuggestion = "Add '" + expected + "' before '" + found + "'"
+        }
+
+        suggestions := new List<string>()
+        suggestions.Add(primarySuggestion)
+        suggestions.Add("Check the matching '" + opening + "' in this expression")
+
+        Report(
+            code,
+            "Missing closing '" + expected + "'",
+            span.Line,
+            span.Column,
+            explanation,
+            hint,
+            suggestions,
+            span.Length)
+
+        recovered := new Token(tokenType, expected, insertionLine, insertionColumn, previous.FileName)
+        return new ClosingDelimiterRecovery(true, recovered)
+    }
+
+    // Parser.cs GetMissingClosingDelimiterDiagnosticSpan (:6164): the same-line offender's own span, or
+    // the unmatched opening delimiter's OWNER span (falling back to the opening delimiter itself), or a
+    // one-column span just past the previous token when no opening delimiter is found.
+    func GetMissingClosingDelimiterDiagnosticSpan(expectedClosingType: TokenType, previous: Token, sameLineBoundary: bool): RecoverySpan {
+        if sameLineBoundary {
+            return new RecoverySpan(Current().Line, Current().Column, MaxInt(1, Current().Value.Length))
+        }
+
+        if expectedClosingType == TokenType.RightParen {
+            opening := TryFindUnmatchedOpeningDelimiter(TokenType.LeftParen, TokenType.RightParen, previous)
+            if opening.Found {
+                owner := TryGetDelimiterOwnerSpan(opening.Token)
+                if owner.Found {
+                    return owner.Span
+                }
+                return new RecoverySpan(opening.Token.Line, opening.Token.Column, MaxInt(1, opening.Token.Value.Length))
+            }
+        }
+
+        if expectedClosingType == TokenType.RightBracket {
+            bracket := TryFindUnmatchedOpeningDelimiter(TokenType.LeftBracket, TokenType.RightBracket, previous)
+            if bracket.Found {
+                owner := TryGetDelimiterOwnerSpan(bracket.Token)
+                if owner.Found {
+                    return owner.Span
+                }
+                return new RecoverySpan(bracket.Token.Line, bracket.Token.Column, MaxInt(1, bracket.Token.Value.Length))
+            }
+        }
+
+        fallbackLength := MaxInt(1, previous.Value.Length)
+        return new RecoverySpan(previous.Line, previous.Column + fallbackLength, 1)
+    }
+
+    // Parser.cs TryFindUnmatchedOpeningDelimiter (:6194): scan backward (skipping anything positioned
+    // after `previous`) for the opening delimiter whose matching close is missing, tracking nesting depth.
+    func TryFindUnmatchedOpeningDelimiter(openingType: TokenType, closingType: TokenType, previous: Token): TokenLookupResult {
+        depth := 0
+        previousEndColumn := previous.Column + MaxInt(1, previous.Value.Length)
+        index := MinInt(Position - 1, Tokens.Count - 1)
+        result := new TokenLookupResult(false, previous)
+        searching := true
+        while searching {
+            if index < 0 {
+                searching = false
+            } else {
+                token := Tokens[index]
+                consider := true
+                if token.Type == TokenType.Eof {
+                    consider = false
+                }
+                if consider {
+                    if token.Line > previous.Line {
+                        consider = false
+                    } else {
+                        if token.Line == previous.Line {
+                            if token.Column > previousEndColumn {
+                                consider = false
+                            }
+                        }
+                    }
+                }
+                if consider {
+                    if token.Type == closingType {
+                        depth = depth + 1
+                    } else {
+                        if token.Type == openingType {
+                            if depth == 0 {
+                                result = new TokenLookupResult(true, token)
+                                searching = false
+                            } else {
+                                depth = depth - 1
+                            }
+                        }
+                    }
+                }
+                index = index - 1
+            }
+        }
+        return result
+    }
+
+    // Parser.cs TryGetDelimiterOwnerSpan (:6237): anchor on the visible token that owns the opening
+    // delimiter (the identifier / keyword immediately before it, or — through an `=`/`:=` — the assigned
+    // name). Returns not-found when no such owner sits on the delimiter's line.
+    func TryGetDelimiterOwnerSpan(openingToken: Token): OwnerSpanResult {
+        tokenIndex := FindTokenIndex(openingToken)
+        if tokenIndex > 0 {
+            owner := Tokens[tokenIndex - 1]
+            if owner.Line == openingToken.Line {
+                if IsVisibleDelimiterOwner(owner) {
+                    return new OwnerSpanResult(true, new RecoverySpan(owner.Line, owner.Column, MaxInt(1, owner.Value.Length)))
+                }
+                if IsAssignmentAnchor(owner) {
+                    assignedName := TryGetPreviousTokenOnLine(tokenIndex - 1, owner.Line)
+                    if assignedName.Found {
+                        if IsVisibleDelimiterOwner(assignedName.Token) {
+                            return new OwnerSpanResult(true, new RecoverySpan(assignedName.Token.Line, assignedName.Token.Column, MaxInt(1, assignedName.Token.Value.Length)))
+                        }
+                    }
+                }
+            }
+        }
+        return new OwnerSpanResult(false, new RecoverySpan(1, 1, 1))
+    }
+
+    // Parser.cs's `_tokens.FindIndex(...)` (:6239): the first token matching the opening delimiter's
+    // line / column / type / value. The compacted stream carries no duplicate positions, so this is exact.
+    func FindTokenIndex(target: Token): int {
+        i := 0
+        while i < Tokens.Count {
+            t := Tokens[i]
+            if t.Line == target.Line {
+                if t.Column == target.Column {
+                    if t.Type == target.Type {
+                        if t.Value == target.Value {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // Parser.cs IsVisibleDelimiterOwner (:6268): an identifier or one of the statement/declaration
+    // keywords that legitimately own a `(` / `[` (so a missing close underlines the construct's name).
+    func IsVisibleDelimiterOwner(token: Token): bool {
+        if token.Type == TokenType.Identifier {
+            return true
+        }
+        return token.Type == TokenType.Print || token.Type == TokenType.If || token.Type == TokenType.Case || token.Type == TokenType.Default || token.Type == TokenType.While || token.Type == TokenType.For || token.Type == TokenType.Foreach || token.Type == TokenType.Switch || token.Type == TokenType.Lock || token.Type == TokenType.Using || token.Type == TokenType.Assert || token.Type == TokenType.Return || token.Type == TokenType.Yield || token.Type == TokenType.Throw || token.Type == TokenType.Func || token.Type == TokenType.Test
+    }
+
+    // Parser.cs IsAssignmentAnchor (:6287).
+    func IsAssignmentAnchor(token: Token): bool {
+        return token.Type == TokenType.Assign || token.Type == TokenType.ColonAssign
+    }
+
+    // Parser.cs TryGetPreviousTokenOnLine (:6290): the closest non-EOF token before `beforeIndex` still
+    // on `line`; not-found once the scan crosses onto an earlier line.
+    func TryGetPreviousTokenOnLine(beforeIndex: int, line: int): TokenLookupResult {
+        index := beforeIndex - 1
+        while index >= 0 {
+            candidate := Tokens[index]
+            if candidate.Type == TokenType.Eof {
+                index = index - 1
+            } else {
+                if candidate.Line != line {
+                    return new TokenLookupResult(false, Current())
+                }
+                return new TokenLookupResult(true, candidate)
+            }
+        }
+        return new TokenLookupResult(false, Current())
+    }
+
+    // Parser.cs IsSameLineMissingClosingDelimiterBoundary (:6309): the same-line tokens that stand in for
+    // a missing `)` / `]`.
+    func IsSameLineMissingClosingDelimiterBoundary(tokenType: TokenType): bool {
+        if tokenType == TokenType.RightParen {
+            return Check(TokenType.LeftBrace) || Check(TokenType.RightBrace) || Check(TokenType.RightBracket) || Check(TokenType.Colon) || Check(TokenType.Arrow) || Check(TokenType.Semicolon)
+        }
+        if tokenType == TokenType.RightBracket {
+            return Check(TokenType.RightBrace) || Check(TokenType.RightParen) || Check(TokenType.Semicolon)
+        }
+        return false
     }
 
     // ---- generic constraints (Parser.cs ParseGenericConstraints :851) ----
@@ -1701,10 +2084,9 @@ public class ColumnarParserRecovery {
     // boundary DECISIONS reuse the live shared ParserTokenFacts (IsStatementStartKeyword /
     // CanStartExpression / IsExpressionTerminator / IsAssignmentOperator / IsModifierKeyword /
     // IsDeclarationKeyword / IsTypeDeclarationKeyword), identical to Parser.cs, so codes / messages /
-    // spans / snippets / hints match automatically. The corpus keeps every function body closed and free
-    // of nested type declarations, so the block's own missing-'}' (NL106) report and the
-    // IsBlockClosingDeclarationStart break are not exercised — the broader closing-delimiter family
-    // (missing `)`/`]`/`}`) remains a later arc stage.
+    // spans / snippets / hints match automatically. Stage 9 exercises the block's own missing-'}' (NL106)
+    // report — both the end-of-file variant (ReportMissingClosingBrace) and the IsBlockClosingDeclarationStart
+    // found-declaration break below — as part of the closing-delimiter family.
     // ============================================================================
 
     // ---- block body (Parser.cs ParseBlock :2143) ----
@@ -1716,6 +2098,14 @@ public class ColumnarParserRecovery {
         diagnosticSpan := ownerSpan ?? new RecoverySpan(line, column, 1)
 
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            // Stage 9: a type-declaration keyword that can't be a statement signals a missing '}' — report
+            // the found-declaration NL106 anchored on the block owner and break so the outer declaration
+            // loop parses it as a new declaration (Parser.cs :2156-2170, does NOT advance).
+            if IsBlockClosingDeclarationStart() {
+                ReportBlockMissingClosingBraceFoundDeclaration(diagnosticSpan, line)
+                return
+            }
+
             PanicMode = false                   // reset at each statement boundary (Parser.cs :2172)
             startPosition := Position
 
@@ -1751,8 +2141,7 @@ public class ColumnarParserRecovery {
         }
     }
 
-    // Parser.cs ParseBlock's end-of-file missing-'}' report (:2205). Reproduced for a faithful block
-    // vehicle; the Stage-6 corpus keeps every body closed so it never fires.
+    // Parser.cs ParseBlock's end-of-file missing-'}' report (:2205). Stage 9 exercises it.
     func ReportMissingClosingBrace(diagnosticSpan: RecoverySpan, openingLine: int) {
         Report(
             ErrorCode.MissingClosingBrace,
@@ -1763,6 +2152,90 @@ public class ColumnarParserRecovery {
             "Add a '}' to close this block.",
             null,
             diagnosticSpan.Length)
+    }
+
+    // Parser.cs ParseBlock's found-declaration missing-'}' report (:2158). Fired when a type-declaration
+    // keyword appears mid-block: the block is presumed unclosed and the offending declaration is left for
+    // the outer loop (Stage 9).
+    func ReportBlockMissingClosingBraceFoundDeclaration(diagnosticSpan: RecoverySpan, openingLine: int) {
+        Report(
+            ErrorCode.MissingClosingBrace,
+            "Missing closing '}'",
+            diagnosticSpan.Line,
+            diagnosticSpan.Column,
+            "The block that started on line " + IntToString(openingLine) + " appears to be missing its closing brace. I found '" + Current().Value + "' on line " + IntToString(Current().Line) + ", which looks like a new declaration.",
+            "Add a '}' before this declaration to close the previous block.",
+            null,
+            diagnosticSpan.Length)
+    }
+
+    // Parser.cs IsBlockClosingDeclarationStart (:6964): a token that begins a top-level type declaration
+    // (which cannot appear as a statement), so it signals the enclosing block is unclosed. The modifier-led
+    // and attribute-led scans mirror Parser.cs's index walk; the corpus exercises the direct
+    // type-declaration-keyword case (`class` mid-block).
+    func IsBlockClosingDeclarationStart(): bool {
+        if ParserTokenFacts.IsTypeDeclarationKeyword(Current().Type) {
+            return true
+        }
+        if Current().Type == TokenType.Ref && LookAhead(1).Type == TokenType.Struct {
+            return true
+        }
+        if IsSoaRecordDeclarationStart() {
+            return true
+        }
+        if Current().Type == TokenType.Duck && LookAhead(1).Type == TokenType.Interface {
+            return true
+        }
+        if Current().Type == TokenType.Test {
+            return true
+        }
+        if Current().Type == TokenType.Identifier && Current().Value == "test" && LookAhead(1).Type == TokenType.StringLiteral {
+            return true
+        }
+        // Modifier(s) followed by a type declaration keyword (Parser.cs :6987).
+        if ParserTokenFacts.IsModifierKeyword(Current().Type) {
+            ahead := 1
+            while Position + ahead < Tokens.Count && ParserTokenFacts.IsModifierKeyword(Tokens[Position + ahead].Type) {
+                ahead = ahead + 1
+            }
+            if Position + ahead < Tokens.Count {
+                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) {
+                    return true
+                }
+            }
+        }
+        // '[' (attribute) followed eventually by a type declaration keyword (Parser.cs :7002).
+        if Current().Type == TokenType.LeftBracket {
+            ahead := 1
+            depth := 1
+            while Position + ahead < Tokens.Count && depth > 0 {
+                if Tokens[Position + ahead].Type == TokenType.LeftBracket {
+                    depth = depth + 1
+                } else {
+                    if Tokens[Position + ahead].Type == TokenType.RightBracket {
+                        depth = depth - 1
+                    }
+                }
+                ahead = ahead + 1
+            }
+            while Position + ahead < Tokens.Count && ParserTokenFacts.IsModifierKeyword(Tokens[Position + ahead].Type) {
+                ahead = ahead + 1
+            }
+            if Position + ahead < Tokens.Count {
+                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // Parser.cs IsSoaRecordDeclarationStartAtOffset (:7028).
+    func IsSoaRecordDeclarationStartAtOffset(offset: int): bool {
+        if Position + offset + 1 >= Tokens.Count {
+            return false
+        }
+        return Tokens[Position + offset].Type == TokenType.Identifier && Tokens[Position + offset].Value == "soa" && Tokens[Position + offset + 1].Type == TokenType.Record
     }
 
     // Parser.cs SynchronizeToNextStatement (:7084): reset panic (+ split-`>>` debt) and skip to the

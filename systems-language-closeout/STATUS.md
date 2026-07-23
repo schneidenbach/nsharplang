@@ -16,7 +16,9 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 8 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 9 landed — the CLOSING-DELIMITER recovery family; 179 native
+  parity contracts total [166 through Stage 8 + 13], `ColumnarParserRecovery.nl` now 3,564 lines) — the prior
+  PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
   family, 11 contracts), STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
@@ -56,7 +58,81 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 8 of the parser-front-end arc — the
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 9 of the parser-front-end arc — the
+  CLOSING-DELIMITER recovery family. Extended `ColumnarParserRecovery.nl` to carry, through the SAME shared-panic
+  model, the `Consume`-path closing-delimiter recovery + the block/type-body missing-`}` NL106 sites + the
+  parameter trailing-comma recovery, PROVEN byte-exact against the freshly built Release CLI oracle (`nlc check
+  --json`, NL101-NL109, excluding the columnar-backend emit-decline NL103 anchored at Main.nl:1:1 — a backend
+  diagnostic, not a parser one). ORIGIN INVENTORY (grep of Consume + the delimiter helpers in Parser.cs): (a) the
+  RECOVERY BRANCH — `Consume` (:6048) tries `TryReportMissingClosingDelimiter` (:6103) FIRST for a missing `)` /
+  `]` (RightBrace is DECLINED, :6119): it reports the position-aware NL107 (`Missing closing ')'`) / NL108
+  (`Missing closing ']'`) and returns a SYNTHETIC closing token so parsing continues. Two triggers: (i) crossed
+  onto a LATER line or reached EOF (found==null, "reached the next line", :6148) → span via
+  `GetMissingClosingDelimiterDiagnosticSpan` (:6164) → `TryFindUnmatchedOpeningDelimiter` (:6194, depth-tracked
+  backward scan) → `TryGetDelimiterOwnerSpan` (:6237, anchors on the identifier/keyword `IsVisibleDelimiterOwner`
+  :6268 that owns the delimiter, or the assigned name via `IsAssignmentAnchor` :6287 + `TryGetPreviousTokenOnLine`
+  :6290), FALLING to the opening delimiter itself; (ii) a same-line BOUNDARY token (`IsSameLineMissingClosingDelimiterBoundary`
+  :6309 — `{`/`}`/`]`/`:`/`=>`/`;` for `)`, `}`/`)`/`;` for `]`) stands in for the close (found!=null, "I found 'X'",
+  span on the offender); a MID-LINE offender (not a boundary) DECLINES recovery (:6133) and takes the plain
+  ExpectedToken path (NL102). (b) BLOCK missing-`}` (NL106) — `ParseBlock` (:2143) reports it directly (NOT via
+  TryReport) both at EOF (:2205, "reached the end of the file") and at the `IsBlockClosingDeclarationStart` (:6964)
+  found-declaration break (:2158, "I found 'class' … looks like a new declaration", does NOT advance). (c) TYPE-BODY
+  missing-`}` (NL106) — `ParseMemberList` (:1396) reports it at EOF anchored on the `typeBodyDiagnosticSpan` (name,
+  or the class/struct keyword for a `<error>` name). (d) PARAMETER trailing-comma — `ParseParameterList` (:761)
+  reports `ReportMissingParameterAfterTrailingComma` (:6487, `DiagnosticSpanFromTokenRange(lastParameterStartToken,
+  Previous)`, last-param-through-comma span) before its `Consume(RightParen)` (:819). IMPLEMENTATION: added the
+  `TryReportMissingClosingDelimiter` result-carrier port (N# has no reference-typed out args → `ClosingDelimiterRecovery`
+  / `TokenLookupResult` / `OwnerSpanResult` explicit carriers) + `GetMissingClosingDelimiterDiagnosticSpan` /
+  `TryFindUnmatchedOpeningDelimiter` / `TryGetDelimiterOwnerSpan` / `FindTokenIndex` / `IsVisibleDelimiterOwner` /
+  `IsAssignmentAnchor` / `TryGetPreviousTokenOnLine` / `IsSameLineMissingClosingDelimiterBoundary`, and hooked the
+  recovery branch into `ConsumeToken` (so the EXISTING `new(` constraint close, the pattern list `]` / positional
+  `)` closes, and the now-ConsumeToken-routed parameter `)` close all reach it with ZERO call-site churn); added
+  `IsBlockClosingDeclarationStart` / `IsSoaRecordDeclarationStartAtOffset` + the `ParseBlockBody` found-declaration
+  break + `ReportBlockMissingClosingBraceFoundDeclaration`; threaded the `typeBodyDiagnosticSpan` through
+  `ParseClassName` / `ParseStructName` → `ParseTypeBodyIfPresent` → `ParseMemberList` and added its EOF NL106 report;
+  and added the parameter trailing-comma recovery + `ReportMissingParameterAfterTrailingComma` to
+  `ParseParameterListRecovery`. DECISIONS reuse the live shared `ParserTokenFacts` (`IsTypeDeclarationKeyword` /
+  `IsModifierKeyword`) and CONSTRUCTION delegates to the live shared `ParserErrorDiagnostics.Create`, so codes /
+  messages / spans / snippets / hints / suggestions match automatically. RETIRED the deferrals recorded across
+  stages 4-8: Stage-4 parameter trailing-comma; Stage-5 `new(` missing-`)` (NL107 via the `where T: new(` constraint);
+  Stage-6 block's own missing-`}` (both EOF + `IsBlockClosingDeclarationStart` found-declaration, now corpus-exercised);
+  Stage-8 pattern-list `]` / positional `)` unclosed closes (NL108 / NL107). +13 native parity contracts (2 same-line-
+  boundary/next-line NL107·NL108 triggers; 1 `new(` EOF NL107; 1 same-line-comma DECLINE→NL102; 1 parameter trailing-
+  comma NL102; 2 block missing-`}` EOF + found-declaration NL106; 3 panic-model: two-unclosed-positionals-report-ONCE
+  [cascade suppression, no per-case reset] + two-`new(`-functions-each-report [declaration-boundary reset] + found-
+  declaration-then-type-body-EOF [two NL106, boundary reset]; 3 negatives: closed `new()`, class-after-closed-block,
+  closed positional/list). DEFERRED (recorded, NOT covered — with reasons): the postfix CALL `(…)` / INDEX `[…]` /
+  generic-call / `with {…}` + the call-argument families (`ParseArgumentList` inline-out / spread / named-args — their
+  closing-delimiter close now routes through this recovery, but the argument grammar itself is unmodelled); the
+  keyword-led primaries (new / alloc / stackalloc / cast / tuple / typeof / nameof / sizeof / checked / unchecked /
+  array / immutable / interpolation / lambda — each opens its own Consume / closing-delimiter sub-grammar); the
+  `is`/`as` type sub-grammar; the `ParseBlockBody` attribute-led / modifier-led-to-soa `IsBlockClosingDeclarationStart`
+  arms (ported faithfully but corpus-exercised only via the direct `class` case); the parameter-list
+  `IsParameterListRecoveryBoundary` early break; the soa/union/interface/record/enum type-body missing-`}` (NL106) at
+  their own bodies (those bodies are unmodelled — later member-grammar stages); the non-`{` braced found-other
+  (`class 5`) / non-identifier parameter name (`func f(5)`) garbage-type cascades (need `ParseTypeReference`-on-garbage +
+  position-sorted emit). NO production wiring; NO wall tripped (self-contained edit to one owner + its tests; the packaged
+  SDK 0.1.0 self-emitted the edited owner + all 941 contracts cleanly — no repin). Evidence: BootstrapServices contracts
+  941/941 (928 baseline + 13); dev.sh Parser 381/381; ownership audit 18/18 (all deltas `.nl`, no ratchet movement — the
+  growth ratchet does not track `.nl`, verified: 0 refs to any `.nl` in `non-nsharp-growth-ratchet.v1.json`); git status
+  shows ONLY the two `.nl` files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A —
+  `ColumnarParserRecovery` / `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep
+  across src+editors+tests), so nothing in the production compile path changed. No LSP/VS Code change → no extension
+  reload. `ColumnarParserRecovery.nl` 3,091 → 3,564 lines (+473); `.tests.nl` 2,533 → 2,741 (+208). RESIDUAL-TO-PARITY
+  MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 9): [1] postfix CALL/INDEX/`with` +
+  call-argument families (ParseArgumentList: inline-out / spread / named-args); [2] keyword-led primaries (new / cast /
+  tuple / typeof / array / interpolation / lambda / alloc / stackalloc / …); [3] the `is`/`as` type sub-grammar; [4] the
+  remaining statement kinds (yield / break / continue / throw / try / using / lock / switch / allow / alloc / unsafe /
+  assert / preprocessor / local-function / await-foreach / off) + the C-style `for i;c;n` / tuple-deconstruction / typed
+  `name: T = value` declarations; [5] the MEMBER grammars (method / constructor / nested-type / record-positional /
+  union-case / interface / property) + the record / interface / union / enum / soa type BODIES (each with its own
+  missing-`}` + special diagnostics, e.g. soa's "not supported yet"); [6] the TEST DSL (test / setup / teardown + the
+  test-case rows) and ATTRIBUTES; [7] the garbage-type cascade shapes (non-`{` braced found-other, non-identifier
+  parameter name) needing `ParseTypeReference`-on-garbage + position-sorted emit. THEN the AST/node-table-facts stage
+  (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc (N+3). Next: STAGE 10 = the POSTFIX CALL / INDEX /
+  `with` + call-argument family (map item [1]) + the first keyword-led-primary tranche (new / cast / tuple / typeof /
+  array, map item [2]), whose Consume / closing-delimiter sites now route through this Stage-9 recovery.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 8 of the parser-front-end arc — the
   MATCH / PATTERN diagnostic family (Stage-7's recorded cut B). Extended `ColumnarParserRecovery.nl` to carry,
   through the SAME shared-panic model, the match-expression + pattern-grammar diagnostics, PROVEN byte-exact against
   the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109). ORIGIN INVENTORY (grep of
@@ -803,11 +879,14 @@ production shadow/comparison route ever runs — parity proofs live only in `.te
   the dangling-operator through-token span, missing-initializer `:=`/`=`, missing if/while condition, missing
   for/foreach `in`, missing-statement-body] → [STAGE 7 DONE — expressions (recut A): the fuller precedence ladder +
   the expression ERROR families unexpected-token-in-expression / prefix `+` / leading `.` / ternary errors /
-  dangling-operator-per-tier / await-must-throw missing-operand / member-name-after-dot] → STAGE 8 = the deferred
+  dangling-operator-per-tier / await-must-throw missing-operand / member-name-after-dot] → [STAGE 8 DONE — the
   MATCH / PATTERN family (`ParseMatchExpression` + `ParsePattern`/`ParsePrimaryPattern`/`ParsePropertyPatterns`; the
-  "match/patterns second" recut half) → closing-delimiter recovery (`TryReportMissingClosingDelimiter`, missing
-  `)`/`]`/`}`; note STAGE 2's declaration bodies, STAGE 5's deferred `new(` missing-`)`, STAGE 6's block missing-`}`,
-  and STAGE 7's deferred postfix-call/index/with + keyword-led-primary sub-grammars retire here).
+  "match/patterns second" recut half)] → [STAGE 9 DONE — closing-delimiter recovery (`TryReportMissingClosingDelimiter`,
+  missing `)` NL107 / `]` NL108 + the block/type-body missing-`}` NL106 + the parameter trailing-comma; retired
+  STAGE 5's deferred `new(` missing-`)`, STAGE 6's block missing-`}` [EOF + found-declaration], STAGE 8's pattern-list
+  `]` / positional `)` closes, and STAGE 4's parameter trailing-comma). STAGE 2's non-`{` declaration-body found-other
+  and STAGE 7's deferred postfix-call/index/with + keyword-led-primary sub-grammars remain — their closing-delimiter
+  CLOSES now route through the Stage-9 recovery, but the argument/primary grammars themselves are STAGE 10+].
   Each stage adds the family's `ConsumeX`/`ReportError` sites + its sync-point discipline, and grows the
   parity corpus; each stays self-contained (new/edited `.nl` in BootstrapServices + `.tests.nl`) UNLESS a
   stage needs a kernel entry point dependents compile against — that stage TRIPS the two-stage bootstrap
@@ -842,8 +921,15 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE 8 of the parser-front-end arc (see the "Staged parser-front-end
-  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family),
+- Task 016 next parser sub-slice: STAGE 10 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN" + the Stage-9 RESIDUAL-TO-PARITY MAP in the Active sub-slice above). STAGES 1-9 have LANDED
+  (recovery model + import/namespace/package; declaration-NAME; malformed-literal; member/parameter/field;
+  generics/constraints; statements; expressions; match/patterns; CLOSING-DELIMITER recovery — 179 native
+  contracts). STAGE 10 = the POSTFIX CALL / INDEX / `with` + call-argument family (`ParseArgumentList`:
+  inline-out / spread / named-args, whose closing-delimiter close now routes through the Stage-9 recovery) +
+  the first keyword-led-primary tranche (new / cast / tuple / typeof / array). Still kernel-capability-only
+  (no production wiring, no IDE gate). Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner.
+  (HISTORICAL, for reference — the Stage 1-8 pointer this replaced): STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family),
   STAGE 3 (MALFORMED-LITERAL family), STAGE 4 (MEMBER / PARAMETER / FIELD declaration family), STAGE 5
   (GENERICS / CONSTRAINTS family), STAGE 6 (STATEMENT family — block-body grammar +
   `SynchronizeToNextStatement` sync point + per-statement panic reset + `_currentRecoveryBoundaryColumn`, the
