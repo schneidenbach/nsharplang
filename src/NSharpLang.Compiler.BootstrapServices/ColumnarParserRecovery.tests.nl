@@ -1840,3 +1840,440 @@ test "016 stmt: an empty function body reports no parser diagnostic" {
     errors := RunPreamble("func test() {\n}\n")
     assert errors.Count == 0
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 7: parity contracts for the EXPRESSIONS / PATTERNS diagnostic
+// family — the fuller precedence ladder plus the expression ERROR families Stages 3/6 kept panic-
+// suppressed (unexpected-token-in-expression, prefix `+`, leading `.`, ternary errors, dangling binary
+// operators across every ladder tier, await/must/throw missing-operand, and member-name-after-dot).
+// Every expected value below is the GOLDEN output of the freshly built Release CLI oracle
+// (`nlc check --json`, NL101-NL109, excluding the columnar-backend emit-decline NL103 — not a parser
+// diagnostic). The statement expression is reached through the SAME `func test() { x := <expr> }`
+// shorthand-declaration vehicle Stage 6 uses (the `:=` initializer routes into ParseExpression).
+// ============================================================================
+
+// ---- unexpected token in expression (Parser.cs ParsePrimaryExpression terminal arm :4813) ----
+
+test "016 expr: an operator where an expression is required reports the unexpected-token NL101" {
+    errors := RunPreamble("func test() {\n    x := * 3\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unexpected token '*' in expression"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.SourceSnippet == "    x := * 3"
+    assert e.HumanExplanation == "I was parsing an expression and found '*', which I don't know how to handle here."
+    assert e.ContextualHint == "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax."
+    assert e.Suggestion == null
+}
+
+// ---- prefix `+` (Parser.cs ParseInvalidPrefixPlusExpression :3816, NL103 InvalidSyntax) ----
+
+test "016 expr: a leading '+' reports the prefix-plus NL103 spanning the operand" {
+    errors := RunPreamble("func test() {\n    x := + 3\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Prefix '+' is not supported"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := + 3"
+    assert e.HumanExplanation == "A leading '+' does not change the value in N#, so it is not part of the expression grammar."
+    assert e.ContextualHint == "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them."
+    assert e.Suggestion == "Remove the leading '+'"
+}
+
+// ---- leading `.` (Parser.cs ParseLeadingMemberAccessWithoutReceiver :6407) ----
+
+test "016 expr: a leading '.' with no receiver reports NL102 spanning the dot through the member" {
+    errors := RunPreamble("func test() {\n    x := .Foo\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression before '.'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := .Foo"
+    assert e.HumanExplanation == "I see a dot (.) operator, but there is no receiver expression before it."
+    assert e.ContextualHint == "Put an expression before '.', or remove the member access."
+    assert e.Suggestion == "Add a receiver before '.'"
+}
+
+// ---- member name after dot (Parser.cs ReportMissingMemberNameAfterDot :6385 + reserved-keyword :4433) ----
+
+test "016 expr: a trailing '.' with no member name anchors NL102 on the receiver" {
+    errors := RunPreamble("func test() {\n    x := a.\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected member name. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.SourceSnippet == "    x := a."
+    assert e.HumanExplanation == "I see a dot (.) operator but no member name after it."
+    assert e.ContextualHint == "After dot (.), I need to see a property or method name."
+    assert e.Suggestion == "Check if you forgot to finish this line"
+}
+
+test "016 expr: a reserved keyword as a member name reports NL109 anchored on the keyword" {
+    errors := RunPreamble("func test() {\n    x := a.class\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected member name. Got the reserved keyword 'class'"
+    assert e.Line == 2
+    assert e.Column == 12
+    assert e.Length == 5
+    assert e.SourceSnippet == "    x := a.class"
+    assert e.HumanExplanation == "'class' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "After a member access, the name must not be a reserved keyword. To reach a  member literally named 'class', access it through a differently-named alias."
+    assert e.Suggestion == "Rename it to 'classValue' or '_class'"
+}
+
+// ---- ternary errors (Parser.cs ParseTernaryExpression :4009) ----
+
+test "016 expr: a ternary with a missing then-expression anchors NL102 through the '?'" {
+    errors := RunPreamble("func test() {\n    x := a ?\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a then expression after '?'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := a ?"
+    assert e.HumanExplanation == "This ternary expression needs a then expression after '?'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add a then expression after '?'"
+}
+
+test "016 expr: a ternary with a missing ':' reports the generic Consume NL102 on the offender" {
+    errors := RunPreamble("func test() {\n    x := a ? b c\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' in ternary expression. Expected ':', got 'c'"
+    assert e.Line == 2
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "    x := a ? b c"
+    assert e.HumanExplanation == "I was expecting : here, but I found 'c' instead."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 expr: a ternary with a missing else-expression anchors NL102 through the ':'" {
+    errors := RunPreamble("func test() {\n    x := a ? b :\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an else expression after ':'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 7
+    assert e.SourceSnippet == "    x := a ? b :"
+    assert e.HumanExplanation == "This ternary expression needs an else expression after ':'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an else expression after ':'"
+}
+
+// ---- dangling binary operator across every new ladder tier (Parser.cs ParseBinaryRightOperandOrMissing
+//      :3778) — one per precedence tier the fuller ladder adds over Stage 6's additive/multiplicative ----
+
+test "016 expr: a dangling '??' (null-coalescing tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a ??\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '??'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := a ??"
+    assert e.HumanExplanation == "The '??' operator needs an expression on its right side."
+    assert e.ContextualHint == "Finish the expression after the operator, or remove the operator if the expression is already complete."
+    assert e.Suggestion == "Add an expression after '??'"
+}
+
+test "016 expr: a dangling '||' (logical-or tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a ||\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '||'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := a ||"
+}
+
+test "016 expr: a dangling '&&' (logical-and tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a &&\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '&&'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := a &&"
+}
+
+test "016 expr: a dangling '|' (bitwise-or tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a |\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '|'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := a |"
+}
+
+test "016 expr: a dangling '^' (bitwise-xor tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a ^\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '^'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := a ^"
+}
+
+test "016 expr: a dangling '&' (bitwise-and tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a &\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '&'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := a &"
+}
+
+test "016 expr: a dangling '==' (equality tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a ==\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '=='"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := a =="
+}
+
+test "016 expr: a dangling '<' (relational tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a <\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '<'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := a <"
+}
+
+test "016 expr: a dangling '<<' (shift tier) reports the through-token NL102" {
+    errors := RunPreamble("func test() {\n    x := a <<\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Message == "Expected expression after '<<'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := a <<"
+}
+
+// ---- await / must / throw missing operand (Parser.cs ParseUnaryOperandOrMissing :3789) ----
+
+test "016 expr: an `await` with no operand anchors NL102 on the 'await' keyword" {
+    errors := RunPreamble("func test() {\n    x := await\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an expression to await after 'await'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 5
+    assert e.SourceSnippet == "    x := await"
+    assert e.HumanExplanation == "This await expression needs an expression to await after 'await'."
+    assert e.ContextualHint == "Add an expression to await after 'await', or remove 'await'."
+    assert e.Suggestion == "Add an expression to await after 'await'"
+}
+
+test "016 expr: a `must` with no operand anchors NL102 on the 'must' keyword" {
+    errors := RunPreamble("func test() {\n    x := must\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a nullable expression to unwrap after 'must'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    x := must"
+    assert e.HumanExplanation == "This must expression needs a nullable expression to unwrap after 'must'."
+    assert e.ContextualHint == "Add a nullable expression to unwrap after 'must', or remove 'must'."
+    assert e.Suggestion == "Add a nullable expression to unwrap after 'must'"
+}
+
+test "016 expr: a `throw` with no operand anchors NL102 on the 'throw' keyword" {
+    errors := RunPreamble("func test() {\n    x := throw\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an exception expression to throw after 'throw'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 5
+    assert e.SourceSnippet == "    x := throw"
+    assert e.HumanExplanation == "This throw expression needs an exception expression to throw after 'throw'."
+    assert e.ContextualHint == "Add an exception expression to throw after 'throw', or remove 'throw'."
+    assert e.Suggestion == "Add an exception expression to throw after 'throw'"
+}
+
+// ---- panic-model interactions within expressions and at statement boundaries ----
+
+test "016 expr: an initializer terminator triggers the missing-init NL102 then the unexpected-token NL101 at the reset boundary" {
+    // `)` is an expression terminator, so the `:=` initializer boundary fires first (panic set); the
+    // per-statement reset then lets the stray `)` report its own unexpected-token diagnostic.
+    errors := RunPreamble("func test() {\n    x := )\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected an initializer expression after ':='"
+    assert e0.Line == 2
+    assert e0.Column == 5
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "    x := )"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token ')' in expression"
+    assert e1.Line == 2
+    assert e1.Column == 10
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "    x := )"
+}
+
+test "016 expr: two dangling operators in different statements each report (per-statement reset)" {
+    errors := RunPreamble("func test() {\n    x := a ||\n    y := b &&\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Message == "Expected expression after '||'"
+    assert e0.Line == 2
+    assert e0.Column == 10
+
+    e1 := errors[1]
+    assert e1.Message == "Expected expression after '&&'"
+    assert e1.Line == 3
+    assert e1.Column == 10
+}
+
+test "016 expr: an unexpected token is skipped so the following statement still parses" {
+    // The unexpected `*` is skipped (ShouldSkipUnexpectedExpressionToken), and the following valid
+    // `print 1` reports nothing — exactly one diagnostic.
+    errors := RunPreamble("func test() {\n    x := *\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unexpected token '*' in expression"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.SourceSnippet == "    x := *"
+}
+
+test "016 expr: a within-expression prefix-plus cascade is suppressed by shared panic" {
+    // The first `+` reports the prefix-plus error and sets panic; the recursive unary operand is a
+    // second `+` whose own prefix-plus report is suppressed — exactly one diagnostic.
+    errors := RunPreamble("func test() {\n    x := + + 3\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Prefix '+' is not supported"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    x := + + 3"
+}
+
+test "016 expr: a leading-dot error in one function and a dangling operator in the next each fire" {
+    // The declaration-boundary reset carries across functions: f's leading `.` and g's dangling `==`
+    // both report.
+    errors := RunPreamble("func f() {\n    x := .Foo\n}\nfunc g() {\n    y := b ==\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected expression before '.'"
+    assert e0.Line == 2
+    assert e0.Column == 10
+    assert e0.Length == 4
+    assert e0.SourceSnippet == "    x := .Foo"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected expression after '=='"
+    assert e1.Line == 5
+    assert e1.Column == 10
+    assert e1.Length == 4
+    assert e1.SourceSnippet == "    y := b =="
+}
+
+// ---- negatives: well-formed expressions across the fuller ladder report no parser diagnostic ----
+
+test "016 expr: a well-formed logical chain `a || b && c` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a || b && c\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed comparison `a < b` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a < b\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed unary `!a` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := !a\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed member-access chain `a.b.c` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a.b.c\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed null-conditional member access `a?.b` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a?.b\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed ternary `a ? b : c` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a ? b : c\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed parenthesized multiplicative `(a + b) * c` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := (a + b) * c\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed range `a..b` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a..b\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed postfix increment `a++` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a++\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 expr: a well-formed shift `a << b` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := a << b\n    print x\n}\n")
+    assert errors.Count == 0
+}

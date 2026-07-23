@@ -2001,22 +2001,56 @@ public class ColumnarParserRecovery {
         }
     }
 
-    // ---- minimal expression grammar for statements (Parser.cs ParseAssignmentExpression :3690 →
-    //      ParseAdditiveExpression :4220 → ParseMultiplicativeExpression :4235 → ParsePrimaryExpression) ----
-    // A deliberately shallow subset: assignment over additive/multiplicative over primaries (identifier
-    // / literal / bool / null / parenthesized). It reproduces the two diagnostic-bearing behaviours the
-    // statement corpus needs byte-exact — the dangling binary/assignment operator and its through-token
-    // span — and consumes well-formed operands identically. The full precedence ladder (ternary /
-    // coalescing / logical / bitwise / equality / relational / shift / range / unary / postfix / call /
-    // member / index) and the expression ERROR families (unexpected token, prefix `+`, leading `.`) are
-    // later arc stages; the corpus keeps its expressions within this subset so output stays byte-exact.
+    // ============================================================================
+    // Stage 7: the EXPRESSIONS / PATTERNS diagnostic family — the FULLER precedence ladder (over the
+    // Stage-6 shallow assignment/additive/multiplicative subset) plus the expression ERROR families
+    // Stages 3/6 deliberately kept panic-suppressed, all carried through the SAME shared-panic model.
+    // The ladder mirrors Parser.cs top-to-bottom (ParseAssignmentExpression :3690 → ParseTernary :4009
+    // → ParseNullCoalescing :4033 → ParseLogicalOr/And :4047/:4061 → ParseBitwiseOr/Xor/And
+    // :4075/:4089/:4103 → ParseEquality :4117 → ParseRelational :4132 → ParseShift :4205 →
+    // ParseAdditive :4220 → ParseMultiplicative :4235 → ParseRange :4280 → ParseUnary :4316 →
+    // ParsePostfix :4405 → ParsePrimary :4626). The expression ERROR families reached this stage:
+    //   * UNEXPECTED-TOKEN-IN-EXPRESSION — ParsePrimary's terminal arm (:4813) + ShouldSkipUnexpectedExpressionToken (:6943).
+    //   * PREFIX `+` — ParseInvalidPrefixPlusExpression (:3816, NL103 InvalidSyntax).
+    //   * LEADING `.` — ParseLeadingMemberAccessWithoutReceiver (:6407).
+    //   * TERNARY — the missing then / missing `:` / missing else sites (:4016/:4021/:4022).
+    //   * DANGLING BINARY OPERATOR across every ladder tier (ParseBinaryRightOperandOrMissing :3778).
+    //   * MEMBER-NAME-AFTER-DOT — ReportMissingMemberNameAfterDot (:6385) + the reserved-keyword member (:4433).
+    //   * await / must / throw MISSING OPERAND — ParseUnaryOperandOrMissing (:3789).
+    // Diagnostic CONSTRUCTION still delegates to the live shared ParserErrorDiagnostics.Create, and the
+    // boundary DECISIONS reuse the live shared ParserTokenFacts (IsAssignmentOperator / CanStartExpression /
+    // IsExpressionTerminator / …), so codes / messages / spans / snippets / hints match automatically.
+    //
+    // DEFERRED (recorded, NOT covered — with reasons): the `is`/`as` relational operators (parse a type
+    // reference — the type sub-grammar); postfix CALL `(…)` / INDEX `[…]` / generic-call `<…>(…)` / `with {…}`
+    // (the call-argument + closing-delimiter families — ParseArgumentList's inline-out, spread, named-args,
+    // missing `)`/`]`/`}`); the new / alloc / stackalloc / match / array / cast / tuple / typeof / nameof /
+    // sizeof / checked / unchecked / immutable / spread / interpolation / lambda primaries (each opens its own
+    // sub-grammar with Consume/closing-delimiter sites); the MATCH / PATTERN family (ParseMatchExpression :5368
+    // + ParsePattern/ParsePrimaryPattern :3263/:3335 + ParsePropertyPatterns :3459 — "match / patterns second"
+    // per the recut); and the four INVALID-OPERATOR default arms (ParseAssignmentExpression :3718 /
+    // ParseRelationalExpression :4177 / ParseMultiplicativeExpression :4253 / ParseUnaryExpression :4348),
+    // which are UNREACHABLE dead defaults: each switch is guarded by an exact-match fact (IsAssignmentOperator
+    // and the while/if token checks) that admits only tokens the switch already handles, so the default never
+    // fires and cannot be reached byte-exact.
+    // ============================================================================
+
+    // ---- assignment (Parser.cs ParseAssignmentExpression :3690) ----
+    // The single/multi-parameter lambda and `on` subscription prefixes (ParseLambdaOrAssignmentExpression
+    // :3641) are the LAMBDA family — a later stage; the corpus uses no lambda/`on` expression.
     func ParseExprValue(): ExprResult {
-        left := ParseAdditive()
+        left := ParseTernary()
 
         // Assignment (Parser.cs :3694): only on the same line, only the recognized assignment operators.
+        // The invalid-assignment-operator default (:3718) is an unreachable dead arm (IsAssignmentOperator
+        // admits only the six operators the switch handles), so it is not modelled.
         if ParserTokenFacts.IsAssignmentOperator(Current().Type) && Current().Line == Previous().Line {
             opToken := Advance()
-            ParseRightOperandOrMissing(opToken, left.Span)
+            // Parser.cs's operand is ParseLambdaOrAssignmentExpression (right-associative); the fallback
+            // span is the left expression's DiagnosticSpanFromExpression span (Parser.cs :3740).
+            if !RightOperandMissingWithSpan(opToken, left.Span) {
+                ParseExprValue()
+            }
             // The result is an AssignmentExpression; DiagnosticSpanFromExpression of one falls through
             // to the (line, column, 1) default at the operator position, and it is never a bare identifier.
             return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
@@ -2025,50 +2059,230 @@ public class ColumnarParserRecovery {
         return left
     }
 
+    // ---- ternary (Parser.cs ParseTernaryExpression :4009) ----
+    func ParseTernary(): ExprResult {
+        expr := ParseNullCoalescing()
+        if Check(TokenType.Question) {
+            questionToken := Advance()
+            ParseRequiredExpressionAfter(
+                questionToken,
+                "a then expression",
+                "This ternary expression",
+                DiagnosticSpanFromExpressionThroughToken(expr.Span, questionToken))
+            colonToken := ConsumeToken(TokenType.Colon, "Expected ':' in ternary expression", ":")
+            ParseRequiredExpressionAfter(
+                colonToken,
+                "an else expression",
+                "This ternary expression",
+                DiagnosticSpanFromExpressionThroughToken(expr.Span, colonToken))
+            // A TernaryExpression is anchored on the `?` token and is never a bare identifier.
+            return new ExprResult(new RecoverySpan(questionToken.Line, questionToken.Column, 1), false)
+        }
+        return expr
+    }
+
+    // ---- the left-associative binary tiers (each mirrors one Parser.cs Parse*Expression) ----
+    // Every tier accumulates its result span as the operator-position (line, column, 1) default that
+    // DiagnosticSpanFromExpression yields for a BinaryExpression, so the through-token span of a following
+    // dangling operator is computed byte-exact from the accumulated left expression.
+
+    func ParseNullCoalescing(): ExprResult {
+        result := ParseLogicalOr()
+        while Check(TokenType.QuestionQuestion) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseLogicalOr()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseLogicalOr(): ExprResult {
+        result := ParseLogicalAnd()
+        while Check(TokenType.Or) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseLogicalAnd()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseLogicalAnd(): ExprResult {
+        result := ParseBitwiseOr()
+        while Check(TokenType.And) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseBitwiseOr()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseBitwiseOr(): ExprResult {
+        result := ParseBitwiseXor()
+        while Check(TokenType.BitwiseOr) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseBitwiseXor()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseBitwiseXor(): ExprResult {
+        result := ParseBitwiseAnd()
+        while Check(TokenType.BitwiseXor) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseBitwiseAnd()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseBitwiseAnd(): ExprResult {
+        result := ParseEquality()
+        while Check(TokenType.BitwiseAnd) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseEquality()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseEquality(): ExprResult {
+        result := ParseRelational()
+        while Check(TokenType.Equal) || Check(TokenType.NotEqual) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseRelational()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    // Parser.cs ParseRelationalExpression (:4132). The `is` / `as` operators (which parse a type reference)
+    // are a later arc stage; the corpus uses only the four comparison operators. The invalid-relational
+    // default (:4177) is an unreachable dead arm (the switch handles every token the guard admits).
+    func ParseRelational(): ExprResult {
+        result := ParseShift()
+        while Check(TokenType.Less) || Check(TokenType.LessEqual) || Check(TokenType.Greater) || Check(TokenType.GreaterEqual) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseShift()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseShift(): ExprResult {
+        result := ParseAdditive()
+        while Check(TokenType.LeftShift) || Check(TokenType.RightShift) {
+            opToken := Advance()
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseAdditive()
+            }
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
     func ParseAdditive(): ExprResult {
         result := ParseMultiplicative()
         while Check(TokenType.Plus) || Check(TokenType.Minus) {
             opToken := Advance()
-            ParseBinaryRightOperandOrMissing(opToken, result.Span, true)
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseMultiplicative()
+            }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
         }
         return result
     }
 
+    // Parser.cs ParseMultiplicativeExpression (:4235). The invalid-multiplicative default (:4253) is an
+    // unreachable dead arm (the switch handles Star/Slash/Percent, exactly what the guard admits).
     func ParseMultiplicative(): ExprResult {
-        result := ParsePrimaryExprValue()
+        result := ParseRange()
         while Check(TokenType.Star) || Check(TokenType.Slash) || Check(TokenType.Percent) {
             opToken := Advance()
-            ParseBinaryRightOperandOrMissing(opToken, result.Span, false)
+            if !BinaryRightOperandMissing(opToken, result.Span) {
+                ParseRange()
+            }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
         }
         return result
     }
 
-    // Parser.cs ParseBinaryRightOperandOrMissing (:3778) → ParseRightOperandOrMissing with the
-    // DiagnosticSpanFromExpressionThroughToken span (left-operand start through the operator).
-    // `additiveOperand` selects the right-operand precedence: additive's is multiplicative, else primary.
-    func ParseBinaryRightOperandOrMissing(operatorToken: Token, leftSpan: RecoverySpan, additiveOperand: bool) {
-        if IsMissingOperandBoundary(operatorToken) {
-            span := DiagnosticSpanFromExpressionThroughToken(leftSpan, operatorToken)
-            ReportExpectedExpressionAfter(operatorToken, span)
-            return
+    // Parser.cs ParseRangeExpression (:4280). `..end` / `..` (open start) and `start..end` / `start..`.
+    // A RangeExpression is anchored on the `..` token; the end operand is a unary expression, guarded by
+    // the same terminator set Parser.cs uses.
+    func ParseRange(): ExprResult {
+        if Check(TokenType.DotDot) {
+            opToken := Advance()
+            if RangeHasEndOperand() {
+                ParseUnary()
+            }
+            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
         }
-        if additiveOperand {
-            ParseMultiplicative()
-        } else {
-            ParsePrimaryExprValue()
+
+        expr := ParseUnary()
+        if Check(TokenType.DotDot) {
+            opToken := Advance()
+            if RangeHasEndOperand() {
+                ParseUnary()
+            }
+            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
         }
+        return expr
     }
 
-    // Parser.cs ParseRightOperandOrMissing (:3750) for the assignment operator: the fallback span is the
-    // left-hand expression's DiagnosticSpanFromExpression span (passed by the caller).
-    func ParseRightOperandOrMissing(operatorToken: Token, diagnosticSpan: RecoverySpan) {
+    // Parser.cs's range end-operand guard (:4289/:4305): an end expression is present unless the cursor is
+    // at end-of-file or a `]` / `,` / `)` / `;`.
+    func RangeHasEndOperand(): bool {
+        if IsAtEnd() {
+            return false
+        }
+        if Check(TokenType.RightBracket) {
+            return false
+        }
+        if Check(TokenType.Comma) {
+            return false
+        }
+        if Check(TokenType.RightParen) {
+            return false
+        }
+        if Check(TokenType.Semicolon) {
+            return false
+        }
+        return true
+    }
+
+    // ---- the missing-right-operand helpers (Parser.cs ParseBinaryRightOperandOrMissing :3778 /
+    //      ParseRightOperandOrMissing :3750) ----
+    // Returns true when the operator's right operand is missing (and the diagnostic has been reported), so
+    // the caller skips the operand parse. A binary operator's fallback span runs from the left operand's
+    // DiagnosticSpanFromExpression start through the operator token; an assignment's is the left span itself.
+
+    func BinaryRightOperandMissing(operatorToken: Token, leftSpan: RecoverySpan): bool {
+        return RightOperandMissingWithSpan(operatorToken, DiagnosticSpanFromExpressionThroughToken(leftSpan, operatorToken))
+    }
+
+    func RightOperandMissingWithSpan(operatorToken: Token, diagnosticSpan: RecoverySpan): bool {
         if IsMissingOperandBoundary(operatorToken) {
             ReportExpectedExpressionAfter(operatorToken, diagnosticSpan)
-            return
+            return true
         }
-        ParseExprValue()
+        return false
     }
 
     // Parser.cs ParseRightOperandOrMissing's ReportError (:3759-3772).
@@ -2098,48 +2312,322 @@ public class ColumnarParserRecovery {
         return new RecoverySpan(startSpan.Line, startSpan.Column, MaxInt(startSpan.Length, endColumn - startSpan.Column))
     }
 
-    // ---- primary (Parser.cs ParsePrimaryExpression subset) ----
+    // ---- unary (Parser.cs ParseUnaryExpression :4316) ----
+    // Prefix `+` routes to the invalid-prefix-plus error; the recognized prefixes (! - ~ ++ -- ^) form a
+    // UnaryExpression over a recursive unary operand; await / must / throw route through the shared
+    // ParseUnaryOperandOrMissing (missing-operand report). The invalid-unary default (:4348) is an
+    // unreachable dead arm (the switch handles every token the guard admits).
+    func ParseUnary(): ExprResult {
+        if Check(TokenType.Plus) {
+            return ParseInvalidPrefixPlusExpression()
+        }
+
+        if Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) || Check(TokenType.Increment) || Check(TokenType.Decrement) || Check(TokenType.BitwiseXor) {
+            opToken := Advance()
+            ParseUnary()
+            // A UnaryExpression is anchored on the operator and is never a bare identifier.
+            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+
+        if Check(TokenType.Await) {
+            awaitToken := Advance()
+            ParseUnaryOperandOrMissing(awaitToken, "an expression to await", "This await expression")
+            return new ExprResult(new RecoverySpan(awaitToken.Line, awaitToken.Column, 5), false)
+        }
+        if Check(TokenType.Must) {
+            mustToken := Advance()
+            ParseUnaryOperandOrMissing(mustToken, "a nullable expression to unwrap", "This must expression")
+            return new ExprResult(new RecoverySpan(mustToken.Line, mustToken.Column, 4), false)
+        }
+        if Check(TokenType.Throw) {
+            throwToken := Advance()
+            ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
+            return new ExprResult(new RecoverySpan(throwToken.Line, throwToken.Column, 5), false)
+        }
+
+        return ParsePostfix()
+    }
+
+    // Parser.cs ParseInvalidPrefixPlusExpression (:3816). Reports NL103, then consumes a unary operand
+    // when one is present (so a following `+ 3` does not report a second, redundant error under panic).
+    func ParseInvalidPrefixPlusExpression(): ExprResult {
+        plusToken := Advance()
+        span := SpanFromToken(plusToken)
+        if Current().Line == plusToken.Line && !ParserTokenFacts.IsExpressionTerminator(Current().Type) {
+            span = DiagnosticSpanFromTokenRange(plusToken, Current())
+        }
+        suggestions := new List<string>()
+        suggestions.Add("Remove the leading '+'")
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Prefix '+' is not supported",
+            span.Line,
+            span.Column,
+            "A leading '+' does not change the value in N#, so it is not part of the expression grammar.",
+            "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.",
+            suggestions,
+            span.Length)
+
+        if !IsMissingOperandBoundary(plusToken) && ParserTokenFacts.CanStartExpression(Current().Type) {
+            ParseUnary()
+        }
+        // Returns IdentifierExpression("<error>", plus.Line, plus.Column): not a visible name, so its
+        // DiagnosticSpanFromExpression is the (line, column, 1) default; it is still an IdentifierExpression.
+        return new ExprResult(new RecoverySpan(plusToken.Line, plusToken.Column, 1), true)
+    }
+
+    // Parser.cs ParseUnaryOperandOrMissing (:3789). Uses IsMissingRequiredExpressionBoundary and a unary
+    // operand; the message / hint differ from the binary ParseRightOperandOrMissing.
+    func ParseUnaryOperandOrMissing(operatorToken: Token, expectedDescription: string, ownerDescription: string) {
+        if !IsMissingRequiredExpressionBoundary(operatorToken) {
+            ParseUnary()
+            return
+        }
+        span := SpanFromToken(operatorToken)
+        suggestions := new List<string>()
+        suggestions.Add("Add " + expectedDescription + " after '" + operatorToken.Value + "'")
+        suggestions.Add("Remove '" + operatorToken.Value + "' until the expression is ready")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected " + expectedDescription + " after '" + operatorToken.Value + "'",
+            span.Line,
+            span.Column,
+            ownerDescription + " needs " + expectedDescription + " after '" + operatorToken.Value + "'.",
+            "Add " + expectedDescription + " after '" + operatorToken.Value + "', or remove '" + operatorToken.Value + "'.",
+            suggestions,
+            span.Length)
+    }
+
+    // ---- postfix (Parser.cs ParsePostfixExpression :4405) ----
+    // Carries the member-access `.` / `?.` diagnostics (reserved-keyword member + missing-member-name) and
+    // the postfix `++` / `--` forms. CALL `(…)`, INDEX `[…]`, generic-call `<…>(…)`, and `with {…}` are the
+    // call-argument / closing-delimiter families — a later arc stage; the loop breaks on them (as Parser.cs's
+    // final else does when they are absent), and the corpus uses none.
+    func ParsePostfix(): ExprResult {
+        result := ParsePrimaryExprValue()
+
+        looping := true
+        while looping {
+            // A new line without a continuing `.` / `?.` ends the postfix chain (Parser.cs :4411).
+            if Current().Line > Previous().Line && !Check(TokenType.Dot) && !Check(TokenType.QuestionDot) {
+                looping = false
+            } else {
+                if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
+                    result = ParseMemberAccess(result)
+                } else {
+                    if Check(TokenType.Increment) {
+                        opToken := Advance()
+                        result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                    } else {
+                        if Check(TokenType.Decrement) {
+                            opToken := Advance()
+                            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                        } else {
+                            looping = false
+                        }
+                    }
+                }
+            }
+        }
+
+        return result
+    }
+
+    // Parser.cs's `.` / `?.` member-access arm (:4418). Returns the MemberAccessExpression's
+    // DiagnosticSpanFromExpression span (:5941): the member-name span when the name is visible, else the
+    // (dotLine, dotColumn, 1) default. A MemberAccessExpression is never a bare identifier.
+    func ParseMemberAccess(receiver: ExprResult): ExprResult {
+        isNullConditional := Check(TokenType.QuestionDot)
+        dotToken := Advance()
+
+        if Current().Line == dotToken.Line && Check(TokenType.Identifier) {
+            memberToken := Advance()
+            memberOffset := 1
+            if isNullConditional {
+                memberOffset = 2
+            }
+            return new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column + memberOffset, MaxInt(1, memberToken.Value.Length)), false)
+        }
+
+        if Current().Line == dotToken.Line && Lexer.IsReservedKeyword(Current().Type) {
+            // `obj.base`, `this.new`, etc. — a reserved keyword where the member name is required.
+            ReportReservedKeywordAsName("Expected member name", SpanFromToken(Current()), true)
+            Advance()
+            return new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column, 1), false)
+        }
+
+        ReportMissingMemberNameAfterDot(dotToken, receiver.Span)
+        return new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column, 1), false)
+    }
+
+    // Parser.cs ReportMissingMemberNameAfterDot (:6385). Anchored on the receiver's DiagnosticSpanFromExpression.
+    func ReportMissingMemberNameAfterDot(dotToken: Token, receiverSpan: RecoverySpan) {
+        operatorText := dotToken.Value
+        operatorDescription := "dot (.)"
+        if operatorText != "." {
+            operatorDescription = "null-conditional member access (" + operatorText + ")"
+        }
+        suggestions := new List<string>()
+        suggestions.Add("Check if you forgot to finish this line")
+        suggestions.Add("Common members: Length, Count, ToString(), GetHashCode()")
+        suggestions.Add("If this is end of statement, remove the trailing '" + operatorText + "'")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected member name. Got '" + Current().Value + "'",
+            receiverSpan.Line,
+            receiverSpan.Column,
+            "I see a " + operatorDescription + " operator but no member name after it.",
+            "After " + operatorDescription + ", I need to see a property or method name.",
+            suggestions,
+            receiverSpan.Length)
+    }
+
+    // ---- primary (Parser.cs ParsePrimaryExpression :4626) ----
     // Returns the DiagnosticSpanFromExpression span (:5917) and whether the primary is a bare identifier.
-    // Member access / call / index postfixes are a later arc stage; the corpus uses only bare primaries.
+    // The keyword-led primaries (typeof / nameof / sizeof / checked / unchecked / alloc / stackalloc / new /
+    // match / immutable / array / cast / tuple / spread / interpolation) each open a sub-grammar with its own
+    // Consume / closing-delimiter sites — later arc stages; the corpus uses none, and Parser.cs would not reach
+    // the unexpected-token terminal arm for them either, so their absence keeps the terminal arm byte-exact.
     func ParsePrimaryExprValue(): ExprResult {
+        line := Current().Line
+        column := Current().Column
+
+        // Leading member access with no receiver: `.Foo` (Parser.cs :4631).
+        if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
+            return ParseLeadingMemberAccessWithoutReceiver()
+        }
+
+        // Int / float literals carry no malformed check (Parser.cs :4637/:4640).
+        if Check(TokenType.IntLiteral) || Check(TokenType.FloatLiteral) {
+            token := Advance()
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+        }
+
+        // Char / string literals run the malformed-literal check (Parser.cs :4643/:4650). The interpolated
+        // string hole grammar (ParseInterpolatedString) is a later arc stage; the corpus uses no `$"…"`.
+        if Check(TokenType.CharLiteral) {
+            token := Advance()
+            ReportMalformedCharLiteralIfNeeded(token)
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+        }
+        if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
+            token := Advance()
+            ReportMalformedStringLiteralIfNeeded(token)
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+        }
+
+        if Check(TokenType.True) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 4), false)
+        }
+        if Check(TokenType.False) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 5), false)
+        }
+        if Check(TokenType.Null) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 4), false)
+        }
+        if Check(TokenType.Default) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 7), false)
+        }
+        if Check(TokenType.This) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 4), false)
+        }
+        if Check(TokenType.Base) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 4), false)
+        }
+
+        // Parenthesized expression `( expr )` (Parser.cs :4793). The cast `(Type)expr` (:4783) and the
+        // multi-element tuple `(a, b)` (:4795) forms are a later arc stage; the corpus uses only `(single)`.
         if Check(TokenType.LeftParen) {
             Advance()
             inner := ParseExprValue()
             if Check(TokenType.RightParen) {
                 Advance()
             }
-            // A ParenthesizedExpression is not an IdentifierExpression, so it never takes the `:=`
-            // shorthand path; its DiagnosticSpanFromExpression is that of the inner expression.
+            // A ParenthesizedExpression is not an IdentifierExpression; its span is the inner expression's.
             return new ExprResult(inner.Span, false)
         }
 
         if Check(TokenType.Identifier) {
-            token := Advance()
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), true)
+            name := Advance().Value
+            return new ExprResult(new RecoverySpan(line, column, MaxInt(1, name.Length)), true)
         }
 
-        if IsLiteralToken(Current().Type) {
-            token := Advance()
-            ReportMalformedLiteralIfNeeded(token)
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+        // Terminal: an unexpected token where an expression was required (Parser.cs :4813).
+        Report(
+            ErrorCode.UnexpectedToken,
+            "Unexpected token '" + Current().Value + "' in expression",
+            line,
+            column,
+            "I was parsing an expression and found '" + Current().Value + "', which I don't know how to handle here.",
+            "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.",
+            null,
+            Current().Value.Length)
+
+        if ShouldSkipUnexpectedExpressionToken() {
+            Advance()
         }
 
-        if Check(TokenType.True) {
-            token := Advance()
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, 4), false)
-        }
-        if Check(TokenType.False) {
-            token := Advance()
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, 5), false)
-        }
-        if Check(TokenType.Null) {
-            token := Advance()
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, 4), false)
-        }
+        // Returns IdentifierExpression("<error>", line, column): a (non-visible) IdentifierExpression, so its
+        // span is the (line, column, 1) default and it is still an IdentifierExpression.
+        return new ExprResult(new RecoverySpan(line, column, 1), true)
+    }
 
-        // A primary shape outside this Stage-6 subset. Report nothing and consume nothing; the block
-        // loop's no-progress guard then advances. Not reached by the Stage-6 corpus.
-        return new ExprResult(new RecoverySpan(Current().Line, Current().Column, 1), false)
+    // Parser.cs ParseLeadingMemberAccessWithoutReceiver (:6407). Reports "Expected expression before '.'"
+    // and consumes the member name when one follows on the same line.
+    func ParseLeadingMemberAccessWithoutReceiver(): ExprResult {
+        dotToken := Advance()
+        operatorText := dotToken.Value
+        operatorDescription := "dot (.)"
+        if operatorText != "." {
+            operatorDescription = "null-conditional member access (" + operatorText + ")"
+        }
+        span := SpanFromToken(dotToken)
+        if Current().Line == dotToken.Line && Check(TokenType.Identifier) {
+            memberToken := Advance()
+            span = DiagnosticSpanFromTokenRange(dotToken, memberToken)
+        }
+        suggestions := new List<string>()
+        suggestions.Add("Add a receiver before '" + operatorText + "'")
+        suggestions.Add("Remove the member access until the receiver is known")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected expression before '" + operatorText + "'",
+            span.Line,
+            span.Column,
+            "I see a " + operatorDescription + " operator, but there is no receiver expression before it.",
+            "Put an expression before '" + operatorText + "', or remove the member access.",
+            suggestions,
+            span.Length)
+        // Returns IdentifierExpression("<error>", dot.Line, dot.Column).
+        return new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column, 1), true)
+    }
+
+    // Parser.cs ShouldSkipUnexpectedExpressionToken (:6943): skip the offending token unless it is at
+    // end-of-file, an expression terminator, or a statement/declaration/modifier keyword (which the
+    // enclosing recovery boundary will handle).
+    func ShouldSkipUnexpectedExpressionToken(): bool {
+        if IsAtEnd() {
+            return false
+        }
+        if ParserTokenFacts.IsExpressionTerminator(Current().Type) {
+            return false
+        }
+        if ParserTokenFacts.IsStatementStartKeyword(Current().Type) {
+            return false
+        }
+        if ParserTokenFacts.IsDeclarationKeyword(Current().Type) {
+            return false
+        }
+        if ParserTokenFacts.IsModifierKeyword(Current().Type) {
+            return false
+        }
+        return true
     }
 
     // ---- required-expression + operand boundary helpers (Parser.cs :3855 / :3928 / :6908) ----
