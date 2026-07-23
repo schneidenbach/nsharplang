@@ -580,13 +580,10 @@ public class ColumnarParserRecovery {
     // and the block-body statement grammar are LATER arc stages; here the head is only consumed
     // enough to reach `=> <expr>` for the empty-parameter, expression-bodied shape.
     func ParseFunctionHeadAndBody() {
-        // Empty parameter list `()` (Parser.cs ParseParameterList :751: Consume '(' … Consume ')').
-        if Check(TokenType.LeftParen) {
-            Advance()
-            if Check(TokenType.RightParen) {
-                Advance()
-            }
-        }
+        // Parameter list (Parser.cs ParseParameterList :751). Stage 4 carries the parameter
+        // name / colon / type diagnostic family through this list; the empty-list `()` shape the
+        // Stage-3 malformed-literal corpus relies on is handled identically (Consume '(' … ')').
+        ParseParameterListRecovery()
 
         // Optional return type `: T` (Parser.cs :465-468 then ParseTypeReference).
         if Check(TokenType.Colon) {
@@ -820,16 +817,377 @@ public class ColumnarParserRecovery {
         return value[0] == '$' && value[1] == '"'
     }
 
+    // ============================================================================
+    // Stage 4: the MEMBER / PARAMETER / FIELD declaration diagnostic family — the `:`/`:=`
+    // colon and type-annotation errors — carried through the SAME shared-panic model. The
+    // families reached this stage:
+    //   * PARAMETERS via `func f(<params>)`  — ConsumeIdentifier + GetMissingParameterNameDiagnosticSpan
+    //     (Parser.cs :799/:6476), ConsumeParameterColon (:6625), ParseParameterTypeReference (:6504).
+    //   * FIELDS via `class C { … }` / `struct S { … }` — ConsumeIdentifier "Expected field name"
+    //     (:1666), ConsumeFieldColon (:6651), ParseFieldTypeReference (:6536) with the
+    //     LooksLikeNextFieldAfterMissingType heuristic (:6572).
+    //   * the MEMBER-BOUNDARY recovery sync point (ParseMemberList :1365 — panic reset per member).
+    //   * the Stage-2-deferred braced-kind found-other name, now reachable for the `{`-offender
+    //     variant (`class {` / `struct {`).
+    // Diagnostic CONSTRUCTION still delegates to the live shared ParserErrorDiagnostics.Create.
+    // ============================================================================
+
+    // ---- parameter list (Parser.cs ParseParameterList :751) ----
+
+    func ParseParameterListRecovery() {
+        // Minimal recovery vehicle. Attributes, the params/ref/out/this modifiers, scoped/lifetime
+        // annotations, default values, the trailing-comma recovery, and the missing-')'
+        // closing-delimiter recovery are LATER arc stages; the member/parameter corpus uses none of
+        // them (every corpus parameter list is closed by a present ')').
+        if !Check(TokenType.LeftParen) {
+            return
+        }
+        Advance()                               // consume '('
+
+        if !Check(TokenType.RightParen) {
+            parsing := true
+            while parsing {
+                paramLine := Current().Line
+                paramColumn := Current().Column
+                paramName := ConsumeNameWithSpan("Expected parameter name", GetMissingParameterNameDiagnosticSpan())
+                ConsumeParameterColon(paramName, paramLine, paramColumn)
+                ParseParameterTypeReference(paramName, paramLine, paramColumn)
+
+                // Parser.cs's `do { … } while (Match(Comma))`.
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    parsing = false
+                }
+            }
+        }
+
+        // Corpus parameter lists are always closed; the missing-')' recovery is a later stage.
+        if Check(TokenType.RightParen) {
+            Advance()
+        }
+    }
+
+    // Parser.cs ConsumeIdentifier(message, diagnosticSpan?) overload (:6720). A parameter name is
+    // never a dot-access (its previous token is '(' / ',' / a modifier), so isDotAccess is false;
+    // the provided span (GetMissingParameterNameDiagnosticSpan) overrides the anchor when present.
+    func ConsumeNameWithSpan(message: string, diagnosticSpan: RecoverySpan?): string {
+        if Check(TokenType.Identifier) {
+            return Advance().Value
+        }
+
+        previous := Previous()
+        isDotAccess := previous.Type == TokenType.Dot || previous.Type == TokenType.QuestionDot
+
+        if !IsAtEnd() {
+            if Lexer.IsReservedKeyword(Current().Type) {
+                ReportReservedKeywordAsName(message, diagnosticSpan ?? SpanFromToken(Current()), isDotAccess)
+                Advance()
+                return "<error>"
+            }
+        }
+
+        if IsAtEnd() {
+            eofSpan := diagnosticSpan ?? LastVisibleTokenSpan()
+            Report(
+                ErrorCode.UnexpectedEndOfFile,
+                message + ", but reached the end of the file",
+                eofSpan.Line,
+                eofSpan.Column,
+                DotOrPlainEofExplanation(isDotAccess),
+                DotOrPlainEofHint(isDotAccess),
+                null,
+                eofSpan.Length)
+            return "<error>"
+        }
+
+        span := diagnosticSpan ?? SpanFromToken(Current())
+        Report(
+            ErrorCode.ExpectedToken,
+            message + ". Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            DotOrPlainFoundExplanation(isDotAccess, Current().Value),
+            DotOrPlainFoundHint(isDotAccess),
+            DotAccessFoundSuggestions(isDotAccess),
+            span.Length)
+        return "<error>"
+    }
+
+    // Parser.cs GetMissingParameterNameDiagnosticSpan (:6476): when a `:` (then a type) sits where
+    // the parameter name should be, anchor the "expected name" diagnostic on the type token.
+    func GetMissingParameterNameDiagnosticSpan(): RecoverySpan? {
+        if !Check(TokenType.Colon) {
+            return null
+        }
+        next := LookAhead(1)
+        if ParserTokenFacts.IsTypeReferenceStart(next.Type) {
+            return SpanFromToken(next)
+        }
+        return null
+    }
+
+    // Parser.cs ConsumeParameterColon (:6625). Anchors the missing-':' diagnostic on the parameter
+    // NAME (parameterLine/parameterColumn, length = the name length).
+    func ConsumeParameterColon(parameterName: string, parameterLine: int, parameterColumn: int) {
+        if Check(TokenType.Colon) {
+            Advance()
+            return
+        }
+        if parameterName == "<error>" || parameterLine <= 0 || parameterColumn <= 0 {
+            // Generic Consume(':') fallback (Parser.cs :6631). Every '<error>'-name shape has
+            // already set panic, so its report would be suppressed; corpus never reaches it.
+            return
+        }
+        nameLength := MaxInt(1, parameterName.Length)
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected ':' after parameter name. Got '" + Current().Value + "'",
+            parameterLine,
+            parameterColumn,
+            "Parameter '" + parameterName + "' needs a ':' before its type.",
+            "Write this parameter as `" + parameterName + ": Type`.",
+            SingleSuggestion("Add ':' after '" + parameterName + "'"),
+            nameLength)
+    }
+
+    // Parser.cs ParseParameterTypeReference (:6504). Consumes a simple type name, or reports the
+    // missing-type diagnostic anchored on the parameter name when a type terminator sits where the
+    // type should be.
+    func ParseParameterTypeReference(parameterName: string, parameterLine: int, parameterColumn: int) {
+        if !IsTypeTerminator(Current().Type) {
+            ParseSimpleTypeReference()
+            return
+        }
+        visible := IsVisibleName(parameterName)
+        span := TypeErrorAnchor(visible, parameterLine, parameterColumn, parameterName)
+        explanation := "This parameter needs a type after ':'."
+        hint := "Write parameters as `name: Type`."
+        if visible {
+            explanation = "Parameter '" + parameterName + "' needs a type after ':'."
+            hint = "Write this parameter as `" + parameterName + ": Type`."
+        }
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected type name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            explanation,
+            hint,
+            SingleSuggestion("Add a parameter type after ':'"),
+            span.Length)
+    }
+
+    // ---- braced type body → member list → field family (Parser.cs :1359/:1412/:1637) ----
+
+    // Parse a braced type body far enough to reach the FIELD family. Type parameters, primary-
+    // constructor parameters, and base-type lists are LATER arc stages; the member/field corpus
+    // types have none, so a valid-named type is immediately followed by '{'. A '<error>'-named type
+    // enters the body ONLY when the offending token is '{' — the Stage-2-deferred braced-kind
+    // found-other case (`class {` / `struct {`) that the member-list parse now makes reachable;
+    // every other '<error>'-name shape keeps the Stage-2 return-early behavior unchanged (the
+    // missing-'{' diagnostic for a valid name without a body is the closing-delimiter stage's).
+    func ParseTypeBodyIfPresent(name: string) {
+        if !Check(TokenType.LeftBrace) {
+            return
+        }
+        Advance()                               // consume '{'
+        ParseMemberList()
+    }
+
+    // Parser.cs ParseMemberList (:1359): reset panic at each MEMBER boundary (:1365), parse one
+    // member, force-advance on no progress (:1379). Stage 4 parses FIELD members only; nested-type /
+    // constructor / method / record-positional / union-case member grammars, and the missing-'}'
+    // (NL106) end-of-file report, are LATER arc stages (no corpus shape reaches EOF without '}').
+    func ParseMemberList() {
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
+            startPosition := Position
+            ParseFieldMember()
+
+            if Position == startPosition {
+                if !IsAtEnd() {
+                    Advance()
+                }
+            }
+        }
+
+        if Check(TokenType.RightBrace) {
+            Advance()
+        }
+    }
+
+    // Parser.cs ParseMemberDeclaration (:1412) FIELD/PROPERTY fall-through (:1481) → ParseFieldDeclaration
+    // (:1637). Field name errors funnel through the shared no-span ConsumeIdentifier Parser.cs uses at
+    // :1666 (a field name is never a dot-access, so its plain message variants apply).
+    func ParseFieldMember() {
+        line := Current().Line
+        column := Current().Column
+        name := ConsumeIdentifier("Expected field name")
+
+        // Type inference `Name := value` (Parser.cs :1670): a well-formed inferred field ends the
+        // member with no diagnostic. Corpus fields are all explicitly typed.
+        if Check(TokenType.ColonAssign) {
+            Advance()
+            ParseLiteralBearingExpression()
+            return
+        }
+
+        fieldColonToken := ConsumeFieldColon(name, line, column)
+        ParseFieldTypeReference(name, line, column, fieldColonToken)
+    }
+
+    // Parser.cs ConsumeFieldColon (:6651). Anchors the missing-':'/':=' diagnostic on the field NAME.
+    func ConsumeFieldColon(fieldName: string, fieldLine: int, fieldColumn: int): Token {
+        if Check(TokenType.Colon) {
+            return Advance()
+        }
+        if fieldName == "<error>" || fieldLine <= 0 || fieldColumn <= 0 {
+            // Generic Consume(':') fallback (Parser.cs :6657); panic-suppressed in the '<error>'
+            // cascade, and the synthetic token below is unused. Corpus never reaches it.
+            return Current()
+        }
+        nameLength := MaxInt(1, fieldName.Length)
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected ':' or ':=' after field name. Got '" + Current().Value + "'",
+            fieldLine,
+            fieldColumn,
+            "Field '" + fieldName + "' needs a ':' before its type, or ':=' before an inferred initializer.",
+            "Write this field as `" + fieldName + ": Type` or `" + fieldName + " := value`.",
+            FieldColonSuggestions(fieldName),
+            nameLength)
+        // Parser.cs returns a synthetic ':' token at (fieldLine, fieldColumn + nameLength) (:6675);
+        // its only consumer (LooksLikeNextFieldAfterMissingType) compares only the LINE.
+        return new Token(TokenType.Colon, ":", fieldLine, fieldColumn + nameLength, FileName)
+    }
+
+    // Parser.cs ParseFieldTypeReference (:6536). Consumes a simple type name, or reports the
+    // missing-type diagnostic anchored on the field name when a type terminator (and not the start
+    // of the NEXT field) sits where the type should be.
+    func ParseFieldTypeReference(fieldName: string, fieldLine: int, fieldColumn: int, fieldColonToken: Token) {
+        if !IsTypeTerminator(Current().Type) && !LooksLikeNextFieldAfterMissingType(fieldColonToken) {
+            ParseSimpleTypeReference()
+            return
+        }
+        visible := IsVisibleName(fieldName)
+        span := TypeErrorAnchor(visible, fieldLine, fieldColumn, fieldName)
+        explanation := "This field needs a type after ':'."
+        hint := "Write fields as `Name: Type`."
+        if visible {
+            explanation = "Field '" + fieldName + "' needs a type after ':'."
+            hint = "Write this field as `" + fieldName + ": Type`."
+        }
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected type name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            explanation,
+            hint,
+            SingleSuggestion("Add a field type after ':'"),
+            span.Length)
+    }
+
+    // Parser.cs LooksLikeNextFieldAfterMissingType (:6572): a following `Ident (: | :=)` on a LATER
+    // line is the next field, not this field's type — so the type parse must not consume it.
+    func LooksLikeNextFieldAfterMissingType(fieldColonToken: Token): bool {
+        if Current().Line <= fieldColonToken.Line {
+            return false
+        }
+        if !Check(TokenType.Identifier) {
+            return false
+        }
+        nextType := LookAhead(1).Type
+        return nextType == TokenType.Colon || nextType == TokenType.ColonAssign
+    }
+
+    // ---- shared Stage-4 helpers ----
+
+    func ParseSimpleTypeReference() {
+        // Minimal type-reference vehicle: consume a simple identifier type name (e.g. `int`).
+        // Generic / array / tuple / qualified type references are a LATER arc stage; the member /
+        // parameter corpus uses only simple identifier types.
+        if Check(TokenType.Identifier) {
+            Advance()
+        }
+    }
+
+    // The parameter/field type-error anchor (Parser.cs :6509/:6545): the NAME span when the name is
+    // visible and positioned, otherwise the current token.
+    func TypeErrorAnchor(visible: bool, line: int, column: int, name: string): RecoverySpan {
+        if visible && line > 0 && column > 0 {
+            return new RecoverySpan(line, column, MaxInt(1, name.Length))
+        }
+        return SpanFromToken(Current())
+    }
+
+    func IsVisibleName(name: string): bool {
+        if string.IsNullOrWhiteSpace(name) {
+            return false
+        }
+        return name != "<error>"
+    }
+
+    func IsTypeTerminator(t: TokenType): bool {
+        if t == TokenType.Comma {
+            return true
+        }
+        if t == TokenType.RightParen {
+            return true
+        }
+        if t == TokenType.RightBracket {
+            return true
+        }
+        if t == TokenType.RightBrace {
+            return true
+        }
+        if t == TokenType.Newline {
+            return true
+        }
+        if t == TokenType.Eof {
+            return true
+        }
+        if t == TokenType.Assign {
+            return true
+        }
+        if t == TokenType.Semicolon {
+            return true
+        }
+        if t == TokenType.Arrow {
+            return true
+        }
+        if t == TokenType.Colon {
+            return true
+        }
+        return false
+    }
+
+    func SingleSuggestion(text: string): List<string> {
+        suggestions := new List<string>()
+        suggestions.Add(text)
+        return suggestions
+    }
+
+    func FieldColonSuggestions(fieldName: string): List<string> {
+        suggestions := new List<string>()
+        suggestions.Add("Add ':' after '" + fieldName + "'")
+        suggestions.Add("Use ':=' after '" + fieldName + "' if the type should be inferred")
+        return suggestions
+    }
+
     func ParseClassName() {
         classToken := Current()
         Advance()
-        ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
+        name := ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
+        ParseTypeBodyIfPresent(name)
     }
 
     func ParseStructName() {
         structToken := Current()
         Advance()
-        ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
+        name := ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
+        ParseTypeBodyIfPresent(name)
     }
 
     func ParseRecordName() {

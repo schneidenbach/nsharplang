@@ -866,3 +866,279 @@ test "016 literal: a well-formed function followed by a malformed one reports on
     assert e.Length == 2
     assert e.SourceSnippet == "func g() => 'x"
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 4: the MEMBER / PARAMETER / FIELD declaration
+// diagnostic family (the `:`/`:=` colon and type-annotation errors, NL102 ExpectedToken /
+// NL109 ReservedKeywordAsName).
+//
+// Carries, through the SAME shared-panic recovery model: the PARAMETER family via
+// `func f(<params>)` (ConsumeIdentifier + GetMissingParameterNameDiagnosticSpan,
+// ConsumeParameterColon, ParseParameterTypeReference); the FIELD family via `class C { … }` /
+// `struct S { … }` (ConsumeIdentifier "Expected field name", ConsumeFieldColon,
+// ParseFieldTypeReference with LooksLikeNextFieldAfterMissingType); the MEMBER-BOUNDARY panic
+// reset (ParseMemberList, Parser.cs :1365); and the Stage-2-deferred braced-kind found-other
+// name for the `{`-offender variant (`class {` / `struct {`), now reachable through the
+// member-list parse. Every expected value is the GOLDEN output of the production Parser.cs path,
+// captured out-of-band from the freshly built Release CLI (`nlc check --json`) on the same
+// malformed source, filtered to the parser diagnostic codes NL101-NL109.
+// ============================================================================
+
+// ---- parameter family (func f(<params>)) ----
+
+test "016 param: a missing ':' after a parameter name anchors NL102 on the parameter name" {
+    errors := RunPreamble("func f(x)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' after parameter name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(x)"
+    assert e.HumanExplanation == "Parameter 'x' needs a ':' before its type."
+    assert e.ContextualHint == "Write this parameter as `x: Type`."
+    assert e.Suggestion == "Add ':' after 'x'"
+}
+
+test "016 param: a missing type after the parameter ':' anchors the type NL102 on the parameter name" {
+    errors := RunPreamble("func f(x:)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(x:)"
+    assert e.HumanExplanation == "Parameter 'x' needs a type after ':'."
+    assert e.ContextualHint == "Write this parameter as `x: Type`."
+    assert e.Suggestion == "Add a parameter type after ':'"
+}
+
+test "016 param: a ':' where the parameter name is required anchors the found NL102 on the type token" {
+    // GetMissingParameterNameDiagnosticSpan: the `:` is followed by a type start `int`, so the
+    // "Expected parameter name" diagnostic underlines `int` (column 9, length 3), not the `:`.
+    errors := RunPreamble("func f(:int)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected parameter name. Got ':'"
+    assert e.Line == 1
+    assert e.Column == 9
+    assert e.Length == 3
+    assert e.SourceSnippet == "func f(:int)"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found ':' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 param: a reserved keyword where a parameter name is required reports the keyword-specific NL109" {
+    errors := RunPreamble("func f(class: int)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected parameter name. Got the reserved keyword 'class'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 5
+    assert e.SourceSnippet == "func f(class: int)"
+    assert e.HumanExplanation == "'class' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'classValue' or '_class')."
+    assert e.Suggestion == "Rename it to 'classValue' or '_class'"
+}
+
+test "016 param: a valid first parameter then a second missing its ':' reports the second parameter's NL102" {
+    // The first parameter `a: int` parses cleanly; the second `b` reports the missing-':' NL102
+    // anchored on `b` (column 16). Exercises a simple type consume plus the comma continuation.
+    errors := RunPreamble("func f(a: int, b)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' after parameter name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(a: int, b)"
+    assert e.HumanExplanation == "Parameter 'b' needs a ':' before its type."
+    assert e.ContextualHint == "Write this parameter as `b: Type`."
+    assert e.Suggestion == "Add ':' after 'b'"
+}
+
+test "016 param: a fully well-formed parameter list reports no parser diagnostic" {
+    errors := RunPreamble("func f(x: int)")
+    assert errors.Count == 0
+}
+
+test "016 param: two functions each with a missing parameter ':' report at their own declaration boundary" {
+    // The declaration-boundary panic reset lets BOTH functions' parameter errors fire.
+    errors := RunPreamble("func f(x)\nfunc g(y)")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected ':' after parameter name. Got ')'"
+    assert e0.Line == 1
+    assert e0.Column == 8
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "func f(x)"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected ':' after parameter name. Got ')'"
+    assert e1.Line == 2
+    assert e1.Column == 8
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "func g(y)"
+}
+
+// ---- field family (class C { … } / struct S { … }) ----
+
+test "016 field: a missing ':'/':=' after a field name anchors NL102 on the field name" {
+    errors := RunPreamble("class C { x }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' or ':=' after field name. Got '}'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "class C { x }"
+    assert e.HumanExplanation == "Field 'x' needs a ':' before its type, or ':=' before an inferred initializer."
+    assert e.ContextualHint == "Write this field as `x: Type` or `x := value`."
+    assert e.Suggestion == "Add ':' after 'x'"
+}
+
+test "016 field: a missing type after the field ':' anchors the type NL102 on the field name" {
+    errors := RunPreamble("class C { x: }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '}'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "class C { x: }"
+    assert e.HumanExplanation == "Field 'x' needs a type after ':'."
+    assert e.ContextualHint == "Write this field as `x: Type`."
+    assert e.Suggestion == "Add a field type after ':'"
+}
+
+test "016 field: the member-boundary panic reset lets two malformed fields each report their type error" {
+    // class C { x: \n y: } : the LooksLikeNextFieldAfterMissingType heuristic stops field x's type
+    // parse from swallowing field y; field x sets panic, the member boundary resets it, and field
+    // y reports too. Proves the Parser.cs :1365 per-member sync point.
+    errors := RunPreamble("class C {\nx:\ny:\n}")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected type name. Got 'y'"
+    assert e0.Line == 2
+    assert e0.Column == 1
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "x:"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected type name. Got '}'"
+    assert e1.Line == 3
+    assert e1.Column == 1
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "y:"
+}
+
+test "016 field: a reserved keyword where a field name is required reports the keyword-specific NL109" {
+    errors := RunPreamble("class C { return }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected field name. Got the reserved keyword 'return'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 6
+    assert e.SourceSnippet == "class C { return }"
+    assert e.HumanExplanation == "'return' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'returnValue' or '_return')."
+    assert e.Suggestion == "Rename it to 'returnValue' or '_return'"
+}
+
+test "016 field: a struct field missing its ':'/':=' reports the same NL102 (struct body parity)" {
+    errors := RunPreamble("struct S { a }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' or ':=' after field name. Got '}'"
+    assert e.Line == 1
+    assert e.Column == 12
+    assert e.Length == 1
+    assert e.SourceSnippet == "struct S { a }"
+    assert e.HumanExplanation == "Field 'a' needs a ':' before its type, or ':=' before an inferred initializer."
+    assert e.ContextualHint == "Write this field as `a: Type` or `a := value`."
+    assert e.Suggestion == "Add ':' after 'a'"
+}
+
+test "016 field: a malformed field in each of two classes reports at each class's declaration boundary" {
+    errors := RunPreamble("class C {\nx\n}\nclass D {\ny\n}")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected ':' or ':=' after field name. Got '}'"
+    assert e0.Line == 2
+    assert e0.Column == 1
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "x"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected ':' or ':=' after field name. Got '}'"
+    assert e1.Line == 5
+    assert e1.Column == 1
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "y"
+}
+
+test "016 field: a well-formed explicitly-typed field reports no parser diagnostic" {
+    errors := RunPreamble("class C { x: int }")
+    assert errors.Count == 0
+}
+
+test "016 field: an empty class body reports no parser diagnostic" {
+    errors := RunPreamble("class C {}")
+    assert errors.Count == 0
+}
+
+// ---- braced-kind found-other name (Stage-2-deferred `{`-offender variant, now reachable) ----
+
+test "016 decl-name: a class whose name is the opening brace anchors the found NL102 on 'class'" {
+    // `class {` : the offending `{` is consumed as the (empty) body brace, so the member-list
+    // parse makes this Stage-2-deferred found-other reachable as exactly ONE diagnostic.
+    errors := RunPreamble("class {\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected class name. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 5
+    assert e.SourceSnippet == "class {"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '{' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 decl-name: a struct whose name is the opening brace anchors the found NL102 on 'struct'" {
+    errors := RunPreamble("struct {\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected struct name. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 6
+    assert e.SourceSnippet == "struct {"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '{' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}

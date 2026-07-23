@@ -16,22 +16,72 @@ Last updated: 2026-07-22
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stage 1
   landed this turn) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 3 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 4 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
   family, 11 contracts), STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
   record/soa/interface/union/enum/type-alias, with `DiagnosticSpanFromToken` keyword-anchoring + the
-  reserved-keyword-as-name variant, +24 contracts), and STAGE 3 (the MALFORMED-LITERAL family — NL105
+  reserved-keyword-as-name variant, +24 contracts), STAGE 3 (the MALFORMED-LITERAL family — NL105
   unterminated string / interpolated / char / triple / interpolated-raw + empty char, reached via the
-  expression-bodied `func f() => <literal>` context, +14 contracts) have LANDED (no production edit to any
-  consumer, no commit — mandate; working tree carries the two N# files + the STAGE-1 ColumnarSyntaxDiagnostics
-  scaffolding deletion + this STATUS update). `ColumnarParserRecovery.nl` reproduces Parser.cs's recovery
-  discipline faithfully and is proven byte-exact against the production Parser.cs path on a golden parity corpus
-  (49 native contracts total, including the cascading-suppression, does-not-swallow-following, keyword-anchored
-  absent/reserved name, cross-boundary panic-reset, and the malformed-literal in-region-suppression shapes).
-  Parser.cs REMAINS the sole production syntax authority; cutover is the arc's LAST stage. No wall tripped
-  (self-contained shape, packaged SDK emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 3 of the parser-front-end arc — the
+  expression-bodied `func f() => <literal>` context, +14 contracts), and STAGE 4 (the MEMBER / PARAMETER /
+  FIELD declaration family — the `:`/`:=` colon and type-annotation errors via `func f(<params>)` and
+  `class C { … }` / `struct S { … }`, the `ParseMemberList` per-member panic-reset sync point, and the
+  Stage-2-deferred braced-kind found-other `{`-offender retirement, +17 contracts) have LANDED (no production
+  edit to any consumer, no commit — mandate; working tree carries the two N# files + the STAGE-1
+  ColumnarSyntaxDiagnostics scaffolding deletion + this STATUS update). `ColumnarParserRecovery.nl` reproduces
+  Parser.cs's recovery discipline faithfully and is proven byte-exact against the production Parser.cs path on a
+  golden parity corpus (66 native contracts total, including the cascading-suppression, does-not-swallow-
+  following, keyword-anchored absent/reserved name, cross-boundary panic-reset, the malformed-literal
+  in-region-suppression, and the member-boundary panic-reset shapes). Parser.cs REMAINS the sole production
+  syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK emits
+  it — no repin).
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 4 of the parser-front-end arc — the
+  MEMBER / PARAMETER / FIELD declaration diagnostic family (the `:`/`:=` colon and type-annotation errors,
+  NL102 `ExpectedToken` / NL109 `ReservedKeywordAsName`). Extended `ColumnarParserRecovery.nl` to carry, through
+  the SAME shared-panic model, four sub-families end-to-end, byte-exact against the freshly built Release CLI
+  oracle. ORIGIN INVENTORY (grep of Parser.cs): (a) PARAMETERS — `ParseParameterList` (:751) funnels the name
+  through `ConsumeIdentifier(message, diagnosticSpan?)` (:6720) with `GetMissingParameterNameDiagnosticSpan`
+  (:6476, anchors a missing name on the following type token), the `:` through `ConsumeParameterColon` (:6625,
+  anchors on the parameter NAME), and the type through `ParseParameterTypeReference` (:6504, name-anchored
+  missing-type); (b) FIELDS — `ParseFieldDeclaration` (:1637) funnels the name through the no-span
+  `ConsumeIdentifier` (:1666), the `:`/`:=` through `ConsumeFieldColon` (:6651), and the type through
+  `ParseFieldTypeReference` (:6536) with the `LooksLikeNextFieldAfterMissingType` heuristic (:6572, so a
+  following `Ident(:|:=)` on a later line is NOT swallowed as this field's type); (c) the MEMBER-BOUNDARY
+  recovery — `ParseMemberList`'s per-member `_panicMode = false` reset (:1365) — proven by two malformed fields
+  each reporting at their own member boundary; (d) the Stage-2-DEFERRED braced-kind found-other NAME, now
+  reachable for the `{`-offender variant (`class {` / `struct {`), where the offending `{` is consumed as the
+  empty body brace and panic suppresses the rest — RETIRING that deferred Stage-2 case. IMPLEMENTATION: routed
+  the function head through a real `ParseParameterListRecovery` (empty `()` handled identically, so Stage-3's
+  `func f() => <lit>` corpus is unaffected); extended `ParseClassName` / `ParseStructName` with
+  `ParseTypeBodyIfPresent` (parses the braced body for a VALID name → fields, and for an `<error>` name ONLY
+  when the offender is `{` — every other `<error>`-name shape keeps Stage-2 return-early, so no Stage-2
+  multi-declaration case regresses); added `ParseMemberList` (member-boundary reset + force-advance),
+  `ParseFieldMember`, the four `Consume*`/`Parse*TypeReference` reporters, and shared `IsTypeTerminator` /
+  `IsVisibleName` / `TypeErrorAnchor` helpers. Diagnostic CONSTRUCTION delegates to the live shared
+  `ParserErrorDiagnostics.Create`, and the field-type/parameter-type/colon DECISIONS reuse the live shared
+  `ParserTokenFacts.IsTypeReferenceStart` (identical to Parser.cs), so codes / messages / spans / snippets /
+  hints match automatically. +17 native parity contracts in `ColumnarParserRecovery.tests.nl` (7 parameter: the
+  missing-`:` / missing-type / `:`-where-name-required found / reserved-keyword name / second-parameter-`:` /
+  well-formed negative / two-functions-boundary-reset; 8 field: missing-`:`/`:=` / missing-type /
+  member-boundary-reset (two malformed fields) / reserved-keyword field name / struct-body field / two-classes
+  boundary reset / well-formed-field negative / empty-body negative; 2 braced found-other: `class {` / `struct {`).
+  DEFERRED (recorded, NOT covered — with reasons): the non-`{` braced found-other (`class 5` / `struct 5`) emits a
+  3-diagnostic cascade (name error → `Missing closing '}'` → in-body `Expected field name`) whose report order
+  diverges from the oracle's position-sorted output and needs `ParseTypeReference`-on-garbage +
+  `SynchronizeToNextStatement` + the sorted-emit order — a later stage; the non-identifier parameter name
+  (`func f(5)`) cascade needs the same garbage-type reachability; the trailing-comma
+  (`ReportMissingParameterAfterTrailingComma`), the missing-`)` / missing-`{` / missing-`}` (NL106/NL107)
+  closing-delimiter recovery, and the method / nested-type / constructor / record-positional / union-case /
+  interface member grammars (and record/interface/union bodies) are their own later arc stages. NO production
+  wiring; NO wall tripped (self-contained edit to one owner + its tests; the packaged SDK 0.1.0 self-emitted the
+  edited owner + all 828 contracts cleanly — no repin). Evidence: BootstrapServices contracts 828/828 (811
+  baseline + 17); dev.sh Parser 381/381; ownership audit 18/18 (all deltas `.nl`, no ratchet movement); git
+  status shows ONLY the two `.nl` files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A —
+  `ColumnarParserRecovery` / `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by
+  grep across src+tests), so nothing in the production compile path changed. No LSP/VS Code change → no extension
+  reload. Next: STAGE 5 = generics / constraints (the `ConsumeGreater`, split `>>`, type-parameter /
+  type-argument errors) per the arc plan.
+- Prior sub-slice (016 arc, STAGE 3, LANDED — no commit): the parser-front-end arc — the
   MALFORMED-LITERAL diagnostic family (NL105 `InvalidLiteral`). Extended `ColumnarParserRecovery.nl` to carry the
   malformed-literal diagnostics — unterminated string, unterminated interpolated (single-line) string,
   unterminated char, empty char, unterminated triple-quoted string, unterminated interpolated raw string —
@@ -488,10 +538,32 @@ production shadow/comparison route ever runs — parity proofs live only in `.te
   negatives. BootstrapServices 797→811; dev.sh Parser 381/381; ownership audit 18/18; NO production wiring;
   NO wall (self-contained). NOTE for later: `import`-path strings and test-description strings do NOT run the
   malformed check (verified: `import "abc` → NL701, not NL105), so they are correctly out of this family.
-- STAGE 4..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
+- STAGE 4 (LANDED this turn) — the MEMBER / PARAMETER / FIELD declaration family (NL102 `ExpectedToken` /
+  NL109 `ReservedKeywordAsName`). Extended `ColumnarParserRecovery.nl` with a real `ParseParameterListRecovery`
+  (from the function head) carrying the parameter name (`ConsumeIdentifier`(message, span?) :6720 +
+  `GetMissingParameterNameDiagnosticSpan` :6476), colon (`ConsumeParameterColon` :6625, name-anchored), and
+  type (`ParseParameterTypeReference` :6504) errors; and a braced-body path (`ParseClassName` / `ParseStructName`
+  → `ParseTypeBodyIfPresent` → `ParseMemberList` → `ParseFieldMember`) carrying the field name
+  (`ConsumeIdentifier` "Expected field name" :1666), colon (`ConsumeFieldColon` :6651, name-anchored), and type
+  (`ParseFieldTypeReference` :6536 with `LooksLikeNextFieldAfterMissingType` :6572) errors, plus the
+  `ParseMemberList` per-member panic-reset sync point (:1365). RETIRED the Stage-2-deferred braced-kind
+  found-other NAME for the `{`-offender variant (`class {` / `struct {`) — now reachable because the offending
+  `{` is consumed as the empty body brace; `ParseTypeBodyIfPresent` enters the body for a valid name (→ fields)
+  or an `<error>` name ONLY when the offender is `{`, so no Stage-2 multi-declaration case regresses (proven by
+  the unchanged Stage-1/2/3 contracts). Bodies parse FIELD members only; type-params/primary-ctor/base-lists,
+  the missing-`{`/`}` (NL106) reports, and the method/nested/constructor/record-positional/union-case member
+  grammars are later stages (corpus avoids them). +17 native contracts (7 parameter, 8 field incl. the
+  member-boundary-reset two-field and two-class shapes, 2 braced found-other). DEFERRED with reasons: the
+  non-`{` braced found-other (`class 5`) and non-identifier parameter name (`func f(5)`) both emit garbage-type
+  cascades whose report order diverges from the oracle's position-sorted output (need `ParseTypeReference`-
+  on-garbage + `SynchronizeToNextStatement` + sorted emit); trailing-comma
+  (`ReportMissingParameterAfterTrailingComma`) and the closing-delimiter recovery are their own stages.
+  BootstrapServices 811→828; dev.sh Parser 381/381; ownership audit 18/18; NO production wiring; NO wall
+  (self-contained; packaged SDK self-emitted the edited owner + all 828 contracts — no repin).
+- STAGE 5..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
   extend `ColumnarParserRecovery` family by family until it matches Parser.cs's full ~256-diagnostic
-  surface under the shared-panic model. Suggested order (smallest-coherent first, malformed-literal DONE
-  above): member/parameter/field decls (`:`/`:=` colon and type errors) → generics/constraints
+  surface under the shared-panic model. Suggested order (smallest-coherent first, member/parameter/field DONE
+  above): generics/constraints
   (`ConsumeGreater`, split `>>`, type-param / type-argument errors) → statements (the
   `SynchronizeToNextStatement` sync point + dangling-operator / missing-initializer / missing-condition
   shapes the ParserErrorTests pin) → expressions/patterns → closing-delimiter recovery
@@ -530,21 +602,25 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE 4 of the parser-front-end arc (see the "Staged parser-front-end
-  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family), and
-  STAGE 3 (MALFORMED-LITERAL family) have LANDED. STAGE 4 = the next-smallest family through the SAME
-  shared-panic model, proven byte-exact on the parity corpus — smallest-coherent first: MEMBER / PARAMETER /
-  FIELD declaration diagnostics (the `:`/`:=` colon and type errors), then generics/constraints. Still
-  kernel-capability-only (no production wiring, no IDE gate). Stays self-contained (BootstrapServices `.nl` +
-  `.tests.nl`, no repin) unless the stage needs a kernel entry point dependents compile against — call out the
-  two-stage bootstrap wall at stage start. Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner
-  (divergent per-token panic model). NOTES for later stages: (a) STAGE 2 models declaration NAMES only (no
-  bodies), so found-other names for class/struct/record/interface/union are deferred to the body/closing-
-  delimiter stage where the member-list parse becomes byte-exact. (b) STAGE 3's MINIMAL literal-reaching
+- Task 016 next parser sub-slice: STAGE 5 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family),
+  STAGE 3 (MALFORMED-LITERAL family), and STAGE 4 (MEMBER / PARAMETER / FIELD declaration family) have LANDED.
+  STAGE 5 = GENERICS / CONSTRAINTS through the SAME shared-panic model, proven byte-exact on the parity corpus:
+  the `ConsumeGreater` split-`>>` handling, type-parameter name errors (`ReportMissingTypeParameterName`,
+  Parser.cs :6439), type-argument errors (`ReportMissingGenericTypeArgument` :6457), and the `where`-clause
+  constraint errors. Still kernel-capability-only (no production wiring, no IDE gate). Stays self-contained
+  (BootstrapServices `.nl` + `.tests.nl`, no repin) unless the stage needs a kernel entry point dependents
+  compile against — call out the two-stage bootstrap wall at stage start. Do NOT resurrect the deleted
+  `ColumnarSyntaxDiagnostics` scanner (divergent per-token panic model). NOTES for later stages: (a) STAGE 4
+  parses FIELD members only and retires the braced-kind found-other ONLY for the `{`-offender; the non-`{`
+  found-other (`class 5`), non-identifier parameter name (`func f(5)`), trailing-comma, and the
+  method/nested/constructor/record-positional/union-case member grammars remain deferred (garbage-type cascade
+  + position-sorted emit order — need `ParseTypeReference`-on-garbage + `SynchronizeToNextStatement`), retiring
+  with the expression/statement + closing-delimiter stages. (b) STAGE 3's MINIMAL literal-reaching
   expression path (paren + literal primary + flat binary-operator continuation) is a vehicle, NOT the full
   expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
-  ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3 corpus
-  shapes deliberately keep those would-be errors panic-suppressed so its output is byte-exact without them.
+  ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3/4 corpus
+  shapes deliberately keep those would-be errors panic-suppressed so their output is byte-exact without them.
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
@@ -554,6 +630,28 @@ These are populated only when their task becomes current.
 
 Completed slices:
 
+- Task 016 — FIFTH slice (parser-front-end arc STAGE 4): the MEMBER / PARAMETER / FIELD declaration
+  diagnostic family (the `:`/`:=` colon and type-annotation errors, NL102 `ExpectedToken` / NL109
+  `ReservedKeywordAsName`), in N#, PROVEN byte-exact against the freshly built Release CLI oracle. NOT committed
+  (mandate: do not commit); working tree carries the two edited N# files + STATUS. NO production wiring —
+  Parser.cs remains the sole production syntax authority.
+  - Site inventory (grep of Parser.cs): PARAMETERS via `ParseParameterList` (:751) → `ConsumeIdentifier`(msg,
+    span?) (:6720) + `GetMissingParameterNameDiagnosticSpan` (:6476), `ConsumeParameterColon` (:6625),
+    `ParseParameterTypeReference` (:6504); FIELDS via `ParseFieldDeclaration` (:1637) → no-span `ConsumeIdentifier`
+    (:1666), `ConsumeFieldColon` (:6651), `ParseFieldTypeReference` (:6536) + `LooksLikeNextFieldAfterMissingType`
+    (:6572); the MEMBER-BOUNDARY panic reset in `ParseMemberList` (:1365); and the Stage-2-deferred braced-kind
+    found-other NAME (`ConsumeDeclarationName` reached with a `{` offender, retired for `class {` / `struct {`).
+  - Deliverables: `ColumnarParserRecovery.nl` +~350 lines (`ParseParameterListRecovery`, `ConsumeNameWithSpan`,
+    `GetMissingParameterNameDiagnosticSpan`, `ConsumeParameterColon`, `ParseParameterTypeReference`,
+    `ParseTypeBodyIfPresent`, `ParseMemberList`, `ParseFieldMember`, `ConsumeFieldColon`,
+    `ParseFieldTypeReference`, `LooksLikeNextFieldAfterMissingType`, `ParseSimpleTypeReference`, `TypeErrorAnchor`,
+    `IsVisibleName`, `IsTypeTerminator`, `SingleSuggestion`, `FieldColonSuggestions`; `ParseFunctionHeadAndBody` /
+    `ParseClassName` / `ParseStructName` extended). +17 native parity contracts in `ColumnarParserRecovery.tests.nl`.
+  - Parity + evidence: BootstrapServices contracts 828/828 (811 baseline + 17); dev.sh Parser 381/381; ownership
+    audit 18/18; git status shows ONLY the two `.nl` files + STATUS. NO wall (self-contained; packaged SDK 0.1.0
+    self-emitted the edited owner + all 828 contracts cleanly — no repin). Full suite / corpus sweeps N/A
+    (`ColumnarParserRecovery` / `ParseFilePreamble` referenced ONLY by this owner's own `.tests.nl`); no LSP
+    change → no reload.
 - Task 016 — FOURTH slice (parser-front-end arc STAGE 3): the MALFORMED-LITERAL diagnostic family (NL105
   `InvalidLiteral`), in N#, PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not commit);
   working tree carries the two edited N# files + STATUS. NO production wiring — Parser.cs remains the sole
