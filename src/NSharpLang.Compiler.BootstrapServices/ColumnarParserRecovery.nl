@@ -18,6 +18,23 @@ public class RecoverySpan {
     }
 }
 
+// Stage 6: the diagnostic-relevant result of parsing a statement expression. The recovery
+// model builds no AST, so instead of an Expression node this carries only what the statement
+// diagnostics need: the expression's DiagnosticSpanFromToken-equivalent span (used to anchor a
+// shorthand `:=` initializer error and a binary/assignment missing-operand error) and whether
+// the expression was a bare identifier (used to decide the `identifier :=` shorthand-declaration
+// path, exactly as Parser.cs's `expr is IdentifierExpression`). A local reference type rather
+// than a value struct.
+public class ExprResult {
+    Span: RecoverySpan
+    IsBareIdentifier: bool
+
+    constructor(span: RecoverySpan, isBareIdentifier: bool) {
+        Span = span
+        IsBareIdentifier = isBareIdentifier
+    }
+}
+
 // Stage 1 of the task-016 parser-front-end arc: a faithful N# reproduction of the
 // Parser.cs shared-panic recovery model, carrying the import / namespace / package
 // diagnostic family end-to-end.
@@ -49,6 +66,13 @@ public class ColumnarParserRecovery {
     // `>` (Check/Advance below honor it, exactly as Parser.cs). Reset at the same sync points Parser.cs
     // resets it (SynchronizeToNextDeclaration/Statement :7042/:7086 → the declaration/member boundaries).
     SplitGreaterDepth: int
+    // Stage 6: the current statement's recovery-boundary column (Parser.cs `_currentRecoveryBoundaryColumn`,
+    // an int?). Set to the starting column of each block statement (Parser.cs ParseBlock :2177) and consulted
+    // by IsMissingOperandBoundary so a following token at or left of the statement's column is treated as the
+    // start of a new statement (the dangling-operator "does not swallow the following statement" behaviour).
+    // Modelled as an int + presence flag rather than int? to keep the comparison arithmetic simple.
+    RecoveryBoundaryColumn: int
+    HasRecoveryBoundaryColumn: bool
     Errors: List<CompilerError>
 
     constructor(source: string, fileName: string?) {
@@ -57,6 +81,8 @@ public class ColumnarParserRecovery {
         Position = 0
         PanicMode = false
         SplitGreaterDepth = 0
+        RecoveryBoundaryColumn = 0
+        HasRecoveryBoundaryColumn = false
         Errors = new List<CompilerError>()
 
         lexer := new Lexer(source, fileName)
@@ -581,6 +607,7 @@ public class ColumnarParserRecovery {
     func ParseFunctionName() {
         funcToken := Current()
         Advance()
+        nameToken := Current()          // capture the name token BEFORE it is consumed (Parser.cs :433)
         name := ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
         if name == "<error>" {
             // A name error (Stage 2) leaves the offending/absent name for the boundary; do
@@ -592,7 +619,12 @@ public class ColumnarParserRecovery {
         // expression body (Parser.cs reaches ReportMalformedStringLiteralIfNeeded /
         // ReportMalformedCharLiteralIfNeeded only inside ParsePrimaryExpression). Continue the
         // function head far enough to reach the body and run the literal check.
-        ParseFunctionHeadAndBody()
+        //
+        // Stage 6: the block-body owner span is the function-name span (Parser.cs's
+        // returnTypeDiagnostic{Line,Column,Length} default, :438-441), used only for the block's
+        // own missing-'}' report.
+        ownerSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        ParseFunctionHeadAndBody(ownerSpan)
     }
 
     // Parse the tail of a validly-named function far enough to reach an expression body, so the
@@ -601,7 +633,7 @@ public class ColumnarParserRecovery {
     // (the shallowest byte-exact literal context). General parameter/generic/return-type parsing
     // and the block-body statement grammar are LATER arc stages; here the head is only consumed
     // enough to reach `=> <expr>` for the empty-parameter, expression-bodied shape.
-    func ParseFunctionHeadAndBody() {
+    func ParseFunctionHeadAndBody(ownerSpan: RecoverySpan) {
         // Type parameter list `<T, U>` (Stage 5, Parser.cs :446). Runs BEFORE the parameter list,
         // exactly as ParseFunctionDeclaration does, so a malformed `<>` / `<T,>` / `<return>` list
         // reports its NL102/NL109 here. Absent when the function is non-generic (Check(Less) is false).
@@ -626,10 +658,15 @@ public class ColumnarParserRecovery {
         // exactly as ParseFunctionDeclaration does.
         ParseGenericConstraints()
 
-        // Expression-bodied function `=> <expr>` (Parser.cs :493-497).
+        // Function body (Parser.cs :493-501): an expression body `=> <expr>` (Stage 3 vehicle) or,
+        // Stage 6, a real block body `{ <statements> }`.
         if Check(TokenType.Arrow) {
             Advance()
             ParseLiteralBearingExpression()
+            return
+        }
+        if Check(TokenType.LeftBrace) {
+            ParseBlockBody(ownerSpan)
         }
     }
 
@@ -1630,6 +1667,655 @@ public class ColumnarParserRecovery {
 
     func DiagnosticSpanFromTokenRange(start: Token, end: Token): RecoverySpan {
         return new RecoverySpan(start.Line, start.Column, TokenSpanLengthOrFallback(start, end))
+    }
+
+    // ============================================================================
+    // Stage 6: the STATEMENT diagnostic family — carried through the SAME shared-panic model.
+    // Extends the function head with a real block-body grammar (the `func f() { <statements> }`
+    // vehicle Stages 3-5 deliberately left unparsed) and reproduces Parser.cs's statement recovery:
+    //   * the SynchronizeToNextStatement sync point + the per-statement panic reset (Parser.cs
+    //     ParseBlock :2172 / SynchronizeToNextStatement :7084) and the _currentRecoveryBoundaryColumn
+    //     tracking (:2177) that drives the dangling-operator "does not swallow the following statement".
+    //   * the dangling-binary-operator / missing-assignment-value shape (ParseRightOperandOrMissing
+    //     :3750, "Expected expression after 'X'", the DiagnosticSpanFromExpressionThroughToken span).
+    //   * the missing-initializer `:=` / `=` forms (ParseRequiredExpressionAfter :3855, anchored on
+    //     the declaration target).
+    //   * the missing-condition if/while and missing-`in` for/foreach shapes
+    //     (ReportMissingInKeywordAndRecover :3908) and the missing-statement-body report
+    //     (ReportMissingStatementBody :3968).
+    // Diagnostic CONSTRUCTION still delegates to the live shared ParserErrorDiagnostics.Create, and the
+    // boundary DECISIONS reuse the live shared ParserTokenFacts (IsStatementStartKeyword /
+    // CanStartExpression / IsExpressionTerminator / IsAssignmentOperator / IsModifierKeyword /
+    // IsDeclarationKeyword / IsTypeDeclarationKeyword), identical to Parser.cs, so codes / messages /
+    // spans / snippets / hints match automatically. The corpus keeps every function body closed and free
+    // of nested type declarations, so the block's own missing-'}' (NL106) report and the
+    // IsBlockClosingDeclarationStart break are not exercised — the broader closing-delimiter family
+    // (missing `)`/`]`/`}`) remains a later arc stage.
+    // ============================================================================
+
+    // ---- block body (Parser.cs ParseBlock :2143) ----
+    // '{' is guaranteed present at every call site (the caller checked Check(LeftBrace)).
+    func ParseBlockBody(ownerSpan: RecoverySpan?) {
+        line := Current().Line
+        column := Current().Column
+        Advance()                               // consume '{'
+        diagnosticSpan := ownerSpan ?? new RecoverySpan(line, column, 1)
+
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            PanicMode = false                   // reset at each statement boundary (Parser.cs :2172)
+            startPosition := Position
+
+            // Track this statement's starting column so IsMissingOperandBoundary can tell a genuine
+            // continuation from the start of the next statement (Parser.cs :2174-2182).
+            prevBoundary := RecoveryBoundaryColumn
+            prevHasBoundary := HasRecoveryBoundaryColumn
+            RecoveryBoundaryColumn = Current().Column
+            HasRecoveryBoundaryColumn = true
+            ParseStatement(null)
+            RecoveryBoundaryColumn = prevBoundary
+            HasRecoveryBoundaryColumn = prevHasBoundary
+
+            // No-progress guard (Parser.cs :2185-2195): synchronize, then force-advance.
+            if Position == startPosition {
+                if !IsAtEnd() {
+                    SynchronizeToNextStatement()
+                    if Position == startPosition {
+                        if !IsAtEnd() {
+                            Advance()
+                        }
+                    }
+                }
+            }
+        }
+
+        if Check(TokenType.RightBrace) {
+            Advance()
+        } else {
+            if IsAtEnd() {
+                ReportMissingClosingBrace(diagnosticSpan, line)
+            }
+        }
+    }
+
+    // Parser.cs ParseBlock's end-of-file missing-'}' report (:2205). Reproduced for a faithful block
+    // vehicle; the Stage-6 corpus keeps every body closed so it never fires.
+    func ReportMissingClosingBrace(diagnosticSpan: RecoverySpan, openingLine: int) {
+        Report(
+            ErrorCode.MissingClosingBrace,
+            "Missing closing '}'",
+            diagnosticSpan.Line,
+            diagnosticSpan.Column,
+            "The block that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.",
+            "Add a '}' to close this block.",
+            null,
+            diagnosticSpan.Length)
+    }
+
+    // Parser.cs SynchronizeToNextStatement (:7084): reset panic (+ split-`>>` debt) and skip to the
+    // next statement boundary — a closing brace, a statement-start keyword, or a type-declaration keyword.
+    func SynchronizeToNextStatement() {
+        PanicMode = false
+        SplitGreaterDepth = 0
+        while !IsAtEnd() {
+            if Check(TokenType.RightBrace) {
+                return
+            }
+            if ParserTokenFacts.IsStatementStartKeyword(Current().Type) {
+                return
+            }
+            if ParserTokenFacts.IsTypeDeclarationKeyword(Current().Type) {
+                return
+            }
+            Advance()
+        }
+    }
+
+    // ---- statement dispatch (Parser.cs ParseStatement :2219) ----
+    // Stage 6 carries the let/const/readonly, if, for, foreach, while, return, print, block, and
+    // expression-statement kinds — the surface the committed ParserErrorTests statement shapes reach.
+    // yield / break / continue / throw / try / using / lock / switch / allow / alloc / unsafe / assert /
+    // preprocessor / local-function / await-foreach / off statements are later arc stages (the corpus
+    // uses none); they would each add their own ReportError sites under the same shared-panic model.
+    func ParseStatement(blockOwnerSpan: RecoverySpan?) {
+        // A control-flow keyword whose body is missing (Parser.cs :2221): the caller passes its owner
+        // span, and if the very next token cannot begin a statement, report the missing body.
+        if blockOwnerSpan != null {
+            if IsMissingStatementBodyBoundary() {
+                owner := blockOwnerSpan ?? SpanFromToken(Current())
+                ReportMissingStatementBody(owner)
+                return
+            }
+        }
+
+        if Check(TokenType.Semicolon) {
+            Advance()                           // empty statement (Parser.cs :2228)
+            return
+        }
+
+        if Check(TokenType.Let) {
+            ParseVariableDeclaration()
+            return
+        }
+        if Check(TokenType.Const) {
+            ParseVariableDeclaration()
+            return
+        }
+        if Check(TokenType.Readonly) {
+            ParseVariableDeclaration()
+            return
+        }
+        if Check(TokenType.If) {
+            ParseIfStatement()
+            return
+        }
+        if Check(TokenType.For) {
+            ParseForStatement()
+            return
+        }
+        if Check(TokenType.Foreach) {
+            ParseForeachStatement()
+            return
+        }
+        if Check(TokenType.While) {
+            ParseWhileStatement()
+            return
+        }
+        if Check(TokenType.Return) {
+            ParseReturnStatement()
+            return
+        }
+        if Check(TokenType.Print) {
+            ParsePrintStatement()
+            return
+        }
+        if Check(TokenType.LeftBrace) {
+            ParseBlockBody(blockOwnerSpan)
+            return
+        }
+
+        ParseExpressionStatement()
+    }
+
+    // Parser.cs IsMissingStatementBodyBoundary (:3961) / ReportMissingStatementBody (:3968).
+    func IsMissingStatementBodyBoundary(): bool {
+        if Check(TokenType.RightBrace) {
+            return true
+        }
+        if Check(TokenType.Else) {
+            return true
+        }
+        return IsAtEnd()
+    }
+
+    func ReportMissingStatementBody(ownerSpan: RecoverySpan) {
+        suggestions := new List<string>()
+        suggestions.Add("Add a block body")
+        suggestions.Add("Add a statement body")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected statement body. Got '" + Current().Value + "'",
+            ownerSpan.Line,
+            ownerSpan.Column,
+            "This control-flow keyword needs a statement or block after its condition.",
+            "Add a block like `{ ... }`, or add a single statement after the keyword.",
+            suggestions,
+            ownerSpan.Length)
+    }
+
+    // ---- variable declaration (Parser.cs ParseVariableDeclaration :2531) ----
+    // let / const / readonly share one parser; the ownerDescription is always "This variable
+    // declaration" regardless of kind. Tuple deconstruction `(x, y) := …` is a later arc stage.
+    func ParseVariableDeclaration() {
+        Advance()                               // consume let / const / readonly
+        line := Current().Line
+        column := Current().Column
+        name := ConsumeIdentifier("Expected variable name")
+
+        // Optional type annotation `: T` (Parser.cs :2550).
+        if Check(TokenType.Colon) {
+            Advance()
+            ParseSimpleTypeReference()
+        }
+
+        if Check(TokenType.Assign) || Check(TokenType.ColonAssign) {
+            initializerToken := Advance()
+            ParseRequiredExpressionAfter(
+                initializerToken,
+                "an initializer expression",
+                "This variable declaration",
+                new RecoverySpan(line, column, MaxInt(1, name.Length)))
+        }
+    }
+
+    // ---- if / while / for / foreach (Parser.cs :2629 / :2806 / :2651 / :2747) ----
+
+    func ParseIfStatement() {
+        ifToken := Current()
+        Advance()                               // consume 'if'
+        ParseRequiredExpressionAfter(ifToken, "a condition expression", "This if statement", null)
+        ParseStatement(SpanFromToken(ifToken))  // then-branch, with the missing-body owner span
+        if Check(TokenType.Else) {
+            elseToken := Current()
+            Advance()
+            ParseStatement(SpanFromToken(elseToken))
+        }
+    }
+
+    func ParseWhileStatement() {
+        whileToken := Current()
+        Advance()                               // consume 'while'
+        ParseRequiredExpressionAfter(whileToken, "a condition expression", "This while statement", null)
+        ParseStatement(SpanFromToken(whileToken))
+    }
+
+    // The foreach-style `for item in collection` (and its missing-`in` recovery). The C-style
+    // `for init; cond; iter` loop is a later arc stage; the Stage-6 corpus uses only the foreach form.
+    func ParseForStatement() {
+        forToken := Current()
+        Advance()                               // consume 'for'
+
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In {
+            Advance()                           // loop variable
+            inToken := ConsumeToken(TokenType.In, "Expected 'in'", "in")
+            ParseRequiredExpressionAfter(inToken, "a collection expression", "This for-in statement", null)
+            ParseStatement(SpanFromToken(forToken))
+            return
+        }
+
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
+            variableToken := Current()
+            Advance()                           // loop variable
+            inToken := ReportMissingInKeywordAndRecover(forToken, variableToken, "This for-in statement")
+            ParseRequiredExpressionAfter(inToken, "a collection expression", "This for-in statement", null)
+            ParseStatement(SpanFromToken(forToken))
+        }
+    }
+
+    func ParseForeachStatement() {
+        foreachToken := Current()
+        Advance()                               // consume 'foreach'
+        // Optional parentheses `foreach (x in y)` are a later arc stage; the corpus uses none.
+        variableToken := Current()
+        ConsumeIdentifier("Expected variable name")
+        inToken := ConsumeForeachInKeyword(foreachToken, variableToken)
+        ParseRequiredExpressionAfter(inToken, "a collection expression", "This foreach statement", null)
+        ParseStatement(SpanFromToken(foreachToken))
+    }
+
+    func ConsumeForeachInKeyword(foreachToken: Token, variableToken: Token): Token {
+        if Check(TokenType.In) {
+            return ConsumeToken(TokenType.In, "Expected 'in'", "in")
+        }
+        return ReportMissingInKeywordAndRecover(foreachToken, variableToken, "This foreach statement")
+    }
+
+    // Parser.cs ReportMissingInKeywordAndRecover (:3908): report the missing `in` anchored on the loop
+    // keyword and return a synthetic `in` token so the collection expression still parses.
+    func ReportMissingInKeywordAndRecover(loopKeywordToken: Token, variableToken: Token, ownerDescription: string): Token {
+        expected := "in"                        // TokenTypeToString(In) = In.ToString().ToLower()
+        suggestions := new List<string>()
+        suggestions.Add("Add '" + expected + "' after '" + variableToken.Value + "'")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected '" + expected + "' between the loop variable and collection",
+            loopKeywordToken.Line,
+            loopKeywordToken.Column,
+            ownerDescription + " needs the '" + expected + "' keyword between the loop variable and the collection.",
+            "Write `" + loopKeywordToken.Value + " " + variableToken.Value + " " + expected + " ...`.",
+            suggestions,
+            MaxInt(1, loopKeywordToken.Value.Length))
+        recoveredColumn := variableToken.Column + MaxInt(1, variableToken.Value.Length) + 1
+        return new Token(TokenType.In, expected, variableToken.Line, recoveredColumn, variableToken.FileName)
+    }
+
+    // ---- return / print (Parser.cs :2821 / :2862) ----
+
+    func ParseReturnStatement() {
+        Advance()                               // consume 'return'
+        if !Check(TokenType.RightBrace) && !IsAtEnd() && ParserTokenFacts.CanStartExpression(Current().Type) {
+            ParseExprValue()
+        }
+    }
+
+    func ParsePrintStatement() {
+        printToken := Current()
+        Advance()                               // consume 'print'
+        ParseRequiredExpressionAfter(printToken, "an expression to print", "This print statement", null)
+    }
+
+    // ---- expression statement (Parser.cs ParseExpressionStatement :3498) ----
+    // Parses the statement's expression, then recognizes the `identifier :=` shorthand declaration
+    // (Parser.cs :3621, `expr is IdentifierExpression && Check(ColonAssign)`). The typed-declaration
+    // `name: T = value` and the paren/no-paren tuple deconstruction forms are later arc stages.
+    func ParseExpressionStatement() {
+        result := ParseExprValue()
+        if result.IsBareIdentifier {
+            if Check(TokenType.ColonAssign) {
+                initializerToken := Advance()
+                ParseRequiredExpressionAfter(
+                    initializerToken,
+                    "an initializer expression",
+                    "This shorthand variable declaration",
+                    result.Span)
+            }
+        }
+    }
+
+    // ---- minimal expression grammar for statements (Parser.cs ParseAssignmentExpression :3690 →
+    //      ParseAdditiveExpression :4220 → ParseMultiplicativeExpression :4235 → ParsePrimaryExpression) ----
+    // A deliberately shallow subset: assignment over additive/multiplicative over primaries (identifier
+    // / literal / bool / null / parenthesized). It reproduces the two diagnostic-bearing behaviours the
+    // statement corpus needs byte-exact — the dangling binary/assignment operator and its through-token
+    // span — and consumes well-formed operands identically. The full precedence ladder (ternary /
+    // coalescing / logical / bitwise / equality / relational / shift / range / unary / postfix / call /
+    // member / index) and the expression ERROR families (unexpected token, prefix `+`, leading `.`) are
+    // later arc stages; the corpus keeps its expressions within this subset so output stays byte-exact.
+    func ParseExprValue(): ExprResult {
+        left := ParseAdditive()
+
+        // Assignment (Parser.cs :3694): only on the same line, only the recognized assignment operators.
+        if ParserTokenFacts.IsAssignmentOperator(Current().Type) && Current().Line == Previous().Line {
+            opToken := Advance()
+            ParseRightOperandOrMissing(opToken, left.Span)
+            // The result is an AssignmentExpression; DiagnosticSpanFromExpression of one falls through
+            // to the (line, column, 1) default at the operator position, and it is never a bare identifier.
+            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+
+        return left
+    }
+
+    func ParseAdditive(): ExprResult {
+        result := ParseMultiplicative()
+        while Check(TokenType.Plus) || Check(TokenType.Minus) {
+            opToken := Advance()
+            ParseBinaryRightOperandOrMissing(opToken, result.Span, true)
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    func ParseMultiplicative(): ExprResult {
+        result := ParsePrimaryExprValue()
+        while Check(TokenType.Star) || Check(TokenType.Slash) || Check(TokenType.Percent) {
+            opToken := Advance()
+            ParseBinaryRightOperandOrMissing(opToken, result.Span, false)
+            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+        }
+        return result
+    }
+
+    // Parser.cs ParseBinaryRightOperandOrMissing (:3778) → ParseRightOperandOrMissing with the
+    // DiagnosticSpanFromExpressionThroughToken span (left-operand start through the operator).
+    // `additiveOperand` selects the right-operand precedence: additive's is multiplicative, else primary.
+    func ParseBinaryRightOperandOrMissing(operatorToken: Token, leftSpan: RecoverySpan, additiveOperand: bool) {
+        if IsMissingOperandBoundary(operatorToken) {
+            span := DiagnosticSpanFromExpressionThroughToken(leftSpan, operatorToken)
+            ReportExpectedExpressionAfter(operatorToken, span)
+            return
+        }
+        if additiveOperand {
+            ParseMultiplicative()
+        } else {
+            ParsePrimaryExprValue()
+        }
+    }
+
+    // Parser.cs ParseRightOperandOrMissing (:3750) for the assignment operator: the fallback span is the
+    // left-hand expression's DiagnosticSpanFromExpression span (passed by the caller).
+    func ParseRightOperandOrMissing(operatorToken: Token, diagnosticSpan: RecoverySpan) {
+        if IsMissingOperandBoundary(operatorToken) {
+            ReportExpectedExpressionAfter(operatorToken, diagnosticSpan)
+            return
+        }
+        ParseExprValue()
+    }
+
+    // Parser.cs ParseRightOperandOrMissing's ReportError (:3759-3772).
+    func ReportExpectedExpressionAfter(operatorToken: Token, span: RecoverySpan) {
+        opValue := operatorToken.Value
+        suggestions := new List<string>()
+        suggestions.Add("Add an expression after '" + opValue + "'")
+        suggestions.Add("Remove the trailing '" + opValue + "'")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected expression after '" + opValue + "'",
+            span.Line,
+            span.Column,
+            "The '" + opValue + "' operator needs an expression on its right side.",
+            "Finish the expression after the operator, or remove the operator if the expression is already complete.",
+            suggestions,
+            span.Length)
+    }
+
+    // Parser.cs DiagnosticSpanFromExpressionThroughToken (:3842). The startSpan is the left operand's
+    // DiagnosticSpanFromExpression span; the result runs from its start through the operator token.
+    func DiagnosticSpanFromExpressionThroughToken(startSpan: RecoverySpan, endToken: Token): RecoverySpan {
+        if startSpan.Line != endToken.Line {
+            return SpanFromToken(endToken)
+        }
+        endColumn := endToken.Column + TokenLength(endToken)
+        return new RecoverySpan(startSpan.Line, startSpan.Column, MaxInt(startSpan.Length, endColumn - startSpan.Column))
+    }
+
+    // ---- primary (Parser.cs ParsePrimaryExpression subset) ----
+    // Returns the DiagnosticSpanFromExpression span (:5917) and whether the primary is a bare identifier.
+    // Member access / call / index postfixes are a later arc stage; the corpus uses only bare primaries.
+    func ParsePrimaryExprValue(): ExprResult {
+        if Check(TokenType.LeftParen) {
+            Advance()
+            inner := ParseExprValue()
+            if Check(TokenType.RightParen) {
+                Advance()
+            }
+            // A ParenthesizedExpression is not an IdentifierExpression, so it never takes the `:=`
+            // shorthand path; its DiagnosticSpanFromExpression is that of the inner expression.
+            return new ExprResult(inner.Span, false)
+        }
+
+        if Check(TokenType.Identifier) {
+            token := Advance()
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), true)
+        }
+
+        if IsLiteralToken(Current().Type) {
+            token := Advance()
+            ReportMalformedLiteralIfNeeded(token)
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+        }
+
+        if Check(TokenType.True) {
+            token := Advance()
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, 4), false)
+        }
+        if Check(TokenType.False) {
+            token := Advance()
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, 5), false)
+        }
+        if Check(TokenType.Null) {
+            token := Advance()
+            return new ExprResult(new RecoverySpan(token.Line, token.Column, 4), false)
+        }
+
+        // A primary shape outside this Stage-6 subset. Report nothing and consume nothing; the block
+        // loop's no-progress guard then advances. Not reached by the Stage-6 corpus.
+        return new ExprResult(new RecoverySpan(Current().Line, Current().Column, 1), false)
+    }
+
+    // ---- required-expression + operand boundary helpers (Parser.cs :3855 / :3928 / :6908) ----
+
+    // Parser.cs ParseRequiredExpressionAfter (:3855). When the required expression is present, parse it;
+    // otherwise report "Expected <what> after '<anchor>'" anchored on the provided span (or the anchor).
+    func ParseRequiredExpressionAfter(anchorToken: Token, expectedDescription: string, ownerDescription: string, diagnosticSpan: RecoverySpan?) {
+        if !IsMissingRequiredExpressionBoundary(anchorToken) {
+            ParseExprValue()
+            return
+        }
+
+        markerColumn := anchorToken.Column + MaxInt(1, anchorToken.Value.Length)
+        underlineAnchor := ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken)
+        fallback := SpanFromToken(anchorToken)          // DiagnosticSpanFromToken(anchorToken)
+        if !underlineAnchor {
+            fallback = new RecoverySpan(anchorToken.Line, markerColumn, 1)
+        }
+        span := diagnosticSpan ?? fallback
+
+        suggestions := new List<string>()
+        suggestions.Add("Add " + expectedDescription + " after '" + anchorToken.Value + "'")
+        suggestions.Add("Remove '" + anchorToken.Value + "' until the expression is ready")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected " + expectedDescription + " after '" + anchorToken.Value + "'",
+            span.Line,
+            span.Column,
+            ownerDescription + " needs " + expectedDescription + " after '" + anchorToken.Value + "'.",
+            "Finish the expression before starting the next statement.",
+            suggestions,
+            span.Length)
+    }
+
+    // Parser.cs ShouldUnderlineAnchorForMissingRequiredExpression (:3887).
+    func ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken: Token): bool {
+        t := anchorToken.Type
+        if t == TokenType.If {
+            return true
+        }
+        if t == TokenType.While {
+            return true
+        }
+        if t == TokenType.Foreach {
+            return true
+        }
+        if t == TokenType.Switch {
+            return true
+        }
+        if t == TokenType.Print {
+            return true
+        }
+        if t == TokenType.Throw {
+            return true
+        }
+        if t == TokenType.Yield {
+            return true
+        }
+        if t == TokenType.Assert {
+            return true
+        }
+        if t == TokenType.Using {
+            return true
+        }
+        if t == TokenType.Lock {
+            return true
+        }
+        if t == TokenType.In {
+            return true
+        }
+        if t == TokenType.Assign {
+            return true
+        }
+        if t == TokenType.ColonAssign {
+            return true
+        }
+        return false
+    }
+
+    // Parser.cs IsMissingRequiredExpressionBoundary (:3928).
+    func IsMissingRequiredExpressionBoundary(anchorToken: Token): bool {
+        if IsMissingOperandBoundary(anchorToken) {
+            return true
+        }
+        if Current().Line > anchorToken.Line && LooksLikeStatementStartAfterRequiredExpression() {
+            return true
+        }
+        if Current().Line == anchorToken.Line {
+            if Check(TokenType.LeftBrace) {
+                return true
+            }
+            if Check(TokenType.RightBrace) {
+                return true
+            }
+            if Check(TokenType.RightParen) {
+                return true
+            }
+            if Check(TokenType.RightBracket) {
+                return true
+            }
+            if Check(TokenType.Colon) {
+                return true
+            }
+            if Check(TokenType.Comma) {
+                return true
+            }
+            if Check(TokenType.Semicolon) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // Parser.cs LooksLikeStatementStartAfterRequiredExpression (:3946).
+    func LooksLikeStatementStartAfterRequiredExpression(): bool {
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.ColonAssign {
+            return true
+        }
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && LookAhead(2).Type == TokenType.Identifier {
+            return true
+        }
+        return StartsTupleDeconstructionAtCurrentPosition()
+    }
+
+    // Parser.cs StartsTupleDeconstructionAtCurrentPosition (:3985).
+    func StartsTupleDeconstructionAtCurrentPosition(): bool {
+        if !Check(TokenType.Identifier) || LookAhead(1).Type != TokenType.Comma {
+            return false
+        }
+        pos := 1
+        while Position + pos < Tokens.Count {
+            token := Tokens[Position + pos]
+            if token.Line != Current().Line {
+                return false
+            }
+            if token.Type == TokenType.ColonAssign || token.Type == TokenType.Assign {
+                return true
+            }
+            if token.Type != TokenType.Identifier && token.Type != TokenType.Comma {
+                return false
+            }
+            pos = pos + 1
+        }
+        return false
+    }
+
+    // Parser.cs IsMissingOperandBoundary (:6908): the operator's right operand is missing at end of file,
+    // at an expression terminator, or — on a LATER line — at a statement/declaration/modifier keyword or a
+    // token at/left of the current statement's recovery-boundary column.
+    func IsMissingOperandBoundary(operatorToken: Token): bool {
+        if IsAtEnd() {
+            return true
+        }
+        if ParserTokenFacts.IsExpressionTerminator(Current().Type) {
+            return true
+        }
+        if Current().Line <= operatorToken.Line {
+            return false
+        }
+        if ParserTokenFacts.IsStatementStartKeyword(Current().Type) {
+            return true
+        }
+        if ParserTokenFacts.IsDeclarationKeyword(Current().Type) {
+            return true
+        }
+        if ParserTokenFacts.IsModifierKeyword(Current().Type) {
+            return true
+        }
+        if HasRecoveryBoundaryColumn && Current().Column <= RecoveryBoundaryColumn {
+            return true
+        }
+        return false
+    }
+
+    func IntToString(value: int): string {
+        return value.ToString()
     }
 
     func MaxInt(a: int, b: int): int {

@@ -1482,3 +1482,361 @@ test "016 generics: a well-formed generic class declaration reports no parser di
     errors := RunPreamble("class C<T> {\n}")
     assert errors.Count == 0
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 6: the STATEMENT diagnostic family.
+//
+// Extends the function head with a real block-body grammar (the `func f() { <statements> }`
+// vehicle Stages 3-5 deliberately left unparsed) and carries, through the SAME shared-panic
+// recovery model: the dangling binary/assignment operator (ParseRightOperandOrMissing,
+// "Expected expression after 'X'", the through-token span); the missing-initializer `:=`/`=`
+// forms and the missing if/while condition (ParseRequiredExpressionAfter); the missing
+// for/foreach `in` (ReportMissingInKeywordAndRecover); the missing statement body
+// (ReportMissingStatementBody); and the SynchronizeToNextStatement sync point + per-statement
+// panic reset + _currentRecoveryBoundaryColumn tracking (Parser.cs ParseBlock :2172 /
+// SynchronizeToNextStatement :7084). Every expected value is the GOLDEN output of the production
+// Parser.cs path, captured out-of-band from the freshly built Release CLI (`nlc check --json`) on
+// the same malformed source, filtered to the parser diagnostic codes NL101-NL109 (excluding the
+// line-0 columnar-backend decline NL103, which is not a parser diagnostic).
+//
+// The corpus keeps every function body closed and free of nested type declarations, so the block's
+// own missing-'}' (NL106) report and the IsBlockClosingDeclarationStart break are not exercised —
+// the broader closing-delimiter family (missing `)`/`]`/`}`) remains a later arc stage.
+// ============================================================================
+
+// ---- dangling binary / assignment operator (through-token span) ----
+
+test "016 stmt: a dangling binary '+' reports NL102 spanning the left operand through the operator" {
+    // `first := 1 +` then a new statement on the next line at the same column: the recovery-boundary
+    // column makes the '+' right operand missing (does not swallow `second := 2`). Exactly one diag.
+    errors := RunPreamble("func test() {\n    first := 1 +\n    second := 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 2
+    assert e.Column == 14
+    assert e.Length == 3
+    assert e.SourceSnippet == "    first := 1 +"
+    assert e.HumanExplanation == "The '+' operator needs an expression on its right side."
+    assert e.ContextualHint == "Finish the expression after the operator, or remove the operator if the expression is already complete."
+    assert e.Suggestion == "Add an expression after '+'"
+}
+
+test "016 stmt: a dangling assignment '=' reports NL102 anchored on the assignment target" {
+    // `value =` with `print value` on the next line: the '=' right operand is missing; the span is
+    // the target `value` (DiagnosticSpanFromExpression), column 5, length 5.
+    errors := RunPreamble("func test() {\n    value := 1\n    value =\n    print value\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '='"
+    assert e.Line == 3
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    value ="
+    assert e.HumanExplanation == "The '=' operator needs an expression on its right side."
+    assert e.ContextualHint == "Finish the expression after the operator, or remove the operator if the expression is already complete."
+    assert e.Suggestion == "Add an expression after '='"
+}
+
+// ---- missing initializer (`:=`) ----
+
+test "016 stmt: a shorthand `:=` with no initializer anchors NL102 on the declaration target" {
+    errors := RunPreamble("func test() {\n    name :=\n    greeting := 2\n    print greeting\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an initializer expression after ':='"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 4
+    assert e.SourceSnippet == "    name :="
+    assert e.HumanExplanation == "This shorthand variable declaration needs an initializer expression after ':='."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an initializer expression after ':='"
+}
+
+test "016 stmt: a `let` declaration with no initializer anchors NL102 on the variable name" {
+    errors := RunPreamble("func test() {\n    let x :=\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an initializer expression after ':='"
+    assert e.Line == 2
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "    let x :="
+    assert e.HumanExplanation == "This variable declaration needs an initializer expression after ':='."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an initializer expression after ':='"
+}
+
+test "016 stmt: a `const` declaration with no initializer anchors NL102 on the variable name" {
+    errors := RunPreamble("func test() {\n    const y :=\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an initializer expression after ':='"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "    const y :="
+    assert e.HumanExplanation == "This variable declaration needs an initializer expression after ':='."
+}
+
+// ---- print missing expression ----
+
+test "016 stmt: a `print` with no expression anchors NL102 on the 'print' keyword" {
+    errors := RunPreamble("func test() {\n    print\n    greeting := 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an expression to print after 'print'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    print"
+    assert e.HumanExplanation == "This print statement needs an expression to print after 'print'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an expression to print after 'print'"
+}
+
+// ---- missing condition (if / while) ----
+
+test "016 stmt: a `while` with no condition anchors NL102 on the 'while' keyword" {
+    errors := RunPreamble("func test() {\n    while {\n        print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a condition expression after 'while'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    while {"
+    assert e.HumanExplanation == "This while statement needs a condition expression after 'while'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add a condition expression after 'while'"
+}
+
+test "016 stmt: an `if` with no condition anchors NL102 on the 'if' keyword" {
+    errors := RunPreamble("func test() {\n    if {\n        print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a condition expression after 'if'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 2
+    assert e.SourceSnippet == "    if {"
+    assert e.HumanExplanation == "This if statement needs a condition expression after 'if'."
+    assert e.Suggestion == "Add a condition expression after 'if'"
+}
+
+// ---- missing `in` (for / foreach) ----
+
+test "016 stmt: a `foreach` with a missing 'in' anchors NL102 on the 'foreach' keyword" {
+    errors := RunPreamble("func test() {\n    foreach item items {\n        print item\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected 'in' between the loop variable and collection"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 7
+    assert e.SourceSnippet == "    foreach item items {"
+    assert e.HumanExplanation == "This foreach statement needs the 'in' keyword between the loop variable and the collection."
+    assert e.ContextualHint == "Write `foreach item in ...`."
+    assert e.Suggestion == "Add 'in' after 'item'"
+}
+
+test "016 stmt: a `for` with a missing 'in' anchors NL102 on the 'for' keyword" {
+    errors := RunPreamble("func test() {\n    for item items {\n        print item\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected 'in' between the loop variable and collection"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 3
+    assert e.SourceSnippet == "    for item items {"
+    assert e.HumanExplanation == "This for-in statement needs the 'in' keyword between the loop variable and the collection."
+    assert e.ContextualHint == "Write `for item in ...`."
+    assert e.Suggestion == "Add 'in' after 'item'"
+}
+
+// ---- missing statement body (if / while / for) ----
+
+test "016 stmt: an `if` with a condition but no body anchors the missing-body NL102 on 'if'" {
+    errors := RunPreamble("func test() {\n    if true\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected statement body. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 2
+    assert e.SourceSnippet == "    if true"
+    assert e.HumanExplanation == "This control-flow keyword needs a statement or block after its condition."
+    assert e.ContextualHint == "Add a block like `{ ... }`, or add a single statement after the keyword."
+    assert e.Suggestion == "Add a block body"
+}
+
+test "016 stmt: a `while` with a condition but no body anchors the missing-body NL102 on 'while'" {
+    errors := RunPreamble("func test() {\n    while true\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected statement body. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    while true"
+}
+
+test "016 stmt: a `for item in items` with no body anchors the missing-body NL102 on 'for'" {
+    errors := RunPreamble("func test() {\n    for item in items\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected statement body. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 3
+    assert e.SourceSnippet == "    for item in items"
+}
+
+// ---- panic-model interactions at statement granularity ----
+
+test "016 stmt: two malformed statements each report at their own statement boundary (does not swallow)" {
+    // The per-statement panic reset (Parser.cs :2172) lets BOTH `:=` errors fire — the statement-level
+    // analogue of Parser_DanglingBinaryOperator_DoesNotSwallowFollowingStatements.
+    errors := RunPreamble("func test() {\n    a :=\n    b :=\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected an initializer expression after ':='"
+    assert e0.Line == 2
+    assert e0.Column == 5
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "    a :="
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected an initializer expression after ':='"
+    assert e1.Line == 3
+    assert e1.Column == 5
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "    b :="
+}
+
+test "016 stmt: a within-statement cascade is suppressed by shared panic (while: no condition, no body)" {
+    // `while` with neither a condition nor a body: the missing-condition error sets panic, so the
+    // missing-body report in the SAME statement is suppressed — exactly one diagnostic.
+    errors := RunPreamble("func test() {\n    while\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a condition expression after 'while'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    while"
+}
+
+test "016 stmt: a valid statement between two malformed ones does not suppress either" {
+    errors := RunPreamble("func test() {\n    a :=\n    print 1\n    b :=\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected an initializer expression after ':='"
+    assert e0.Line == 2
+    assert e0.Column == 5
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected an initializer expression after ':='"
+    assert e1.Line == 4
+    assert e1.Column == 5
+}
+
+test "016 stmt: a dangling operator in one function and a missing initializer in the next each fire" {
+    // The declaration-boundary reset (Parser.cs SynchronizeToNextDeclaration) carries across functions:
+    // f's dangling '+' and g's missing `:=` both report.
+    errors := RunPreamble("func f() {\n    x := 1 +\n}\nfunc g() {\n    y :=\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected expression after '+'"
+    assert e0.Line == 2
+    assert e0.Column == 10
+    assert e0.Length == 3
+    assert e0.SourceSnippet == "    x := 1 +"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected an initializer expression after ':='"
+    assert e1.Line == 5
+    assert e1.Column == 5
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "    y :="
+}
+
+test "016 stmt: nested block statements reset panic at each inner statement boundary" {
+    // Two malformed `:=` inside a well-formed `while true { … }` body: both report (the inner block's
+    // per-statement reset), and the outer while condition/body are well-formed.
+    errors := RunPreamble("func test() {\n    while true {\n        a :=\n        b :=\n    }\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected an initializer expression after ':='"
+    assert e0.Line == 3
+    assert e0.Column == 9
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected an initializer expression after ':='"
+    assert e1.Line == 4
+    assert e1.Column == 9
+}
+
+// ---- negatives: a well-formed statement body reports no parser diagnostic ----
+
+test "016 stmt: a well-formed shorthand declaration and print report no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := 1\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a well-formed binary initializer reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := 1 + 2\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a well-formed assignment reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    x := 1\n    x = 2\n    print x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a well-formed `while true { … }` with a bool condition reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    while true {\n        print 1\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a well-formed `foreach item in items { … }` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    foreach item in items {\n        print item\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a bare `return` reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n    return\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: an empty function body reports no parser diagnostic" {
+    errors := RunPreamble("func test() {\n}\n")
+    assert errors.Count == 0
+}
