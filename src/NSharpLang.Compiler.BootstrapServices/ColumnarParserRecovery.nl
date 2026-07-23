@@ -1501,9 +1501,23 @@ public class ColumnarParserRecovery {
         return Current()
     }
 
-    // Parser.cs GetHintForMissingToken (:6345): null for `>` and `:` (only the closing-delimiter and
-    // semicolon tokens carry a hint, which the Stage-5 corpus does not exercise here).
+    // Parser.cs GetHintForMissingToken (:6345): the closing-delimiter and semicolon tokens carry a hint;
+    // every other token (including `>` and `:`) returns null. Stage 8 reaches the RightBrace hint through
+    // the match / property-pattern `Consume(RightBrace)` sites — RightBrace is NOT in
+    // TryReportMissingClosingDelimiter, so it takes the standard Consume path that consults this hint.
     func GetHintForMissingToken(tokenType: TokenType): string? {
+        if tokenType == TokenType.RightParen {
+            return "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+        }
+        if tokenType == TokenType.RightBrace {
+            return "Every opening brace '{' needs a matching closing brace '}'."
+        }
+        if tokenType == TokenType.RightBracket {
+            return "Every opening bracket '[' needs a matching closing bracket ']'."
+        }
+        if tokenType == TokenType.Semicolon {
+            return "Statements can end with a semicolon, though it's optional in N#."
+        }
         return null
     }
 
@@ -2541,6 +2555,15 @@ public class ColumnarParserRecovery {
             return new ExprResult(new RecoverySpan(line, column, 4), false)
         }
 
+        // Match expression `match value { pattern => expr, … }` (Parser.cs :4764). Stage 8 carries this
+        // keyword-led primary (the MINIMAL match vehicle Stage 7 deferred) so the match / pattern diagnostic
+        // family fires through the same shared-panic model. The other keyword-led primaries (typeof / nameof /
+        // sizeof / checked / unchecked / alloc / stackalloc / new / immutable / array / cast / tuple / spread /
+        // interpolation / lambda) remain later arc stages; the corpus uses none.
+        if Check(TokenType.Match) {
+            return ParseMatchExpression()
+        }
+
         // Parenthesized expression `( expr )` (Parser.cs :4793). The cast `(Type)expr` (:4783) and the
         // multi-element tuple `(a, b)` (:4795) forms are a later arc stage; the corpus uses only `(single)`.
         if Check(TokenType.LeftParen) {
@@ -2628,6 +2651,252 @@ public class ColumnarParserRecovery {
             return false
         }
         return true
+    }
+
+    // ============================================================================
+    // Stage 8: the MATCH / PATTERN diagnostic family (Stage-7's recorded cut B), carried through the SAME
+    // shared-panic model. Reached as the keyword-led `match` primary (Parser.cs :4764), the MINIMAL match
+    // vehicle Stage 7 deferred. The match value, each `when` guard, and each case body descend the full
+    // ladder (ParseExprValue); the case loop makes progress via EnsureProgress but — unlike the union
+    // per-case reset (Parser.cs :1216) or the object-initializer per-element reset (:5269/:5335) — does NOT
+    // reset panic (Parser.cs :5399), so a pattern / arrow / comma error cascade-suppresses the rest of the
+    // match until the enclosing statement / declaration boundary resets it (proven byte-exact: two bad
+    // patterns in one match report ONCE; two separate match statements each report their first).
+    //
+    // Diagnostic sites carried:
+    //   * MATCH — Consume(LeftBrace :5375 / Arrow :5391 / Comma :5397 / RightBrace :5402), all NL102/NL104.
+    //   * PATTERN TERMINAL — ParsePrimaryPattern's "Invalid pattern. Got 'X'" (Parser.cs :3440, NL103).
+    //   * QUALIFIED NAME — the pattern `A.B` ConsumeIdentifier("Expected identifier after '.'") (:3417).
+    //   * PROPERTY PATTERNS — ParsePropertyPatterns' property-name ConsumeIdentifier (:3468, NL102/NL109)
+    //     and the closing RightBrace (:3494).
+    // Diagnostic CONSTRUCTION still delegates to the live shared ParserErrorDiagnostics.Create, and the
+    // decisions reuse the live shared ParserTokenFacts / Lexer.IsReservedKeyword, so codes / messages /
+    // spans / snippets / hints match automatically.
+    //
+    // DEFERRED (recorded, NOT covered — with reasons): the list `]` / positional `)` closes route through
+    // TryReportMissingClosingDelimiter (RightBracket→NL108 / RightParen→NL107) — the closing-delimiter
+    // recovery family, a later arc stage; ConsumeToken here reproduces the CLOSED (present-delimiter) case
+    // byte-exact and the corpus keeps every list / positional / object pattern closed. The `is` / `as`
+    // relational operators and the guard's own complex expressions reuse the Stage-7 ladder; the match value
+    // and case bodies use only simple expressions in the corpus.
+    // ============================================================================
+
+    // Parser.cs ParseMatchExpression (:5368). Consume(Match) always succeeds (reached only under Check(Match)).
+    func ParseMatchExpression(): ExprResult {
+        matchToken := Current()
+        line := matchToken.Line
+        column := matchToken.Column
+        Advance()                                   // consume 'match'
+
+        ParseExprValue()                            // the match value (Parser.cs ParseExpression :5374)
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            startPosition := Position
+            ParsePattern()
+
+            if Check(TokenType.When) {              // optional guard clause (Parser.cs :5386)
+                Advance()
+                ParseExprValue()
+            }
+
+            ConsumeToken(TokenType.Arrow, "Expected '=>'", "arrow")
+            ParseExprValue()                        // the case body (Parser.cs :5392)
+
+            if !Check(TokenType.RightBrace) {       // require a comma between cases (Parser.cs :5396)
+                ConsumeToken(TokenType.Comma, "Expected ',' between match cases", ",")
+            }
+
+            EnsureProgress(startPosition)           // Parser.cs :5399 — NO panic reset per case
+        }
+
+        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+        // A MatchExpression's DiagnosticSpanFromExpression falls to the (line, column, 1) default (Parser.cs
+        // :5960, anchored on the `match` keyword); it is never a bare identifier.
+        return new ExprResult(new RecoverySpan(line, column, 1), false)
+    }
+
+    // Parser.cs EnsureProgress (:6709): force-advance one token when the enclosing loop consumed nothing, so
+    // recovery cannot spin. The match-case (:5399) and property-pattern (:3491) loops call it.
+    func EnsureProgress(startPosition: int): bool {
+        if Position == startPosition {
+            if !IsAtEnd() {
+                Advance()
+                return true
+            }
+        }
+        return false
+    }
+
+    // ---- pattern grammar (Parser.cs ParsePattern :3263 → ParseOrPattern :3269 → ParseAndPattern :3285
+    //      → ParseNotPattern :3301 → ParseRelationalPattern :3315 → ParsePrimaryPattern :3335) ----
+    // The recovery model builds no AST, so each precedence tier only consumes its tokens and recurses; the
+    // pattern DIAGNOSTICS all originate in ParsePrimaryPattern (the "Invalid pattern" terminal + the
+    // qualified-name ConsumeIdentifier) and ParsePropertyPatterns.
+
+    func ParsePattern() {
+        ParseOrPattern()
+    }
+
+    func ParseOrPattern() {
+        ParseAndPattern()
+        while Check(TokenType.OrKeyword) {
+            Advance()
+            ParseAndPattern()
+        }
+    }
+
+    func ParseAndPattern() {
+        ParseNotPattern()
+        while Check(TokenType.AndKeyword) {
+            Advance()
+            ParseNotPattern()
+        }
+    }
+
+    func ParseNotPattern() {
+        if Check(TokenType.NotKeyword) {
+            Advance()
+            ParseNotPattern()                       // recursive for multiple `not` (Parser.cs :3308)
+            return
+        }
+        ParseRelationalPattern()
+    }
+
+    // Parser.cs ParseRelationalPattern (:3315): a leading comparison operator forms a relational pattern
+    // whose value is a PRIMARY expression (:3328 — deliberately NOT the full ladder, so it does not consume
+    // the next pattern's operators).
+    func ParseRelationalPattern() {
+        if Check(TokenType.Less) || Check(TokenType.Greater) || Check(TokenType.LessEqual) || Check(TokenType.GreaterEqual) || Check(TokenType.Equal) || Check(TokenType.NotEqual) {
+            Advance()                               // the comparison operator
+            ParsePrimaryExprValue()                 // the compared value (Parser.cs ParsePrimaryExpression)
+            return
+        }
+        ParsePrimaryPattern()
+    }
+
+    // Parser.cs ParsePrimaryPattern (:3335): list `[…]`, positional `(…)`, literal, object `{…}`, and the
+    // identifier-led union-case / type / qualified-name / identifier patterns, terminating in the
+    // "Invalid pattern. Got 'X'" NL103. The list `]` / positional `)` closes route through
+    // TryReportMissingClosingDelimiter (the deferred closing-delimiter family); ConsumeToken here reproduces
+    // the CLOSED case byte-exact and the corpus keeps them closed.
+    func ParsePrimaryPattern() {
+        line := Current().Line
+        column := Current().Column
+
+        // List pattern `[p, .., p]` (Parser.cs :3341).
+        if Check(TokenType.LeftBracket) {
+            Advance()
+            if !Check(TokenType.RightBracket) {
+                listParsing := true
+                while listParsing {
+                    if Check(TokenType.DotDot) {
+                        Advance()                   // slice `..` (optionally `.. name`)
+                        if Check(TokenType.Identifier) {
+                            Advance()
+                        }
+                    } else {
+                        ParsePattern()
+                    }
+                    if Check(TokenType.Comma) {
+                        Advance()
+                    } else {
+                        listParsing = false
+                    }
+                }
+            }
+            ConsumeToken(TokenType.RightBracket, "Expected ']' after list pattern", "]")
+            return
+        }
+
+        // Positional (tuple) pattern `(p, p)` (Parser.cs :3376).
+        if Check(TokenType.LeftParen) {
+            Advance()
+            if !Check(TokenType.RightParen) {
+                positionalParsing := true
+                while positionalParsing {
+                    ParsePattern()
+                    if Check(TokenType.Comma) {
+                        Advance()
+                    } else {
+                        positionalParsing = false
+                    }
+                }
+            }
+            ConsumeToken(TokenType.RightParen, "Expected ')' after positional pattern", ")")
+            return
+        }
+
+        // Literal pattern (Parser.cs :3394): the same primaries the malformed-literal check runs over.
+        if Check(TokenType.IntLiteral) || Check(TokenType.CharLiteral) || Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) || Check(TokenType.True) || Check(TokenType.False) || Check(TokenType.Null) {
+            ParsePrimaryExprValue()
+            return
+        }
+
+        // Object pattern without a type name `{ Prop: p }` (Parser.cs :3402).
+        if Check(TokenType.LeftBrace) {
+            ParsePropertyPatterns()
+            return
+        }
+
+        // Identifier-led: qualified name → union-case / type / identifier pattern (Parser.cs :3409).
+        if Check(TokenType.Identifier) {
+            Advance()                               // first name segment
+            while Check(TokenType.Dot) {            // qualified name `A.B.C` (Parser.cs :3414)
+                Advance()
+                ConsumeIdentifier("Expected identifier after '.'")
+            }
+            if Check(TokenType.LeftBrace) {         // union-case pattern with properties (Parser.cs :3421)
+                ParsePropertyPatterns()
+                return
+            }
+            if Check(TokenType.Identifier) {        // type pattern `TypeName binding` (Parser.cs :3429)
+                Advance()
+                return
+            }
+            return                                  // simple identifier pattern (Parser.cs :3437)
+        }
+
+        // Terminal (Parser.cs :3440): not a valid pattern. Does NOT advance (leaves the offender in place,
+        // exactly as Parser.cs, so a following per-case Consume sees the same token under the same panic).
+        suggestions := new List<string>()
+        suggestions.Add("Literal pattern: case 5 => ...")
+        suggestions.Add("Identifier pattern: case x => ...")
+        suggestions.Add("Type pattern: case int x => ...")
+        suggestions.Add("Object pattern: case { Name: \"John\" } => ...")
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Invalid pattern. Got '" + Current().Value + "'",
+            line,
+            column,
+            "I couldn't recognize this as a valid pattern for matching.",
+            "Patterns can be literals, identifiers, types, or destructuring patterns.",
+            suggestions,
+            Current().Value.Length)
+    }
+
+    // Parser.cs ParsePropertyPatterns (:3459): `{ Name: p, Other }`. Reached only when the caller has
+    // already seen `{`, so the leading ConsumeToken(LeftBrace) always advances. The property-NAME site
+    // funnels through ConsumeIdentifier (its reserved-keyword NL109 / found-other NL102 variants), and the
+    // closing `}` through ConsumeToken(RightBrace), which takes the standard Consume path (RightBrace is NOT
+    // in TryReportMissingClosingDelimiter) and consults GetHintForMissingToken(RightBrace).
+    func ParsePropertyPatterns() {
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            startPosition := Position
+            ConsumeIdentifier("Expected property name")
+            if Check(TokenType.Colon) {
+                Advance()
+                ParsePattern()
+            }
+            if !Check(TokenType.RightBrace) {
+                if Check(TokenType.Comma) {         // Parser.cs Match(Comma) :3489 — optional separator
+                    Advance()
+                }
+            }
+            EnsureProgress(startPosition)
+        }
+        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
     }
 
     // ---- required-expression + operand boundary helpers (Parser.cs :3855 / :3928 / :6908) ----

@@ -13,10 +13,10 @@ Last updated: 2026-07-23
   when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
   task across 8 landed slices + 2 proven refutations + 1 restored regression).
 - 016 note: Parser.cs is the LSP-fallback parser — the eventual PRODUCTION-WIRING/cutover slices are
-  IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-7
+  IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 7 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 8 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
   family, 11 contracts), STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
@@ -39,18 +39,69 @@ Last updated: 2026-07-23
   range / unary / postfix-member], carrying the expression ERROR families Stages 3/6 kept panic-suppressed:
   unexpected-token-in-expression, prefix `+` [NL103], leading `.`, the ternary missing-then / missing-`:` /
   missing-else sites, dangling binary operators across every ladder tier, await/must/throw missing-operand, and
-  member-name-after-dot [incl. the reserved-keyword member], +35 contracts)
+  member-name-after-dot [incl. the reserved-keyword member], +35 contracts), and STAGE 8 (the MATCH / PATTERN
+  family — `ParseMatchExpression` [the match-keyword primary vehicle + `Consume(LeftBrace/Arrow/Comma/RightBrace)`
+  case sites + the `EnsureProgress` per-case boundary that does NOT reset panic], the `ParsePattern` →
+  or/and/not/relational → `ParsePrimaryPattern` grammar [list / slice / positional / literal / object / union-case /
+  type / qualified-name] terminating in the "Invalid pattern" NL103, and `ParsePropertyPatterns`' property-name /
+  brace sites, +18 contracts)
   have LANDED (no production edit to any consumer, no commit — mandate; working tree carries the two N# files + the
   STAGE-1 ColumnarSyntaxDiagnostics scaffolding deletion + this STATUS update). `ColumnarParserRecovery.nl`
   reproduces Parser.cs's recovery discipline faithfully and is proven byte-exact against the production Parser.cs
-  path on a golden parity corpus (148 native contracts total, including the cascading-suppression, does-not-swallow-
+  path on a golden parity corpus (166 native contracts total, including the cascading-suppression, does-not-swallow-
   following, keyword-anchored absent/reserved name, cross-boundary panic-reset, the malformed-literal
   in-region-suppression, the member-boundary panic-reset, the split-`>>` well-formed-nested-generic, the
-  statement-boundary reset + within-statement cascade-suppression, and the expression-family unexpected-token-skip /
-  prefix-plus-cascade / initializer-terminator-then-reset shapes). Parser.cs REMAINS the sole production
-  syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK emits it
-  — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 7 of the parser-front-end arc — the
+  statement-boundary reset + within-statement cascade-suppression, the expression-family unexpected-token-skip /
+  prefix-plus-cascade / initializer-terminator-then-reset shapes, and the match/pattern cascade-suppression-within-a-
+  match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
+  production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
+  emits it — no repin).
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 8 of the parser-front-end arc — the
+  MATCH / PATTERN diagnostic family (Stage-7's recorded cut B). Extended `ColumnarParserRecovery.nl` to carry,
+  through the SAME shared-panic model, the match-expression + pattern-grammar diagnostics, PROVEN byte-exact against
+  the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109). ORIGIN INVENTORY (grep of
+  ParseMatchExpression + the pattern helpers in Parser.cs): (a) MATCH — `ParseMatchExpression` (:5368) with
+  `Consume(LeftBrace :5375 / Arrow :5391 / Comma :5397 / RightBrace :5402)` and the `EnsureProgress(startPosition)`
+  per-case boundary (:5399) that — UNLIKE the union per-case reset (:1216) or the object-initializer per-element
+  reset (:5269/:5335) — does NOT reset `_panicMode`, so a pattern/arrow/comma error cascade-suppresses the rest of
+  the match until the enclosing statement/declaration boundary resets it (block boundary :2172); (b) PATTERN GRAMMAR
+  — `ParsePattern` (:3263) → `ParseOrPattern` (:3269) → `ParseAndPattern` (:3285) → `ParseNotPattern` (:3301) →
+  `ParseRelationalPattern` (:3315, comparison-operator prefix over a PRIMARY value) → `ParsePrimaryPattern` (:3335:
+  list `[…]` / slice `..` / positional `(…)` / literal / object `{…}` / identifier-led qualified-name / union-case /
+  type / identifier), terminating in the "Invalid pattern. Got 'X'" NL103 (:3440, keyword-and-operator offenders,
+  span = `Current.Value.Length`, NO advance); (c) the pattern QUALIFIED NAME `A.B` ConsumeIdentifier("Expected
+  identifier after '.'") (:3417, NL102 dot-access variant); (d) PROPERTY PATTERNS — `ParsePropertyPatterns` (:3459)
+  property-name ConsumeIdentifier (:3468, NL102 found / NL109 reserved-keyword) + the closing RightBrace (:3494).
+  IMPLEMENTATION: added the `match` keyword-led primary arm to `ParsePrimaryExprValue` (Parser.cs :4764 — the
+  MINIMAL match vehicle Stage 7 deferred, reached through the Stage-6 block-body statement grammar `func f() { match
+  … }`), `ParseMatchExpression` (value / `when` guard / case body all descend the full Stage-7 `ParseExprValue`
+  ladder), the seven pattern-tier parsers, `ParsePropertyPatterns`, and a shared `EnsureProgress` helper
+  (Parser.cs :6709); extended `GetHintForMissingToken` to the full Parser.cs :6345 mirror (RightParen / RightBrace /
+  RightBracket / Semicolon) so the match / property-pattern `Consume(RightBrace)` NL102 carries its hint (RightBrace
+  is NOT in `TryReportMissingClosingDelimiter`, so it takes the standard Consume path). CONSTRUCTION delegates to the
+  live shared `ParserErrorDiagnostics.Create`, and the decisions reuse the live shared `ParserTokenFacts` /
+  `Lexer.IsReservedKeyword`, so codes / messages / spans / snippets / hints match automatically. +18 native parity
+  contracts in `ColumnarParserRecovery.tests.nl` (4 invalid-pattern terminal: `+` / `*` / reserved `return` /
+  guard-`when`; 4 match Consume: missing `{` / missing `=>` [arrow] / missing `,` / EOF-comma NL104; 3 property:
+  bad-name NL102 / reserved-kw NL109 / object-missing-`}` re-enters-loop NL102; 1 qualified-name dot-access NL102;
+  2 panic-model: two-bad-patterns-in-one-match report ONCE [cascade suppression, no per-case reset] + two-separate-
+  match-statements each report their first [statement-boundary reset]; 4 negatives: literal/ident/type,
+  relational/or/and/not, list/positional/object/union-case/guard, slice patterns). DEFERRED (recorded, NOT covered —
+  with reasons): the list `]` / positional `)` UNCLOSED closes route through `TryReportMissingClosingDelimiter`
+  (RightBracket→NL108 / RightParen→NL107) — the closing-delimiter recovery family, a later arc stage (ConsumeToken
+  here reproduces the CLOSED present-delimiter case byte-exact and the corpus keeps every list/positional/object
+  pattern closed); the `is`/`as` relational operators (type sub-grammar) and complex guard/value expressions reuse
+  the Stage-7 ladder (the corpus uses only simple values). NO production wiring; NO wall tripped (self-contained edit
+  to one owner + its tests; the packaged SDK 0.1.0 self-emitted the edited owner + all 928 contracts cleanly — no
+  repin). Evidence: BootstrapServices contracts 928/928 (910 baseline + 18); dev.sh Parser 381/381; ownership audit
+  18/18 (all deltas `.nl`, no ratchet movement — the growth ratchet does not track `.nl`, verified: 0 refs to
+  `ColumnarParserRecovery` / any `.nl` in `non-nsharp-growth-ratchet.v1.json`); git status shows ONLY the two `.nl`
+  files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` /
+  `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+tests+editors),
+  so nothing in the production compile path changed. No LSP/VS Code change → no extension reload. Next: STAGE 9 =
+  the CLOSING-DELIMITER recovery family (`TryReportMissingClosingDelimiter` — missing `)` NL107 / `]` NL108 / `}`
+  NL106), then the postfix call/index/`with` + remaining keyword-led primaries, per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 7 of the parser-front-end arc — the
   EXPRESSIONS diagnostic family (recut A: the core precedence ladder + the leading expression ERROR families;
   match/patterns deferred to a follow-on stage). Extended `ColumnarParserRecovery.nl` by replacing Stage-6's
   shallow assignment/additive/multiplicative statement-expression subset with the FULLER Parser.cs precedence

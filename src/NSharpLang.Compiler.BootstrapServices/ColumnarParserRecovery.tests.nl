@@ -2277,3 +2277,257 @@ test "016 expr: a well-formed shift `a << b` reports no parser diagnostic" {
     errors := RunPreamble("func test() {\n    x := a << b\n    print x\n}\n")
     assert errors.Count == 0
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 8: parity contracts for the MATCH / PATTERN diagnostic family
+// (Stage-7's recorded cut B). The `match` keyword-led primary (the MINIMAL vehicle Stage 7 deferred) is
+// reached through the Stage-6 block-body statement grammar (`func f() { match … }`); the match value,
+// each `when` guard, and each case body descend the full Stage-7 ladder. Every expected value below is
+// the GOLDEN output of the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109). The match
+// case loop makes progress via EnsureProgress but does NOT reset panic per case (Parser.cs :5399, unlike
+// the union per-case reset :1216), so a pattern / arrow / comma error cascade-suppresses the rest of the
+// match; the statement boundary between two match statements DOES reset it (proven below).
+// ============================================================================
+
+// ---- the pattern terminal "Invalid pattern. Got 'X'" (Parser.cs ParsePrimaryPattern :3440, NL103) ----
+
+test "016 match: a non-pattern token reports the NL103 invalid-pattern terminal anchored on the offender" {
+    errors := RunPreamble("func f() {\n    match x {\n        + => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid pattern. Got '+'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        + => 1"
+    assert e.HumanExplanation == "I couldn't recognize this as a valid pattern for matching."
+    assert e.ContextualHint == "Patterns can be literals, identifiers, types, or destructuring patterns."
+    assert e.Suggestion == "Literal pattern: case 5 => ..."
+}
+
+test "016 match: a different non-pattern operator reaches the same NL103 invalid-pattern terminal" {
+    errors := RunPreamble("func f() {\n    match x {\n        * => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid pattern. Got '*'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        * => 1"
+}
+
+test "016 match: a reserved keyword where a pattern is required hits the invalid-pattern terminal spanning the keyword" {
+    // `return` is a reserved keyword, not an identifier, so ParsePrimaryPattern's identifier branch is
+    // not taken and it falls to the terminal; the span is the keyword's own length (Current.Value.Length).
+    errors := RunPreamble("func f() {\n    match x {\n        return => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid pattern. Got 'return'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 6
+    assert e.SourceSnippet == "        return => 1"
+}
+
+test "016 match: the guard keyword `when` in pattern position hits the invalid-pattern terminal" {
+    errors := RunPreamble("func f() {\n    match x {\n        when => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid pattern. Got 'when'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 4
+    assert e.SourceSnippet == "        when => 1"
+}
+
+// ---- the match Consume sites (Parser.cs ParseMatchExpression :5368) ----
+
+test "016 match: a missing '{' after the match value reports the NL102 expected-brace diagnostic" {
+    errors := RunPreamble("func f() {\n    match x\n        1 => 10\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '{'. Expected '{', got '1'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        1 => 10"
+    assert e.HumanExplanation == "I was expecting { here, but I found '1' instead."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 match: a missing '=>' after the pattern reports the NL102 expected-arrow diagnostic" {
+    // TokenTypeToString(Arrow) has no explicit case, so it renders as "arrow" (Parser.cs :6341).
+    errors := RunPreamble("func f() {\n    match x {\n        1 2\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '=>'. Expected 'arrow', got '2'"
+    assert e.Line == 3
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "        1 2"
+    assert e.HumanExplanation == "I was expecting arrow here, but I found '2' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 match: a missing ',' between cases reports the NL102 expected-comma diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        1 => 10\n        2 => 20\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ',' between match cases. Expected ',', got '2'"
+    assert e.Line == 4
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        2 => 20"
+    assert e.HumanExplanation == "I was expecting , here, but I found '2' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 match: an unterminated match at end of file reports the NL104 unexpected-end-of-file diagnostic" {
+    // After the last case body the loop needs a ',' before the (absent) '}', and the file ends first,
+    // so the comma Consume reports the end-of-file variant anchored on the last visible token ('10').
+    errors := RunPreamble("func f() {\n    match x {\n        1 => 10\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected ',' but reached the end of the file"
+    assert e.Line == 3
+    assert e.Column == 14
+    assert e.Length == 2
+    assert e.SourceSnippet == "        1 => 10"
+    assert e.HumanExplanation == "I was expecting ',' here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+// ---- the property-pattern sites (Parser.cs ParsePropertyPatterns :3459) ----
+
+test "016 match: a non-identifier property name reports the NL102 expected-property-name diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        { 5: y } => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected property name. Got '5'"
+    assert e.Line == 3
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "        { 5: y } => 1"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 match: a reserved keyword as a property name reports the NL109 reserved-keyword diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        { class: y } => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected property name. Got the reserved keyword 'class'"
+    assert e.Line == 3
+    assert e.Column == 11
+    assert e.Length == 5
+    assert e.SourceSnippet == "        { class: y } => 1"
+    assert e.HumanExplanation == "'class' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'classValue' or '_class')."
+    assert e.Suggestion == "Rename it to 'classValue' or '_class'"
+}
+
+test "016 match: an object pattern with no closing '}' re-enters the loop and reports the next property name" {
+    // The missing '}' is not the closing-delimiter family here: the property loop sees `=>` (not '}'),
+    // tries to read another property name, and reports NL102 on '=>' before the pattern's own '}' close.
+    errors := RunPreamble("func f() {\n    match x {\n        { Name: y => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected property name. Got '=>'"
+    assert e.Line == 3
+    assert e.Column == 19
+    assert e.Length == 2
+    assert e.SourceSnippet == "        { Name: y => 1"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '=>' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+// ---- the qualified-name pattern site (Parser.cs ParsePrimaryPattern :3417) ----
+
+test "016 match: a qualified pattern name with a trailing dot reports the NL102 dot-access diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        Result. => 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected identifier after '.'. Got '=>'"
+    assert e.Line == 3
+    assert e.Column == 17
+    assert e.Length == 2
+    assert e.SourceSnippet == "        Result. => 1"
+    assert e.HumanExplanation == "I see a dot (.) operator but no member name after it. I found '=>' instead."
+    assert e.ContextualHint == "After a dot, I need to see a property or method name."
+    assert e.Suggestion == "Check if you forgot to finish this line"
+}
+
+// ---- the shared-panic model across match cases and match statements ----
+
+test "016 match: two bad patterns in one match report ONCE - the case loop does not reset panic" {
+    // Parser.cs :5399 uses EnsureProgress with no `_panicMode = false`, so the second pattern error is
+    // suppressed by the panic the first set (the cascading-suppression shape, no intervening reset).
+    errors := RunPreamble("func f() {\n    match x {\n        + => 1,\n        / => 2\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid pattern. Got '+'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        + => 1,"
+}
+
+test "016 match: two separate match statements each report their first pattern error - the statement boundary resets panic" {
+    // The block-body statement boundary (Parser.cs ParseBlock :2172) resets panic between the two match
+    // statements, so the second match's first bad pattern reports its own diagnostic.
+    errors := RunPreamble("func f() {\n    match a {\n        + => 1\n    }\n    match b {\n        / => 2\n    }\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.InvalidSyntax
+    assert e0.Message == "Invalid pattern. Got '+'"
+    assert e0.Line == 3
+    assert e0.Column == 9
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "        + => 1"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.InvalidSyntax
+    assert e1.Message == "Invalid pattern. Got '/'"
+    assert e1.Line == 6
+    assert e1.Column == 9
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "        / => 2"
+}
+
+// ---- negatives: well-formed matches / patterns report NO parser diagnostic ----
+
+test "016 match: well-formed literal, identifier, and type patterns report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        1 => 10,\n        y => 20,\n        int z => 30\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 match: well-formed relational, or, and, and not patterns report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        < 5 => 1,\n        1 or 2 => 2,\n        > 0 and < 9 => 3,\n        not 4 => 4\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 match: well-formed list, positional, object, union-case, and guarded patterns report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        [1, 2, 3] => 1,\n        (a, b) => 2,\n        { Name: n } => 3,\n        Result.Ok { value: v } => 4,\n        n when n > 5 => 5\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 match: well-formed list slice patterns report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    match x {\n        [1, .., 3] => 1,\n        [.. rest] => 2\n    }\n}\n")
+    assert errors.Count == 0
+}
