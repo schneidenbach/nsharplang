@@ -16,10 +16,10 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 10 landed — the POSTFIX CALL / INDEX / generic-call / `with`
-  + call-argument family and the first keyword-led-primary tranche [new / cast / tuple / typeof / nameof / sizeof /
-  checked / unchecked / array]; 219 native parity contracts total [179 through Stage 9 + 40],
-  `ColumnarParserRecovery.nl` now 4,302 lines) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 11 landed — the remaining keyword-led primaries [alloc /
+  stackalloc / lambda] and the `is`/`as` relational TYPE sub-grammar; 250 native parity contracts total [219 through
+  Stage 10 + 31], `ColumnarParserRecovery.nl` now 4,476 lines; interpolated-string `$"…"` hole grammar recut to
+  Stage 12) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -60,7 +60,77 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 10 of the parser-front-end arc — the POSTFIX
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 11 of the parser-front-end arc — the remaining
+  keyword-led primaries (map item [1]: alloc / stackalloc / lambda) + the `is`/`as` type sub-grammar (map item [2]).
+  Extended `ColumnarParserRecovery.nl` to carry, through the SAME shared-panic model, four sub-families end-to-end,
+  PROVEN byte-exact against the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109, excluding the
+  columnar-backend emit-decline NL103 anchored at Main.nl:1:1). ORIGIN INVENTORY (grep of Parser.cs): (a) the `is`/
+  `as` TYPE arms (`ParseRelationalExpression` :4140/:4153) — both call `ParseTypeReference` (the type sub-grammar);
+  `is` also consumes an optional trailing pattern-variable identifier (no diagnostic). Reused the already-owned
+  `ParseTypeReferenceRecovery` (the simple / qualified / generic subset — the identical typeof / sizeof / cast type-
+  reference vehicle), so the is/as type errors (missing type name NL102, qualified `.` NL102, `Name<>` generic-arg
+  NL102, unclosed `>` NL102, reserved-keyword NL109) fire byte-exact; the `<` after an is/as type is absorbed as a
+  generic open (verified). The invalid-relational default (:4177) is an unreachable dead arm (peeled before it).
+  (b) the ALLOC primary (`ParseAllocExpression` :5178, dispatched :4747) — the guarded `Consume(Alloc)` never fires;
+  the new / array-literal / string-primary / unary sub-shape all delegate to already-owned grammars, so alloc adds no
+  new error site (missing-operand routes to the NL101 unexpected-token terminal; `alloc new` with no type to the
+  Stage-10 ParseNewTypeReference NL102). (c) the STACKALLOC primary (`ParseStackAllocExpression` :5197, dispatched
+  :4752) — element `ParseTypeReference` + `Consume(LeftBracket, "…after stackalloc element type")` (distinct NL102) +
+  length `ParseExpression` + `Consume(RightBracket, "…after stackalloc length")` (NL108 next-line/EOF via the Stage-9
+  closing-delimiter recovery, else the distinct NL102 when the mid-line offender declines recovery). (d) the LAMBDA
+  family (`ParseLambdaOrAssignmentExpression` :3641) — single-param `x => …` (:3652, gated `Check(Identifier) &&
+  LookAhead(1)==Arrow`) and multi-param `(x,y) => …` (:3681, gated `IsLambdaExpression` :5535 — a bounded lookahead
+  admitting ONLY a well-formed `( ident, … ) =>`, so `ParseMultiParameterLambda`'s ConsumeIdentifier / Consume(
+  RightParen) / Consume(Arrow) sites never fire; the ONLY reachable error is the missing lambda body via the already-
+  owned `ParseRequiredExpressionAfter` with span `DiagnosticSpanFromTokenRange(paramOr'('→'=>')`). The `on`
+  subscription prefix (:3649) is a separate deferred family. IMPLEMENTATION: added the is/as arms to `ParseRelational`;
+  the alloc / stackalloc arms to `ParsePrimaryExprValue` (between unchecked and new, Parser.cs order); the two lambda
+  prefixes to the top of `ParseExprValue` (Parser.cs ParseExpression→ParseLambdaOrAssignmentExpression, so every
+  ParseExpression consumer allows lambdas) + the new `IsLambdaExpression` (pure token-scan, the IsGenericMethodCall
+  idiom) and `ParseMultiParameterLambda`. DECISIONS reuse the live shared `ParserTokenFacts` and CONSTRUCTION
+  delegates to the live shared `ParserErrorDiagnostics.Create`, so codes / messages / spans / snippets / hints /
+  suggestions match automatically. +31 native parity contracts in `ColumnarParserRecovery.tests.nl` (is/as: 4
+  negatives [is / is-with-var / as / is-generic], missing-type NL102 [is / as / in-arg], `List<>` generic-arg NL102,
+  qualified-`.` NL102, unclosed-`>` NL102, reserved-keyword NL109, two-`is`-statement-boundary-reset [NL101 swallowed-
+  name then NL102]; alloc: 3 negatives [new / array / in-arg], missing-operand NL101, `alloc new` missing-type NL102;
+  stackalloc: 2 negatives [int[4] / generic-element], missing-`[` NL102, missing-type NL102, unclosed-`]` NL108,
+  mid-line-`]`-declines-then-stray-`]` [NL102 + NL101]; lambda: 4 negatives [single / multi / empty / block-body],
+  single missing-body NL102, multi missing-body NL102, missing-body-does-not-swallow-following-statement, two-
+  functions-each-body-less [declaration-boundary reset]). RECUT (recorded, DEFERRED to STAGE 12 — with reason): the
+  interpolated-string `$"…"` HOLE grammar (`ParseInterpolatedString` :4932) — its inventory shows ZERO Consume sites
+  and exactly ONE explicit ReportError (the NL101 "Unexpected token 'X' after interpolated string expression" hole-
+  tail), BUT that error AND every hole-EXPRESSION error are produced by a FRESH sub-Lexer + sub-Parser (`new Parser(
+  subTokens, _fileName)`, sourceCode=null → the CLI re-attaches the snippet by line number, verified) with per-hole
+  hole-content char-scanning (`{{`/`}}` escapes, format-`:` split, nested strings, raw-string multi-line) + token
+  position adjustment (`tok.Line + exprStartLine - 1` / `tok.Column + exprStartCol - 1`) + separate-panic semantics
+  — materially heavier than the other three families combined, its own coherent sub-slice. The malformed-`$"…"` NL105
+  (unterminated single-line / raw) is ALREADY owned (Stage 3, via ReportMalformedStringLiteralIfNeeded). Also DEFERRED
+  (shared with typeof / sizeof / cast): the richer type-reference forms the whole is/as/typeof/sizeof/cast sub-grammar
+  routes through `ParseTypeReferenceRecovery` does not model — union `A | B` ("Expected a type after '|'…"), postfix
+  array `[]` / nullable `?`, byref `&`, tuple `( … )`, `Func<>` — a later shared type-grammar extension; the corpus's
+  is/as types are all simple / qualified / generic names. The multi-param lambda `on` subscription prefix (:3649).
+  NO production wiring; NO wall tripped (self-contained edit to one owner + its tests; the packaged SDK 0.1.0 self-
+  emitted the edited owner + all 1012 contracts cleanly — no repin). Evidence: BootstrapServices contracts 1012/1012
+  (981 baseline + 31; full-suite fresh run, `-p:NSharpExcludeTests=false`); dev.sh Parser 381/381; ownership audit
+  18/18 (all deltas `.nl`, no ratchet movement — verified 0 refs to any `.nl` in the growth-ratchet manifests); git
+  status shows ONLY the two `.nl` files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A —
+  `ColumnarParserRecovery` / `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep
+  across src+editors+tests), so nothing in the production compile path changed. No LSP/VS Code change → no extension
+  reload. `ColumnarParserRecovery.nl` 4,302 → 4,476 lines (+174); `.tests.nl` 3,146 → 3,516 (+370). RESIDUAL-TO-PARITY
+  MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 11): [1] the interpolated-string `$"…"`
+  hole grammar (STAGE 12 — the fresh sub-Lexer/sub-Parser + position adjustment described above); [2] the remaining
+  statement kinds (yield / break / continue / throw / try / using / lock / switch / allow / alloc-stmt / unsafe /
+  assert / preprocessor / local-function / await-foreach / off) + the C-style `for i;c;n` / tuple-deconstruction /
+  typed `name: T = value` declarations + the `on` subscription; [3] the MEMBER grammars (method / constructor /
+  nested-type / record-positional / union-case / interface / property) + the record / interface / union / enum / soa
+  type BODIES (each with its own missing-`}` + special diagnostics, e.g. soa's "not supported yet"); [4] the richer
+  type-reference forms (union / postfix array-nullable / byref / tuple / `Func<>`) shared across is/as/typeof/sizeof/
+  cast/stackalloc; [5] the TEST DSL (test / setup / teardown + the test-case rows) and ATTRIBUTES; [6] the garbage-
+  type cascade shapes (non-`{` braced found-other, non-identifier parameter name, named-tuple bad-name) needing
+  `ParseTypeReference`-on-garbage + position-sorted emit. THEN the AST/node-table-facts stage (N+1), the CUTOVER (N+2,
+  IDE-affecting), and the DELETION arc (N+3). Next: STAGE 12 = the interpolated-string `$"…"` hole grammar (map
+  residual [1]), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 10 of the parser-front-end arc — the POSTFIX
   CALL / INDEX / generic-call / `with {…}` + call-argument family (map item [1]) and the first KEYWORD-LED-PRIMARY
   tranche — new / cast / tuple / typeof (+ the cheap same-shape nameof / sizeof / checked / unchecked) / array
   (map item [2]). Extended `ColumnarParserRecovery.nl` to carry, through the SAME shared-panic model, these

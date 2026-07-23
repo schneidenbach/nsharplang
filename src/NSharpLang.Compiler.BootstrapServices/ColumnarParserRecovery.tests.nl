@@ -3144,3 +3144,373 @@ test "016 postfix: two functions each with an unclosed call each report - the de
     assert e1.Length == 1
     assert e1.SourceSnippet == "    k(3, 4"
 }
+
+// ============================================================================
+// Stage 11: the remaining keyword-led primaries (alloc / stackalloc / lambda; map item [1]) and the
+// `is` / `as` TYPE sub-grammar (map item [2]), carried through the SAME shared-panic model. Every expected
+// value below is the golden output of the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109,
+// excluding the columnar-backend emit-decline NL103 anchored at Main.nl:1:1). The interpolated-string `$"…"`
+// hole grammar is DEFERRED to Stage 12 (fresh sub-Lexer + sub-Parser + per-hole position adjustment); the
+// malformed-`$"…"` NL105 is already owned (Stage 3).
+// ============================================================================
+
+// ---- the `is` / `as` relational TYPE sub-grammar (Parser.cs ParseRelationalExpression :4132) ----
+
+test "016 is: a well-formed `is` type test reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := x is int\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 is: an `is` type test with a pattern variable name reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := x is string s\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 as: a well-formed `as` safe cast reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := x as Foo\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 is: an `is` test against a generic type reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := x is List<int>\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 is: a missing type after `is` reports the NL102 expected-type-name via the type-reference recovery" {
+    errors := RunPreamble("func f() {\n    y := x is\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '}'"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '}' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 as: a missing type after `as` reports the NL102 expected-type-name" {
+    errors := RunPreamble("func f() {\n    y := x as\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '}'"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+}
+
+test "016 is: a missing type after `is` in a call argument anchors the NL102 on the closing paren" {
+    errors := RunPreamble("func f() {\n    print(x is)\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got ')'"
+    assert e.Line == 2
+    assert e.Column == 15
+    assert e.Length == 1
+    assert e.SourceSnippet == "    print(x is)"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found ')' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 is: an empty generic argument list after `is` reports the NL102 missing-type-argument" {
+    errors := RunPreamble("func f() {\n    y := x is List<>\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 2
+    assert e.Column == 15
+    assert e.Length == 6
+    assert e.SourceSnippet == "    y := x is List<>"
+    assert e.HumanExplanation == "Generic type 'List' needs a type argument between '<' and '>'."
+    assert e.ContextualHint == "Write this type as `List<T>` or remove the generic argument list."
+    assert e.Suggestion == "Add a type argument"
+}
+
+test "016 is: a trailing dot in the `is` qualified type name reports the NL102 dot-access variant" {
+    errors := RunPreamble("func f() {\n    y := x is A.\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected identifier after '.'. Got '}'"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+    assert e.HumanExplanation == "I see a dot (.) operator but no member name after it. I found '}' instead."
+    assert e.ContextualHint == "After a dot, I need to see a property or method name."
+    assert e.Suggestion == "Check if you forgot to finish this line"
+}
+
+test "016 as: an unclosed generic type after `as` reports the NL102 expected-greater via ConsumeGreater" {
+    errors := RunPreamble("func f() {\n    y := x as List<int\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '>'. Got '}'"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+    assert e.HumanExplanation == "I was parsing generic type parameters and expected to see a closing '>' here."
+    assert e.ContextualHint == null
+    assert e.Suggestion == "Check if you have matching '<' and '>' in your generic type declaration"
+}
+
+test "016 is: a reserved keyword as the `is` type name reports the NL109 reserved-keyword variant" {
+    errors := RunPreamble("func f() {\n    y := x is return\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected type name. Got the reserved keyword 'return'"
+    assert e.Line == 2
+    assert e.Column == 15
+    assert e.Length == 6
+    assert e.SourceSnippet == "    y := x is return"
+    assert e.HumanExplanation == "'return' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'returnValue' or '_return')."
+    assert e.Suggestion == "Rename it to 'returnValue' or '_return'"
+}
+
+test "016 is: two `is` type tests across a statement boundary - the first swallows the following name, the boundary resets panic" {
+    // `y := x is\n z := w is`: after the first `is`, the type-reference consumes the next identifier `z`,
+    // leaving `:=` as an unexpected token (NL101); the statement boundary resets panic, so `w is` then
+    // reports its own missing-type NL102 against the closing brace.
+    errors := RunPreamble("func f() {\n    y := x is\n    z := w is\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.UnexpectedToken
+    assert e0.Message == "Unexpected token ':=' in expression"
+    assert e0.Line == 3
+    assert e0.Column == 7
+    assert e0.Length == 2
+    assert e0.SourceSnippet == "    z := w is"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected type name. Got '}'"
+    assert e1.Line == 4
+    assert e1.Column == 1
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "}"
+}
+
+// ---- the keyword-led primary `alloc` (Parser.cs ParseAllocExpression :5178) ----
+
+test "016 alloc: `alloc new Foo()` reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := alloc new Foo()\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 alloc: `alloc [ ... ]` array literal reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := alloc [1, 2, 3]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 alloc: `alloc new Foo()` in a call argument reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    print(alloc new Foo())\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 alloc: a bare `alloc` with no operand routes to the NL101 unexpected-token terminal on the operand" {
+    errors := RunPreamble("func f() {\n    y := alloc\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unexpected token '}' in expression"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+    assert e.HumanExplanation == "I was parsing an expression and found '}', which I don't know how to handle here."
+    assert e.ContextualHint == "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax."
+    assert e.Suggestion == null
+}
+
+test "016 alloc: `alloc new` with no type routes to the NL102 expected-type-name on `new`" {
+    errors := RunPreamble("func f() {\n    y := alloc new\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 16
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := alloc new"
+    assert e.HumanExplanation == "The `new` expression needs a type name, `()`, or an initializer after it."
+    assert e.ContextualHint == "Write `new TypeName(...)`, `new()`, or `new { Name: value }`."
+    assert e.Suggestion == "Add a type name after `new`"
+}
+
+// ---- the keyword-led primary `stackalloc` (Parser.cs ParseStackAllocExpression :5197) ----
+
+test "016 stackalloc: a well-formed `stackalloc int[4]` reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := stackalloc int[4]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stackalloc: a well-formed `stackalloc` over a generic element type reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := stackalloc List<int>[4]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stackalloc: a missing '[' after the element type reports the distinct NL102 expected-bracket message" {
+    errors := RunPreamble("func f() {\n    y := stackalloc int 4\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '[' after stackalloc element type. Expected '[', got '4'"
+    assert e.Line == 2
+    assert e.Column == 25
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := stackalloc int 4"
+    assert e.HumanExplanation == "I was expecting [ here, but I found '4' instead."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 stackalloc: a missing type reports the NL102 expected-type-name via the type-reference recovery" {
+    errors := RunPreamble("func f() {\n    y := stackalloc [4]\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '['"
+    assert e.Line == 2
+    assert e.Column == 21
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := stackalloc [4]"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '[' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 stackalloc: an unclosed ']' before the next line reports NL108 via the Stage-9 closing-delimiter recovery" {
+    errors := RunPreamble("func f() {\n    y := stackalloc int[4\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 2
+    assert e.Column == 21
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := stackalloc int[4"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ']' that matches an earlier '['."
+    assert e.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+test "016 stackalloc: a mid-line offender where ']' is required declines recovery (NL102) then the stray ']' reports NL101" {
+    // The mid-line `5` is not a same-line closing-delimiter boundary, so ConsumeToken declines the recovery
+    // and reports the distinct "Expected ']' after stackalloc length" NL102 WITHOUT advancing; the statement
+    // boundary resets panic, `5` parses as its own statement, and the leftover `]` hits the NL101 terminal.
+    errors := RunPreamble("func f() {\n    y := stackalloc int[4 5]\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected ']' after stackalloc length. Expected ']', got '5'"
+    assert e0.Line == 2
+    assert e0.Column == 27
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "    y := stackalloc int[4 5]"
+    assert e0.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token ']' in expression"
+    assert e1.Line == 2
+    assert e1.Column == 28
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "    y := stackalloc int[4 5]"
+}
+
+// ---- the lambda family (Parser.cs ParseLambdaOrAssignmentExpression :3641) ----
+
+test "016 lambda: a well-formed single-parameter lambda reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g := x => x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 lambda: a well-formed multi-parameter lambda reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g := (x, y) => x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 lambda: a well-formed empty-parameter lambda reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g := () => 1\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 lambda: a well-formed block-body lambda reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g := x => { }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 lambda: a single-parameter lambda missing its body reports NL102 spanning the parameter through '=>'" {
+    errors := RunPreamble("func f() {\n    g := x =>\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a lambda body expression after '=>'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    g := x =>"
+    assert e.HumanExplanation == "This lambda expression needs a lambda body expression after '=>'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add a lambda body expression after '=>'"
+}
+
+test "016 lambda: a multi-parameter lambda missing its body reports NL102 spanning '(' through '=>'" {
+    errors := RunPreamble("func f() {\n    g := (x, y) =>\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a lambda body expression after '=>'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 9
+    assert e.SourceSnippet == "    g := (x, y) =>"
+    assert e.HumanExplanation == "This lambda expression needs a lambda body expression after '=>'."
+    assert e.Suggestion == "Add a lambda body expression after '=>'"
+}
+
+test "016 lambda: a missing lambda body does not swallow the following statement" {
+    // `a := x =>` reaches the recovery boundary at the next line's `b :=` statement start, so it reports
+    // its missing body ONCE and the well-formed `b := 1` statement parses cleanly.
+    errors := RunPreamble("func f() {\n    a := x =>\n    b := 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a lambda body expression after '=>'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 4
+    assert e.SourceSnippet == "    a := x =>"
+}
+
+test "016 lambda: two functions each with a body-less lambda each report - the declaration boundary resets panic" {
+    errors := RunPreamble("func g() {\n    a := x =>\n}\nfunc h() {\n    b := y =>\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected a lambda body expression after '=>'"
+    assert e0.Line == 2
+    assert e0.Column == 10
+    assert e0.Length == 4
+    assert e0.SourceSnippet == "    a := x =>"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected a lambda body expression after '=>'"
+    assert e1.Line == 5
+    assert e1.Column == 10
+    assert e1.Length == 4
+    assert e1.SourceSnippet == "    b := y =>"
+}

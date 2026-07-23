@@ -2530,10 +2530,39 @@ public class ColumnarParserRecovery {
     // fires and cannot be reached byte-exact.
     // ============================================================================
 
-    // ---- assignment (Parser.cs ParseAssignmentExpression :3690) ----
-    // The single/multi-parameter lambda and `on` subscription prefixes (ParseLambdaOrAssignmentExpression
-    // :3641) are the LAMBDA family — a later stage; the corpus uses no lambda/`on` expression.
+    // ---- lambda prefixes + assignment (Parser.cs ParseLambdaOrAssignmentExpression :3641 → :3690) ----
+    // Stage 11 carries the LAMBDA family: the single-parameter `x => …` (:3652) and multi-parameter
+    // `(x, y) => …` (:3681) literals, whose only reachable error site is the missing lambda-body expression
+    // (via the already-owned ParseRequiredExpressionAfter — the multi-param parameter list is guarded by
+    // IsLambdaExpression, which admits only a well-formed `( ident, … ) =>`, so its ConsumeIdentifier /
+    // Consume(RightParen) / Consume(Arrow) sites never fire). The `on` subscription prefix (:3649) is a
+    // separate family (deferred); the corpus uses no `on` expression.
     func ParseExprValue(): ExprResult {
+        line := Current().Line
+        column := Current().Column
+
+        // Single-parameter lambda `x => expr` (Parser.cs :3652). A LambdaExpression is anchored on this start
+        // position, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow {
+            paramToken := Advance()                         // the parameter name
+            arrowToken := Advance()                         // consume '=>'
+            if Check(TokenType.LeftBrace) {
+                ParseBlockBody(new RecoverySpan(paramToken.Line, paramToken.Column, MaxInt(1, paramToken.Value.Length)))
+            } else {
+                ParseRequiredExpressionAfter(
+                    arrowToken,
+                    "a lambda body expression",
+                    "This lambda expression",
+                    DiagnosticSpanFromTokenRange(paramToken, arrowToken))
+            }
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // Multi-parameter lambda `(x, y) => expr` (Parser.cs :3681), gated by the IsLambdaExpression lookahead.
+        if Check(TokenType.LeftParen) && IsLambdaExpression() {
+            return ParseMultiParameterLambda()
+        }
+
         left := ParseTernary()
 
         // Assignment (Parser.cs :3694): only on the same line, only the recognized assignment operators.
@@ -2552,6 +2581,86 @@ public class ColumnarParserRecovery {
         }
 
         return left
+    }
+
+    // Parser.cs IsLambdaExpression (:5535): a bounded lookahead over `( ident (, ident)* ) =>` (or the empty
+    // `() =>`), returning true only when the parenthesized list is a well-formed lambda parameter list. A pure
+    // token scan (no cursor mutation), the IsGenericMethodCall idiom. Because this admits ONLY a well-formed
+    // parameter list, ParseMultiParameterLambda's ConsumeIdentifier / Consume(RightParen) / Consume(Arrow)
+    // sites never report — the reachable error is only the missing lambda body.
+    func IsLambdaExpression(): bool {
+        pos := Position + 1                                 // skip the '(' at Current
+        // Empty lambda `() =>` (Parser.cs :5543).
+        if pos < Tokens.Count && Tokens[pos].Type == TokenType.RightParen {
+            return pos + 1 < Tokens.Count && Tokens[pos + 1].Type == TokenType.Arrow
+        }
+        scanning := true
+        while scanning {
+            if pos >= Tokens.Count || Tokens[pos].Type != TokenType.Identifier {
+                return false
+            }
+            pos = pos + 1
+            if pos < Tokens.Count && Tokens[pos].Type == TokenType.RightParen {
+                return pos + 1 < Tokens.Count && Tokens[pos + 1].Type == TokenType.Arrow
+            }
+            if pos >= Tokens.Count || Tokens[pos].Type != TokenType.Comma {
+                return false
+            }
+            pos = pos + 1
+        }
+        return false
+    }
+
+    // Parser.cs ParseMultiParameterLambda (:5494): `( ident, … ) => body`. IsLambdaExpression guards the entry,
+    // so the parameter list is always well-formed and only the missing-body error (via ParseRequiredExpressionAfter,
+    // span DiagnosticSpanFromTokenRange(leftParen, arrow)) is reachable. A LambdaExpression is anchored on the
+    // opening `(`, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
+    func ParseMultiParameterLambda(): ExprResult {
+        line := Current().Line
+        column := Current().Column
+        leftParenToken := ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+
+        hasFirstParam := false
+        firstParamLine := line
+        firstParamColumn := column
+        firstParamLength := 1
+        if !Check(TokenType.RightParen) {
+            paramLooping := true
+            while paramLooping {
+                paramToken := Current()
+                name := ConsumeIdentifier("Expected parameter name")
+                if !hasFirstParam {
+                    hasFirstParam = true
+                    firstParamLine = paramToken.Line
+                    firstParamColumn = paramToken.Column
+                    firstParamLength = MaxInt(1, name.Length)
+                }
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    paramLooping = false
+                }
+            }
+        }
+
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        arrowToken := ConsumeToken(TokenType.Arrow, "Expected '=>'", "=>")
+
+        if Check(TokenType.LeftBrace) {
+            // Parser.cs :5518: the block owner span is the first parameter's name (guaranteed valid here).
+            lambdaSpan := new RecoverySpan(line, column, 1)
+            if hasFirstParam {
+                lambdaSpan = new RecoverySpan(firstParamLine, firstParamColumn, firstParamLength)
+            }
+            ParseBlockBody(lambdaSpan)
+        } else {
+            ParseRequiredExpressionAfter(
+                arrowToken,
+                "a lambda body expression",
+                "This lambda expression",
+                DiagnosticSpanFromTokenRange(leftParenToken, arrowToken))
+        }
+        return new ExprResult(new RecoverySpan(line, column, 1), false)
     }
 
     // ---- ternary (Parser.cs ParseTernaryExpression :4009) ----
@@ -2665,17 +2774,43 @@ public class ColumnarParserRecovery {
         return result
     }
 
-    // Parser.cs ParseRelationalExpression (:4132). The `is` / `as` operators (which parse a type reference)
-    // are a later arc stage; the corpus uses only the four comparison operators. The invalid-relational
-    // default (:4177) is an unreachable dead arm (the switch handles every token the guard admits).
+    // Parser.cs ParseRelationalExpression (:4132). Carries the four comparison operators plus the `is` / `as`
+    // TYPE sub-grammar arms (Stage 11): each parses a type reference through the already-owned
+    // ParseTypeReferenceRecovery (the simple / qualified / generic subset — identical to the typeof / sizeof /
+    // cast type-reference vehicle), reporting the type-reference errors it reports (missing type name NL102,
+    // qualified `.` NL102, generic-argument NL102, unclosed `>` NL102). The richer type forms (union `A | B`,
+    // postfix array `[]` / nullable `?`, byref `&`, tuple `( … )`, `Func<>`) are a shared deferral with
+    // typeof / sizeof / cast (the whole type sub-grammar routes through ParseTypeReferenceRecovery). The
+    // invalid-relational default (:4177) is an unreachable dead arm (the switch handles every token the guard
+    // admits, and the is/as arms are peeled off before it).
     func ParseRelational(): ExprResult {
         result := ParseShift()
-        while Check(TokenType.Less) || Check(TokenType.LessEqual) || Check(TokenType.Greater) || Check(TokenType.GreaterEqual) {
-            opToken := Advance()
-            if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseShift()
+        while Check(TokenType.Less) || Check(TokenType.LessEqual) || Check(TokenType.Greater) || Check(TokenType.GreaterEqual) || Check(TokenType.Is) || Check(TokenType.As) {
+            if Check(TokenType.Is) {
+                // `expr is Type [name]` (Parser.cs :4140). The optional trailing identifier is the pattern
+                // variable; consuming it reports nothing. An IsExpression is anchored on the `is` token, so its
+                // DiagnosticSpanFromExpression falls to the (isLine, isColumn, 1) default (:5960).
+                isToken := Advance()
+                ParseTypeReferenceRecovery()
+                if Check(TokenType.Identifier) {
+                    Advance()
+                }
+                result = new ExprResult(new RecoverySpan(isToken.Line, isToken.Column, 1), false)
+            } else {
+                if Check(TokenType.As) {
+                    // `expr as Type` (Parser.cs :4153). A safe-cast CastExpression is anchored on the `as`
+                    // token, so its DiagnosticSpanFromExpression falls to the (asLine, asColumn, 1) default.
+                    asToken := Advance()
+                    ParseTypeReferenceRecovery()
+                    result = new ExprResult(new RecoverySpan(asToken.Line, asToken.Column, 1), false)
+                } else {
+                    opToken := Advance()
+                    if !BinaryRightOperandMissing(opToken, result.Span) {
+                        ParseShift()
+                    }
+                    result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                }
             }
-            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
         }
         return result
     }
@@ -3265,7 +3400,10 @@ public class ColumnarParserRecovery {
         }
 
         // Char / string literals run the malformed-literal check (Parser.cs :4643/:4650). The interpolated
-        // string hole grammar (ParseInterpolatedString) is a later arc stage; the corpus uses no `$"…"`.
+        // string HOLE grammar (ParseInterpolatedString :4932 — its lone NL101 hole-tail + the hole-expression
+        // errors, all via a FRESH sub-Lexer + sub-Parser with per-hole position adjustment + separate-panic
+        // semantics) is DEFERRED to Stage 12; the malformed-`$"…"` NL105 (unterminated) is already owned here
+        // (Stage 3, via ReportMalformedStringLiteralIfNeeded). The corpus uses no `$"…"` interpolation hole.
         if Check(TokenType.CharLiteral) {
             token := Advance()
             ReportMalformedCharLiteralIfNeeded(token)
@@ -3343,8 +3481,44 @@ public class ColumnarParserRecovery {
             return new ExprResult(new RecoverySpan(line, column, 1), false)
         }
 
-        // new expression (Parser.cs :4758). alloc / stackalloc (:4747/:4752) are DEFERRED to the next
-        // tranche (their own sub-grammar); the corpus uses neither as a primary.
+        // alloc primary (Parser.cs ParseAllocExpression :5178, dispatched at :4747). The `alloc` keyword wraps
+        // a new / array-literal / string-primary / unary sub-shape, all of which are already-owned grammars, so
+        // alloc adds no new error site of its own (the guarded Consume(Alloc) never fires). An AllocExpression is
+        // anchored on the `alloc` keyword, so its DiagnosticSpanFromExpression falls to the (line, column, 1)
+        // default (:5960).
+        if Check(TokenType.Alloc) {
+            Advance()                                       // consume 'alloc'
+            if Check(TokenType.New) {
+                ParseNewExpression()
+            } else {
+                if Check(TokenType.LeftBracket) {
+                    ParseArrayLiteral()
+                } else {
+                    if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
+                        ParsePrimaryExprValue()             // Parser.cs :5190 routes a string through ParsePrimaryExpression
+                    } else {
+                        ParseUnary()                        // Parser.cs :5193 the general unary operand
+                    }
+                }
+            }
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // stackalloc primary (Parser.cs ParseStackAllocExpression :5197, dispatched at :4752): an element TYPE
+        // reference, then `[` length `]`. The `[` uses the distinct "Expected '[' after stackalloc element type"
+        // NL102 message; the `]` routes through the Stage-9 closing-delimiter recovery (NL108 next-line / EOF,
+        // else the distinct "Expected ']' after stackalloc length" NL102). A StackAllocExpression is anchored on
+        // the `stackalloc` keyword, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default.
+        if Check(TokenType.Stackalloc) {
+            Advance()                                       // consume 'stackalloc'
+            ParseTypeReferenceRecovery()                    // the element type (Parser.cs :5202)
+            ConsumeToken(TokenType.LeftBracket, "Expected '[' after stackalloc element type", "[")
+            ParseExprValue()                                // the length (Parser.cs :5204)
+            ConsumeToken(TokenType.RightBracket, "Expected ']' after stackalloc length", "]")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // new expression (Parser.cs :4758).
         if Check(TokenType.New) {
             return ParseNewExpression()
         }
