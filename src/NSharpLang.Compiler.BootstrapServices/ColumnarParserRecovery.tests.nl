@@ -3782,3 +3782,522 @@ test "016 interpolation: INTERLEAVING - a hole error recorded first but position
     assert e1.Column == 21
     assert e1.Length == 3
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 13: parity contracts for the REMAINING statement kinds
+// (residual map item [1]) — yield / break / continue / throw / try-catch-finally / using / lock /
+// switch / allow / alloc-block / unsafe / assert / preprocessor / local-function / await-foreach /
+// off / on, plus the C-style for(init;cond;incr) / tuple deconstruction / typed `name: T = value`
+// declarations. Reached through the Stage-6 block-body vehicle `func f() { <statement> }`. Every
+// expected value is the GOLDEN output of the production Parser.cs path, captured out-of-band from the
+// freshly built Release CLI (`nlc check --json`) on the same malformed source, filtered to the parser
+// diagnostic codes NL101-NL109 (excluding the line-0 columnar-backend decline NL103, and the SEMANTIC
+// diagnostics — loop-context for break/continue/yield, generator-return, undefined name — which are
+// analyzer diagnostics, not parser ones).
+// ============================================================================
+
+// ---- yield ----
+
+test "016 stmt: yield with no value reports the missing-value NL102 anchored on 'yield'" {
+    errors := RunPreamble("func f() {\n    yield\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a value to yield after 'yield'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    yield"
+    assert e.HumanExplanation == "This yield statement needs a value to yield after 'yield'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add a value to yield after 'yield'"
+}
+
+test "016 stmt: yield break (no value) parses clean" {
+    errors := RunPreamble("func f() {\n    yield break\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: yield with a value parses clean (the generator-context check is semantic, not parser)" {
+    errors := RunPreamble("func f() {\n    yield 1\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- break / continue ----
+
+test "016 stmt: break and continue inside a loop parse clean (the loop-context check is semantic)" {
+    errors := RunPreamble("func f() {\n    for x in items {\n        break\n        continue\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- throw ----
+
+test "016 stmt: throw with no operand reports the missing-exception NL102 anchored on 'throw'" {
+    errors := RunPreamble("func f() {\n    throw\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an exception expression after 'throw'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    throw"
+    assert e.HumanExplanation == "This throw statement needs an exception expression after 'throw'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an exception expression after 'throw'"
+}
+
+test "016 stmt: throw of an expression parses clean" {
+    errors := RunPreamble("func f() {\n    throw ex\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- try / catch / finally ----
+
+test "016 stmt: a full try / catch / finally parses clean" {
+    errors := RunPreamble("func f() {\n    try {\n        x := 1\n    } catch (Exception e) {\n        y := 2\n    } finally {\n        z := 3\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a catch with a typed variable `(e: Exception)` parses clean" {
+    errors := RunPreamble("func f() {\n    try {\n        x := 1\n    } catch (e: Exception) {\n        y := 2\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: an unclosed catch parameter list reports the NL107 via the closing-delimiter recovery" {
+    errors := RunPreamble("func f() {\n    try {\n        x := 1\n    } catch (Exception e {\n        y := 2\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 4
+    assert e.Column == 26
+    assert e.Length == 1
+    assert e.SourceSnippet == "    } catch (Exception e {"
+    assert e.HumanExplanation == "I found '{' while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before '{'"
+}
+
+// ---- lock ----
+
+test "016 stmt: lock with no object expression reports the missing-object NL102 anchored on 'lock'" {
+    errors := RunPreamble("func f() {\n    lock {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an object expression after 'lock'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 4
+    assert e.SourceSnippet == "    lock {"
+    assert e.HumanExplanation == "This lock statement needs an object expression after 'lock'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an object expression after 'lock'"
+}
+
+test "016 stmt: lock obj { } and lock (obj) { } both parse clean" {
+    errors := RunPreamble("func f() {\n    lock obj {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    lock (obj) {\n        x := 1\n    }\n}\n")
+    assert errors2.Count == 0
+}
+
+// ---- unsafe / alloc block ----
+
+test "016 stmt: an unsafe block parses clean" {
+    errors := RunPreamble("func f() {\n    unsafe {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: an alloc block parses clean" {
+    errors := RunPreamble("func f() {\n    alloc {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- assert ----
+
+test "016 stmt: assert with no condition reports the missing-condition NL102 anchored on 'assert'" {
+    errors := RunPreamble("func f() {\n    assert\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected a condition expression after 'assert'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 6
+    assert e.SourceSnippet == "    assert"
+    assert e.HumanExplanation == "This assert statement needs a condition expression after 'assert'."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add a condition expression after 'assert'"
+}
+
+test "016 stmt: assert with a condition, an optional message, and the throws form all parse clean" {
+    errors := RunPreamble("func f() {\n    assert x\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    assert x, \"boom\"\n}\n")
+    assert errors2.Count == 0
+    errors3 := RunPreamble("func f() {\n    assert throws Foo {\n        x := 1\n    }\n}\n")
+    assert errors3.Count == 0
+}
+
+// ---- preprocessor ----
+
+test "016 stmt: preprocessor directives parse clean" {
+    errors := RunPreamble("func f() {\n    #region Foo\n    x := 1\n    #endregion\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- switch ----
+
+test "016 stmt: switch missing its opening brace reports NL102 at the offending 'case', and the func's own missing-} is panic-suppressed" {
+    errors := RunPreamble("func f() {\n    switch x\n        case 1 => print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '{'. Expected '{', got 'case'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 4
+    assert e.SourceSnippet == "        case 1 => print 1"
+    assert e.HumanExplanation == "I was expecting { here, but I found 'case' instead."
+}
+
+test "016 stmt: a switch branch that is neither case nor default reports the expected-case-or-default NL102" {
+    errors := RunPreamble("func f() {\n    switch x {\n        1 => print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected 'case' or 'default'. Got '1'"
+    assert e.Line == 3
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "        1 => print 1"
+    assert e.HumanExplanation == "Switch statements must contain 'case' patterns or a 'default' case."
+    assert e.ContextualHint == "Each branch in a switch must start with 'case pattern =>' or 'default =>'"
+    assert e.Suggestion == "Add a case: case 1 => { ... }"
+}
+
+test "016 stmt: a switch case missing its arrow reports NL102 with the 'arrow' expected token" {
+    errors := RunPreamble("func f() {\n    switch x {\n        case 1 print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '=>'. Expected 'arrow', got 'print'"
+    assert e.Line == 3
+    assert e.Column == 16
+    assert e.Length == 5
+    assert e.SourceSnippet == "        case 1 print 1"
+    assert e.HumanExplanation == "I was expecting arrow here, but I found 'print' instead."
+}
+
+test "016 stmt: an unclosed switch body at EOF reports the switch-specific missing-} NL106" {
+    errors := RunPreamble("func f() {\n    switch x {\n        case 1 => print 1\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 6
+    assert e.SourceSnippet == "    switch x {"
+    assert e.HumanExplanation == "The switch body that started on line 2 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this switch statement."
+}
+
+test "016 stmt: two switches each with a bad branch both report (statement-boundary panic reset)" {
+    errors := RunPreamble("func f() {\n    switch x {\n        1 => print 1\n    }\n    switch y {\n        2 => print 2\n    }\n}\n")
+    assert errors.Count == 2
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected 'case' or 'default'. Got '1'"
+    assert e0.Line == 3
+    assert e0.Column == 9
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected 'case' or 'default'. Got '2'"
+    assert e1.Line == 6
+    assert e1.Column == 9
+}
+
+test "016 stmt: a switch with case and default branches parses clean" {
+    errors := RunPreamble("func f() {\n    switch x {\n        case 1 => print 1\n        default => print 2\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- allow ----
+
+test "016 stmt: allow missing its opening paren reports NL102 at the offending effect" {
+    errors := RunPreamble("func f() {\n    allow alloc {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '(' after 'allow'. Expected '(', got 'alloc'"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 5
+    assert e.SourceSnippet == "    allow alloc {"
+    assert e.HumanExplanation == "I was expecting ( here, but I found 'alloc' instead."
+}
+
+test "016 stmt: allow with a non-effect token reports the systems-identifier NL102 then force-advances" {
+    errors := RunPreamble("func f() {\n    allow(5) {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected allow effect or named argument. Got '5'"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "    allow(5) {"
+    assert e.HumanExplanation == "Systems policy lists use effect names such as alloc, trap, dispatch, delegate, closure, or a named argument such as reason."
+    assert e.ContextualHint == "Write allow(alloc, reason: \"...\") { ... } or remove this allow block."
+}
+
+test "016 stmt: allow(effect) and allow(effect, reason: ...) parse clean" {
+    errors := RunPreamble("func f() {\n    allow(alloc) {\n        x := 1\n    }\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    allow(alloc, reason: \"why\") {\n        x := 1\n    }\n}\n")
+    assert errors2.Count == 0
+}
+
+// ---- local function ----
+
+test "016 stmt: a local function with no body reports the missing-body NL102 at the offending token" {
+    errors := RunPreamble("func f() {\n    func inner(): int\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected function body or '=>' for expression-bodied function. Got 'print'"
+    assert e.Line == 3
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.SourceSnippet == "    print 1"
+    assert e.HumanExplanation == "A function needs a body - either a block with braces { } or an expression after '=>'."
+    assert e.ContextualHint == "Use '{ ... }' for a block body or '=> expression' for a single expression."
+    assert e.Suggestion == "Add a block: { return value; }"
+}
+
+test "016 stmt: a local function missing the ':' before its return type reports NL102 anchored on the name" {
+    errors := RunPreamble("func f() {\n    func inner() int {\n        return 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' before return type. Got 'int'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 5
+    assert e.SourceSnippet == "    func inner() int {"
+    assert e.HumanExplanation == "Function 'inner' needs a ':' before its return type."
+    assert e.ContextualHint == "Write the return type as `func name(...): Type { ... }`."
+    assert e.Suggestion == "Add ':' before 'int'"
+}
+
+test "016 stmt: block-body / expression-body / static local functions all parse clean" {
+    errors := RunPreamble("func f() {\n    func inner(): int {\n        return 1\n    }\n    print inner()\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    func inner(x: int): int => x\n    print inner(1)\n}\n")
+    assert errors2.Count == 0
+    errors3 := RunPreamble("func f() {\n    static func inner(): int {\n        return 1\n    }\n    print inner()\n}\n")
+    assert errors3.Count == 0
+}
+
+test "016 stmt: two functions each with a body-less local function both report (declaration-boundary reset)" {
+    errors := RunPreamble("func f() {\n    func a(): int\n}\nfunc g() {\n    func b(): int\n}\n")
+    assert errors.Count == 2
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected function body or '=>' for expression-bodied function. Got '}'"
+    assert e0.Line == 3
+    assert e0.Column == 1
+    assert e0.Length == 1
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected function body or '=>' for expression-bodied function. Got '}'"
+    assert e1.Line == 6
+    assert e1.Column == 1
+}
+
+// ---- await foreach ----
+
+test "016 stmt: await foreach missing 'in' reports the missing-in NL102 anchored on 'foreach'" {
+    errors := RunPreamble("func f() {\n    await foreach x items {\n        print x\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected 'in' between the loop variable and collection"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 7
+    assert e.SourceSnippet == "    await foreach x items {"
+    assert e.HumanExplanation == "This await foreach statement needs the 'in' keyword between the loop variable and the collection."
+    assert e.ContextualHint == "Write `foreach x in ...`."
+    assert e.Suggestion == "Add 'in' after 'x'"
+}
+
+test "016 stmt: a well-formed await foreach parses clean" {
+    errors := RunPreamble("func f() {\n    await foreach x in items {\n        print x\n    }\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- C-style for ----
+
+test "016 stmt: a C-style for missing its first ';' reports NL102 with the ';' hint" {
+    errors := RunPreamble("func f() {\n    for (let i := 0 i < 10; i = i + 1) {\n        print i\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ';'. Expected ';', got 'i'"
+    assert e.Line == 2
+    assert e.Column == 21
+    assert e.Length == 1
+    assert e.SourceSnippet == "    for (let i := 0 i < 10; i = i + 1) {"
+    assert e.HumanExplanation == "I was expecting ; here, but I found 'i' instead."
+    assert e.ContextualHint == "Statements can end with a semicolon, though it's optional in N#."
+}
+
+test "016 stmt: a C-style for missing its closing ')' reports the NL107 via the closing-delimiter recovery" {
+    errors := RunPreamble("func f() {\n    for (let i := 0; i < 10; i = i + 1 {\n        print i\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 2
+    assert e.Column == 40
+    assert e.Length == 1
+    assert e.SourceSnippet == "    for (let i := 0; i < 10; i = i + 1 {"
+    assert e.Suggestion == "Add ')' before '{'"
+}
+
+test "016 stmt: C-style for loops (parenthesized and bare) parse clean" {
+    errors := RunPreamble("func f() {\n    for (let i := 0; i < 10; i = i + 1) {\n        print i\n    }\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    for let i := 0; i < 10; i = i + 1 {\n        print i\n    }\n}\n")
+    assert errors2.Count == 0
+}
+
+// ---- tuple deconstruction ----
+
+test "016 stmt: a paren tuple deconstruction missing ':=' reports NL102 at the offending token" {
+    errors := RunPreamble("func f() {\n    let (a, b) 5\n    print a\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Tuple deconstruction requires ':=' or '='. Got '5'"
+    assert e.Line == 2
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "    let (a, b) 5"
+    assert e.HumanExplanation == "To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list."
+    assert e.ContextualHint == "Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()"
+    assert e.Suggestion == "Add ':=' for new variables: (x, y) := (1, 2)"
+}
+
+test "016 stmt: paren and no-paren tuple deconstructions parse clean" {
+    errors := RunPreamble("func f() {\n    let (a, b) := getPair()\n    print a\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    a, b := getPair()\n    print a\n}\n")
+    assert errors2.Count == 0
+}
+
+// ---- typed declaration ----
+
+test "016 stmt: a typed declaration `name: T =` with no initializer reports NL102 anchored on the name" {
+    errors := RunPreamble("func f() {\n    name: string =\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected an initializer expression after '='"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 4
+    assert e.SourceSnippet == "    name: string ="
+    assert e.HumanExplanation == "This typed variable declaration needs an initializer expression after '='."
+    assert e.ContextualHint == "Finish the expression before starting the next statement."
+    assert e.Suggestion == "Add an initializer expression after '='"
+}
+
+test "016 stmt: a well-formed typed declaration parses clean" {
+    errors := RunPreamble("func f() {\n    name: string = \"x\"\n    print name\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- using ----
+
+test "016 stmt: a using declaration missing ':=' reports NL102 with the 'colonassign' expected token" {
+    errors := RunPreamble("func f() {\n    using r open() {\n        print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':='. Expected 'colonassign', got 'open'"
+    assert e.Line == 2
+    assert e.Column == 13
+    assert e.Length == 4
+    assert e.SourceSnippet == "    using r open() {"
+    assert e.HumanExplanation == "I was expecting colonassign here, but I found 'open' instead."
+}
+
+test "016 stmt: a using-let with tuple deconstruction reports the InvalidSyntax NL103 on the pattern span" {
+    errors := RunPreamble("func f() {\n    using let (a, b) := open() {\n        print 1\n    }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Using statement requires a variable declaration, not tuple deconstruction"
+    assert e.Line == 2
+    assert e.Column == 15
+    assert e.Length == 6
+    assert e.SourceSnippet == "    using let (a, b) := open() {"
+    assert e.HumanExplanation == "The 'using' statement can only work with single variable declarations, not tuple deconstruction."
+    assert e.ContextualHint == "Use a single variable: using let resource := getResource() { ... }"
+    assert e.Suggestion == "Change from tuple deconstruction to single variable"
+}
+
+test "016 stmt: using-let and using-ident resource declarations parse clean" {
+    errors := RunPreamble("func f() {\n    using let r := open() {\n        print r\n    }\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    using r := open() {\n        print r\n    }\n}\n")
+    assert errors2.Count == 0
+}
+
+// ---- off / on ----
+
+test "016 stmt: an off unsubscription statement parses clean" {
+    errors := RunPreamble("func f() {\n    off h\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: an on subscription whose handler is not a lambda reports the InvalidSyntax NL103 at the handler" {
+    errors := RunPreamble("func f() {\n    on widget.Clicked foo\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected an event handler lambda after the event"
+    assert e.Line == 2
+    assert e.Column == 23
+    assert e.Length == 1
+    assert e.SourceSnippet == "    on widget.Clicked foo"
+    assert e.HumanExplanation == "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires."
+    assert e.ContextualHint == "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`."
+}
+
+test "016 stmt: an on subscription whose event target ends with a bare dot reports the member-after-dot NL102, panic-suppressing the non-lambda report" {
+    errors := RunPreamble("func f() {\n    on w. => 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected event or member name after '.'. Got '=>'"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 2
+    assert e.SourceSnippet == "    on w. => 1"
+    assert e.HumanExplanation == "I see a dot (.) operator but no member name after it. I found '=>' instead."
+    assert e.ContextualHint == "After a dot, I need to see a property or method name."
+    assert e.Suggestion == "Check if you forgot to finish this line"
+}
+
+test "016 stmt: on subscriptions with single-param and multi-param lambda handlers parse clean" {
+    errors := RunPreamble("func f() {\n    on w.Clicked x => 1\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    on w.Clicked (s, a) => 1\n}\n")
+    assert errors2.Count == 0
+}

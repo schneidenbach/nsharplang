@@ -2152,18 +2152,41 @@ public class ColumnarParserRecovery {
 
     // ---- block body (Parser.cs ParseBlock :2143) ----
     // '{' is guaranteed present at every call site (the caller checked Check(LeftBrace)).
+    // The if / while / for body path: the caller already checked Check(LeftBrace), so the opening '{'
+    // is consumed unconditionally (Parser.cs's ParseBlock Consume(LeftBrace) always succeeds here).
     func ParseBlockBody(ownerSpan: RecoverySpan?) {
         line := Current().Line
         column := Current().Column
         Advance()                               // consume '{'
         diagnosticSpan := ownerSpan ?? new RecoverySpan(line, column, 1)
+        ParseBlockStatementsLoop(diagnosticSpan, line)
+    }
 
+    // Parser.cs ParseBlock (:2143): Consume the opening '{' FIRST (reporting a missing '{' through the
+    // standard Consume path), then run the shared block-statements loop. This is the entry the
+    // block-bearing statement kinds reach — try / catch / finally / using / lock / switch / unsafe /
+    // alloc-block / allow / assert-throws / local-function all call ParseBlock directly WITHOUT a
+    // preceding Check(LeftBrace) (Stage 13), unlike the if/while/for bodies that route through the
+    // block case of ParseStatement.
+    func ParseBlock(ownerSpan: RecoverySpan?) {
+        line := Current().Line
+        column := Current().Column
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        diagnosticSpan := ownerSpan ?? new RecoverySpan(line, column, 1)
+        ParseBlockStatementsLoop(diagnosticSpan, line)
+    }
+
+    // The shared block-statements loop (Parser.cs ParseBlock's while body, :2151-2214): the
+    // per-statement panic reset + _currentRecoveryBoundaryColumn tracking + no-progress synchronize
+    // + the closing-'}' / found-declaration / EOF missing-'}' reports. Both ParseBlockBody and
+    // ParseBlock funnel through it so the block grammar is modelled once.
+    func ParseBlockStatementsLoop(diagnosticSpan: RecoverySpan, openingLine: int) {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             // Stage 9: a type-declaration keyword that can't be a statement signals a missing '}' — report
             // the found-declaration NL106 anchored on the block owner and break so the outer declaration
             // loop parses it as a new declaration (Parser.cs :2156-2170, does NOT advance).
             if IsBlockClosingDeclarationStart() {
-                ReportBlockMissingClosingBraceFoundDeclaration(diagnosticSpan, line)
+                ReportBlockMissingClosingBraceFoundDeclaration(diagnosticSpan, openingLine)
                 return
             }
 
@@ -2197,7 +2220,7 @@ public class ColumnarParserRecovery {
             Advance()
         } else {
             if IsAtEnd() {
-                ReportMissingClosingBrace(diagnosticSpan, line)
+                ReportMissingClosingBrace(diagnosticSpan, openingLine)
             }
         }
     }
@@ -2364,6 +2387,11 @@ public class ColumnarParserRecovery {
             ParseForeachStatement()
             return
         }
+        // `await foreach` async iteration (Parser.cs :2249) — a compound dispatch before plain `while`.
+        if Check(TokenType.Await) && LookAhead(1).Type == TokenType.Foreach {
+            ParseAwaitForeachStatement()
+            return
+        }
         if Check(TokenType.While) {
             ParseWhileStatement()
             return
@@ -2372,12 +2400,87 @@ public class ColumnarParserRecovery {
             ParseReturnStatement()
             return
         }
+        if Check(TokenType.Yield) {
+            ParseYieldStatement()
+            return
+        }
+        if Check(TokenType.Break) {
+            ParseBreakStatement()
+            return
+        }
+        if Check(TokenType.Continue) {
+            ParseContinueStatement()
+            return
+        }
+        if Check(TokenType.Throw) {
+            ParseThrowStatement()
+            return
+        }
+        if Check(TokenType.Try) {
+            ParseTryStatement()
+            return
+        }
+        if Check(TokenType.Using) {
+            ParseUsingStatement()
+            return
+        }
+        if Check(TokenType.Lock) {
+            ParseLockStatement()
+            return
+        }
+        if Check(TokenType.Switch) {
+            ParseSwitchStatement()
+            return
+        }
+        if Check(TokenType.Allow) {
+            ParseAllowStatement()
+            return
+        }
+        // alloc BLOCK statement `alloc { … }` — a compound dispatch (Parser.cs :2273); a bare `alloc`
+        // is an expression primary (Stage 11), reached through ParseExpressionStatement below.
+        if Check(TokenType.Alloc) && LookAhead(1).Type == TokenType.LeftBrace {
+            ParseAllocBlockStatement()
+            return
+        }
+        if Check(TokenType.Unsafe) {
+            ParseUnsafeBlockStatement()
+            return
+        }
         if Check(TokenType.Print) {
             ParsePrintStatement()
             return
         }
+        if Check(TokenType.Assert) {
+            ParseAssertStatement()
+            return
+        }
+        if Check(TokenType.PreprocessorDirective) {
+            ParsePreprocessorDirective()
+            return
+        }
         if Check(TokenType.LeftBrace) {
             ParseBlockBody(blockOwnerSpan)
+            return
+        }
+
+        // Local function (Parser.cs :2287): [static] [async] func Name(…) … The two-modifier
+        // `static async func` and one-modifier `static func` / `async func` and bare `func` forms.
+        if (Check(TokenType.Static) || Check(TokenType.Async)) && LookAhead(1).Type == TokenType.Func {
+            ParseLocalFunction()
+            return
+        }
+        if Check(TokenType.Static) && LookAhead(1).Type == TokenType.Async && LookAhead(2).Type == TokenType.Func {
+            ParseLocalFunction()
+            return
+        }
+        if Check(TokenType.Func) {
+            ParseLocalFunction()
+            return
+        }
+
+        // The contextual `off handle` unsubscription statement (Parser.cs :2294).
+        if IsOffStatementStart() {
+            ParseOffStatement()
             return
         }
 
@@ -2413,8 +2516,20 @@ public class ColumnarParserRecovery {
     // ---- variable declaration (Parser.cs ParseVariableDeclaration :2531) ----
     // let / const / readonly share one parser; the ownerDescription is always "This variable
     // declaration" regardless of kind. Tuple deconstruction `(x, y) := …` is a later arc stage.
-    func ParseVariableDeclaration() {
+    // Returns true when it parsed a TUPLE deconstruction (the `let (a, b) := …` form), false for a
+    // plain single-name declaration — the caller (using-statement) needs to distinguish the two,
+    // mirroring Parser.cs's `stmt as VariableDeclarationStatement` null check.
+    func ParseVariableDeclaration(): bool {
         Advance()                               // consume let / const / readonly
+
+        // Tuple deconstruction `(x, y) := …` (Parser.cs :2536). The paren position anchors it.
+        if Check(TokenType.LeftParen) {
+            tupleLine := Current().Line
+            tupleColumn := Current().Column
+            ParseTupleDeconstruction(tupleLine, tupleColumn)
+            return true
+        }
+
         line := Current().Line
         column := Current().Column
         name := ConsumeIdentifier("Expected variable name")
@@ -2433,6 +2548,59 @@ public class ColumnarParserRecovery {
                 "This variable declaration",
                 new RecoverySpan(line, column, MaxInt(1, name.Length)))
         }
+        return false
+    }
+
+    // Parser.cs ParseTupleDeconstruction (:2570): `(a, b, …) := expr` / `(a, b) = expr`. The name list,
+    // the ':='/'=' requirement (NL102 when absent, then skip the offender), and the required initializer.
+    func ParseTupleDeconstruction(line: int, column: int) {
+        ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+
+        scanning := true
+        while scanning {
+            ConsumeIdentifier("Expected identifier or '_'")
+            if Check(TokenType.Comma) {
+                Advance()
+            } else {
+                scanning = false
+            }
+        }
+
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+
+        // Only ':=' / '=' is accepted; otherwise report and skip the offending token (Parser.cs :2584).
+        if !Check(TokenType.ColonAssign) && !Check(TokenType.Assign) {
+            ReportTupleDeconstructionRequiresAssign()
+            if !IsAtEnd() {
+                Advance()
+            }
+        }
+
+        // Anchor the required-initializer recovery on ':='/'=' when present, else the CURRENT token
+        // (where the initializer is actually expected) after the skip (Parser.cs :2607-2619).
+        if Check(TokenType.ColonAssign) || Check(TokenType.Assign) {
+            initializerToken := Advance()
+            ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This tuple deconstruction", null)
+        } else {
+            ParseRequiredExpressionAfter(Current(), "an initializer expression", "This tuple deconstruction", null)
+        }
+    }
+
+    // Parser.cs ParseTupleDeconstruction's ':='/'=' missing report (:2586).
+    func ReportTupleDeconstructionRequiresAssign() {
+        suggestions := new List<string>()
+        suggestions.Add("Add ':=' for new variables: (x, y) := (1, 2)")
+        suggestions.Add("Add '=' for existing variables: (x, y) = tuple")
+        suggestions.Add("Example: (name, age) := getPerson()")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Tuple deconstruction requires ':=' or '='. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.",
+            "Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()",
+            suggestions,
+            Current().Value.Length)
     }
 
     // ---- if / while / for / foreach (Parser.cs :2629 / :2806 / :2651 / :2747) ----
@@ -2476,7 +2644,54 @@ public class ColumnarParserRecovery {
             inToken := ReportMissingInKeywordAndRecover(forToken, variableToken, "This for-in statement")
             ParseRequiredExpressionAfter(inToken, "a collection expression", "This for-in statement", null)
             ParseStatement(SpanFromToken(forToken))
+            return
         }
+
+        // C-style `for (init; cond; incr) { … }` (Parser.cs :2684). The parentheses are optional; the
+        // two `;` separators are Consume sites and the optional `)` routes through the Stage-9 recovery.
+        hasParens := false
+        if Check(TokenType.LeftParen) {
+            hasParens = true
+            Advance()                           // consume '('
+        }
+
+        // Initializer (a `let` declaration, a `:=` shorthand, or a bare expression statement).
+        if !Check(TokenType.Semicolon) {
+            if Check(TokenType.Let) {
+                ParseVariableDeclaration()
+            } else {
+                initResult := ParseExprValue()
+                if initResult.IsBareIdentifier && Check(TokenType.ColonAssign) {
+                    initializerToken := Advance()
+                    ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This for-loop initializer", null)
+                }
+            }
+        }
+
+        ConsumeToken(TokenType.Semicolon, "Expected ';'", ";")
+
+        if !Check(TokenType.Semicolon) {
+            ParseExprValue()                    // condition
+        }
+
+        ConsumeToken(TokenType.Semicolon, "Expected ';'", ";")
+
+        // Iterator: stop at ')' when parenthesized, else at '{'.
+        needIterator := false
+        if hasParens {
+            needIterator = !Check(TokenType.RightParen)
+        } else {
+            needIterator = !Check(TokenType.LeftBrace)
+        }
+        if needIterator {
+            ParseExprValue()                    // iterator
+        }
+
+        if hasParens {
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        }
+
+        ParseStatement(SpanFromToken(forToken))
     }
 
     func ParseForeachStatement() {
@@ -2531,11 +2746,762 @@ public class ColumnarParserRecovery {
         ParseRequiredExpressionAfter(printToken, "an expression to print", "This print statement", null)
     }
 
+    // ============================================================================
+    // Stage 13: the REMAINING statement kinds (residual map item [1]). Each is a thin dispatch +
+    // Consume site over the already-owned expression / type / pattern / delimiter grammars, carried
+    // through the SAME shared-panic model. Diagnostic CONSTRUCTION delegates to the shared Report /
+    // ParseRequiredExpressionAfter / ConsumeToken / ConsumeIdentifier, and every boundary DECISION
+    // reuses the live shared ParserTokenFacts, so codes / messages / spans / snippets / hints match
+    // Parser.cs automatically. Semantic diagnostics (loop-context for break/continue/yield, generator-
+    // return, undefined name) are NOT parser diagnostics and are not modelled here.
+    // ============================================================================
+
+    // ---- yield (Parser.cs ParseYieldStatement :2839) ----
+    // `yield <value>` (required-expression) or `yield break` (no value).
+    func ParseYieldStatement() {
+        yieldToken := Current()
+        Advance()                               // consume 'yield'
+        if !Check(TokenType.Break) {
+            ParseRequiredExpressionAfter(yieldToken, "a value to yield", "This yield statement", null)
+        } else {
+            Advance()                           // consume 'break' (yield break)
+        }
+    }
+
+    // ---- break / continue (Parser.cs :2885 / :2967) ----
+    // The Consume(Break)/(Continue) never fires (the dispatch guards on the exact token); the
+    // loop-context validity is a SEMANTIC check, not a parser one.
+    func ParseBreakStatement() {
+        Advance()                               // consume 'break'
+    }
+
+    func ParseContinueStatement() {
+        Advance()                               // consume 'continue'
+    }
+
+    // ---- throw (Parser.cs ParseThrowStatement :2975) ----
+    func ParseThrowStatement() {
+        throwToken := Current()
+        Advance()                               // consume 'throw'
+        ParseRequiredExpressionAfter(throwToken, "an exception expression", "This throw statement", null)
+    }
+
+    // ---- preprocessor directive (Parser.cs ParsePreprocessorDirective :2875) ----
+    // The Consume(PreprocessorDirective) never fires (dispatched on the exact token); the directive
+    // text carries no diagnostic.
+    func ParsePreprocessorDirective() {
+        Advance()                               // consume the directive
+    }
+
+    // ---- await foreach (Parser.cs ParseAwaitForeachStatement :2776) ----
+    func ParseAwaitForeachStatement() {
+        Advance()                               // consume 'await'
+        foreachToken := Current()
+        Advance()                               // consume 'foreach'
+        hasParens := false
+        if Check(TokenType.LeftParen) {
+            Advance()                           // optional '('
+            hasParens = true
+        }
+        variableToken := Current()
+        ConsumeIdentifier("Expected variable name")
+        inToken := ConsumeInOrReportMissing(foreachToken, variableToken, "This await foreach statement")
+        ParseRequiredExpressionAfter(inToken, "a collection expression", "This await foreach statement", null)
+        if hasParens {
+            ConsumeToken(TokenType.RightParen, "Expected ')' to match opening '('", ")")
+        }
+        ParseStatement(SpanFromToken(foreachToken))
+    }
+
+    // The `Check(In) ? Consume(In) : ReportMissingInKeywordAndRecover` idiom shared by foreach and
+    // await-foreach (Parser.cs :2758 / :2788); the owner-description differs per caller.
+    func ConsumeInOrReportMissing(loopKeywordToken: Token, variableToken: Token, ownerDescription: string): Token {
+        if Check(TokenType.In) {
+            return ConsumeToken(TokenType.In, "Expected 'in'", "in")
+        }
+        return ReportMissingInKeywordAndRecover(loopKeywordToken, variableToken, ownerDescription)
+    }
+
+    // ---- unsafe block (Parser.cs ParseUnsafeBlockStatement :2379) ----
+    func ParseUnsafeBlockStatement() {
+        line := Current().Line
+        column := Current().Column
+        unsafeToken := Current()
+        Advance()                               // consume 'unsafe'
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, unsafeToken.Value.Length)))
+    }
+
+    // ---- alloc block (Parser.cs ParseAllocBlockStatement :2301) — dispatched only when `alloc {` ----
+    func ParseAllocBlockStatement() {
+        line := Current().Line
+        column := Current().Column
+        allocToken := Current()
+        Advance()                               // consume 'alloc'
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, allocToken.Value.Length)))
+    }
+
+    // ---- assert (Parser.cs ParseAssertStatement :2388) ----
+    // `assert throws ExceptionType { … }` OR `assert <condition> [, <message>]`.
+    func ParseAssertStatement() {
+        assertToken := Current()
+        Advance()                               // consume 'assert'
+        if Check(TokenType.Identifier) && Current().Value == "throws" {
+            Advance()                           // consume 'throws'
+            ParseTypeReferenceRecovery()
+            ParseBlock(SpanFromToken(assertToken))
+            return
+        }
+        ParseRequiredExpressionAfter(assertToken, "a condition expression", "This assert statement", null)
+        if Check(TokenType.Comma) {
+            Advance()                           // consume ','
+            ParseExprValue()                    // the optional message expression
+        }
+    }
+
+    // ---- lock (Parser.cs ParseLockStatement :3128) ----
+    // `lock obj { … }` or `lock (obj) { … }`. The "Expected block statement after lock" report
+    // (Parser.cs :3151) is UNREACHABLE — ParseBlock always yields a block, so the `bodyStmt == null`
+    // guard is dead C#; it is intentionally not modelled.
+    func ParseLockStatement() {
+        lockToken := Current()
+        Advance()                               // consume 'lock'
+        hasParens := Check(TokenType.LeftParen)
+        expressionAnchor := lockToken
+        if hasParens {
+            expressionAnchor = ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+        }
+        ParseRequiredExpressionAfter(expressionAnchor, "an object expression", "This lock statement", null)
+        if hasParens {
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        }
+        ParseBlock(SpanFromToken(lockToken))
+    }
+
+    // ---- try / catch / finally (Parser.cs ParseTryStatement :2988) ----
+    func ParseTryStatement() {
+        tryToken := Current()
+        Advance()                               // consume 'try'
+        ParseBlock(SpanFromToken(tryToken))
+        while Check(TokenType.Catch) {
+            catchToken := Advance()             // consume 'catch'
+            if Check(TokenType.LeftParen) {
+                Advance()                       // consume '('
+                if !Check(TokenType.RightParen) {
+                    if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
+                        Advance()               // catch variable name
+                        Advance()               // consume ':'
+                        ParseTypeReferenceRecovery()
+                    } else {
+                        ParseTypeReferenceRecovery()
+                        if Check(TokenType.Identifier) {
+                            Advance()           // catch variable name
+                        }
+                    }
+                }
+                ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            } else {
+                if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
+                    Advance()                   // catch variable name
+                    Advance()                   // consume ':'
+                    ParseTypeReferenceRecovery()
+                }
+            }
+            ParseBlock(SpanFromToken(catchToken))
+        }
+        if Check(TokenType.Finally) {
+            finallyToken := Advance()           // consume 'finally'
+            ParseBlock(SpanFromToken(finallyToken))
+        }
+    }
+
+    // ---- using (Parser.cs ParseUsingStatement :3048) ----
+    // `using let x := e { … }` / `using x := e { … }` / `using (e) { … }` / `using e { … }`. A
+    // `using let (a, b) := …` tuple-deconstruction gets the InvalidSyntax NL103 anchored on the
+    // single-line `(…)` pattern span.
+    func ParseUsingStatement() {
+        usingToken := Current()
+        Advance()                               // consume 'using'
+        if Check(TokenType.Identifier) || Check(TokenType.Let) {
+            if Check(TokenType.Let) {
+                spanResult := TryGetSingleLineDelimiterSpanAt(Position + 1, TokenType.LeftParen, TokenType.RightParen)
+                wasTuple := ParseVariableDeclaration()
+                if wasTuple {
+                    diagSpan := SpanFromToken(usingToken)
+                    if spanResult.Found {
+                        diagSpan = spanResult.Span
+                    }
+                    ReportUsingRequiresVariableDeclaration(diagSpan)
+                }
+            } else {
+                ConsumeIdentifier("Expected variable name")
+                initializerToken := ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
+                ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This using declaration", null)
+            }
+            if Check(TokenType.LeftBrace) {
+                ParseBlock(SpanFromToken(usingToken))
+            }
+            return
+        }
+        ParseRequiredExpressionAfter(usingToken, "a resource expression", "This using statement", null)
+        if Check(TokenType.LeftBrace) {
+            ParseBlock(SpanFromToken(usingToken))
+        }
+    }
+
+    func ReportUsingRequiresVariableDeclaration(span: RecoverySpan) {
+        suggestions := new List<string>()
+        suggestions.Add("Change from tuple deconstruction to single variable")
+        suggestions.Add("Example: using let file := File.Open(path) { ... }")
+        suggestions.Add("Note: The variable will be automatically disposed when the block ends")
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Using statement requires a variable declaration, not tuple deconstruction",
+            span.Line,
+            span.Column,
+            "The 'using' statement can only work with single variable declarations, not tuple deconstruction.",
+            "Use a single variable: using let resource := getResource() { ... }",
+            suggestions,
+            span.Length)
+    }
+
+    // Parser.cs TryGetSingleLineDelimiterSpanAt (:5968): the span of a balanced `(…)` starting at
+    // `openingIndex`, provided the delimiters stay on the opening token's line. Returns false only
+    // when the opening token is absent / of the wrong type; an unbalanced run falls back to the
+    // opening token's own span (still Found).
+    func TryGetSingleLineDelimiterSpanAt(openingIndex: int, openingType: TokenType, closingType: TokenType): OwnerSpanResult {
+        notFound := new OwnerSpanResult(false, SpanFromToken(Current()))
+        if openingIndex < 0 || openingIndex >= Tokens.Count {
+            return notFound
+        }
+        openingToken := Tokens[openingIndex]
+        if openingToken.Type != openingType {
+            return notFound
+        }
+        depth := 0
+        index := openingIndex
+        scanning := true
+        while scanning && index < Tokens.Count {
+            token := Tokens[index]
+            if token.Type == TokenType.Eof || token.Line != openingToken.Line {
+                scanning = false
+            } else {
+                if token.Type == openingType {
+                    depth = depth + 1
+                } else {
+                    if token.Type == closingType {
+                        depth = depth - 1
+                        if depth == 0 {
+                            found := new RecoverySpan(openingToken.Line, openingToken.Column, TokenSpanLengthOrFallback(openingToken, token))
+                            return new OwnerSpanResult(true, found)
+                        }
+                    }
+                }
+                index = index + 1
+            }
+        }
+        return new OwnerSpanResult(true, SpanFromToken(openingToken))
+    }
+
+    // ---- switch (Parser.cs ParseSwitchStatement :3170) ----
+    func ParseSwitchStatement() {
+        switchLine := Current().Line
+        switchToken := Current()
+        Advance()                               // consume 'switch'
+        ParseRequiredExpressionAfter(switchToken, "a value expression", "This switch statement", null)
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+
+        caseLoopActive := true
+        while caseLoopActive && !Check(TokenType.RightBrace) && !IsAtEnd() {
+            caseDiagnosticSpan := new RecoverySpan(Current().Line, Current().Column, MaxInt(1, Current().Value.Length))
+            matchedLabel := false
+            if Check(TokenType.Case) {
+                Advance()                       // consume 'case'
+                ParsePattern()
+                matchedLabel = true
+            } else {
+                if Check(TokenType.Default) {
+                    Advance()                   // consume 'default'
+                    matchedLabel = true
+                } else {
+                    ReportSwitchExpectedCaseOrDefault()
+                    // Skip to the next case / default / '}' (Parser.cs :3218).
+                    while !Check(TokenType.RightBrace) && !Check(TokenType.Case) && !Check(TokenType.Default) && !IsAtEnd() {
+                        Advance()
+                    }
+                    if Check(TokenType.RightBrace) {
+                        caseLoopActive = false  // Parser.cs :3221 break
+                    }
+                    // else: fall through with matchedLabel = false — Parser.cs :3223 continue
+                }
+            }
+            if matchedLabel {
+                ConsumeToken(TokenType.Arrow, "Expected '=>'", "arrow")
+                if Check(TokenType.LeftBrace) {
+                    ParseBlock(caseDiagnosticSpan)
+                } else {
+                    ParseStatement(null)
+                }
+            }
+        }
+
+        if Check(TokenType.RightBrace) {
+            Advance()
+        } else {
+            ReportSwitchMissingClosingBrace(switchToken, switchLine)
+        }
+    }
+
+    func ReportSwitchExpectedCaseOrDefault() {
+        suggestions := new List<string>()
+        suggestions.Add("Add a case: case 1 => { ... }")
+        suggestions.Add("Add a default: default => { ... }")
+        suggestions.Add("Example: case > 0 => Console.WriteLine(\"positive\")")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected 'case' or 'default'. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "Switch statements must contain 'case' patterns or a 'default' case.",
+            "Each branch in a switch must start with 'case pattern =>' or 'default =>'",
+            suggestions,
+            Current().Value.Length)
+    }
+
+    // Parser.cs's switch-specific missing-'}' report (:3249) — DISTINCT from the block NL106 (its
+    // message names the switch body and its line).
+    func ReportSwitchMissingClosingBrace(switchToken: Token, switchLine: int) {
+        span := SpanFromToken(switchToken)
+        Report(
+            ErrorCode.MissingClosingBrace,
+            "Missing closing '}'",
+            span.Line,
+            span.Column,
+            "The switch body that started on line " + IntToString(switchLine) + " is missing its closing brace. I reached the end of the file without finding it.",
+            "Add a '}' to close this switch statement.",
+            null,
+            span.Length)
+    }
+
+    // ---- allow (Parser.cs ParseAllowStatement :2310) ----
+    // `allow(effect, reason: "…", owner: "…") { … }`. The effect loop funnels every name through
+    // ConsumeSystemsIdentifier and force-advances when a whole iteration made no progress
+    // (Parser.cs's `if (Current == nameToken) Advance()`, modelled by the position guard).
+    func ParseAllowStatement() {
+        line := Current().Line
+        column := Current().Column
+        allowToken := Current()
+        Advance()                               // consume 'allow'
+        ConsumeToken(TokenType.LeftParen, "Expected '(' after 'allow'", "(")
+        while !Check(TokenType.RightParen) && !IsAtEnd() {
+            loopStartPosition := Position
+            name := ConsumeSystemsIdentifier("Expected allow effect or named argument")
+            if Check(TokenType.Colon) {
+                Advance()                       // consume ':'
+                // `reason`/`owner` take a string expression; every other effect takes an effect value.
+                // Both parse a diagnostic-free value for the corpus, so the OrdinalIgnoreCase in
+                // Parser.cs is byte-exact here with a plain compare.
+                if name == "reason" {
+                    ParseExprValue()
+                } else {
+                    if name == "owner" {
+                        ParseExprValue()
+                    } else {
+                        ParseAllowEffectValue()
+                    }
+                }
+            }
+            if !Check(TokenType.RightParen) {
+                ConsumeToken(TokenType.Comma, "Expected ',' between allow arguments", ",")
+            }
+            if Position == loopStartPosition {
+                if !IsAtEnd() {
+                    Advance()                   // force progress (Parser.cs :2351)
+                }
+            }
+        }
+        ConsumeToken(TokenType.RightParen, "Expected ')' after allow arguments", ")")
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, allowToken.Value.Length)))
+    }
+
+    // Parser.cs ConsumeSystemsIdentifier (:6786): an effect name (identifier or an alloc-family
+    // keyword) or the NL102 "Expected allow effect or named argument" report.
+    func ConsumeSystemsIdentifier(message: string): string {
+        if IsSystemsIdentifierToken() {
+            return Advance().Value
+        }
+        Report(
+            ErrorCode.ExpectedToken,
+            message + ". Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "Systems policy lists use effect names such as alloc, trap, dispatch, delegate, closure, or a named argument such as reason.",
+            "Write allow(alloc, reason: \"...\") { ... } or remove this allow block.",
+            null,
+            TokenLengthOrFallback(Current()))
+        return "<error>"
+    }
+
+    // Parser.cs ParseAllowEffectValue (:2362): a bare effect name or a general expression value.
+    func ParseAllowEffectValue() {
+        if IsSystemsIdentifierToken() {
+            Advance()
+            return
+        }
+        ParseExprValue()
+    }
+
+    // The shared token set both ConsumeSystemsIdentifier and ParseAllowEffectValue admit (Parser.cs
+    // :6788 / :2364).
+    func IsSystemsIdentifierToken(): bool {
+        if Check(TokenType.Identifier) {
+            return true
+        }
+        if Check(TokenType.Alloc) {
+            return true
+        }
+        if Check(TokenType.Allow) {
+            return true
+        }
+        if Check(TokenType.Stackalloc) {
+            return true
+        }
+        if Check(TokenType.Interface) {
+            return true
+        }
+        if Check(TokenType.Ref) {
+            return true
+        }
+        if Check(TokenType.Out) {
+            return true
+        }
+        if Check(TokenType.Throw) {
+            return true
+        }
+        return false
+    }
+
+    // ---- local function (Parser.cs ParseLocalFunction :2419) ----
+    // `[static] [async] func Name<…>(…)[: Ret] [where …] { … }` (or `=> expr`). The local func uses
+    // plain ConsumeIdentifier for the name (NOT the keyword-anchored ConsumeDeclarationName the
+    // top-level func uses), and reaches the missing-return-type-marker and missing-body reports.
+    func ParseLocalFunction() {
+        line := Current().Line
+        column := Current().Column
+        scanningModifiers := true
+        while scanningModifiers {
+            if Check(TokenType.Static) {
+                Advance()
+            } else {
+                if Check(TokenType.Async) {
+                    Advance()
+                } else {
+                    scanningModifiers = false
+                }
+            }
+        }
+        ConsumeToken(TokenType.Func, "Expected 'func'", "func")
+        if Check(TokenType.Star) {
+            Advance()                           // generator func*
+        }
+        nameLine := Current().Line
+        nameColumn := Current().Column
+        name := ConsumeIdentifier("Expected function name")
+        ParseTypeParameters()
+        ParseParameterListRecovery()
+        parameterListEndToken := Previous()
+        if Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater) {
+            if Check(TokenType.Colon) {
+                Advance()
+            } else {
+                Advance()                       // consume '-'
+                ConsumeToken(TokenType.Greater, "Expected '>' after '-' in return type arrow", "greater")
+            }
+            ParseTypeReferenceRecovery()
+        } else {
+            if IsLikelyMissingReturnTypeMarker(parameterListEndToken) {
+                markerName := name
+                markerLine := nameLine
+                markerColumn := nameColumn
+                markerLength := MaxInt(1, name.Length)
+                if name == "<error>" {
+                    markerName = "local function"
+                    markerLine = line
+                    markerColumn = column
+                    markerLength = MaxInt(1, 4) // "func".Length
+                }
+                ReportMissingReturnTypeMarker(markerName, markerLine, markerColumn, markerLength)
+                ParseTypeReferenceRecovery()
+            }
+        }
+        ParseReturnLifetimeAnnotation()
+        ParseGenericConstraints()
+        if Check(TokenType.Arrow) {
+            Advance()                           // consume '=>'
+            ParseExprValue()                    // expression body
+        } else {
+            if Check(TokenType.LeftBrace) {
+                bodySpan := new RecoverySpan(nameLine, nameColumn, MaxInt(1, name.Length))
+                if name == "<error>" {
+                    bodySpan = new RecoverySpan(line, column, MaxInt(1, 4))
+                }
+                ParseBlock(bodySpan)
+            } else {
+                ReportLocalFunctionMissingBody()
+            }
+        }
+    }
+
+    // Parser.cs IsLikelyMissingReturnTypeMarker (:6678).
+    func IsLikelyMissingReturnTypeMarker(parameterListEndToken: Token): bool {
+        if parameterListEndToken.Type != TokenType.RightParen {
+            return false
+        }
+        if Current().Line != parameterListEndToken.Line {
+            return false
+        }
+        return ParserTokenFacts.IsTypeReferenceStart(Current().Type)
+    }
+
+    // Parser.cs ReportMissingReturnTypeMarker (:6688).
+    func ReportMissingReturnTypeMarker(declarationName: string, declarationLine: int, declarationColumn: int, declarationLength: int) {
+        suggestions := new List<string>()
+        suggestions.Add("Add ':' before '" + Current().Value + "'")
+        suggestions.Add("Remove the return type if this function does not return a value")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected ':' before return type. Got '" + Current().Value + "'",
+            declarationLine,
+            declarationColumn,
+            "Function '" + declarationName + "' needs a ':' before its return type.",
+            "Write the return type as `func name(...): Type { ... }`.",
+            suggestions,
+            MaxInt(1, declarationLength))
+    }
+
+    // Parser.cs ParseLocalFunction's no-body report (:2504).
+    func ReportLocalFunctionMissingBody() {
+        suggestions := new List<string>()
+        suggestions.Add("Add a block: { return value; }")
+        suggestions.Add("Use arrow syntax: => value")
+        suggestions.Add("Example: func add(x: int, y: int): int => x + y")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected function body or '=>' for expression-bodied function. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "A function needs a body - either a block with braces { } or an expression after '=>'.",
+            "Use '{ ... }' for a block body or '=> expression' for a single expression.",
+            suggestions,
+            Current().Value.Length)
+    }
+
+    // Parser.cs ParseReturnLifetimeAnnotation (:511): the optional Systems `returns 'a` /
+    // `returns local|static|unknown` / `returns param(name)` / `returns heap(owner)` annotation.
+    // Guarded by the contextual `returns` identifier, so a non-Systems function never reaches it.
+    func ParseReturnLifetimeAnnotation() {
+        if !(Check(TokenType.Identifier) && Current().Value == "returns") {
+            return
+        }
+        Advance()                               // consume 'returns'
+        if Check(TokenType.Lifetime) {
+            Advance()
+            return
+        }
+        if Check(TokenType.Identifier) {
+            kind := Advance().Value
+            if kind == "local" || kind == "static" || kind == "unknown" {
+                return
+            }
+            if kind == "param" || kind == "heap" {
+                ConsumeToken(TokenType.LeftParen, "Expected '(' after returns " + kind, "(")
+                owner := ConsumeIdentifier("Expected owner name inside returns " + kind + "(...)")
+                ConsumeToken(TokenType.RightParen, "Expected ')' after returns " + kind + "(" + owner + ")", ")")
+                return
+            }
+        }
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected lifetime label after 'returns'. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "Systems lifetime annotations use `returns 'a`, `returns param(name)`, or `returns heap(owner)` to describe a ref-like return.",
+            "Write a lifetime such as `returns 'a`, `returns heap(owner)`, or remove the `returns` annotation.",
+            null,
+            TokenLengthOrFallback(Current()))
+    }
+
+    // ---- off (Parser.cs ParseOffStatement :2957) ----
+    // The contextual `off handle` unsubscription: just parses the handle expression.
+    func IsOffStatementStart(): bool {
+        return Current().Type == TokenType.Identifier && Current().Value == "off" && LookAhead(1).Type == TokenType.Identifier
+    }
+
+    func ParseOffStatement() {
+        Advance()                               // consume contextual 'off'
+        ParseExprValue()                        // the handle expression
+    }
+
+    // ---- on subscription (Parser.cs ParseOnSubscriptionExpression :2893) ----
+    // `on target.Event (sender, args) => { … }`. Reached as the highest-precedence expression prefix
+    // (ParseExprValue), so it works both as a bare statement and composed with `:=`. The event target
+    // is a member/index chain that deliberately STOPS before a `(` (so the handler's parameter list is
+    // not swallowed as a call); the handler must be a lambda, else the InvalidSyntax NL103 fires.
+    func IsOnSubscriptionStart(): bool {
+        if Current().Type != TokenType.Identifier || Current().Value != "on" {
+            return false
+        }
+        next := LookAhead(1).Type
+        return next == TokenType.Identifier || next == TokenType.This || next == TokenType.Base
+    }
+
+    func ParseOnSubscription(): ExprResult {
+        onLine := Current().Line
+        onColumn := Current().Column
+        Advance()                               // consume contextual 'on'
+        ParseEventTarget()
+
+        // The handler position + whether it is a lambda (Parser.cs parses then checks
+        // `is LambdaExpression`; a lambda is exactly one of the two ParseExprValue lambda prefixes).
+        handlerLine := Current().Line
+        handlerColumn := Current().Column
+        handlerIsLambda := IsLambdaExpression() || (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
+        ParseExprValue()                        // the handler (ParseLambdaOrAssignmentExpression)
+        if !handlerIsLambda {
+            ReportExpectedEventHandlerLambda(handlerLine, handlerColumn)
+        }
+        return new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
+    }
+
+    // Parser.cs ParseEventTarget (:2927): a primary + member-access (and index) chain only, stopping
+    // before a `(` so the handler lambda's parameter list is not consumed as a call.
+    func ParseEventTarget() {
+        ParsePrimaryExprValue()
+        scanning := true
+        while scanning {
+            if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
+                Advance()                       // consume '.' / '?.'
+                ConsumeIdentifier("Expected event or member name after '.'")
+            } else {
+                if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
+                    Advance()                   // consume '[' / '?['
+                    ParseExprValue()            // the index
+                    ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+                } else {
+                    scanning = false
+                }
+            }
+        }
+    }
+
+    func ReportExpectedEventHandlerLambda(handlerLine: int, handlerColumn: int) {
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Expected an event handler lambda after the event",
+            handlerLine,
+            handlerColumn,
+            "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.",
+            "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.",
+            null,
+            1)
+    }
+
     // ---- expression statement (Parser.cs ParseExpressionStatement :3498) ----
-    // Parses the statement's expression, then recognizes the `identifier :=` shorthand declaration
-    // (Parser.cs :3621, `expr is IdentifierExpression && Check(ColonAssign)`). The typed-declaration
-    // `name: T = value` and the paren/no-paren tuple deconstruction forms are later arc stages.
+    // Parses the typed-declaration (`name: T = value`) and tuple-deconstruction (paren / no-paren)
+    // forms (Stage 13), otherwise the statement's expression, then the `identifier :=` shorthand
+    // declaration (Parser.cs :3621, `expr is IdentifierExpression && Check(ColonAssign)`).
     func ParseExpressionStatement() {
+        line := Current().Line
+        column := Current().Column
+
+        // Typed variable declaration without `let` (Parser.cs :3507): `name: Type = value`. Speculative —
+        // if the `= value` is absent, rewind and parse as a normal expression statement.
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && LookAhead(2).Type == TokenType.Identifier {
+            saved := Position
+            name := Advance().Value             // the declared name
+            Advance()                           // consume ':'
+            ParseTypeReferenceRecovery()        // the type
+            if Check(TokenType.Assign) {
+                Advance()                       // consume '='
+                ParseRequiredExpressionAfter(
+                    Previous(),
+                    "an initializer expression",
+                    "This typed variable declaration",
+                    new RecoverySpan(line, column, MaxInt(1, name.Length)))
+                return
+            }
+            Position = saved                    // not a declaration — rewind
+        }
+
+        // Tuple deconstruction without parens (Parser.cs :3533): `x, y := expr`.
+        if Check(TokenType.Identifier) && Position + 1 < Tokens.Count && Tokens[Position + 1].Type == TokenType.Comma {
+            offset := 1
+            isTuple := false
+            scanning := true
+            while scanning && Position + offset < Tokens.Count {
+                tok := Tokens[Position + offset]
+                if tok.Type == TokenType.ColonAssign || tok.Type == TokenType.Assign {
+                    isTuple = true
+                    scanning = false
+                } else {
+                    if tok.Type != TokenType.Identifier && tok.Type != TokenType.Comma {
+                        scanning = false
+                    } else {
+                        offset = offset + 1
+                    }
+                }
+            }
+            if isTuple {
+                namesScanning := true
+                while namesScanning {
+                    ConsumeIdentifier("Expected identifier or '_'")
+                    if Check(TokenType.Comma) {
+                        Advance()
+                    } else {
+                        namesScanning = false
+                    }
+                }
+                initializerToken := Advance()   // consume := or =
+                ParseRequiredExpressionAfter(
+                    initializerToken,
+                    "an initializer expression",
+                    "This tuple deconstruction",
+                    new RecoverySpan(line, column, MaxInt(1, initializerToken.Column - column)))
+                return
+            }
+        }
+
+        // Tuple deconstruction with parens (Parser.cs :3576): `(x, y) := expr`.
+        if Check(TokenType.LeftParen) && Position + 1 < Tokens.Count && Tokens[Position + 1].Type == TokenType.Identifier && Position + 2 < Tokens.Count && Tokens[Position + 2].Type == TokenType.Comma {
+            parenDepth := 1
+            offset := 1
+            isTuple := false
+            scanning := true
+            while scanning && Position + offset < Tokens.Count {
+                tok := Tokens[Position + offset]
+                if tok.Type == TokenType.LeftParen {
+                    parenDepth = parenDepth + 1
+                } else {
+                    if tok.Type == TokenType.RightParen {
+                        parenDepth = parenDepth - 1
+                        if parenDepth == 0 {
+                            if Position + offset + 1 < Tokens.Count {
+                                next := Tokens[Position + offset + 1]
+                                if next.Type == TokenType.ColonAssign || next.Type == TokenType.Assign {
+                                    isTuple = true
+                                }
+                            }
+                            scanning = false
+                        }
+                    }
+                }
+                offset = offset + 1
+            }
+            if isTuple {
+                ParseTupleDeconstruction(line, column)
+                return
+            }
+        }
+
         result := ParseExprValue()
         if result.IsBareIdentifier {
             if Check(TokenType.ColonAssign) {
@@ -2593,6 +3559,12 @@ public class ColumnarParserRecovery {
     func ParseExprValue(): ExprResult {
         line := Current().Line
         column := Current().Column
+
+        // Event subscription `on target.Event (…) => …` (Parser.cs :3649) — the highest-precedence
+        // prefix, so it composes with `:=` and works as a bare statement (Stage 13).
+        if IsOnSubscriptionStart() {
+            return ParseOnSubscription()
+        }
 
         // Single-parameter lambda `x => expr` (Parser.cs :3652). A LambdaExpression is anchored on this start
         // position, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).

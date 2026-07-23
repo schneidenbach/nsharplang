@@ -16,11 +16,12 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 12 landed — the interpolated-string `$"…"` HOLE grammar:
-  the per-hole char scan, the FRESH per-hole sub-Lexer + sub-Parser with position adjustment + VERIFIED separate-
-  panic semantics, the owned expression grammar reached through the sub-parse, the format-clause split, and the
-  lone NL101 hole-tail; 271 native parity contracts total [250 through Stage 11 + 21], `ColumnarParserRecovery.nl`
-  now 4,854 lines; the remaining statement kinds recut to Stage 13) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 13 landed — the REMAINING STATEMENT kinds: yield / break /
+  continue / throw / try-catch-finally / using / lock / switch / allow / alloc-block / unsafe / assert /
+  preprocessor / local-function / await-foreach / off / on, plus the C-style `for(init;cond;incr)` / tuple
+  deconstruction / typed `name: T = value` declarations — carried through the SAME shared-panic model over the
+  already-owned expression / type / pattern / delimiter grammars; 316 native parity contracts total [271 through
+  Stage 12 + 45], `ColumnarParserRecovery.nl` now 5,826 lines; residual map item [1] is now DONE) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -61,7 +62,98 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 12 of the parser-front-end arc — the
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 13 of the parser-front-end arc — the REMAINING
+  STATEMENT kinds (residual map item [1]), carried through the SAME shared-panic model over the already-owned
+  expression / type / pattern / delimiter grammars, PROVEN byte-exact against the freshly built Release CLI oracle
+  (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the line-0 columnar-backend decline and
+  the SEMANTIC diagnostics — loop-context for break/continue/yield, generator-return NL202, undefined-name
+  NL301/NL412, unused-local NL001 — which are analyzer, not parser, diagnostics). SITE INVENTORY (grep of the
+  ParseStatement dispatch + helpers in Parser.cs): (a) the SIMPLE keyword statements with ZERO own error sites —
+  `break` (:2885) / `continue` (:2967) (the guarded `Consume` never fires) / `preprocessor` (:2875) / `off`
+  (:2957, `IsOffStatementStart` + a bare `ParseExpression` handle); (b) the REQUIRED-EXPRESSION statements routed
+  through the already-owned `ParseRequiredExpressionAfter` (the `ShouldUnderlineAnchorForMissingRequiredExpression`
+  set already carries Throw/Yield/Assert/Using/Lock/Switch) — `throw` (:2975, "an exception expression"), `yield`
+  (:2839, "a value to yield" or the `yield break` no-value form), `assert` (:2388, "a condition expression" + the
+  optional `, message` + the `assert throws Type { … }` form), `lock` (:3128, "an object expression" + optional
+  parens; the "Expected block statement after lock" report is UNREACHABLE dead C# — `ParseBlock` always yields a
+  block); (c) the BLOCK-bearing statements routed through the new `ParseBlock` (Consume-first, the Parser.cs :2143
+  entry the block-bearing kinds call directly, refactored to share `ParseBlockStatementsLoop` with the Stage-6
+  `ParseBlockBody`) — `unsafe` (:2379) / `alloc { … }` (:2301, the `Alloc && LookAhead=={` compound dispatch) /
+  `try`-`catch`-`finally` (:2988, the catch parameter list `(Type e)` / `(e: Type)` / bare forms, the catch type
+  via the owned `ParseTypeReferenceRecovery`, the catch `)` via the Stage-9 closing-delimiter recovery [NL107]);
+  (d) the STATEMENTS with their OWN diagnostics — `using` (:3048, the `Consume(ColonAssign)` "Expected ':='" [NL102,
+  expected "colonassign"] + the `using let (a, b)` invalid-tuple InvalidSyntax [NL103] anchored on the single-line
+  `(…)` pattern span via the ported `TryGetSingleLineDelimiterSpanAt` :5968), `switch` (:3170, `Consume(LeftBrace)` +
+  the per-case `Consume(Arrow)` [expected "arrow"] + the "Expected 'case' or 'default'" [NL102] skip-and-continue/
+  break arm + the switch-specific missing-`}` [NL106, its own body-line message] distinct from the block NL106),
+  `allow` (:2310, `Consume(LeftParen, "…after 'allow'")` + the effect loop's `ConsumeSystemsIdentifier` [NL102] +
+  `Consume(Comma, "…between allow arguments")` + the `if (Current == nameToken) Advance()` force-advance modelled by
+  a position guard + the trailing `Consume(RightParen)`; `ParseAllowEffectValue` + the reason/owner named args),
+  `local-function` (:2419, `[static][async] func Name<…>(…)`; the LOCAL func uses plain `ConsumeIdentifier` for the
+  name NOT the keyword-anchored `ConsumeDeclarationName`, and reaches `ReportMissingReturnTypeMarker` [NL102 "Expected
+  ':' before return type", name-anchored via `IsLikelyMissingReturnTypeMarker`], the `-`-`>` return-type arrow's
+  `Consume(Greater)`, the `ParseReturnLifetimeAnnotation` `returns` grammar [ported faithfully, corpus-light], and
+  the missing-body ReportError [NL102 "Expected function body or '=>'…"]), `on` (:2893/:3649, the highest-precedence
+  `ParseExprValue` prefix — `IsOnSubscriptionStart` + `ParseEventTarget` [a primary + member/index chain that STOPS
+  before a `(` so the handler's parameter list is not swallowed; the member `ConsumeIdentifier("Expected event or
+  member name after '.'")` reaches the dot-access NL102 variant] + the handler-is-lambda check [pre-detected via the
+  two `ParseExprValue` lambda prefixes, avoiding an ExprResult flag] + the "Expected an event handler lambda" [NL103]
+  when the handler is not a lambda); (e) the `for` (:2651) C-STYLE `for (init; cond; incr)` branch appended after the
+  two foreach-style branches — optional parens, the `let`/`:=`/bare-expr initializer, the two `Consume(Semicolon)`
+  [NL102, the `;` hint], the optional condition/iterator, and the optional `Consume(RightParen)` via the Stage-9
+  recovery [NL107]; (f) `await foreach` (:2776) mirroring foreach with the `ConsumeInOrReportMissing` shared idiom +
+  the "This await foreach statement" owner description; (g) `ParseVariableDeclaration` extended with the
+  `(x, y) := …` TUPLE deconstruction dispatch (returns a bool so `using` can distinguish it) + `ParseTupleDeconstruction`
+  [the name list, the "Tuple deconstruction requires ':=' or '='" NL102, the skip-the-offender + required-initializer]
+  and `ParseExpressionStatement` extended with the typed `name: T = value` declaration [speculative parse + rewind on
+  no `=`; NL102 "…after '='" name-anchored], the no-paren `x, y := e` and paren `(x, y) := e` tuple forms.
+  IMPLEMENTATION: extended the `ParseStatement` dispatch in Parser.cs order (await-foreach compound before while, then
+  yield/break/continue/throw/try/using/lock/switch/allow/alloc-block/unsafe/…/assert/preprocessor, then the
+  static-async-func local-function forms, then the `off` contextual dispatch before the expression statement); added
+  the ~30 new parser methods + reports (all delegating construction to the shared `Report` /
+  `ParseRequiredExpressionAfter` / `ConsumeToken` / `ConsumeIdentifier`, and every boundary DECISION reusing the live
+  shared `ParserTokenFacts`, so codes / messages / spans / snippets / hints / suggestions match Parser.cs
+  automatically); refactored `ParseBlockBody`→`ParseBlockStatementsLoop`+`ParseBlock` (the Consume-first block entry).
+  VERIFIED PANIC INTERACTIONS (each pinned by a contract): switch's missing-`{` panic still-set suppresses the func's
+  own EOF missing-`}` (one diagnostic, not two); two switches each with a bad branch BOTH report (per-statement
+  boundary reset); two functions each with a body-less local function BOTH report (declaration-boundary reset); the
+  `on w. => 1` dot-access NL102 panic-suppresses the trailing non-lambda NL103 (one diagnostic). +45 native parity
+  contracts in `ColumnarParserRecovery.tests.nl` (22 positive-diagnostic: yield-missing / throw-missing / lock-missing
+  / catch-unclosed-`)` NL107 / switch-missing-`{` / switch-bad-branch / switch-missing-arrow / switch-missing-`}` NL106
+  / allow-missing-`(` / allow-bad-effect / assert-missing / local-func-missing-body / local-func-missing-return-colon /
+  await-foreach-missing-in / c-for-missing-`;` / c-for-missing-`)` NL107 / tuple-missing-`:=` / typed-decl-missing-init /
+  using-missing-`:=` / using-invalid-tuple NL103 / on-non-lambda NL103 / on-missing-member-after-dot; 4 panic-interaction:
+  switch-panic-suppresses-func-`}`, two-switches-each-report, two-local-funcs-each-report, on-dot-suppresses-non-lambda;
+  19 negatives: yield-break / yield-value / break-continue-in-loop / throw-expr / try-catch-finally / catch-typed-var /
+  lock-obj / lock-parens / unsafe / alloc / assert-cond+msg+throws / preprocessor / local-func block+expr+static /
+  await-foreach / c-for paren+bare / tuple paren+no-paren / typed-decl / using-let+ident / off / on single+multi lambda).
+  DEFERRED (recorded, NOT corpus-pinned — with reasons): the `allow` missing-`)` shape is really a "missing comma"
+  cascade that, under the shared panic set by the first NL102, consumes to EOF with every further report suppressed —
+  the loop (incl. the force-advance) is modelled faithfully and the OUTPUT is the single NL102, but the whole-file
+  consumption is fragile to pin so the corpus keeps the clean allow shapes; the `returns` lifetime body of
+  `ParseReturnLifetimeAnnotation` is ported faithfully but corpus-light (no `returns` annotation in the statement
+  corpus); the richer type-reference forms in catch / typed-decl / assert-throws types (union / postfix array-nullable /
+  byref / tuple / `Func<>`) remain shared residual [3] (the corpus uses simple / qualified / generic type names). NO
+  production wiring; NO wall tripped (self-contained edit to one owner + its tests; the packaged SDK 0.1.0 self-emitted
+  the edited owner — incl. the `ParseBlock` refactor + all new parsers — + all 1078 contracts cleanly — no repin).
+  Evidence: BootstrapServices contracts 1078/1078 (1033 baseline + 45; full-suite fresh no-build run,
+  `-p:NSharpExcludeTests=false`; `FullyQualifiedName~Test_016Stmt` filter 70/70 = 45 new + 25 Stage-6); dev.sh Parser
+  381/381; ownership audit 18/18 (`nlc test --project tests/native/ownership-audit`); git status shows ONLY the two
+  `.nl` files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` /
+  `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests:
+  zero references outside the owner + its tests), so nothing in the production compile path changed. No LSP/VS Code
+  change → no extension reload. `ColumnarParserRecovery.nl` 4,854 → 5,826 lines (+972); `.tests.nl` 3,784 → 4,303
+  (+519). RESIDUAL-TO-PARITY MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 13):
+  [1 — DONE] the remaining statement kinds (this stage); [2] the MEMBER grammars (method / constructor / nested-type /
+  record-positional / union-case / interface / property) + the record / interface / union / enum / soa type BODIES
+  (each with its own missing-`}` + special diagnostics, e.g. soa's "not supported yet"); [3] the richer type-reference
+  forms (union / postfix array-nullable / byref / tuple / `Func<>`) shared across is/as/typeof/sizeof/cast/stackalloc/
+  catch/typed-decl/local-func-return; [4] the TEST DSL (test / setup / teardown + the test-case rows) and ATTRIBUTES;
+  [5] the garbage-type cascade shapes (non-`{` braced found-other, non-identifier parameter name, named-tuple bad-name)
+  needing `ParseTypeReference`-on-garbage + the stable position-sorted emit (unblocked since Stage 12). THEN the
+  AST/node-table-facts stage (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc (N+3). Next: STAGE 14 =
+  the MEMBER grammars + type BODIES (map residual [2]), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED): STAGE 12 of the parser-front-end arc — the
   interpolated-string `$"…"` HOLE grammar (`ParseInterpolatedString`, Parser.cs :4932). Extended
   `ColumnarParserRecovery.nl` to carry the hole grammar through the SAME shared-panic model, PROVEN byte-exact
   against the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109, excluding the columnar-backend
@@ -1143,15 +1235,18 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE 11 of the parser-front-end arc (see the "Staged parser-front-end
-  ARC PLAN" + the Stage-10 RESIDUAL-TO-PARITY MAP in the Active sub-slice above). STAGES 1-10 have LANDED
+- Task 016 next parser sub-slice: STAGE 14 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN" + the Stage-13 RESIDUAL-TO-PARITY MAP in the Active sub-slice above). STAGES 1-13 have LANDED
   (recovery model + import/namespace/package; declaration-NAME; malformed-literal; member/parameter/field;
   generics/constraints; statements; expressions; match/patterns; CLOSING-DELIMITER recovery; POSTFIX
   call/index/generic-call/`with` + call-argument family + the new / cast / tuple / typeof / nameof / sizeof /
-  checked / unchecked / array primary tranche — 219 native contracts). STAGE 11 = the remaining keyword-led
-  primaries (alloc / stackalloc first — cheap; then interpolation `$"…"` / lambda) + the `is`/`as` type
-  sub-grammar (residual map items [1]+[2]). Still kernel-capability-only (no production wiring, no IDE gate).
-  Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner.
+  checked / unchecked / array primary tranche; is/as + alloc/stackalloc/lambda; the interpolated-string `$"…"`
+  hole grammar; and the REMAINING STATEMENT kinds [yield/break/continue/throw/try-catch-finally/using/lock/switch/
+  allow/alloc-block/unsafe/assert/preprocessor/local-function/await-foreach/off/on + C-style for + tuple
+  deconstruction + typed declarations] — 316 native contracts). STAGE 14 = the MEMBER grammars (method /
+  constructor / nested-type / record-positional / union-case / interface / property) + the record / interface /
+  union / enum / soa type BODIES (residual map item [2]). Still kernel-capability-only (no production wiring, no
+  IDE gate). Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner.
   (HISTORICAL, for reference — the Stage 1-8 pointer this replaced): STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family),
   STAGE 3 (MALFORMED-LITERAL family), STAGE 4 (MEMBER / PARAMETER / FIELD declaration family), STAGE 5
   (GENERICS / CONSTRAINTS family), STAGE 6 (STATEMENT family — block-body grammar +
