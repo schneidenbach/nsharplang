@@ -16,20 +16,58 @@ Last updated: 2026-07-22
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stage 1
   landed this turn) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 2 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 3 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
-  family, 11 contracts) and STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
+  family, 11 contracts), STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
   record/soa/interface/union/enum/type-alias, with `DiagnosticSpanFromToken` keyword-anchoring + the
-  reserved-keyword-as-name variant, +24 contracts) have LANDED (no production edit to any consumer, no commit —
-  mandate; working tree carries the two N# files + the STAGE-1 ColumnarSyntaxDiagnostics scaffolding deletion +
-  this STATUS update). `ColumnarParserRecovery.nl` reproduces Parser.cs's recovery discipline faithfully and
-  is proven byte-exact against the production Parser.cs path on a golden parity corpus (35 native contracts
-  total, including the cascading-suppression, does-not-swallow-following, keyword-anchored absent/reserved
-  name, and cross-boundary panic-reset shapes). Parser.cs REMAINS the sole production syntax authority; cutover
-  is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 2 of the parser-front-end arc — the
-  DECLARATION-NAME diagnostic family. Extended `ColumnarParserRecovery.nl` to carry the "Expected <kind>
+  reserved-keyword-as-name variant, +24 contracts), and STAGE 3 (the MALFORMED-LITERAL family — NL105
+  unterminated string / interpolated / char / triple / interpolated-raw + empty char, reached via the
+  expression-bodied `func f() => <literal>` context, +14 contracts) have LANDED (no production edit to any
+  consumer, no commit — mandate; working tree carries the two N# files + the STAGE-1 ColumnarSyntaxDiagnostics
+  scaffolding deletion + this STATUS update). `ColumnarParserRecovery.nl` reproduces Parser.cs's recovery
+  discipline faithfully and is proven byte-exact against the production Parser.cs path on a golden parity corpus
+  (49 native contracts total, including the cascading-suppression, does-not-swallow-following, keyword-anchored
+  absent/reserved name, cross-boundary panic-reset, and the malformed-literal in-region-suppression shapes).
+  Parser.cs REMAINS the sole production syntax authority; cutover is the arc's LAST stage. No wall tripped
+  (self-contained shape, packaged SDK emits it — no repin).
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 3 of the parser-front-end arc — the
+  MALFORMED-LITERAL diagnostic family (NL105 `InvalidLiteral`). Extended `ColumnarParserRecovery.nl` to carry the
+  malformed-literal diagnostics — unterminated string, unterminated interpolated (single-line) string,
+  unterminated char, empty char, unterminated triple-quoted string, unterminated interpolated raw string —
+  through the SAME shared-panic model, byte-exact against the live-CLI oracle. ORIGIN INVENTORY (grep of
+  Parser.cs + the N# Lexer): every malformed-literal diagnostic is REPORTED in `Parser.cs`
+  `ParsePrimaryExpression` (:4646/:4653 → `ReportMalformedCharLiteralIfNeeded` :4905 /
+  `ReportMalformedStringLiteralIfNeeded` :4830 → `ReportMalformedRawStringLiteralIfNeeded` :4876), each
+  routing through the shared-panic `ReportError` (:6845). The already-N# `Lexer.nl` only CLASSIFIES
+  (sets `Token.IsTerminated`, produces the token value); it emits NO diagnostic. The malformed DECISION reuses
+  the LIVE shared N# owner `ParserLiteralFacts.IsCompleteStringLiteral`/`IsCompleteCharLiteral` (Parser.cs
+  delegates to the identical calls). So the family belongs to the PARSER model (Parser.cs-reported,
+  shared-panic-gated), NOT a separate lexer lane — carried in full this stage. Reached via the shallowest
+  byte-exact expression context: the expression-bodied function `func f() => <literal>` (oracle-verified to
+  emit exactly ONE NL105 per shape). Adds a MINIMAL literal-reaching expression path (paren + literal primary
+  + minimal binary-operator continuation) as the vehicle — full expression grammar + the expression/statement
+  ERROR families (unexpected-token-in-expression, dangling operator, missing `)`) stay a LATER arc stage; those
+  would-be errors never fire here because they route through the SAME shared panic the literal error already
+  set, so the diagnostic output stays byte-exact. Ported the three Parser.cs reporters faithfully
+  (`ReportMalformedLiteralIfNeeded` → char / string / raw-string), delegating the DECISION to the live shared
+  `ParserLiteralFacts` (identical to Parser.cs) and the CONSTRUCTION to `ParserErrorDiagnostics.Create`, so
+  codes / messages / spans / snippets / hints match automatically. Extended `ParseFunctionName` to continue a
+  validly-named function into its expression body (Stage-2 name-error cases preserved: a `<error>` name returns
+  before any body parse). +14 native parity contracts in `ColumnarParserRecovery.tests.nl`: one per literal
+  shape, plus panic interactions — across a DECLARATION boundary the next literal error fires (two malformed
+  funcs → 2 diags; malformed literal then stray top-level token → NL105 + NL101), and IN-REGION a following
+  malformed literal is SUPPRESSED by shared panic (`'a + 'b` / `'' + 'b` → 1 diag; the parenthesized `('a`
+  suppresses the missing-`)` and anchors the char at column 14), plus negatives (well-formed literals report
+  nothing). NO production wiring; NO wall (self-contained; packaged SDK 0.1.0 self-emits the edited owner +
+  tests cleanly — including the `"""`-bearing message literals — no repin). Evidence: BootstrapServices
+  contracts 811/811 (797 baseline + 14); dev.sh Parser 381/381; ownership audit 18/18 (all deltas `.nl`, no
+  ratchet movement); git status shows ONLY the two `.nl` files + STATUS (no non-N# file moved). Full unit
+  suite / corpus IL sweeps N/A — the owner is referenced ONLY by its own tests (verified), so nothing in the
+  production compile path changed. No LSP/VS Code change → no extension reload. Next: STAGE 4 = member /
+  parameter / field declaration diagnostics (the `:`/`:=` colon and type errors) per the arc plan.
+- Prior sub-slice (016 arc, STAGE 2, LANDED — no commit): the DECLARATION-NAME diagnostic family.
+  Extended `ColumnarParserRecovery.nl` to carry the "Expected <kind>
   name" diagnostics for func / class / struct / record / soa record / interface / union / enum / type-alias
   declarations through the SAME shared-panic model, with the `DiagnosticSpanFromToken` KEYWORD-ANCHORING
   discipline (a missing/invalid name underlines the DECLARATION KEYWORD, not the offending token, in all
@@ -434,11 +472,26 @@ production shadow/comparison route ever runs — parity proofs live only in `.te
   failing body consumes no trailing token so the stray token fires at the next boundary — the panic-reset
   demonstration). +24 native contracts; BootstrapServices 797/797 (773+24); ownership audit 18/18; git
   status shows only the two `.nl` files (no non-N# move). NO production wiring; NO wall (self-contained).
-- STAGE 3..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
+- STAGE 3 (LANDED this turn) — the MALFORMED-LITERAL family (NL105 `InvalidLiteral`). Extended
+  `ColumnarParserRecovery.nl` with `ReportMalformedLiteralIfNeeded` → the three Parser.cs reporters
+  (`ReportMalformedCharLiteralIfNeeded` :4905 / `ReportMalformedStringLiteralIfNeeded` :4830 /
+  `ReportMalformedRawStringLiteralIfNeeded` :4876), carried through the shared-panic `Report`. ORIGIN: every
+  malformed-literal diagnostic is Parser.cs-REPORTED inside `ParsePrimaryExpression` (:4646/:4653); the
+  already-N# `Lexer.nl` only CLASSIFIES (`Token.IsTerminated` + the token value), emitting NO diagnostic, and
+  the malformed DECISION delegates to the live shared `ParserLiteralFacts` (Parser.cs delegates identically).
+  So the family belongs to the parser model, NOT a lexer lane. Reached via the shallowest byte-exact literal
+  context — the expression-bodied `func f() => <literal>` — through a MINIMAL literal-reaching expression path
+  (paren + literal primary + minimal binary-operator continuation); the expression/statement ERROR families
+  (unexpected-token-in-expression, dangling operator, missing `)`) are DEFERRED to their own stages and never
+  fire here (suppressed under the same shared panic, so output stays byte-exact). +14 native contracts:
+  per-shape single-malformed, across-boundary (next fires), in-region suppression (`'a + 'b` → 1), and
+  negatives. BootstrapServices 797→811; dev.sh Parser 381/381; ownership audit 18/18; NO production wiring;
+  NO wall (self-contained). NOTE for later: `import`-path strings and test-description strings do NOT run the
+  malformed check (verified: `import "abc` → NL701, not NL105), so they are correctly out of this family.
+- STAGE 4..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
   extend `ColumnarParserRecovery` family by family until it matches Parser.cs's full ~256-diagnostic
-  surface under the shared-panic model. Suggested order (smallest-coherent first): malformed-literal family
-  (unterminated string/char/triple/interpolated, empty char — the families the deleted scaffolding used to
-  mirror) → member/parameter/field decls (`:`/`:=` colon and type errors) → generics/constraints
+  surface under the shared-panic model. Suggested order (smallest-coherent first, malformed-literal DONE
+  above): member/parameter/field decls (`:`/`:=` colon and type errors) → generics/constraints
   (`ConsumeGreater`, split `>>`, type-param / type-argument errors) → statements (the
   `SynchronizeToNextStatement` sync point + dangling-operator / missing-initializer / missing-condition
   shapes the ParserErrorTests pin) → expressions/patterns → closing-delimiter recovery
@@ -477,17 +530,21 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE 3 of the parser-front-end arc (see the "Staged parser-front-end
-  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package) and STAGE 2 (declaration-NAME family) have
-  LANDED. STAGE 3 = the next-smallest family through the SAME shared-panic model, proven byte-exact on the
-  parity corpus — smallest-coherent first: the MALFORMED-LITERAL family (unterminated string/char/triple/
-  interpolated, empty char — the families the deleted scaffolding used to mirror), then member/parameter/
-  field decls. Still kernel-capability-only (no production wiring, no IDE gate). Stays self-contained
-  (BootstrapServices `.nl` + `.tests.nl`, no repin) unless the stage needs a kernel entry point dependents
-  compile against — call out the two-stage bootstrap wall at stage start. Do NOT resurrect the deleted
-  `ColumnarSyntaxDiagnostics` scanner (divergent per-token panic model). NOTE for a later stage: STAGE 2
-  models declaration NAMES only (no bodies), so found-other names for class/struct/record/interface/union
-  are deferred to the body/closing-delimiter stage where the member-list parse becomes byte-exact.
+- Task 016 next parser sub-slice: STAGE 4 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package), STAGE 2 (declaration-NAME family), and
+  STAGE 3 (MALFORMED-LITERAL family) have LANDED. STAGE 4 = the next-smallest family through the SAME
+  shared-panic model, proven byte-exact on the parity corpus — smallest-coherent first: MEMBER / PARAMETER /
+  FIELD declaration diagnostics (the `:`/`:=` colon and type errors), then generics/constraints. Still
+  kernel-capability-only (no production wiring, no IDE gate). Stays self-contained (BootstrapServices `.nl` +
+  `.tests.nl`, no repin) unless the stage needs a kernel entry point dependents compile against — call out the
+  two-stage bootstrap wall at stage start. Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner
+  (divergent per-token panic model). NOTES for later stages: (a) STAGE 2 models declaration NAMES only (no
+  bodies), so found-other names for class/struct/record/interface/union are deferred to the body/closing-
+  delimiter stage where the member-list parse becomes byte-exact. (b) STAGE 3's MINIMAL literal-reaching
+  expression path (paren + literal primary + flat binary-operator continuation) is a vehicle, NOT the full
+  expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
+  ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3 corpus
+  shapes deliberately keep those would-be errors panic-suppressed so its output is byte-exact without them.
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
@@ -496,6 +553,48 @@ These are populated only when their task becomes current.
 ## Completion ledger
 
 Completed slices:
+
+- Task 016 — FOURTH slice (parser-front-end arc STAGE 3): the MALFORMED-LITERAL diagnostic family (NL105
+  `InvalidLiteral`), in N#, PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not commit);
+  working tree carries the two edited N# files + STATUS. NO production wiring — Parser.cs remains the sole
+  production syntax authority.
+  - Origin inventory (grep of Parser.cs AND the N# Lexer path): all six shapes are Parser.cs-REPORTED inside
+    `ParsePrimaryExpression` — `ReportMalformedCharLiteralIfNeeded` (:4646→:4905, empty/unterminated char),
+    `ReportMalformedStringLiteralIfNeeded` (:4653→:4830, unterminated string + unterminated interpolated
+    single-line string), and its delegate `ReportMalformedRawStringLiteralIfNeeded` (:4876, unterminated
+    triple-quoted + unterminated interpolated-raw), each routed through the shared-panic `ReportError`
+    (:6845). The already-N# `Lexer.nl` (`ReadString`/`ReadCharLiteral`/`ReadTripleQuoteString`/
+    `ReadInterpolatedRawString`) only CLASSIFIES — it sets `Token.IsTerminated` and builds the token value —
+    and emits NO diagnostic. The malformed DECISION delegates to the LIVE shared N# owner `ParserLiteralFacts`
+    (`IsCompleteStringLiteral`/`IsCompleteCharLiteral`), the identical calls Parser.cs makes. VERDICT: the
+    family belongs to the PARSER model (Parser.cs-reported, shared-panic-gated), NOT a separate lexer lane; it
+    is carried in FULL this stage. (`import`-path and test-description strings are NOT part of it — they never
+    run the malformed check; `import "abc` → NL701, verified.)
+  - Extended `ColumnarParserRecovery.nl`: `ReportMalformedLiteralIfNeeded` dispatches to the three ported
+    reporters (byte-exact messages / explanations / hints / suggestions / marker-lengths), all routing through
+    the shared-panic `Report`; the decision reuses `ParserLiteralFacts` and construction reuses
+    `ParserErrorDiagnostics.Create`. `ParseFunctionName` now continues a validly-named function through its
+    head (empty params, optional return type) into the `=> <expr>` expression body via a MINIMAL
+    literal-reaching expression path (`ParseLiteralBearingExpression`/`ParseLiteralBearingPrimary`:
+    `( expr )` grouping + literal primaries + a flat binary-operator continuation) — enough to reach literals
+    and consume the corpus's trailing tokens identically to Parser.cs's `ParseExpression`. Stage-2 name-error
+    cases preserved (a `<error>` name returns before any body parse). The expression/statement ERROR families
+    are NOT modeled (a later arc stage); their would-be errors never fire because they route through the same
+    shared panic the literal error already set, so the output is byte-exact.
+  - +14 native parity contracts in `ColumnarParserRecovery.tests.nl`: one per literal shape (string / char /
+    empty char / triple / interpolated / interpolated-raw), across-boundary (two malformed funcs → 2 diags;
+    malformed literal then stray top-level token → NL105 + NL101), IN-REGION suppression (`'a + 'b` and
+    `'' + 'b` → 1 diag — the second malformed literal's check runs but is suppressed by shared panic; the
+    parenthesized `('a` anchors the char at column 14 and suppresses the missing `)`), and negatives
+    (well-formed literals report nothing). Every expected value is GOLDEN Parser.cs output captured from the
+    freshly built Release CLI (`nlc check --json`, filtered NL101-NL109).
+  - Evidence: BootstrapServices contracts 811/811 (797 baseline + 14; packaged SDK 0.1.0 self-emits the edited
+    owner + tests cleanly, INCLUDING the `"""`-bearing message literals); dev.sh Parser 381/381; ownership
+    audit 18/18 (no ratchet change — all deltas are `.nl`); git status shows ONLY the two `.nl` files + STATUS
+    (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` is referenced
+    ONLY by its own tests (verified across src/tests/examples), so nothing in the production compile path
+    changed. No LSP/VS Code change → no extension reload. NO wall tripped (self-contained; no dependent
+    compiles against a changed kernel signature). Next: STAGE 4 (member/parameter/field declaration family).
 
 - Task 016 — THIRD slice (parser-front-end arc STAGE 2): the DECLARATION-NAME diagnostic family, in N#,
   PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not commit); working tree carries the two

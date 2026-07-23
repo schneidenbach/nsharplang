@@ -559,7 +559,265 @@ public class ColumnarParserRecovery {
     func ParseFunctionName() {
         funcToken := Current()
         Advance()
-        ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
+        name := ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
+        if name == "<error>" {
+            // A name error (Stage 2) leaves the offending/absent name for the boundary; do
+            // not parse a body. Preserves the Stage-2 declaration-name model exactly.
+            return
+        }
+
+        // Stage 3: a validly-named function may carry a MALFORMED-LITERAL diagnostic in its
+        // expression body (Parser.cs reaches ReportMalformedStringLiteralIfNeeded /
+        // ReportMalformedCharLiteralIfNeeded only inside ParsePrimaryExpression). Continue the
+        // function head far enough to reach the body and run the literal check.
+        ParseFunctionHeadAndBody()
+    }
+
+    // Parse the tail of a validly-named function far enough to reach an expression body, so the
+    // malformed-LITERAL family (Stage 3) can be exercised through the shared-panic model. This is
+    // the MINIMAL literal-reaching vehicle — the malformed-literal corpus uses `func f() => <lit>`
+    // (the shallowest byte-exact literal context). General parameter/generic/return-type parsing
+    // and the block-body statement grammar are LATER arc stages; here the head is only consumed
+    // enough to reach `=> <expr>` for the empty-parameter, expression-bodied shape.
+    func ParseFunctionHeadAndBody() {
+        // Empty parameter list `()` (Parser.cs ParseParameterList :751: Consume '(' … Consume ')').
+        if Check(TokenType.LeftParen) {
+            Advance()
+            if Check(TokenType.RightParen) {
+                Advance()
+            }
+        }
+
+        // Optional return type `: T` (Parser.cs :465-468 then ParseTypeReference).
+        if Check(TokenType.Colon) {
+            Advance()
+            if Check(TokenType.Identifier) {
+                Advance()
+            }
+        }
+
+        // Expression-bodied function `=> <expr>` (Parser.cs :493-497).
+        if Check(TokenType.Arrow) {
+            Advance()
+            ParseLiteralBearingExpression()
+        }
+    }
+
+    // ---- minimal literal-reaching expression path (Stage 3 vehicle) ----
+    // Reaches the literal operands of an expression so the malformed-literal check runs at each,
+    // and consumes the flat binary-operator continuation so the shared-panic SUPPRESSION of a
+    // following in-region literal error is exercised byte-exact (e.g. `'a + 'b` → only the first
+    // reports). It is deliberately NOT a full expression parser: it models `( expr )` grouping,
+    // literal primaries, and a flat binary-operator continuation only — enough to reach literals
+    // and consume the corpus's trailing tokens identically to Parser.cs's ParseExpression. The
+    // expression/statement ERROR families (unexpected-token-in-expression, dangling operator,
+    // missing `)`) are a LATER arc stage and are never reported here (Parser.cs suppresses them
+    // under the same shared panic, so the diagnostic output stays byte-exact).
+
+    func ParseLiteralBearingExpression() {
+        ParseLiteralBearingPrimary()
+        while IsBinaryOperatorContinuation(Current().Type) {
+            Advance()
+            ParseLiteralBearingPrimary()
+        }
+    }
+
+    func ParseLiteralBearingPrimary() {
+        if Check(TokenType.LeftParen) {
+            Advance()
+            ParseLiteralBearingExpression()
+            if Check(TokenType.RightParen) {
+                Advance()
+            }
+            return
+        }
+
+        if IsLiteralToken(Current().Type) {
+            token := Advance()
+            ReportMalformedLiteralIfNeeded(token)
+        }
+    }
+
+    func IsLiteralToken(t: TokenType): bool {
+        if t == TokenType.IntLiteral {
+            return true
+        }
+        if t == TokenType.FloatLiteral {
+            return true
+        }
+        if t == TokenType.CharLiteral {
+            return true
+        }
+        if t == TokenType.StringLiteral {
+            return true
+        }
+        if t == TokenType.TripleQuoteStringLiteral {
+            return true
+        }
+        if t == TokenType.InterpolatedRawStringLiteral {
+            return true
+        }
+        return false
+    }
+
+    // The minimal binary-operator set needed to reach subsequent literal operands in the
+    // malformed-literal corpus (e.g. `'a + 'b`). Full expression precedence is a later arc stage;
+    // for the corpus's flat expressions this reaches the same tokens Parser.cs's ParseExpression does.
+    func IsBinaryOperatorContinuation(t: TokenType): bool {
+        if t == TokenType.Plus {
+            return true
+        }
+        if t == TokenType.Minus {
+            return true
+        }
+        if t == TokenType.Star {
+            return true
+        }
+        if t == TokenType.Slash {
+            return true
+        }
+        if t == TokenType.Percent {
+            return true
+        }
+        return false
+    }
+
+    // ---- malformed-literal reporting (Parser.cs :4830/:4876/:4905) ----
+    // The DECISION reuses the LIVE shared owner ParserLiteralFacts (Parser.cs delegates to the
+    // identical IsCompleteStringLiteral/IsCompleteCharLiteral), and reporting routes through the
+    // shared-panic Report so an in-region cascade is suppressed exactly as Parser.cs's.
+
+    func ReportMalformedLiteralIfNeeded(token: Token) {
+        t := token.Type
+        if t == TokenType.CharLiteral {
+            ReportMalformedCharLiteralIfNeeded(token)
+            return
+        }
+        if t == TokenType.StringLiteral {
+            ReportMalformedStringLiteralIfNeeded(token)
+            return
+        }
+        if t == TokenType.TripleQuoteStringLiteral {
+            ReportMalformedStringLiteralIfNeeded(token)
+            return
+        }
+        if t == TokenType.InterpolatedRawStringLiteral {
+            ReportMalformedStringLiteralIfNeeded(token)
+            return
+        }
+    }
+
+    func ReportMalformedStringLiteralIfNeeded(token: Token) {
+        if token.Type == TokenType.TripleQuoteStringLiteral {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated triple-quoted string literal",
+                "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                3)
+            return
+        }
+
+        if token.Type == TokenType.InterpolatedRawStringLiteral {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated interpolated raw string literal",
+                "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                4)
+            return
+        }
+
+        // Parser.cs :4854: only a StringLiteral that is unterminated OR whose value is not a
+        // complete string literal is malformed.
+        if token.Type != TokenType.StringLiteral {
+            return
+        }
+        if token.IsTerminated && ParserLiteralFacts.IsCompleteStringLiteral(token.Value) {
+            return
+        }
+
+        isInterpolated := StartsWithInterpolatedPrefix(token.Value)
+        message := "Unterminated string literal"
+        explanation := "This string starts with a quote but reaches the end of the line before a closing quote."
+        if isInterpolated {
+            message = "Unterminated interpolated string literal"
+            explanation = "This interpolated string starts with `$\"` but reaches the end of the line before a closing quote."
+        }
+
+        suggestions := new List<string>()
+        suggestions.Add("Add a closing quote")
+        suggestions.Add("Use triple quotes for multi-line strings")
+
+        Report(
+            ErrorCode.InvalidLiteral,
+            message,
+            token.Line,
+            token.Column,
+            explanation,
+            "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
+            suggestions,
+            MaxInt(1, token.Value.Length))
+    }
+
+    func ReportMalformedRawStringLiteralIfNeeded(
+        token: Token,
+        message: string,
+        humanExplanation: string,
+        hint: string,
+        markerLength: int) {
+        if token.IsTerminated {
+            return
+        }
+
+        suggestions := new List<string>()
+        suggestions.Add("Add the closing triple quote")
+        suggestions.Add("Check where the raw string should end")
+
+        Report(
+            ErrorCode.InvalidLiteral,
+            message,
+            token.Line,
+            token.Column,
+            humanExplanation,
+            hint,
+            suggestions,
+            markerLength)
+    }
+
+    func ReportMalformedCharLiteralIfNeeded(token: Token) {
+        if ParserLiteralFacts.IsCompleteCharLiteral(token.Value) {
+            return
+        }
+
+        isEmpty := token.Value == "''"
+        message := "Unterminated character literal"
+        explanation := "This character literal starts with a quote but does not have a closing quote."
+        if isEmpty {
+            message = "Empty character literal"
+            explanation = "A character literal needs exactly one character between the quotes."
+        }
+
+        suggestions := new List<string>()
+        suggestions.Add("Add the closing quote")
+        suggestions.Add("Use double quotes for a string")
+
+        Report(
+            ErrorCode.InvalidLiteral,
+            message,
+            token.Line,
+            token.Column,
+            explanation,
+            "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
+            suggestions,
+            MaxInt(1, token.Value.Length))
+    }
+
+    func StartsWithInterpolatedPrefix(value: string): bool {
+        if value.Length < 2 {
+            return false
+        }
+        return value[0] == '$' && value[1] == '"'
     }
 
     func ParseClassName() {

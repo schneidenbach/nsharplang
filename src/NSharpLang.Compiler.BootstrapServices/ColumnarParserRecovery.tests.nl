@@ -616,3 +616,253 @@ test "016 decl-name: two reserved-keyword names on separate declarations each re
     assert e1.Length == 4
     assert e1.SourceSnippet == "func class"
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 3: the MALFORMED-LITERAL diagnostic family
+// (NL105 InvalidLiteral).
+//
+// Carries the malformed-literal diagnostics — unterminated string, unterminated interpolated
+// (single-line) string, unterminated char, empty char, unterminated triple-quoted string,
+// unterminated interpolated raw string — through the SAME shared-panic recovery model. Every
+// malformed-literal diagnostic is REPORTED in Parser.cs ParsePrimaryExpression
+// (ReportMalformedCharLiteralIfNeeded / ReportMalformedStringLiteralIfNeeded /
+// ReportMalformedRawStringLiteralIfNeeded), routing through the shared-panic ReportError; the
+// already-N# Lexer only CLASSIFIES (Token.IsTerminated + the token value), and the malformed
+// DECISION reuses the live shared owner ParserLiteralFacts.IsCompleteStringLiteral /
+// IsCompleteCharLiteral (Parser.cs delegates to the identical calls). So the family belongs to
+// the parser model, not a separate lexer lane, and is carried in full here.
+//
+// The literal is reached via the shallowest byte-exact expression context — the expression-bodied
+// function `func f() => <literal>` (oracle-verified to emit exactly ONE NL105 per shape). Every
+// expected value is the GOLDEN output of the production Parser.cs path, captured out-of-band from
+// the freshly built Release CLI (`nlc check --json`) on the same malformed source, filtered to the
+// parser diagnostic codes NL101-NL109.
+//
+// The corpus covers, per literal shape, the single-malformed case, plus the panic-model interactions:
+//   * across a sync (declaration) boundary → the next declaration's literal error fires
+//     (mirrors Parser_DanglingBinaryOperator_DoesNotSwallowFollowingStatements);
+//   * an in-region cascade → a following malformed literal in the SAME expression is suppressed by
+//     shared panic (mirrors Parser_CascadingErrorsSuppressed).
+// ============================================================================
+
+// ---- one malformed-literal diagnostic per shape (expression-bodied function) ----
+
+test "016 literal: an unterminated string in an expression body reports NL105 anchored on the literal" {
+    errors := RunPreamble("func f() => \"abc")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated string literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 4
+    assert e.SourceSnippet == "func f() => \"abc"
+    assert e.HumanExplanation == "This string starts with a quote but reaches the end of the line before a closing quote."
+    assert e.ContextualHint == "Add the closing quote on this line, or use a triple-quoted string for multi-line text."
+    assert e.Suggestion == "Add a closing quote"
+}
+
+test "016 literal: an unterminated character literal reports NL105" {
+    errors := RunPreamble("func f() => 'a")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated character literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f() => 'a"
+    assert e.HumanExplanation == "This character literal starts with a quote but does not have a closing quote."
+    assert e.ContextualHint == "Write a single character like `'a'`, or use a string literal like \"a\" when you need text."
+    assert e.Suggestion == "Add the closing quote"
+}
+
+test "016 literal: an empty character literal reports the empty-char NL105 variant" {
+    errors := RunPreamble("func f() => ''")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Empty character literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f() => ''"
+    assert e.HumanExplanation == "A character literal needs exactly one character between the quotes."
+    assert e.ContextualHint == "Write a single character like `'a'`, or use a string literal like \"a\" when you need text."
+    assert e.Suggestion == "Add the closing quote"
+}
+
+test "016 literal: an unterminated triple-quoted string reports the raw-string NL105 (marker length 3)" {
+    errors := RunPreamble("func f() => \"\"\"abc")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated triple-quoted string literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 3
+    assert e.SourceSnippet == "func f() => \"\"\"abc"
+    assert e.HumanExplanation == "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote."
+    assert e.ContextualHint == "Add the closing triple quote `\"\"\"` before the end of the file."
+    assert e.Suggestion == "Add the closing triple quote"
+}
+
+test "016 literal: an unterminated interpolated (single-line) string reports the interpolated NL105 variant" {
+    errors := RunPreamble("func f() => $\"abc")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated interpolated string literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 5
+    assert e.SourceSnippet == "func f() => $\"abc"
+    assert e.HumanExplanation == "This interpolated string starts with `$\"` but reaches the end of the line before a closing quote."
+    assert e.ContextualHint == "Add the closing quote on this line, or use a triple-quoted string for multi-line text."
+    assert e.Suggestion == "Add a closing quote"
+}
+
+test "016 literal: an unterminated interpolated raw string reports the raw-string NL105 (marker length 4)" {
+    errors := RunPreamble("func f() => $\"\"\"abc")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated interpolated raw string literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 4
+    assert e.SourceSnippet == "func f() => $\"\"\"abc"
+    assert e.HumanExplanation == "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote."
+    assert e.ContextualHint == "Add the closing triple quote `\"\"\"` before the end of the file."
+    assert e.Suggestion == "Add the closing triple quote"
+}
+
+// ---- across a sync (declaration) boundary → the next literal error fires ----
+
+test "016 literal: two malformed-char expression bodies each report at their own declaration boundary" {
+    // The declaration boundary resets panic, so BOTH funcs' character literals report.
+    errors := RunPreamble("func f() => 'a\nfunc g() => 'b")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.InvalidLiteral
+    assert e0.Message == "Unterminated character literal"
+    assert e0.Line == 1
+    assert e0.Column == 13
+    assert e0.Length == 2
+    assert e0.SourceSnippet == "func f() => 'a"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.InvalidLiteral
+    assert e1.Message == "Unterminated character literal"
+    assert e1.Line == 2
+    assert e1.Column == 13
+    assert e1.Length == 2
+    assert e1.SourceSnippet == "func g() => 'b"
+}
+
+test "016 literal: two malformed-string expression bodies each report at their own declaration boundary" {
+    errors := RunPreamble("func f() => \"aa\nfunc g() => \"bb")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.InvalidLiteral
+    assert e0.Message == "Unterminated string literal"
+    assert e0.Line == 1
+    assert e0.Column == 13
+    assert e0.Length == 3
+    assert e0.SourceSnippet == "func f() => \"aa"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.InvalidLiteral
+    assert e1.Message == "Unterminated string literal"
+    assert e1.Line == 2
+    assert e1.Column == 13
+    assert e1.Length == 3
+    assert e1.SourceSnippet == "func g() => \"bb"
+}
+
+test "016 literal: a malformed literal then a stray top-level token both fire across the boundary reset" {
+    // func f() => 'a\n5 : the char literal reports and sets panic; the declaration boundary
+    // resets panic so the stray '5' reports its own unexpected-token diagnostic.
+    errors := RunPreamble("func f() => 'a\n5")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.InvalidLiteral
+    assert e0.Message == "Unterminated character literal"
+    assert e0.Line == 1
+    assert e0.Column == 13
+    assert e0.Length == 2
+    assert e0.SourceSnippet == "func f() => 'a"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '5'"
+    assert e1.Line == 2
+    assert e1.Column == 1
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "5"
+}
+
+// ---- in-region cascade → a following malformed literal is suppressed by shared panic ----
+
+test "016 literal: a second malformed character literal in the same expression is suppressed by shared panic" {
+    // func f() => 'a + 'b : the malformed check runs on BOTH char literals, but the first sets
+    // panic, so Report suppresses the second — exactly one diagnostic, mirroring cascading suppression.
+    errors := RunPreamble("func f() => 'a + 'b")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated character literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f() => 'a + 'b"
+}
+
+test "016 literal: an empty-char error suppresses a following malformed literal in the same expression" {
+    errors := RunPreamble("func f() => '' + 'b")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Empty character literal"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f() => '' + 'b"
+}
+
+test "016 literal: a malformed literal inside a parenthesized group anchors on the literal and suppresses the missing paren" {
+    // func f() => ('a : the '(' shifts the char literal to column 14; the char error reports and the
+    // (would-be) missing-')' recovery is suppressed by shared panic — exactly one diagnostic.
+    errors := RunPreamble("func f() => ('a")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated character literal"
+    assert e.Line == 1
+    assert e.Column == 14
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f() => ('a"
+}
+
+// ---- negatives: a well-formed literal reports nothing (no over-reporting) ----
+
+test "016 literal: a well-formed string literal in an expression body reports no parser diagnostic" {
+    errors := RunPreamble("func f() => \"abc\"")
+    assert errors.Count == 0
+}
+
+test "016 literal: a well-formed function followed by a malformed one reports only the malformed literal" {
+    // func f() => "abc"\nfunc g() => 'x : the complete string reports nothing; only g's char fires.
+    errors := RunPreamble("func f() => \"abc\"\nfunc g() => 'x")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidLiteral
+    assert e.Message == "Unterminated character literal"
+    assert e.Line == 2
+    assert e.Column == 13
+    assert e.Length == 2
+    assert e.SourceSnippet == "func g() => 'x"
+}
