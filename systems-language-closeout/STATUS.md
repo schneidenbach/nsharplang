@@ -4,8 +4,17 @@ Last updated: 2026-07-22
 
 ## Cursor
 
-- Current task: `tasks/015-remaining-emitter-decisions.md`
+- Current task: `tasks/016-parser-and-syntax-diagnostics.md`
 - Current iteration: one terminal slice
+- Task 015 status: UNCHECKED, iteration PAUSED at `e0f987bba` — the movable decision surface is
+  EXHAUSTED per the 015 completion roadmap (recorded below): every remaining emitter policy is
+  BLOCKED-WITH-RECORD on four named future owners (plan-row lambda-body emitter, N# preflight/
+  typing-owner port, async-func lowering, planner operand unlocks) or MECHANICAL. Resume 015 only
+  when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
+  task across 8 landed slices + 2 proven refutations + 1 restored regression).
+- 016 note: Parser.cs is the LSP-fallback parser — 016 slices are IDE-AFFECTING: VS Code-enabled
+  gate + extension reinstall required per slice (computer-use visual check: denied twice, automated
+  VS Code integration evidence stands in per the 014 precedent).
 - CORRECTION (post-Stage-2): sub-slice 5's Min/Max deletion (`86f4c251b`) was PARTIALLY WRONG — its
   "provably dead" claim held only for plannable receivers. `Select(v => ...).Min()/.Max()` chains
   whole-subtree-exit to the legacy residual (contextual-lambda decline), where the deleted emit +
