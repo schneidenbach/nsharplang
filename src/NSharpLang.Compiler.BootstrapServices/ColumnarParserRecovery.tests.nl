@@ -1142,3 +1142,343 @@ test "016 decl-name: a struct whose name is the opening brace anchors the found 
     assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
     assert e.Suggestion == null
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 5: the GENERICS / CONSTRAINTS diagnostic family.
+//
+// Carries, through the SAME shared-panic recovery model: the TYPE PARAMETER name errors via `<…>`
+// (ReportMissingTypeParameterName, Parser.cs :6439, + the reserved-keyword variant :743); the
+// GENERIC TYPE ARGUMENT errors via a generic return type `Name<…>` (ReportMissingGenericTypeArgument,
+// :6457); the ConsumeGreater split-`>>` discipline (:2101 — the split mechanism, proven by the
+// well-formed nested-generic NEGATIVE, plus the "Expected '>'. Got 'X'" ExpectedToken error); and the
+// `where`-clause constraint errors (ParseGenericConstraints :851 — the "Expected type parameter" name
+// error, the missing-`:` Consume error, and the class/struct mutual-exclusion + struct/new() redundancy
+// InvalidSyntax validations). Every expected value is the GOLDEN output of the production Parser.cs path,
+// captured out-of-band from the freshly built Release CLI (`nlc check --json`) on the same malformed
+// source, filtered to the parser diagnostic codes NL101-NL109 (excluding the columnar-backend decline
+// NL103, which is not a parser diagnostic). DEFERRED with reasons: the EOF-anchored ConsumeGreater
+// (the check pipeline clamps its JSON length 0→1, unmatchable at the CompilerError level); the `new(`
+// missing-`)` (NL107, needs the closing-delimiter TryReportMissingClosingDelimiter stage); classes do
+// NOT take `where` clauses (verified: `class C<T> where …` cascades), so the constraint family is
+// function-only.
+// ============================================================================
+
+// ---- type parameter name family (ReportMissingTypeParameterName + reserved-keyword variant) ----
+
+test "016 generics: an empty type parameter list <> reports the missing-name NL102 spanning the '<>'" {
+    errors := RunPreamble("func f<>()")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type parameter name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 7
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f<>()"
+    assert e.HumanExplanation == "Generic parameter lists need a type parameter name after each comma."
+    assert e.ContextualHint == "Write generic parameters as `<T>` or `<T, U>`."
+    assert e.Suggestion == "Add a type parameter name"
+}
+
+test "016 generics: a trailing comma in a type parameter list <T,> reports the missing-name NL102" {
+    errors := RunPreamble("func f<T,>()")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type parameter name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 7
+    assert e.Length == 4
+    assert e.SourceSnippet == "func f<T,>()"
+    assert e.HumanExplanation == "Generic parameter lists need a type parameter name after each comma."
+    assert e.ContextualHint == "Write generic parameters as `<T>` or `<T, U>`."
+    assert e.Suggestion == "Add a type parameter name"
+}
+
+test "016 generics: an empty type parameter list on a class reports the same missing-name NL102" {
+    // Proves the type-parameter family fires from the class declaration head, not only the function head.
+    errors := RunPreamble("class C<> {\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type parameter name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 2
+    assert e.SourceSnippet == "class C<> {"
+    assert e.HumanExplanation == "Generic parameter lists need a type parameter name after each comma."
+    assert e.ContextualHint == "Write generic parameters as `<T>` or `<T, U>`."
+    assert e.Suggestion == "Add a type parameter name"
+}
+
+test "016 generics: a reserved keyword as a type parameter name reports the keyword-specific NL109" {
+    errors := RunPreamble("func f<return>()")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected type parameter name. Got the reserved keyword 'return'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 6
+    assert e.SourceSnippet == "func f<return>()"
+    assert e.HumanExplanation == "'return' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'returnValue' or '_return')."
+    assert e.Suggestion == "Rename it to 'returnValue' or '_return'"
+}
+
+// ---- generic type argument family (ReportMissingGenericTypeArgument via the return type) ----
+
+test "016 generics: an empty generic argument list Name<> reports the missing-argument NL102" {
+    errors := RunPreamble("func f(): List<>")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 6
+    assert e.SourceSnippet == "func f(): List<>"
+    assert e.HumanExplanation == "Generic type 'List' needs a type argument between '<' and '>'."
+    assert e.ContextualHint == "Write this type as `List<T>` or remove the generic argument list."
+    assert e.Suggestion == "Add a type argument"
+}
+
+test "016 generics: a trailing comma in a generic argument list Name<T,> reports the missing-argument NL102" {
+    errors := RunPreamble("func f(): List<int,>")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 10
+    assert e.SourceSnippet == "func f(): List<int,>"
+    assert e.HumanExplanation == "Generic type 'List' needs a type argument between '<' and '>'."
+    assert e.ContextualHint == "Write this type as `List<T>` or remove the generic argument list."
+    assert e.Suggestion == "Add a type argument"
+}
+
+test "016 generics: the missing-argument message and span name the offending generic type" {
+    // A different type name (Dictionary) proves the message/hint interpolate the type name and the
+    // span runs from the type name to the '>'.
+    errors := RunPreamble("func f(): Dictionary<int,>")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 16
+    assert e.SourceSnippet == "func f(): Dictionary<int,>"
+    assert e.HumanExplanation == "Generic type 'Dictionary' needs a type argument between '<' and '>'."
+    assert e.ContextualHint == "Write this type as `Dictionary<T>` or remove the generic argument list."
+    assert e.Suggestion == "Add a type argument"
+}
+
+// ---- ConsumeGreater unclosed type-argument list ----
+
+test "016 generics: an unclosed generic argument list reports the ConsumeGreater NL102 at the offender" {
+    // `List<int =>` : after `int` the argument list is not closed by '>' or '>>', so ConsumeGreater
+    // reports at the '=>' token; the function then continues into its expression body (panic-suppressed).
+    errors := RunPreamble("func f(): List<int => 5")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '>'. Got '=>'"
+    assert e.Line == 1
+    assert e.Column == 20
+    assert e.Length == 2
+    assert e.SourceSnippet == "func f(): List<int => 5"
+    assert e.HumanExplanation == "I was parsing generic type parameters and expected to see a closing '>' here."
+    assert e.ContextualHint == null
+    assert e.Suggestion == "Check if you have matching '<' and '>' in your generic type declaration"
+}
+
+// ---- ConsumeGreater split >> discipline (NEGATIVE: a well-formed nested generic reports nothing) ----
+
+test "016 generics: a well-formed nested generic List<List<int>> reports nothing (the >> split closes both)" {
+    // Proves the split-`>>` discipline: the lexer emits one `>>` token for the two closing angles; without
+    // the split, ConsumeGreater would (wrongly) report "Expected '>'. Got '>>'". Zero diagnostics is the proof.
+    errors := RunPreamble("func f(): List<List<int>> => 5")
+    assert errors.Count == 0
+}
+
+// ---- where-clause constraint validations (InvalidSyntax) ----
+
+test "016 constraints: combining 'class' and 'struct' reports the mutual-exclusion NL103 anchored on 'struct'" {
+    errors := RunPreamble("func f<T>() where T: class, struct")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive"
+    assert e.Line == 1
+    assert e.Column == 29
+    assert e.Length == 6
+    assert e.SourceSnippet == "func f<T>() where T: class, struct"
+    assert e.HumanExplanation == "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 constraints: combining 'struct' and 'new()' reports the redundancy NL103 spanning 'new()'" {
+    errors := RunPreamble("func f<T>() where T: struct, new()")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor"
+    assert e.Line == 1
+    assert e.Column == 30
+    assert e.Length == 5
+    assert e.SourceSnippet == "func f<T>() where T: struct, new()"
+    assert e.HumanExplanation == "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in ."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+// ---- where-clause name / colon errors ----
+
+test "016 constraints: a missing type parameter name after 'where' reports the found NL102 on the ':'" {
+    errors := RunPreamble("func f<T>() where : class")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type parameter. Got ':'"
+    assert e.Line == 1
+    assert e.Column == 19
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f<T>() where : class"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found ':' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 constraints: a reserved keyword after 'where' reports the keyword-specific NL109" {
+    errors := RunPreamble("func f<T>() where return: class")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ReservedKeywordAsName
+    assert e.Message == "Expected type parameter. Got the reserved keyword 'return'"
+    assert e.Line == 1
+    assert e.Column == 19
+    assert e.Length == 6
+    assert e.SourceSnippet == "func f<T>() where return: class"
+    assert e.HumanExplanation == "'return' is a reserved keyword in N#, so it can't be used as a name here."
+    assert e.ContextualHint == "Choose a name that isn't a reserved keyword (for example 'returnValue' or '_return')."
+    assert e.Suggestion == "Rename it to 'returnValue' or '_return'"
+}
+
+test "016 constraints: a missing ':' after the constraint type parameter reports the Consume NL102" {
+    errors := RunPreamble("func f<T>() where T class")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got 'class'"
+    assert e.Line == 1
+    assert e.Column == 21
+    assert e.Length == 5
+    assert e.SourceSnippet == "func f<T>() where T class"
+    assert e.HumanExplanation == "I was expecting : here, but I found 'class' instead."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 constraints: a non-type constraint reports the type-name NL102 then a boundary-reset NL101" {
+    // `where T: 5` : the constraint type parse reports "Expected type name. Got '5'" (panic set) without
+    // consuming `5`; the function head ends, the declaration boundary resets panic, and `5` reports its
+    // own unexpected-token NL101. Proves the constraint type routes through ParseTypeReference and the
+    // shared-panic boundary reset carries into the generics stage.
+    errors := RunPreamble("func f<T>() where T: 5")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected type name. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 22
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "func f<T>() where T: 5"
+    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e0.Suggestion == null
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '5'"
+    assert e1.Line == 1
+    assert e1.Column == 22
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "func f<T>() where T: 5"
+    assert e1.HumanExplanation == "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '5' instead."
+    assert e1.ContextualHint == "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases."
+}
+
+// ---- panic-model boundary interaction: two generic errors both report at their own boundary ----
+
+test "016 generics: two functions with empty type parameter lists each report at their declaration boundary" {
+    errors := RunPreamble("func f<>()\nfunc g<>()")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected type parameter name. Got '>'"
+    assert e0.Line == 1
+    assert e0.Column == 7
+    assert e0.Length == 2
+    assert e0.SourceSnippet == "func f<>()"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected type parameter name. Got '>'"
+    assert e1.Line == 2
+    assert e1.Column == 7
+    assert e1.Length == 2
+    assert e1.SourceSnippet == "func g<>()"
+}
+
+test "016 generics: two functions with empty generic return types each report at their declaration boundary" {
+    errors := RunPreamble("func f(): List<>\nfunc g(): List<>")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected type name. Got '>'"
+    assert e0.Line == 1
+    assert e0.Column == 11
+    assert e0.Length == 6
+    assert e0.SourceSnippet == "func f(): List<>"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected type name. Got '>'"
+    assert e1.Line == 2
+    assert e1.Column == 11
+    assert e1.Length == 6
+    assert e1.SourceSnippet == "func g(): List<>"
+}
+
+// ---- negatives: well-formed generics / constraints report nothing (no over-reporting) ----
+
+test "016 generics: a well-formed single type parameter reports no parser diagnostic" {
+    errors := RunPreamble("func f<T>()")
+    assert errors.Count == 0
+}
+
+test "016 generics: a well-formed multi type parameter list reports no parser diagnostic" {
+    errors := RunPreamble("func f<T, U>()")
+    assert errors.Count == 0
+}
+
+test "016 generics: a well-formed generic return type List<int> reports no parser diagnostic" {
+    errors := RunPreamble("func f(): List<int>")
+    assert errors.Count == 0
+}
+
+test "016 constraints: a well-formed single-type constraint reports no parser diagnostic" {
+    errors := RunPreamble("func f<T>() where T: SomeBase")
+    assert errors.Count == 0
+}
+
+test "016 generics: a well-formed generic class declaration reports no parser diagnostic" {
+    errors := RunPreamble("class C<T> {\n}")
+    assert errors.Count == 0
+}

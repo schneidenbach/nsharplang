@@ -44,6 +44,11 @@ public class ColumnarParserRecovery {
     Source: string
     Position: int
     PanicMode: bool
+    // Stage 5: tracks a `>>` (RightShift) token that ConsumeGreater split into two `>` when closing
+    // nested generics (Parser.cs `_splitGreaterDepth`, :2141). While > 0 the cursor "owes" a virtual
+    // `>` (Check/Advance below honor it, exactly as Parser.cs). Reset at the same sync points Parser.cs
+    // resets it (SynchronizeToNextDeclaration/Statement :7042/:7086 → the declaration/member boundaries).
+    SplitGreaterDepth: int
     Errors: List<CompilerError>
 
     constructor(source: string, fileName: string?) {
@@ -51,6 +56,7 @@ public class ColumnarParserRecovery {
         FileName = fileName
         Position = 0
         PanicMode = false
+        SplitGreaterDepth = 0
         Errors = new List<CompilerError>()
 
         lexer := new Lexer(source, fileName)
@@ -102,10 +108,25 @@ public class ColumnarParserRecovery {
     }
 
     func Check(tokenType: TokenType): bool {
+        // Split-`>>` discipline (Parser.cs Check, :6025): while we owe a `>` from a previously split
+        // `>>`, a request for `>` is satisfied without consuming a real token.
+        if SplitGreaterDepth > 0 {
+            if tokenType == TokenType.Greater {
+                return true
+            }
+        }
         return Current().Type == tokenType
     }
 
     func Advance(): Token {
+        // Split-`>>` discipline (Parser.cs Advance, :5860): consuming the owed `>` decrements the debt
+        // and returns a virtual `>` positioned one column past the previous token, without moving the
+        // real cursor.
+        if SplitGreaterDepth > 0 {
+            SplitGreaterDepth = SplitGreaterDepth - 1
+            prev := Tokens[Position - 1]
+            return new Token(TokenType.Greater, ">", prev.Line, prev.Column + 1, prev.FileName)
+        }
         if !IsAtEnd() {
             Position = Position + 1
         }
@@ -429,6 +450,7 @@ public class ColumnarParserRecovery {
         // recovery, the offending token) or the stray top-level token.
         while !IsAtEnd() {
             PanicMode = false
+            SplitGreaterDepth = 0        // reset with panic at the declaration boundary (Parser.cs :7042)
             startPosition := Position
             ParseTopLevelDeclaration()
 
@@ -580,18 +602,29 @@ public class ColumnarParserRecovery {
     // and the block-body statement grammar are LATER arc stages; here the head is only consumed
     // enough to reach `=> <expr>` for the empty-parameter, expression-bodied shape.
     func ParseFunctionHeadAndBody() {
+        // Type parameter list `<T, U>` (Stage 5, Parser.cs :446). Runs BEFORE the parameter list,
+        // exactly as ParseFunctionDeclaration does, so a malformed `<>` / `<T,>` / `<return>` list
+        // reports its NL102/NL109 here. Absent when the function is non-generic (Check(Less) is false).
+        ParseTypeParameters()
+
         // Parameter list (Parser.cs ParseParameterList :751). Stage 4 carries the parameter
         // name / colon / type diagnostic family through this list; the empty-list `()` shape the
         // Stage-3 malformed-literal corpus relies on is handled identically (Consume '(' … ')').
         ParseParameterListRecovery()
 
-        // Optional return type `: T` (Parser.cs :465-468 then ParseTypeReference).
+        // Optional return type `: T` (Parser.cs :465-468 then ParseTypeReference). Stage 5 routes the
+        // return type through the generic-aware ParseTypeReferenceRecovery so a malformed generic return
+        // type (`List<>`, `List<int,>`) reports ReportMissingGenericTypeArgument and an unclosed one
+        // (`List<int =>`) reports the ConsumeGreater error. A simple identifier return type consumes
+        // identically to the Stage-3/4 vehicle (Check(Less) is false → just the name).
         if Check(TokenType.Colon) {
             Advance()
-            if Check(TokenType.Identifier) {
-                Advance()
-            }
+            ParseTypeReferenceRecovery()
         }
+
+        // Generic constraints `where T: …` (Stage 5, Parser.cs :488). Runs after the return type,
+        // exactly as ParseFunctionDeclaration does.
+        ParseGenericConstraints()
 
         // Expression-bodied function `=> <expr>` (Parser.cs :493-497).
         if Check(TokenType.Arrow) {
@@ -1002,6 +1035,7 @@ public class ColumnarParserRecovery {
     func ParseMemberList() {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
+            SplitGreaterDepth = 0
             startPosition := Position
             ParseFieldMember()
 
@@ -1180,6 +1214,11 @@ public class ColumnarParserRecovery {
         classToken := Current()
         Advance()
         name := ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
+        // Type parameter list `<T>` (Stage 5, Parser.cs :943) — parsed after the name, before the body,
+        // so a malformed `class C<> { }` reports ReportMissingTypeParameterName. A no-op for the
+        // non-generic Stage-4 class corpus (Check(Less) is false → returns immediately). Primary-ctor
+        // params `(…)` and base lists `: …` are a later arc stage; the Stage-5 class corpus has neither.
+        ParseTypeParameters()
         ParseTypeBodyIfPresent(name)
     }
 
@@ -1187,6 +1226,7 @@ public class ColumnarParserRecovery {
         structToken := Current()
         Advance()
         name := ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
+        ParseTypeParameters()
         ParseTypeBodyIfPresent(name)
     }
 
@@ -1234,6 +1274,362 @@ public class ColumnarParserRecovery {
         // Parser.cs anchors with new DiagnosticSpan(line, column, Math.Max(1, "type".Length))
         // (:1337); with the keyword value "type" that equals SpanFromToken(typeToken).
         ConsumeDeclarationName("Expected type alias name", new RecoverySpan(typeToken.Line, typeToken.Column, MaxInt(1, 4)))
+    }
+
+    // ============================================================================
+    // Stage 5: the GENERICS / CONSTRAINTS diagnostic family — carried through the SAME shared-panic
+    // model. The families reached this stage (all via the function head + class type-params):
+    //   * TYPE PARAMETER names via `<…>` — ReportMissingTypeParameterName (Parser.cs :6439, empty
+    //     `<>` / trailing-comma `<T,>`) and the reserved-keyword type-param name (ConsumeIdentifier
+    //     reserved variant, Parser.cs :743).
+    //   * GENERIC TYPE ARGUMENTS via a generic type reference `Name<…>` — ReportMissingGenericTypeArgument
+    //     (:6457, empty / trailing-comma), reached through the function RETURN TYPE.
+    //   * the ConsumeGreater split-`>>` discipline (:2101) — the `>>`-split mechanism (so a well-formed
+    //     nested generic `List<List<int>>` reports NOTHING) + the "Expected '>'. Got 'X'" ExpectedToken
+    //     error when a type-argument list is left unclosed.
+    //   * the `where`-clause constraint errors (ParseGenericConstraints :851) — the "Expected type
+    //     parameter" name error, the missing-`:` Consume error, and the class/struct mutual-exclusion
+    //     and struct/new() redundancy InvalidSyntax validations.
+    // Diagnostic CONSTRUCTION still delegates to the live shared ParserErrorDiagnostics.Create, and the
+    // constraint DECISIONS mirror Parser.cs exactly, so codes / messages / spans / snippets / hints match.
+    // ============================================================================
+
+    // ---- type parameter list (Parser.cs ParseTypeParameters :725) ----
+
+    func ParseTypeParameters() {
+        if !Check(TokenType.Less) {
+            return
+        }
+        lessToken := Advance()                  // consume '<'
+        parsing := true
+        while parsing {
+            if Check(TokenType.Greater) {
+                // `<>` (empty) or `<T,>` (trailing comma): the name is missing (Parser.cs :735-738).
+                ReportMissingTypeParameterName(lessToken)
+                parsing = false
+            } else {
+                // A lifetime `'a` or an identifier type-parameter name (Parser.cs :741-743).
+                if Check(TokenType.Lifetime) {
+                    Advance()
+                } else {
+                    ConsumeIdentifier("Expected type parameter name")
+                }
+                // Parser.cs's `do { … } while (Match(Comma))`.
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    parsing = false
+                }
+            }
+        }
+        // Parser.cs closes the type-parameter list with the generic Consume(Greater) (:747), NOT the
+        // split-aware ConsumeGreater — so its unclosed-list message uses TokenTypeToString(Greater)
+        // ("greater"). Every Stage-5 corpus type-parameter list is closed by a present `>`.
+        ConsumeToken(TokenType.Greater, "Expected '>'", "greater")
+    }
+
+    // Parser.cs ReportMissingTypeParameterName (:6439). The span runs from the opening `<` to the
+    // offending token (DiagnosticSpanFromTokenRange), so it underlines the whole `<>` / `<T,>`.
+    func ReportMissingTypeParameterName(lessToken: Token) {
+        span := DiagnosticSpanFromTokenRange(lessToken, Current())
+        suggestions := new List<string>()
+        suggestions.Add("Add a type parameter name")
+        suggestions.Add("Remove the trailing comma if the list is complete")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected type parameter name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            "Generic parameter lists need a type parameter name after each comma.",
+            "Write generic parameters as `<T>` or `<T, U>`.",
+            suggestions,
+            span.Length)
+    }
+
+    // ---- generic-aware type reference (Parser.cs ParseTypeReference simple/generic subset :1910-1962) ----
+    // Consumes a simple or qualified type name plus an optional `<typeargs>` list, reporting the
+    // generic-type-argument and ConsumeGreater diagnostics. The byref `&` / tuple `(` / Func<> / array /
+    // nullable forms are a later arc stage; the Stage-5 corpus's return and constraint types are all
+    // simple names or generic references over simple names.
+    func ParseTypeReferenceRecovery() {
+        typeNameToken := Current()
+        ConsumeIdentifier("Expected type name")             // Parser.cs :1914
+        while Check(TokenType.Dot) {                         // qualified name A.B (Parser.cs :1918)
+            Advance()
+            ConsumeIdentifier("Expected identifier after '.'")
+        }
+
+        if Check(TokenType.Less) {
+            lessToken := Advance()                          // consume '<'
+            if Check(TokenType.Greater) {
+                ReportMissingGenericTypeArgument(typeNameToken, lessToken)  // `Name<>` (Parser.cs :1930)
+            } else {
+                ParseTypeReferenceRecovery()                // first type argument
+                scanning := true
+                while scanning {
+                    if Check(TokenType.Comma) {
+                        Advance()
+                        if Check(TokenType.Greater) {
+                            // `Name<T,>` trailing comma (Parser.cs :1940-1943).
+                            ReportMissingGenericTypeArgument(typeNameToken, lessToken)
+                            scanning = false
+                        } else {
+                            ParseTypeReferenceRecovery()
+                        }
+                    } else {
+                        scanning = false
+                    }
+                }
+            }
+            ConsumeGreater("Expected '>'")                  // Parser.cs :1950
+        }
+    }
+
+    // Parser.cs ReportMissingGenericTypeArgument (:6457). The span runs from the type name to the
+    // offending token; the message names the type and its opening `<`.
+    func ReportMissingGenericTypeArgument(typeNameToken: Token, lessToken: Token) {
+        span := DiagnosticSpanFromTokenRange(typeNameToken, Current())
+        typeName := typeNameToken.Value
+        suggestions := new List<string>()
+        suggestions.Add("Add a type argument")
+        suggestions.Add("Remove the empty generic argument list")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected type name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            "Generic type '" + typeName + "' needs a type argument between '" + lessToken.Value + "' and '>'.",
+            "Write this type as `" + typeName + "<T>` or remove the generic argument list.",
+            suggestions,
+            span.Length)
+    }
+
+    // ---- ConsumeGreater (Parser.cs :2101) — closes a type-ARGUMENT list, splitting `>>` ----
+    func ConsumeGreater(message: string): Token {
+        if Check(TokenType.Greater) {
+            return Advance()
+        }
+        if Check(TokenType.RightShift) {
+            // Split `>>` into two `>` by consuming the `>>` and recording that we owe one `>`
+            // (Parser.cs :2107-2119); Check/Advance honor the debt on the enclosing generic's close.
+            rightShift := Current()
+            Position = Position + 1
+            SplitGreaterDepth = SplitGreaterDepth + 1
+            return new Token(TokenType.Greater, ">", rightShift.Line, rightShift.Column, rightShift.FileName)
+        }
+        suggestions := new List<string>()
+        suggestions.Add("Check if you have matching '<' and '>' in your generic type declaration")
+        suggestions.Add("Example: List<int> or Dictionary<string, int>")
+        Report(
+            ErrorCode.ExpectedToken,
+            message + ". Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "I was parsing generic type parameters and expected to see a closing '>' here.",
+            GetHintForMissingToken(TokenType.Greater),
+            suggestions,
+            Current().Value.Length)
+        return Current()
+    }
+
+    // ---- generic Consume (Parser.cs Consume :6048), for the type-parameter `>` close and constraint `:` ----
+    // The RightParen/RightBracket TryReportMissingClosingDelimiter branch (:6052) is a later
+    // closing-delimiter arc stage; the Stage-5 corpus never reaches an unclosed `)` / `]` here.
+    func ConsumeToken(tokenType: TokenType, message: string, expected: string): Token {
+        if Check(tokenType) {
+            return Advance()
+        }
+        if IsAtEnd() {
+            ownerSpan := LastVisibleTokenSpan()
+            Report(
+                ErrorCode.UnexpectedEndOfFile,
+                "Expected '" + expected + "' but reached the end of the file",
+                ownerSpan.Line,
+                ownerSpan.Column,
+                "I was expecting '" + expected + "' here, but the file ended first.",
+                HintForMissingTokenOrDefault(tokenType, "Finish this construct before the end of the file."),
+                null,
+                ownerSpan.Length)
+            return Current()
+        }
+        Report(
+            ErrorCode.ExpectedToken,
+            message + ". Expected '" + expected + "', got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "I was expecting " + expected + " here, but I found '" + Current().Value + "' instead.",
+            GetHintForMissingToken(tokenType),
+            null,
+            Current().Value.Length)
+        return Current()
+    }
+
+    // Parser.cs GetHintForMissingToken (:6345): null for `>` and `:` (only the closing-delimiter and
+    // semicolon tokens carry a hint, which the Stage-5 corpus does not exercise here).
+    func GetHintForMissingToken(tokenType: TokenType): string? {
+        return null
+    }
+
+    func HintForMissingTokenOrDefault(tokenType: TokenType, fallback: string): string {
+        hint := GetHintForMissingToken(tokenType)
+        if hint == null {
+            return fallback
+        }
+        return hint ?? fallback
+    }
+
+    // ---- generic constraints (Parser.cs ParseGenericConstraints :851) ----
+    func ParseGenericConstraints() {
+        if !Check(TokenType.Where) {
+            return
+        }
+        while Check(TokenType.Where) {
+            Advance()                                       // consume 'where'
+            ConsumeIdentifier("Expected type parameter")    // Parser.cs :861
+            ConsumeToken(TokenType.Colon, "Expected ':'", ":")  // Parser.cs :862
+
+            classToken: Token? = null
+            structToken: Token? = null
+            newStartToken: Token? = null
+            newEndToken: Token? = null
+            hasClass := false
+            hasStruct := false
+            hasNew := false
+
+            parsing := true
+            while parsing {
+                if Check(TokenType.Class) {
+                    classToken = Current()
+                    Advance()
+                    hasClass = true
+                } else {
+                    if Check(TokenType.Struct) {
+                        structToken = Current()
+                        Advance()
+                        hasStruct = true
+                    } else {
+                        if Check(TokenType.New) && LookAhead(1).Type == TokenType.LeftParen {
+                            newStartToken = Current()
+                            Advance()                       // consume 'new'
+                            Advance()                       // consume '('
+                            newEndToken = ConsumeToken(TokenType.RightParen, "Expected ')' after 'new('", ")")
+                            hasNew = true
+                        } else {
+                            ParseTypeReferenceRecovery()    // Parser.cs :892
+                        }
+                    }
+                }
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    parsing = false
+                }
+            }
+
+            // Validate: class and struct are mutually exclusive (Parser.cs :897-909).
+            if hasClass {
+                if hasStruct {
+                    ReportClassStructConflict(LaterToken(classToken, structToken))
+                }
+            }
+            // Validate: struct implies new(), so combining them is redundant (Parser.cs :912-923).
+            if hasStruct {
+                if hasNew {
+                    ReportStructNewRedundancy(newStartToken, newEndToken)
+                }
+            }
+        }
+    }
+
+    func ReportClassStructConflict(diagnosticToken: Token?) {
+        line := Current().Line
+        column := Current().Column
+        length := 1
+        if diagnosticToken != null {
+            resolved := diagnosticToken ?? Current()
+            line = resolved.Line
+            column = resolved.Column
+        }
+        length = TokenLengthOrFallback(diagnosticToken)
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive",
+            line,
+            column,
+            "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time.",
+            null,
+            null,
+            length)
+    }
+
+    func ReportStructNewRedundancy(newStartToken: Token?, newEndToken: Token?) {
+        line := Current().Line
+        column := Current().Column
+        if newStartToken != null {
+            resolved := newStartToken ?? Current()
+            line = resolved.Line
+            column = resolved.Column
+        }
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
+            line,
+            column,
+            "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in .",
+            null,
+            null,
+            TokenSpanLengthOrFallback(newStartToken, newEndToken))
+    }
+
+    // Parser.cs LaterToken (:6010): the token later in source order (higher line, or equal line and
+    // column >= the other), with null operands passing through.
+    func LaterToken(left: Token?, right: Token?): Token? {
+        if left == null {
+            return right
+        }
+        if right == null {
+            return left
+        }
+        r := right ?? left
+        l := left ?? right
+        if r.Line > l.Line {
+            return right
+        }
+        if r.Line == l.Line {
+            if r.Column >= l.Column {
+                return right
+            }
+        }
+        return left
+    }
+
+    // Parser.cs TokenLengthOrFallback (:5897) / TokenSpanLengthOrFallback (:5900) /
+    // DiagnosticSpanFromTokenRange (:5914).
+    func TokenLengthOrFallback(token: Token?): int {
+        if token == null {
+            return 1
+        }
+        resolved := token ?? Current()
+        return MaxInt(1, resolved.Value.Length)
+    }
+
+    func TokenSpanLengthOrFallback(start: Token?, end: Token?): int {
+        if start == null {
+            return 1
+        }
+        s := start ?? Current()
+        if end == null {
+            return TokenLengthOrFallback(start)
+        }
+        e := end ?? Current()
+        if e.Line != s.Line {
+            return TokenLengthOrFallback(start)
+        }
+        return MaxInt(1, e.Column + TokenLengthOrFallback(end) - s.Column)
+    }
+
+    func DiagnosticSpanFromTokenRange(start: Token, end: Token): RecoverySpan {
+        return new RecoverySpan(start.Line, start.Column, TokenSpanLengthOrFallback(start, end))
     }
 
     func MaxInt(a: int, b: int): int {
