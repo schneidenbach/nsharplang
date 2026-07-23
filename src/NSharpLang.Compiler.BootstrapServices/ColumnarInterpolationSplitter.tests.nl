@@ -242,3 +242,40 @@ test "the coalesce split declines non coalesce shapes" {
     ternaryRight := ""
     assert !ColumnarInterpolationSplitter.TrySplitCoalesce("a ? b : c", out ternaryLeft, out ternaryRight), "A single `?` is not a coalesce operator."
 }
+
+// Base-call-hole split contracts: the splitter owns the classification the C# emitter previously
+// re-derived inline. A `base.<name>()` hole with a `base.` prefix, a `()` suffix, and a trimmed
+// non-empty name free of `.`/`(`/`)` splits into that name (the corpus form
+// `examples/06-classes-and-records/ConstructorChaining.nl:56` `$"{base.GetInfo()} - ..."`); any other
+// shape declines so the hole rides the chain/parsed-expression path unchanged. The C# base-call tier
+// then resolves the method on the reflected base chain and enforces the return-type guards mechanically.
+
+test "the base-call split decomposes modeled base-call holes" {
+    corpusName := ""
+    assert ColumnarInterpolationSplitter.TrySplitBaseCall("base.GetInfo()", out corpusName)
+    assert corpusName == "GetInfo"
+
+    spacedName := ""
+    assert ColumnarInterpolationSplitter.TrySplitBaseCall("base. GetInfo ()", out spacedName)
+    assert spacedName == "GetInfo"
+}
+
+test "the base-call split declines non base-call shapes" {
+    noPrefixName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("this.GetInfo()", out noPrefixName), "A hole without a `base.` prefix is not a base call."
+
+    noSuffixName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.GetInfo", out noSuffixName), "A hole without a `()` suffix is not a base call."
+
+    argSuffixName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.Format(x)", out argSuffixName), "A base call with an argument declines (it does not end with `()`)."
+
+    emptyName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.()", out emptyName), "A base call with no method name declines."
+
+    parenName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.Foo()()", out parenName), "An extracted name containing a paren declines."
+
+    dottedName := ""
+    assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.Nested.GetInfo()", out dottedName), "A base call with a dotted name declines."
+}

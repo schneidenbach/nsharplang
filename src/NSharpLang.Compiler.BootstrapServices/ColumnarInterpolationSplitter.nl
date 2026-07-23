@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
 import System.Collections.Generic
 import System.Text
 
@@ -888,6 +889,43 @@ public class ColumnarInterpolationSplitter {
         left = text.Substring(0, found).Trim()
         right = text.Substring(found + 2).Trim()
         return left.Length > 0 && right.Length > 0
+    }
+
+    // Decompose a `base.<name>()` interpolation hole (`base.GetInfo()`) into its base-method NAME — the
+    // CLASSIFICATION decision the C# emitter previously re-derived inline. A leading `base.` prefix, a
+    // trailing `()` suffix, and a trimmed non-empty name with no internal `.`/`(`/`)` are all required
+    // (all Ordinal, matching the former C# StartsWith/EndsWith); the C# base-call tier then resolves the
+    // method on the reflected base chain and enforces the return-type guards mechanically over this name.
+    // Any other shape returns false so the hole rides the chain/parsed-expression path unchanged.
+    public static func TrySplitBaseCall(text: string, out methodName: string): bool {
+        methodName = ""
+        prefix := "base."
+        if !text.StartsWith(prefix, StringComparison.Ordinal) {
+            return false
+        }
+
+        if !text.EndsWith("()", StringComparison.Ordinal) {
+            return false
+        }
+
+        methodName = text.Substring(prefix.Length, text.Length - prefix.Length - 2).Trim()
+        if methodName.Length == 0 {
+            return false
+        }
+
+        if methodName.IndexOf('.') >= 0 {
+            return false
+        }
+
+        if methodName.IndexOf('(') >= 0 {
+            return false
+        }
+
+        if methodName.IndexOf(')') >= 0 {
+            return false
+        }
+
+        return true
     }
 
     // Fold an integer-additive constant hole (`{1000 + 1000 - 500}`, `{42}`) to its Int32 VALUE — the

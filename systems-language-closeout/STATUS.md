@@ -15,11 +15,22 @@ Last updated: 2026-07-22
   byte-exact corpus sweep MUST include the tests/native/* projects — the 59-assembly example/fixture
   sweep alone missed this; sub-slice 6's refutation of the identical premise for ToArray/ToList/
   Contains applied retroactively to 5 and nobody re-checked.
-- Active sub-slice (PIVOT off the lambda family — THIS TURN, LANDED a net-negative deletion): the
-  lambda arc (Stage 3b/4) is PROVEN BLOCKED on a dedicated plan-row lambda-body emitter task (see the
-  ARC plan below and the prior sub-slice's byte-exact arms-off proof). Per the pivot mandate, inventoried
-  BOTH pivot candidates and landed candidate (b). CHOICE recorded pre-edit (probe-driven): prune the
-  case-12 primitive-binary whole-subtree residual to its live reaching-set. Four sub-arms proven DEAD
+- Active sub-slice (THIS TURN, LANDED a net-negative deletion): the interpolation BASE-CALL
+  CLASSIFICATION decision. CHOICE recorded pre-edit: move the string-classification half of
+  `TryResolveInterpolationBaseCallPlan` (the `base.` prefix + `()` suffix parse and the method-name
+  extraction/validation, deciding THAT an interpolated hole is a well-formed `base.<name>()` call and
+  extracting the name) into the N# splitter owner `ColumnarInterpolationSplitter.TrySplitBaseCall(text,
+  out methodName)` — an exact mirror of the accepted `TrySplitCast`/`TrySplitEquality`/`TrySplitCoalesce`
+  splits (9a3c20950/aaddf...). The reflection-coupled resolution half (`_currentStruct?.BaseDef`,
+  `TryFindMethodOnChain` over the base chain, and the return-type guards `void`/enum/generic-param/
+  `ContainsBuilderBoundType`/`IsSupportedType`) STAYS C# as a mechanical host. Byte-exact verifiable on
+  the live corpus path `examples/06-classes-and-records/ConstructorChaining.nl:56`
+  (`$"{base.GetInfo()} - {EmployeeId} ({Department})"`). N# splitter +TrySplitBaseCall + tests; C#
+  emitter net-negative (removes the const/prefix/suffix guard + the name-validation block, keeps the
+  `BaseDef==null` reflection guard + mechanical resolution). This supersedes the case-12 prune below,
+  which is now COMMITTED at 6e94ca88c.
+- Prior committed sub-slice (6e94ca88c, "Prune the dead case-12 residual arms by four-surface liveness
+  proof"): pruned the case-12 primitive-binary whole-subtree residual to its live reaching-set. Four sub-arms proven DEAD
   across ALL FOUR exercise surfaces — corpus+native (162 assemblies), units (3,190), and self-emit
   (BootstrapServices kernels, full 228-arm run) — via IL-neutral arm instrumentation (0 IL diff baseline
   vs instrumented across all 162 assemblies), then DELETED:
@@ -116,26 +127,25 @@ Last updated: 2026-07-22
   the byte-exact corpus IL diff catches the `List<IssueResponse>` → `object` regression; builds + the full
   unit suite do not. (3) receiver widening is not admission-safe until user-source-extension precedence is
   modeled (BCL `First`/`Last` shadow user extensions).
-- Next smallest concrete sub-slice: continue pruning the case-12/13 residual ONLY where a full FOUR-surface
-  (corpus+native + units + self-emit) arm-liveness probe proves an operator/type family dead — the remaining
-  live residual families (case-13 ternary, reference-identity equality on user reference types, string+char
-  concat, signed arith `+`/`-`/`*`/`/`, ordering `<`/`<=`/`>`/`>=`) are ALL self-emit-load-bearing and retire
-  only as their non-plannable OPERAND forms become N#-plannable (member-chains-on-call-results, dictionary
-  indexers, enum string constants). Candidate (a) preflight static-call typing is load-bearing (types the
-  user's OWN enclosing-type statics — not catalog facts) and is not a net-negative deletion; do not reopen it.
-  Do NOT reopen the lambda arms (Stage 3b/4 blocked on the dedicated plan-row lambda-body emitter task). Reuse
-  the IL-neutral arm-instrumentation + full-self-emit probe method (scratchpad `sweepall.sh` + `twostage.sh`);
-  the four-surface map is the soundness arbiter (a partial self-emit run mis-labels a self-emit-live arm dead).
-- Method note (this turn): the byte-exact product-IL sweep has 12 EXPECTED non-product diffs — six native
-  reflection projects (extension-calls, external-base-interface, generic-scope-invalid, lambda-placement,
-  readonly-init, record-with) reference `src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll` +
-  `...BootstrapServices.dll` as a test dependency, so those C# COMPILER binaries reflect any emitter source
-  change; exclude them and compare only N#-EMITTED assemblies (0 diffs this turn).
-- Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
-  `0a33f1ff2`, `f3d1e89c9`). This turn's pivot deletion is NOT committed (mandate: do not commit); the working
-  tree carries the emitter deletion + repin (head `40cb7fa576abc6c2`) + this STATUS update.
-- Last accepted ownership commit: task 014's slice commits (`d396a847c`, `73ae226d5`,
-  `0a33f1ff2`, `f3d1e89c9`)
+- Next smallest concrete sub-slice: NONE remaining as a movable-decision deletion. See the "015 completion
+  roadmap" below (the exhaustive three-way policy inventory that replaces the former ad-hoc residual lists):
+  after this slice the directly-MOVABLE decision surface is EXHAUSTED (base-call was the last inline
+  string-classification split), and every remaining policy decision is BLOCKED-WITH-RECORD on a named future
+  task or is already a MECHANICAL reflection-emit host. Do NOT reopen the lambda arms (blocked on the plan-row
+  lambda-body emitter task), the case-12/13 live residual families (retire only under the four-surface gate as
+  planner OPERAND forms unlock), or candidate (a) preflight static-call typing (load-bearing, not net-negative).
+- Method note (this turn): the byte-exact product-IL sweep (scratchpad `verify_basecall.sh`: baseline HEAD via
+  `git stash` vs working tree, both fresh Release CLIs, `sweepall.sh` over examples+fixtures+all 18 tests/native)
+  yielded PRODUCT_IL_DIFFS=0 across all 162 N#-emitted assemblies. The only expected non-product diffs are the
+  C# `Compiler.dll`/`BootstrapServices.dll` binaries copied as a reflection-test dependency by the six native
+  reflection projects (they reflect any emitter/kernel source change); exclude them and compare only N#-EMITTED
+  assemblies.
+- Last committed ownership slice: the case-12 residual dead-arm prune at `6e94ca88c` (ratchet head
+  `40cb7fa576abc6c2`, a fresh non-VS-Code gate is fully green there). This turn's base-call classification
+  deletion is NOT committed (mandate: do not commit); the working tree carries the emitter deletion + the
+  N# splitter `TrySplitBaseCall` + its tests + repin + this STATUS update.
+- Prior accepted ownership commits: task 014's slice commits (`d396a847c`, `73ae226d5`,
+  `0a33f1ff2`, `f3d1e89c9`).
 - Queue: `tasks/README.md`
 
 ## Current evidence
@@ -183,13 +193,94 @@ Last updated: 2026-07-22
   the packaged SDK, 553/553 contracts pass against the fresh kernel, and the clean repin is
   `nlc 0.1.0+7f4e727d615d2c38b5b71e6ac69690e5aa2275ff` with doctor status all-green.
 
+## 015 completion roadmap
+
+Exhaustive three-way classification of the REMAINING `ColumnarIlEmitter.cs` policy surface (this
+replaces the former ad-hoc residual lists). Method: swept the full decision surface (516 members; the
+`EmitExpressionCore` per-node-kind switch at ~10231, the `EmitStatement` switch at 6711, the preflight
+typing engine `TryGetPreflight*`/`TryPreflight*` at 16718-17588, the interpolation core at 20340-21200,
+the lambda family, and the declaration/reflection-emit hosting). N# planners run at the FRONT DOOR of
+every dispatch (26 distinct `Columnar*Planner/Resolver/Facts` owners consulted before any C# residual
+arm); the residual switch arms are whole-subtree-exit servers for non-plannable OPERAND bands.
+
+### MOVABLE (an existing N# owner absorbs it with a named C# deletion) — EXHAUSTED
+The interpolation string-classification splits were the only clean movable-decision family, and
+`TrySplitBaseCall` (this slice) was the last of them (cast/equality/coalesce/integer-additive landed at
+9a3c20950/aff33f1db/d37d3d732). The ~40-arm prior inventory (notes_015_pivot.md) plus this sweep find no
+further decision an existing N# owner can absorb with a net-negative C# deletion. The two marginal
+remainders are NOT clean decision deletions and are declined: decimal-literal VALUE parse (case 0/1 →
+`TryEmitDecimalLiteral`, fused with the reflection-backed `decimal(...)` ctor emission → net N#+plumbing
+positive, no decision deleted) and the entry-point return-shape rule (already N#-owned for async via
+ColumnarIteratorPlanner facts; residual is reflection-typed return wrapping).
+
+### BLOCKED-WITH-RECORD (proven/provable; retires via a named OTHER task)
+1. LAMBDA-TAKING FAMILY — the dominant remaining policy block. `case 9` residual calls →
+   `TryEmitEnumerableExtensionCall` (~17792: Where/Select/ToArray/ToList/Contains/Min/Max),
+   `TryEmitExplicitEnumerableExtensionGenericCall` (~13943: Cast/OfType), `TryEmitLambdaLiteral` (~1491)
+   + `EmitLambdaBody` recursive C# sub-emitter (~1702), `BodyReferencesEnclosingChain` (~1724), the
+   `<>c__DisplayClass` capturing residual, and the preflight `TryPreflightContextualLambdaReturnType`
+   (~17588) / `TryGetPreflightEnumerableExtensionCallType` (~17215). A lambda body is emitted by a
+   recursive C# sub-emitter + typed by the C# preflight engine, not by plan rows. Stages 1–3a landed
+   (signature/capture-set/return-type SELECTION → N#); Stage 3b/4/5/6 GATED on the FUTURE TASK "plan-row
+   lambda-body emitter". Cited: lambda-arc Stages 3b–6, refutation d2257f33c, arms-off byte-exact proof.
+2. C# PREFLIGHT TYPING ENGINE. `TryGetPreflightExpressionType` (~16718) + family
+   (Binary/InstanceCall/MemberAccess/ExtensionSibling/ExtensionStatic). Reflection-bound expression-TYPING
+   authority serving interpolation parsed holes + lambda return inference. Candidate (a) proven
+   load-bearing (types the user's own enclosing-type statics, not catalog facts); its reroute is the
+   forbidden add-a-planner-for-a-relocation anti-pattern. Retires via a FUTURE N# typing-owner port
+   (adjacent to 017 analyzer semantic ownership).
+3. LIVE case-12/13 RESIDUAL FAMILIES. `case 12` (short-circuit `&&`/`||`, null-comparison nullable+ref,
+   `??` coalesce nullable+ref, signed arith `+`/`-`/`*`/`/`, ordering `<`/`<=`/`>`/`>=`, ref-identity
+   equality on user reference types, string+char concat, String.Concat pair) and `case 13` ternary — all
+   self-emit-load-bearing (four-surface probe). Retire ONLY as their non-plannable OPERAND forms become
+   N#-plannable (member-chains-on-call-results, dictionary indexers, enum string constants) via the
+   planners — an incremental four-surface-gated cut, not a movable relocation. Cited: 6e94ca88c prune.
+4. BLOCKING-AWAIT MODEL. `case 53` await (`TryEmitBlockingAwait` ~6643) + `case 73` await-foreach
+   consumer. The accepted synchronous GetAwaiter().GetResult() model retires when REAL async-func lowering
+   lands (a FUTURE async-func task). Cited: 014 residuals.
+5. INTERPOLATION CHAIN/PARSED-HOLE RESOLUTION. `TryResolveInterpolationChainPlan`/`TryResolveInterpolationHole`
+   (~20885) + `TryResolveInterpolationMemberPlan` (~21041) + `TryParseInterpolationExpressionHole`/
+   `TryGetParsedInterpolationExpressionType`. Chain tokenization is intertwined WITH reflection member/
+   local/getter resolution (hop boundaries drive reflection) and parsed holes route through the preflight
+   engine (#2). No clean string-classification split remains to peel off; retires with the preflight port.
+
+### MECHANICAL (reflection-emit hosting, zero policy — the target end-state, already non-growing)
+- Control flow + structural statement arms: block/if/while/for/return/break/continue, try/catch region ops
+  (schema-4), lock lowering, throw, print, var/typed-local/tuple-deconstruction lowering, assert/
+  assert-throws, expression-statement assignment, the StatementExits analysis mirror.
+- Expression mechanical arms: parenthesized (7), checked-context (57), spread (64), unary (11, via
+  ColumnarSourceOperatorResolver), is/as isinst (46/47), must (45), postfix ++/-- (44), match/pattern-test
+  emit (18/34/33/35/32/8-pattern via ColumnarPatternFacts), index reads (10), anonymous-object synthesis (59).
+- Construction/with/record/field-init: kinds 15/58/36/42 (ColumnarConstructionPlanner), 52
+  (ColumnarRecordWithPlanner), record member synthesis, ColumnarFieldInitPlanner.
+- Iterator/async hosting: yield (72), foreach (29), MoveNext/state-machine emission
+  (ColumnarIteratorPlanner/ColumnarIteratorBodyPlanner), async fault guards.
+- Type/member definition: DefineType/DefineMethod/DefineGenericParameters, union/generic declaration +
+  constraints, delegate mapping (IsSupportedDelegateType/CreateDelegateType), bare-static + ref/out-deref
+  reads (case 6), typeof, interpolation cast/equality/call-argument emit, and the base-call reflection
+  RESOLUTION (this slice's mechanical host over TrySplitBaseCall's extracted name).
+
+### VERDICT
+015 does NOT complete this turn; its box stays UNCHECKED. After this slice the directly-MOVABLE decision
+surface for 015-proper is EXHAUSTED. What concretely remains before the "reviewed, non-growing, zero-policy
+mechanical host" criterion is met is ALL BLOCKED-WITH-RECORD policy that retires only via OTHER queue tasks:
+- the FUTURE "plan-row lambda-body emitter" task (retires blocker #1: lambda family Stages 4/5/6 + the
+  enumerable/Cast-OfType arms + display-class);
+- a FUTURE N# preflight/typing-owner port (retires blockers #2 + #5: the C# typing engine and interpolation
+  parsed-hole resolution) — adjacent to 017 analyzer;
+- a FUTURE async-func-lowering task (retires blocker #4: blocking await);
+- incremental planner-driven OPERAND unlocks that let the live case-12/13 residual families (#3) retire
+  under the four-surface gate.
+016 (parser) and 017 (analyzer) own the LSP-fallback parser/analyzer, NOT the emitter. 015's cursor is
+therefore: no movable decision remains in the emitter; 015 is gated on the four future tasks above.
+
 ## Iterative-task targets
 
 These are populated only when their task becomes current.
 
-- Task 015 next emitter sub-slice: not selected (queued residual from 005: interpolated-hole
-  string values and bare sibling-function call arguments inside constructions whole-subtree-exit to
-  the fenced legacy arms; owning those value forms in N# retires the construction residual)
+- Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
+  roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
+  lowering, and incremental planner OPERAND unlocks.
 - Task 016 next parser sub-slice: not selected
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
@@ -200,9 +291,38 @@ These are populated only when their task becomes current.
 
 Completed slices:
 
+- Task 015 sub-slice — interpolation BASE-CALL classification → N# splitter. NOT committed this turn
+  (mandate: do not commit); working tree carries the emitter deletion + the N# splitter method + its tests
+  + repin + STATUS.
+  - Deleted C# owner: the string-classification half of `TryResolveInterpolationBaseCallPlan` (the `base.`
+    prefix + `()` suffix Ordinal parse and the method-name extraction/validation with the no-`.`/`(`/`)`
+    guard) in `ColumnarIlEmitter.cs`. Replaced by one mechanical call to
+    `ColumnarInterpolationSplitter.TrySplitBaseCall(text, out methodName)` plus a fence comment; the retained
+    `_currentStruct?.BaseDef == null` reflection guard, `TryFindMethodOnChain` base-chain resolution, and the
+    return-type guards (`void`/enum/generic-param/`ContainsBuilderBoundType`/`IsSupportedType`) stay as the
+    mechanical host. `ColumnarIlEmitter.cs` fell 21,438 → 21,433 (net −5 lines / −4 non-blank; epoch ceiling
+    21,723/20,646 untouched). This was the LAST inline interpolation string-classification split (cast/
+    equality/coalesce/integer-additive already N#-owned) — the movable-decision surface is now exhausted (see
+    the 015 completion roadmap).
+  - Added N# owner: `ColumnarInterpolationSplitter.TrySplitBaseCall` (an exact mirror of the accepted
+    `TrySplitCast`/`TrySplitEquality`/`TrySplitCoalesce` split-decision methods; `import System` added for
+    `StringComparison.Ordinal`) + two canonical `.tests.nl` contracts (decompose modeled base-call holes;
+    decline non-base-call shapes: no prefix, no `()` suffix, arg-suffix, empty name, paren-in-name, dotted
+    name).
+  - Method: the live corpus path `examples/06-classes-and-records/ConstructorChaining.nl:56`
+    (`$"{base.GetInfo()} - {EmployeeId} ({Department})"`) exercises the arm, making the relocation directly
+    byte-exact verifiable rather than a dead-code deletion.
+  - Evidence: product IL BYTE-EXACT — PRODUCT_IL_DIFFS=0 across all 162 N#-emitted example/fixture/native
+    assemblies (baseline HEAD `6e94ca88c` via `git stash` vs working tree, both fresh Release CLIs,
+    `sweepall.sh`); native 208/208 (18 projects; ownership-audit 18/18 post-repin — the single pre-repin
+    failure was the ratchet net-negative check, cleared by the repin); BootstrapServices contracts 762/762
+    (760 baseline + 2 new split tests, fresh Release self-emit); units 3,190/3,190 Release; Web API template
+    builds via the IL backend; ratchet repin (currentLines 21,438→21,433, head `d7f043fb072388db`, mirrored
+    in OwnershipAudit.nl).
+
 - Task 015 pivot sub-slice — case-12 primitive-binary residual dead-arm prune (pivot off the blocked
-  lambda family). NOT committed this turn (mandate: do not commit); working tree carries the deletion +
-  repin + STATUS.
+  lambda family). COMMITTED at `6e94ca88c` ("Prune the dead case-12 residual arms by four-surface liveness
+  proof"); ratchet head `40cb7fa576abc6c2`.
   - Deleted C# owners: the case-12 primitive-binary whole-subtree residual's four provably-dead sub-arms —
     the `&`/`|`/`^` bitwise arm, the record-struct structural-equality arm (`==`/`!=` boxing through the
     synthesized Equals), the `null == null`/`null != null` constant fold, and the multi-term string-concat

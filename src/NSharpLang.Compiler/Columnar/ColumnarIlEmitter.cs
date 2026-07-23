@@ -20488,17 +20488,12 @@ internal sealed class ColumnarIlEmitter
     private bool TryResolveInterpolationBaseCallPlan(string text, string? format, out ColumnarInterpolationHolePlan plan)
     {
         plan = null!;
-        const string prefix = "base.";
-        if (!text.StartsWith(prefix, StringComparison.Ordinal)
-            || !text.EndsWith("()", StringComparison.Ordinal)
+        // The `base.<name>()` CLASSIFICATION (the `base.` prefix + `()` suffix parse and the method-name
+        // extraction/validation) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitBaseCall); this tier resolves the base method on the
+        // reflected base chain and enforces the return-type guards mechanically over the extracted name.
+        if (!ColumnarInterpolationSplitter.TrySplitBaseCall(text, out var methodName)
             || _currentStruct?.BaseDef == null)
-            return false;
-
-        var methodName = text.Substring(prefix.Length, text.Length - prefix.Length - 2).Trim();
-        if (methodName.Length == 0
-            || methodName.IndexOf('.') >= 0
-            || methodName.IndexOf('(') >= 0
-            || methodName.IndexOf(')') >= 0)
             return false;
 
         if (!TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out var method)
