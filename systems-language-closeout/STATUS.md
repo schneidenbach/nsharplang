@@ -12,17 +12,29 @@ Last updated: 2026-07-22
   typing-owner port, async-func lowering, planner operand unlocks) or MECHANICAL. Resume 015 only
   when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
   task across 8 landed slices + 2 proven refutations + 1 restored regression).
-- 016 note: Parser.cs is the LSP-fallback parser — 016 slices are IDE-AFFECTING: VS Code-enabled
-  gate + extension reinstall required per slice (computer-use visual check: denied twice, automated
-  VS Code integration evidence stands in per the 014 precedent).
-- Task 016 status: UNCHECKED, PROVEN-BLOCKED-WITH-RECORD this turn (no production edit, no commit,
-  working tree clean — STATUS.md-only update). No bounded `Parser.cs` syntax behavior is deletion-ready
-  in one coherent byte-exact slice; the AST-shape half and the syntax-diagnostic half both gate on ONE
-  missing prerequisite (an N# parse front-end — recovery-aware diagnostics + AST/node-table facts — that
-  the C# tooling/LSP consumers can consume in place of `Parser.cs`). Full consumer inventory + three
-  independent blockers + honestly-sized prerequisite are in the "016 parser/diagnostic ownership finding"
-  section below. This is the escape-clause outcome the goal brief sanctions; the 015 arc established a
-  proven record is a respected outcome.
+- 016 note: Parser.cs is the LSP-fallback parser — the eventual PRODUCTION-WIRING/cutover slices are
+  IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stage 1
+  landed this turn) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
+  NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
+- Task 016 status: UNCHECKED, ARC OPENED — the prior PROVEN-BLOCKED-WITH-RECORD finding (below) is now
+  the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
+  parser/diagnostic ownership finding" section). STAGE 1 LANDED this turn (no production edit to any
+  consumer, no commit — mandate; working tree carries the two new N# files + the ColumnarSyntaxDiagnostics
+  scaffolding deletion + this STATUS update): the shared-panic RECOVERY MODEL is reproduced faithfully in
+  N# (`ColumnarParserRecovery.nl`) carrying the import/namespace/package diagnostic family end-to-end,
+  proven byte-exact against the production Parser.cs path on a golden parity corpus (11 native contracts,
+  including the cascading-suppression and does-not-swallow-following shapes). Parser.cs REMAINS the sole
+  production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape,
+  packaged SDK emits it — no repin).
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 1 of the parser-front-end arc. Added
+  `ColumnarParserRecovery.nl` (a faithful N# reproduction of Parser.cs's `_panicMode` lifecycle: one
+  shared flag, suppress-while-set, set-on-report, reset only at the declaration-boundary sync point;
+  ordered reporting; the ConsumeIdentifier reserved-keyword/EOF/found variants + LastVisibleTokenSpan
+  anchoring) carrying the import/namespace/package family end-to-end, plus `ColumnarParserRecovery.tests.nl`
+  (11 golden parity contracts). Deleted the inert divergent `ColumnarSyntaxDiagnostics` scaffolding closure
+  (see the arc plan's scaffolding-fate decision). Next: STAGE 2 = carry the next diagnostic family
+  (declaration-name family: func/class/struct/record/interface/union/enum/type-alias name errors, or the
+  malformed-literal family the deleted scaffolding used to mirror) through the SAME model; see the arc plan.
 - CORRECTION (post-Stage-2): sub-slice 5's Min/Max deletion (`86f4c251b`) was PARTIALLY WRONG — its
   "provably dead" claim held only for plannable receivers. `Select(v => ...).Min()/.Max()` chains
   whole-subtree-exit to the legacy residual (contextual-lambda decline), where the deleted emit +
@@ -369,6 +381,66 @@ The `ColumnarSyntaxDiagnostics` arc is scaffolding for path (a)'s diagnostic hal
 coverage) and model-divergent; it must NOT be wired as-is. `Parser.cs` stays the sole production syntax
 parser/diagnostic authority until the prerequisite lands; 016 stays UNCHECKED.
 
+### Staged parser-front-end ARC PLAN (chosen: path (a), the recovery-aware N# front-end)
+The finding above is STAGE 0 (the prerequisite record). The arc builds path (a)'s kernel-side capability to
+FULL parity FIRST (family by family, each stage's diagnostics proven byte-exact against Parser.cs on a
+native parity corpus), then production-wires the consumers LAST at parity, then deletes Parser.cs. This is
+the 013/014/lambda-arc precedent: a proven-record capability arc, not a single byte-exact deletion. No
+production shadow/comparison route ever runs — parity proofs live only in `.tests.nl`.
+
+- STAGE 1 (LANDED this turn) — the SHARED-PANIC RECOVERY MODEL + first diagnostic family. New owner
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl` faithfully reproduces Parser.cs's
+  recovery discipline (one shared `PanicMode`; `Report` suppresses-while-set / records-in-source-order /
+  sets-panic; reset ONLY at the declaration-boundary sync point; the `ConsumeIdentifier` reserved-keyword /
+  end-of-file / found-other variants; `LastVisibleTokenSpan` EOF anchoring) and carries the
+  IMPORT / NAMESPACE / PACKAGE family end-to-end (qualified-name identifier errors, dot-access member
+  errors, missing import alias, duplicate-package). Diagnostic CONSTRUCTION delegates to the already-live
+  shared owner `ParserErrorDiagnostics.Create` (the same call Parser.cs uses), so codes/snippets/docs URLs
+  match automatically. Proven by 11 native contracts in `ColumnarParserRecovery.tests.nl` against golden
+  Parser.cs output captured from the fresh CLI — INCLUDING the two committed-test model shapes: cascading
+  suppression (triple-package → 1 diagnostic; the third suppressed with no intervening reset, mirroring
+  `Parser_CascadingErrorsSuppressed`) and does-not-swallow-following (package/package/stray-token → 2
+  diagnostics; the declaration-boundary reset lets the stray token report, mirroring
+  `Parser_DanglingBinaryOperator_...`). NO production wiring; NO wall tripped (self-contained new files, the
+  packaged SDK emits them — no repin). Evidence: BootstrapServices contracts 773/773 (762 baseline + 11);
+  ownership audit 18/18; dev.sh Parser 381/381.
+- STAGE 2..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
+  extend `ColumnarParserRecovery` family by family until it matches Parser.cs's full ~256-diagnostic
+  surface under the shared-panic model. Suggested order (smallest-coherent first): declaration-name family
+  (func/class/struct/record/interface/union/enum/type-alias `Expected <kind> name`, incl. the
+  `DiagnosticSpanFromToken` keyword anchoring) → malformed-literal family (unterminated string/char/triple/
+  interpolated, empty char — the families the deleted scaffolding used to mirror) → member/parameter/field
+  decls (`:`/`:=` colon and type errors) → generics/constraints (`ConsumeGreater`, split `>>`, type-param /
+  type-argument errors) → statements (the `SynchronizeToNextStatement` sync point + dangling-operator /
+  missing-initializer / missing-condition shapes the ParserErrorTests pin) → expressions/patterns →
+  closing-delimiter recovery (`TryReportMissingClosingDelimiter`, missing `)`/`]`/`}`). Each stage adds the
+  family's `ConsumeX`/`ReportError` sites + its sync-point discipline, and grows the parity corpus; each
+  stays self-contained (new/edited `.nl` in BootstrapServices + `.tests.nl`) UNLESS a stage needs a kernel
+  entry point dependents compile against — that stage TRIPS the two-stage bootstrap wall and needs a
+  coordinator repin (call it out at stage start).
+- STAGE N+1 (AST/node-table facts): expose a `CompilationUnit`-equivalent / node-table surface the
+  Analyzer/Linter/Formatter/LSP consume in place of Parser.cs's C# `CompilationUnit`, proven fact-equivalent.
+- STAGE N+2 (CUTOVER, IDE-AFFECTING): at full diagnostic + AST parity, route every consumer
+  (`MultiFileCompiler.ParseAllFiles`, `DocumentManager`, `Analyzer`, `Formatter`, CLI format/lint,
+  `CodeIntelligence`, Playground) directly to the N# front-end. VS Code-enabled gate + extension reinstall +
+  computer-use visual check. No shadow route.
+- STAGE N+3 (DELETION ARC): delete Parser.cs's per-family parsing/recovery/reporting decisions as each
+  consumer is cut over, ending when Parser.cs is deleted or is a reviewed zero-policy mechanical host
+  (`compiler-core` ratchet row retires). The C# `ParserErrorTests`/`ErrorHandlingTests`/
+  `LanguageServerDiagnosticsTests` assertions migrate to native `.tests.nl` as their families cut over.
+
+### Scaffolding fate decision (recorded): DELETE the divergent `ColumnarSyntaxDiagnostics` closure
+The inert prior-arc scaffolding is SUPERSEDED by `ColumnarParserRecovery` (which uses the correct shared
+ordered-panic model, not the divergent 10-pass per-token-scan model that must never be wired). The closure
+`{ColumnarSyntaxDiagnostics.nl, ParserDiagnosticMessages.nl, ParserDiagnosticsTable.nl}` was fully
+self-contained (zero external references — verified across all of src+tests; the four support types
+`ParserDiagnosticTable`/`ParserDiagnosticTableOps`/`ParserDiagnosticMessageKind`/`ParserDiagnosticContextKind`
+were reachable only through that closure) and has been DELETED this turn to honor the no-dead-code rule.
+`ParserErrorDiagnostics.nl` is KEPT — it is LIVE (Parser.cs and now `ColumnarParserRecovery` both call
+`ParserErrorDiagnostics.Create`). Its message templates are not lost: the message ORACLE is Parser.cs
+itself, and git history preserves the scaffolding. Not ratchet-tracked (all `.nl`); the deletion left the
+BootstrapServices contract count unchanged at 773 (the deleted files carried no `.tests.nl`).
+
 ## Iterative-task targets
 
 These are populated only when their task becomes current.
@@ -376,12 +448,15 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: NONE deletion-ready — PROVEN-BLOCKED-WITH-RECORD (see the "016
-  parser/diagnostic ownership finding" section). The next ENABLING step is a PARSER-KERNEL slice
-  (path a: recovery-aware syntax diagnostics + AST/node-table facts in the columnar kernels) that
-  TRIPS the two-stage bootstrap wall — coordinator toolset repin required before dependent code
-  compiles — or the task-017 front-end port (path b). Do NOT wire `ColumnarSyntaxDiagnostics` as-is
-  (~8% coverage, divergent panic model, shared-panic coupling).
+- Task 016 next parser sub-slice: STAGE 2 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN" in the "016 parser/diagnostic ownership finding" section). Extend `ColumnarParserRecovery.nl`
+  to carry the next diagnostic family through the SAME shared-panic model, proven byte-exact on the parity
+  corpus — smallest-coherent first: the DECLARATION-NAME family (`Expected <kind> name` for
+  func/class/struct/record/interface/union/enum/type-alias, incl. the `DiagnosticSpanFromToken` keyword
+  span anchoring) or the MALFORMED-LITERAL family. Still kernel-capability-only (no production wiring, no
+  IDE gate). Stays self-contained (BootstrapServices `.nl` + `.tests.nl`, no repin) unless the stage needs
+  a kernel entry point dependents compile against — call out the two-stage bootstrap wall at stage start.
+  Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner (divergent per-token panic model).
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
@@ -390,6 +465,45 @@ These are populated only when their task becomes current.
 ## Completion ledger
 
 Completed slices:
+
+- Task 016 — SECOND slice (parser-front-end arc STAGE 1): shared-panic RECOVERY MODEL + import/namespace/
+  package diagnostic family, in N#, PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not
+  commit); working tree carries the two new N# files + the `ColumnarSyntaxDiagnostics` scaffolding deletion
+  + STATUS. NO production wiring — Parser.cs remains the sole production syntax authority (cutover is the
+  arc's last stage).
+  - Added N# owner: `src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl` — a faithful
+    reproduction of Parser.cs's `_panicMode` lifecycle (one shared flag; suppress-while-set; set-on-report;
+    reset only at the declaration-boundary sync point), ordered reporting, and the `ConsumeIdentifier`
+    reserved-keyword / end-of-file / found-other message variants + `LastVisibleTokenSpan` EOF anchoring,
+    carrying the import/namespace/package family end-to-end (qualified-name identifier errors, dot-access
+    member errors, missing import alias, duplicate-package, and the declaration-boundary terminal
+    unexpected-token arm). Diagnostic construction delegates to the live shared `ParserErrorDiagnostics.Create`.
+    Introduces a local `RecoverySpan` reference class instead of the C#-owned `DiagnosticSpan` value struct
+    (user value-struct construction is not yet columnar-emittable), and inlines the Newline-strip compaction
+    (the reference-typed `out` argument on `ParserTokenCompactor.TryCompact` is not yet columnar-emittable) —
+    both faithful to Parser.cs's behavior. Plus `ColumnarParserRecovery.tests.nl` — 11 native parity
+    contracts against golden Parser.cs output (captured from the fresh CLI), including the cascading-
+    suppression shape (`Parser_CascadingErrorsSuppressed`) and the does-not-swallow-following shape
+    (`Parser_DanglingBinaryOperator_...`).
+  - Deleted N# owner: the inert divergent `ColumnarSyntaxDiagnostics` scaffolding closure
+    (`ColumnarSyntaxDiagnostics.nl` + `ParserDiagnosticMessages.nl` + `ParserDiagnosticsTable.nl`, ~2,177
+    lines) — superseded by the correct-model `ColumnarParserRecovery`; zero external references (verified);
+    `ParserErrorDiagnostics.nl` kept (live). See the arc plan's scaffolding-fate decision.
+  - Method: BootstrapServices cannot reference Parser.cs (Compiler depends on BootstrapServices, not the
+    reverse), so parity is proven against GOLDEN Parser.cs output captured out-of-band via `nlc check --json`
+    on the malformed corpus, filtered to parser codes NL101-NL109. Both paths construct diagnostics through
+    the identical live `ParserErrorDiagnostics.Create`, and the CompilerError→DiagnosticResult mapping +
+    `DiagnosticSpanResolver.Resolve` (length>0) are identity for these cases, so the golden values equal the
+    owner's raw CompilerError fields.
+  - Evidence: BootstrapServices contracts 773/773 (762 baseline + 11 new; unchanged by the scaffolding
+    deletion — no `.tests.nl` in it); ownership audit 18/18 (no ratchet change — all deltas are `.nl`, and
+    the ratchet tracks only non-N# files); dev.sh Parser 381/381 (C# build re-emits the new file + the
+    deletion cleanly, Parser oracle green). NO wall tripped: the self-contained shape (new `.nl` + `.tests.nl`,
+    no dependent compiling against a changed kernel signature) emits through the packaged SDK 0.1.0 with no
+    repin. Full unit suite / corpus IL sweeps are N/A this stage — nothing in the production compile path
+    changed (the new owner is inert, referenced only by its own tests; the deletion removed inert code). No
+    LSP/VS Code change → no extension reload. Next: STAGE 2 (next diagnostic family — declaration-name or
+    malformed-literal — through the same model).
 
 - Task 016 — FIRST slice: PROVEN-BLOCKED-WITH-RECORD (no commit; mandate: do not commit; STATUS.md-only,
   working tree otherwise clean). No C#/N# production delta. The full consumer inventory, the AST-bridge
