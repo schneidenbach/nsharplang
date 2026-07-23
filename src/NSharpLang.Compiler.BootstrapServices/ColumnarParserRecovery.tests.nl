@@ -2739,3 +2739,408 @@ test "016 close: well-formed closed positional and list patterns report no parse
     errors := RunPreamble("func f() {\n    match x {\n        (1, 2) => 1,\n        [3, 4] => 2\n    }\n}\n")
     assert errors.Count == 0
 }
+
+// ============================================================================
+// Stage 10: the POSTFIX CALL / INDEX / generic-call / `with {…}` + call-argument family (map item [1]) and
+// the first KEYWORD-LED-PRIMARY tranche — new / cast / tuple / typeof (+ nameof / sizeof / checked /
+// unchecked) / array (map item [2]). Golden values captured from the freshly built Release CLI oracle
+// (`nlc check --json`, NL101-NL109, excluding the backend emit-decline NL103@Main.nl:1:1). Reached through
+// the Stage-6 block-body statement vehicle `func f() { <expr> }`.
+// ============================================================================
+
+// ---- the CALL-ARGUMENT family (Parser.cs ParseArgumentList :4533) ----
+
+test "016 call: an inline out declaration reports the NL103 anchored across both identifiers" {
+    errors := RunPreamble("func f() {\n    g(out x y)\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Inline out declarations are not supported"
+    assert e.Line == 2
+    assert e.Column == 11
+    assert e.Length == 3
+    assert e.SourceSnippet == "    g(out x y)"
+    assert e.HumanExplanation == "N# out arguments must refer to a variable that already exists."
+    assert e.ContextualHint == "Declare 'y' before the call, then pass 'out y'."
+    assert e.Suggestion == null
+}
+
+test "016 call: an unclosed argument list that crosses onto the next line reports NL107 anchored on the callee" {
+    errors := RunPreamble("func f() {\n    g(1, 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 1
+    assert e.SourceSnippet == "    g(1, 2"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+test "016 call: named arguments report no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g(a: 1, b: 2)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 call: a spread argument reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g(...items)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 call: a bare alloc-family keyword argument reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g(alloc, 1)\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- postfix INDEX (Parser.cs :4444) ----
+
+test "016 index: a well-formed index access reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := a[0]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 index: an unclosed index that crosses onto the next line reports NL108 anchored on the object" {
+    errors := RunPreamble("func f() {\n    y := a[0\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := a[0"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ']' that matches an earlier '['."
+    assert e.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+// ---- postfix generic-call (Parser.cs :4452) ----
+
+test "016 gencall: a well-formed generic method call reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := M<int>()\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 gencall: a well-formed generic call with arguments and nested generics reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := M<List<int>>(1, 2)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 gencall: an unclosed generic-call argument list reports NL107 anchored on the callee" {
+    errors := RunPreamble("func f() {\n    y := M<int>(1, 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 2
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := M<int>(1, 2"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ')' that matches an earlier '('."
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+// ---- postfix WITH (Parser.cs :4500) ----
+
+test "016 with: a well-formed with-expression reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := a with { X: 1 }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 with: a missing '{' after 'with' reports the NL102 expected-brace via the standard Consume path" {
+    errors := RunPreamble("func f() {\n    y := a with X\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '{'. Expected '{', got 'X'"
+    assert e.Line == 2
+    assert e.Column == 17
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := a with X"
+    assert e.HumanExplanation == "I was expecting { here, but I found 'X' instead."
+    assert e.ContextualHint == null
+    assert e.Suggestion == null
+}
+
+test "016 with: a missing ':' after a with-property name reports the NL102 expected-colon" {
+    errors := RunPreamble("func f() {\n    y := a with { X 1 }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got '1'"
+    assert e.Line == 2
+    assert e.Column == 21
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := a with { X 1 }"
+    assert e.HumanExplanation == "I was expecting : here, but I found '1' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 with: a non-identifier with-property name reports the NL102 expected-property-name" {
+    errors := RunPreamble("func f() {\n    y := a with { 5: 1 }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected property name. Got '5'"
+    assert e.Line == 2
+    assert e.Column == 19
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := a with { 5: 1 }"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 with: two bad with-properties report ONCE - the with loop's EnsureProgress does not reset panic" {
+    // `{ X 1 Y 2 }`: the first missing-colon sets panic; the with loop makes natural progress but (unlike the
+    // new-object / match-case reset) does NOT reset panic, so the second property error is suppressed.
+    errors := RunPreamble("func f() {\n    y := a with { X 1 Y 2 }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got '1'"
+    assert e.Line == 2
+    assert e.Column == 21
+    assert e.Length == 1
+}
+
+// ---- the keyword-led primary `new` (Parser.cs ParseNewExpression :5209) ----
+
+test "016 new: target-typed new() reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := new()\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 new: a typed constructor call reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := new Foo()\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 new: a target-typed object initializer reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := new { X: 1 }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 new: a typed object initializer reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := new Foo { X: 1 }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 new: a sized array with a collection initializer reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := new Foo[2] { a, b }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 new: a `new` with no type before a terminator reports the NL102 expected-type-name on 'new'" {
+    errors := RunPreamble("func f() {\n    y := new\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '}'"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := new"
+    assert e.HumanExplanation == "The `new` expression needs a type name, `()`, or an initializer after it."
+    assert e.ContextualHint == "Write `new TypeName(...)`, `new()`, or `new { Name: value }`."
+    assert e.Suggestion == "Add a type name after `new`"
+}
+
+test "016 new: a missing ':' in an object initializer reports NL102, and the panic reset lets the next member's name error fire" {
+    // The object-initializer loop resets panic on natural progress (Parser.cs :5334), so BOTH the missing-colon
+    // and the following bad property name report — the DISTINCT reset discipline from the with / match loops.
+    errors := RunPreamble("func f() {\n    y := new Foo { X 1 }\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected ':' after object initializer member 'X'"
+    assert e0.Line == 2
+    assert e0.Column == 20
+    assert e0.Length == 1
+    assert e0.HumanExplanation == "Object initializer member 'X' needs ':' before its value."
+    assert e0.ContextualHint == "Write 'X: value'."
+    assert e0.Suggestion == "Add ':' after 'X'"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected property name. Got '1'"
+    assert e1.Line == 2
+    assert e1.Column == 22
+    assert e1.Length == 1
+}
+
+test "016 new: a non-identifier object-initializer member name reports the NL102 property-name error once" {
+    errors := RunPreamble("func f() {\n    y := new Foo { 5: 1 }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected property name. Got '5'"
+    assert e.Line == 2
+    assert e.Column == 20
+    assert e.Length == 1
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+}
+
+test "016 new: an unclosed constructor argument list reports NL107 anchored on the type name" {
+    errors := RunPreamble("func f() {\n    y := new Foo(1, 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 2
+    assert e.Column == 14
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := new Foo(1, 2"
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+test "016 new: an unclosed sized-array length reports NL108 anchored on the type name" {
+    errors := RunPreamble("func f() {\n    y := new Foo[3\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 2
+    assert e.Column == 14
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := new Foo[3"
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+// ---- the keyword-led primary CAST (Parser.cs :4783, disambiguated from tuple/paren by IsCastExpression) ----
+
+test "016 cast: a hard cast reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := (int)x\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 cast: a cast whose operand is a unary expression reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := (int)-x\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- the keyword-led primary TUPLE / parenthesized (Parser.cs ParseTupleOrParenthesizedExpression :5428) ----
+
+test "016 tuple: an unnamed tuple reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := (a, b)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 tuple: a named tuple reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := (x: 1, z: 2)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 tuple: an empty tuple reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := ()\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 tuple: a missing ':' after a named-tuple element name reports the NL102 expected-colon" {
+    errors := RunPreamble("func f() {\n    y := (x: 1, z 2)\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got '2'"
+    assert e.Line == 2
+    assert e.Column == 19
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := (x: 1, z 2)"
+    assert e.HumanExplanation == "I was expecting : here, but I found '2' instead."
+    assert e.ContextualHint == null
+}
+
+// ---- the keyword-led primaries typeof / nameof / sizeof (the shared `( … )` shape, Parser.cs :4700) ----
+
+test "016 typeof: a well-formed typeof reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := typeof(int)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 typeof: a missing '(' after typeof reports the NL102 expected-paren via the standard Consume path" {
+    errors := RunPreamble("func f() {\n    y := typeof int)\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '('. Expected '(', got 'int'"
+    assert e.Line == 2
+    assert e.Column == 17
+    assert e.Length == 3
+    assert e.SourceSnippet == "    y := typeof int)"
+    assert e.HumanExplanation == "I was expecting ( here, but I found 'int' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 typeof: an unclosed typeof argument reports NL107 anchored on the opening paren" {
+    errors := RunPreamble("func f() {\n    y := typeof(int\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 2
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := typeof(int"
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+test "016 nameof: a well-formed nameof reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := nameof(x)\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 sizeof: a well-formed sizeof reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := sizeof(int)\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- the keyword-led primary ARRAY literal (Parser.cs ParseArrayLiteral :5407) ----
+
+test "016 array: a well-formed array literal reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := [1, 2, 3]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 array: an unclosed array literal reports NL108 anchored on the assignment target" {
+    // No visible delimiter owner sits before '['; the recovery falls to the assignment anchor 'y'.
+    errors := RunPreamble("func f() {\n    y := [1, 2\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 1
+    assert e.SourceSnippet == "    y := [1, 2"
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+// ---- postfix chaining negatives + a cross-declaration panic-reset interaction ----
+
+test "016 postfix: a mixed member / call / index chain reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    y := a.b().c(1)[0]\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 postfix: two functions each with an unclosed call each report - the declaration boundary resets panic" {
+    errors := RunPreamble("func f() {\n    g(1, 2\n}\nfunc h() {\n    k(3, 4\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.MissingClosingParen
+    assert e0.Message == "Missing closing ')'"
+    assert e0.Line == 2
+    assert e0.Column == 5
+    assert e0.Length == 1
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.MissingClosingParen
+    assert e1.Message == "Missing closing ')'"
+    assert e1.Line == 5
+    assert e1.Column == 5
+    assert e1.Length == 1
+    assert e1.SourceSnippet == "    k(3, 4"
+}

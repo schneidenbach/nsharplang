@@ -114,6 +114,12 @@ public class ColumnarParserRecovery {
     // Modelled as an int + presence flag rather than int? to keep the comparison arithmetic simple.
     RecoveryBoundaryColumn: int
     HasRecoveryBoundaryColumn: bool
+    // Stage 10: scan-state for the IsCastExpression bounded lookahead (Parser.cs :5573 uses nested closures
+    // over local `position` / `splitGreaterDepth`; N# has no first-class Func values, so the scan is lowered
+    // to methods over these two fields). They are transient — set at the start of each IsCastExpression call
+    // and never read outside the scan — so they never interact with the real parser cursor.
+    ScanPosition: int
+    ScanSplit: int
     Errors: List<CompilerError>
 
     constructor(source: string, fileName: string?) {
@@ -124,6 +130,8 @@ public class ColumnarParserRecovery {
         SplitGreaterDepth = 0
         RecoveryBoundaryColumn = 0
         HasRecoveryBoundaryColumn = false
+        ScanPosition = 0
+        ScanSplit = 0
         Errors = new List<CompilerError>()
 
         lexer := new Lexer(source, fileName)
@@ -2886,10 +2894,10 @@ public class ColumnarParserRecovery {
     }
 
     // ---- postfix (Parser.cs ParsePostfixExpression :4405) ----
-    // Carries the member-access `.` / `?.` diagnostics (reserved-keyword member + missing-member-name) and
-    // the postfix `++` / `--` forms. CALL `(…)`, INDEX `[…]`, generic-call `<…>(…)`, and `with {…}` are the
-    // call-argument / closing-delimiter families — a later arc stage; the loop breaks on them (as Parser.cs's
-    // final else does when they are absent), and the corpus uses none.
+    // Stage 10 carries the member-access `.` / `?.` diagnostics (reserved-keyword member +
+    // missing-member-name), the postfix `++` / `--` forms, and now the postfix CALL `(…)`, INDEX `[…]`,
+    // generic-call `<…>(…)`, and `with {…}` sub-grammars with their error sites (the call-argument family
+    // via ParseArgumentList; the index / call closes route through the Stage-9 closing-delimiter recovery).
     func ParsePostfix(): ExprResult {
         result := ParsePrimaryExprValue()
 
@@ -2902,15 +2910,49 @@ public class ColumnarParserRecovery {
                 if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
                     result = ParseMemberAccess(result)
                 } else {
-                    if Check(TokenType.Increment) {
-                        opToken := Advance()
-                        result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                    if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
+                        // Index access `a[i]` / `a?[i]` (Parser.cs :4444). The RightBracket close routes
+                        // through the Stage-9 closing-delimiter recovery (NL108 when unclosed). An
+                        // IndexAccessExpression's DiagnosticSpanFromExpression is the OBJECT's span (:5948).
+                        Advance()
+                        ParseExprValue()
+                        ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+                        result = new ExprResult(result.Span, false)
                     } else {
-                        if Check(TokenType.Decrement) {
-                            opToken := Advance()
-                            result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                        if Check(TokenType.Less) && IsGenericMethodCall() {
+                            // Generic method call `M<T>(…)` (Parser.cs :4452). A CallExpression's span is
+                            // the CALLEE's span (:5946), i.e. the current receiver's.
+                            ParseCallTypeArguments()
+                            if !Check(TokenType.LeftParen) {
+                                ReportMissingParenAfterGenericTypeArguments()
+                            } else {
+                                Advance()
+                                ParseArgumentList()
+                            }
+                            result = new ExprResult(result.Span, false)
                         } else {
-                            looping = false
+                            if Check(TokenType.LeftParen) {
+                                // Call `f(…)` (Parser.cs :4484). CallExpression span = callee span.
+                                Advance()
+                                ParseArgumentList()
+                                result = new ExprResult(result.Span, false)
+                            } else {
+                                if Check(TokenType.Increment) {
+                                    opToken := Advance()
+                                    result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                                } else {
+                                    if Check(TokenType.Decrement) {
+                                        opToken := Advance()
+                                        result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                                    } else {
+                                        if Check(TokenType.With) {
+                                            result = ParseWithExpression()
+                                        } else {
+                                            looping = false
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2918,6 +2960,236 @@ public class ColumnarParserRecovery {
         }
 
         return result
+    }
+
+    // Parser.cs's `with { … }` postfix arm (:4500). A WithExpression is anchored on the `with` keyword and
+    // is never a bare identifier (its DiagnosticSpanFromExpression falls to the (line, column, 1) default,
+    // :5960). The property loop's EnsureProgress (:4518) does NOT reset panic (unlike the new-object /
+    // match-case reset), so a property error cascade-suppresses the rest of the `with` block.
+    func ParseWithExpression(): ExprResult {
+        withToken := Advance()                              // consume 'with'
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            startPosition := Position
+            ConsumeIdentifier("Expected property name")     // Parser.cs :4510
+            ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+            ParseExprValue()                                // the property value (Parser.cs :4512)
+            if !Check(TokenType.RightBrace) {               // optional comma separator (Parser.cs :4515)
+                if Check(TokenType.Comma) {
+                    Advance()
+                }
+            }
+            EnsureProgress(startPosition)                   // Parser.cs :4518 — NO panic reset
+        }
+        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+        return new ExprResult(new RecoverySpan(withToken.Line, withToken.Column, 1), false)
+    }
+
+    // ============================================================================
+    // Stage 10: the CALL-ARGUMENT family (Parser.cs ParseArgumentList :4533) + the generic-call type
+    // arguments (ParseCallTypeArguments :2086 / IsGenericMethodCall :2025). The recovery model builds no
+    // AST, so ParseArgumentList only reproduces the DIAGNOSTIC-bearing behaviour: the recovery-boundary
+    // break, the inline-out NL103, the spread / named-argument / bare alloc-family recognition (each
+    // consumes tokens without a diagnostic), and the closing `)` (routed through the Stage-9 recovery).
+    // ============================================================================
+
+    // Parser.cs ParseArgumentList (:4533). Consumes `arg, arg, …)`; the closing `)` reaches
+    // TryReportMissingClosingDelimiter (NL107 when unclosed) via ConsumeToken.
+    func ParseArgumentList() {
+        if !Check(TokenType.RightParen) {
+            argsLooping := true
+            while argsLooping {
+                if IsArgumentListRecoveryBoundaryWithOpening(Previous()) {
+                    argsLooping = false
+                } else {
+                    ParseArgument()
+                    if Check(TokenType.Comma) {             // Parser.cs do/while Match(Comma) (:4608)
+                        Advance()
+                    } else {
+                        argsLooping = false
+                    }
+                }
+            }
+        }
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+    }
+
+    // One argument (Parser.cs :4544-4606): the ref/out modifier (with the inline-out NL103), the named
+    // `name:` prefix, the spread `...`, the bare alloc/allow/stackalloc identifier, or a plain expression.
+    func ParseArgument() {
+        // ref / out modifier (Parser.cs :4547).
+        if Check(TokenType.Ref) {
+            Advance()
+        } else {
+            if Check(TokenType.Out) {
+                Advance()
+                // Inline out declaration `out T x` (Parser.cs :4557): two consecutive identifiers.
+                if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
+                    first := Current()
+                    second := LookAhead(1)
+                    ReportInlineOutDeclaration(first, second)
+                    Advance()
+                    Advance()
+                    return                                  // Parser.cs `continue` — the argument is complete
+                }
+            }
+        }
+
+        // Named argument `name:` (Parser.cs :4579).
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
+            Advance()                                       // the name
+            Advance()                                       // the colon
+        }
+
+        // Spread `...expr` (Parser.cs :4587).
+        if Check(TokenType.DotDotDot) {
+            Advance()
+            ParseExprValue()
+            return
+        }
+
+        // A bare alloc / allow / stackalloc keyword used as an identifier argument (Parser.cs :4595):
+        // only when immediately followed by `,` or `)` (otherwise it opens its own sub-grammar).
+        if Check(TokenType.Alloc) || Check(TokenType.Allow) || Check(TokenType.Stackalloc) {
+            if LookAhead(1).Type == TokenType.Comma || LookAhead(1).Type == TokenType.RightParen {
+                Advance()
+                return
+            }
+        }
+
+        ParseExprValue()
+    }
+
+    // Parser.cs's inline-out diagnostic (:4561, NL103 InvalidSyntax). The span runs from the first
+    // identifier through the end of the second.
+    func ReportInlineOutDeclaration(first: Token, second: Token) {
+        length := MaxInt(1, second.Column + second.Value.Length - first.Column)
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Inline out declarations are not supported",
+            first.Line,
+            first.Column,
+            "N# out arguments must refer to a variable that already exists.",
+            "Declare '" + second.Value + "' before the call, then pass 'out " + second.Value + "'.",
+            null,
+            length)
+    }
+
+    // Parser.cs IsArgumentListRecoveryBoundary() (:4615) — the unconditional boundary tokens.
+    func IsArgumentListRecoveryBoundary(): bool {
+        if IsAtEnd() {
+            return true
+        }
+        if Check(TokenType.LeftBrace) {
+            return true
+        }
+        if Check(TokenType.RightBrace) {
+            return true
+        }
+        if Check(TokenType.RightBracket) {
+            return true
+        }
+        if Check(TokenType.Semicolon) {
+            return true
+        }
+        return false
+    }
+
+    // Parser.cs IsArgumentListRecoveryBoundary(Token openingToken) (:4622).
+    func IsArgumentListRecoveryBoundaryWithOpening(openingToken: Token): bool {
+        if IsArgumentListRecoveryBoundary() {
+            return true
+        }
+        return IsContinuationRecoveryBoundary(openingToken)
+    }
+
+    // Parser.cs IsContinuationRecoveryBoundary (:6927): a token on a LATER line than the opening delimiter
+    // that begins a statement / declaration / modifier, or sits at or left of the statement's recovery
+    // boundary column, ends the continuation so the outer recovery can resynchronise.
+    func IsContinuationRecoveryBoundary(openingToken: Token): bool {
+        if Current().Line <= openingToken.Line {
+            return false
+        }
+        if ParserTokenFacts.IsStatementStartKeyword(Current().Type) {
+            return true
+        }
+        if ParserTokenFacts.IsDeclarationKeyword(Current().Type) {
+            return true
+        }
+        if ParserTokenFacts.IsModifierKeyword(Current().Type) {
+            return true
+        }
+        return HasRecoveryBoundaryColumn && Current().Column <= RecoveryBoundaryColumn
+    }
+
+    // Parser.cs IsGenericMethodCall (:2025): a bounded lookahead deciding whether the `<` at the cursor
+    // opens a type-argument list for a method call (`Method<Type>(`) rather than a comparison. Pure
+    // lookahead — no cursor mutation, no diagnostics.
+    func IsGenericMethodCall(): bool {
+        lookAheadPos := Position + 1
+        if lookAheadPos >= Tokens.Count {
+            return false
+        }
+        next := Tokens[lookAheadPos]
+        if next.Type != TokenType.Identifier {
+            return false
+        }
+        lookAheadPos = lookAheadPos + 1
+        scanning := true
+        while scanning {
+            if lookAheadPos >= Tokens.Count {
+                scanning = false
+            } else {
+                token := Tokens[lookAheadPos]
+                if token.Type == TokenType.Greater {
+                    lookAheadPos = lookAheadPos + 1
+                    return lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.LeftParen
+                }
+                if token.Type == TokenType.RightShift {
+                    lookAheadPos = lookAheadPos + 1
+                    return lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.LeftParen
+                }
+                if token.Type == TokenType.Comma {
+                    return true
+                }
+                if token.Type == TokenType.Dot || token.Type == TokenType.Less || token.Type == TokenType.LeftBracket || token.Type == TokenType.Question || token.Type == TokenType.QuestionBracket || token.Type == TokenType.Identifier || token.Type == TokenType.RightBracket {
+                    lookAheadPos = lookAheadPos + 1
+                } else {
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
+    // Parser.cs ParseCallTypeArguments (:2086): `<Type, Type, …>` with the split-`>>`-aware ConsumeGreater.
+    func ParseCallTypeArguments() {
+        Advance()                                           // consume '<' (Parser.cs Consume(Less) :2088)
+        ParseTypeReferenceRecovery()
+        while Check(TokenType.Comma) {
+            Advance()
+            ParseTypeReferenceRecovery()
+        }
+        ConsumeGreater("Expected '>'")
+    }
+
+    // Parser.cs's "Expected '(' after generic type arguments" report (:4460, NL102). IsGenericMethodCall
+    // guarantees a `(` follows the closing `>`, so this arm is only reachable if the split-`>>` accounting
+    // consumed it; modelled faithfully for parity but not corpus-reachable (recorded in STATUS.md).
+    func ReportMissingParenAfterGenericTypeArguments() {
+        suggestions := new List<string>()
+        suggestions.Add("Add parentheses: Method<int>()")
+        suggestions.Add("With arguments: Method<int>(arg1, arg2)")
+        suggestions.Add("Example: List.Create<string>(\"hello\")")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected '(' after generic type arguments. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "Generic method calls need parentheses for the arguments, even if there are no arguments.",
+            "After the generic type parameters, you need to provide the method arguments in parentheses.",
+            suggestions,
+            Current().Value.Length)
     }
 
     // Parser.cs's `.` / `?.` member-access arm (:4418). Returns the MemberAccessExpression's
@@ -2971,10 +3243,12 @@ public class ColumnarParserRecovery {
 
     // ---- primary (Parser.cs ParsePrimaryExpression :4626) ----
     // Returns the DiagnosticSpanFromExpression span (:5917) and whether the primary is a bare identifier.
-    // The keyword-led primaries (typeof / nameof / sizeof / checked / unchecked / alloc / stackalloc / new /
-    // match / immutable / array / cast / tuple / spread / interpolation) each open a sub-grammar with its own
-    // Consume / closing-delimiter sites — later arc stages; the corpus uses none, and Parser.cs would not reach
-    // the unexpected-token terminal arm for them either, so their absence keeps the terminal arm byte-exact.
+    // Stage 10 carries the first KEYWORD-LED-PRIMARY tranche: typeof / nameof / sizeof / checked / unchecked
+    // (the shared `(…)` paren-wrapped shape), new (ParseNewExpression, incl. the object-initializer
+    // panic-reset-on-progress discipline), immutable / array literal `[…]`, cast `(Type)expr`, and the full
+    // tuple / parenthesized `(…)` grammar. DEFERRED (recorded): alloc / stackalloc primaries (their own
+    // sub-grammar — the next tranche), and interpolation `$"…"` / lambda; the corpus uses none of the
+    // deferred forms, so the unexpected-token terminal arm stays byte-exact.
     func ParsePrimaryExprValue(): ExprResult {
         line := Current().Line
         column := Current().Column
@@ -3028,25 +3302,91 @@ public class ColumnarParserRecovery {
             return new ExprResult(new RecoverySpan(line, column, 4), false)
         }
 
-        // Match expression `match value { pattern => expr, … }` (Parser.cs :4764). Stage 8 carries this
-        // keyword-led primary (the MINIMAL match vehicle Stage 7 deferred) so the match / pattern diagnostic
-        // family fires through the same shared-panic model. The other keyword-led primaries (typeof / nameof /
-        // sizeof / checked / unchecked / alloc / stackalloc / new / immutable / array / cast / tuple / spread /
-        // interpolation / lambda) remain later arc stages; the corpus uses none.
+        // typeof / nameof / sizeof (Parser.cs :4700/:4709/:4718): the `( Type )` / `( expr )` shape. typeof
+        // and sizeof wrap a TYPE reference; nameof wraps an expression. Each is a non-identifier primary
+        // whose DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
+        if Check(TokenType.Typeof) {
+            Advance()
+            ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+            ParseTypeReferenceRecovery()
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+        if Check(TokenType.Nameof) {
+            Advance()
+            ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+            ParseExprValue()
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+        if Check(TokenType.Sizeof) {
+            Advance()
+            ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+            ParseTypeReferenceRecovery()
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // checked / unchecked (Parser.cs :4728/:4738): the same `( expr )` paren-wrapped shape.
+        if Check(TokenType.Checked) {
+            Advance()
+            ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+            ParseExprValue()
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+        if Check(TokenType.Unchecked) {
+            Advance()
+            ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+            ParseExprValue()
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // new expression (Parser.cs :4758). alloc / stackalloc (:4747/:4752) are DEFERRED to the next
+        // tranche (their own sub-grammar); the corpus uses neither as a primary.
+        if Check(TokenType.New) {
+            return ParseNewExpression()
+        }
+
+        // Match expression `match value { pattern => expr, … }` (Parser.cs :4764). Stage 8's minimal match
+        // vehicle, carried here so the match / pattern diagnostic family fires through the shared-panic model.
         if Check(TokenType.Match) {
             return ParseMatchExpression()
         }
 
-        // Parenthesized expression `( expr )` (Parser.cs :4793). The cast `(Type)expr` (:4783) and the
-        // multi-element tuple `(a, b)` (:4795) forms are a later arc stage; the corpus uses only `(single)`.
+        // Immutable array literal `immutable [ … ]` (Parser.cs :4770).
+        if Check(TokenType.Immutable) && LookAhead(1).Type == TokenType.LeftBracket {
+            Advance()                                       // consume 'immutable'
+            return ParseArrayLiteral()
+        }
+
+        // Array literal `[ … ]` (Parser.cs :4777). The RightBracket close routes through the Stage-9 recovery.
+        if Check(TokenType.LeftBracket) {
+            return ParseArrayLiteral()
+        }
+
+        // Cast `(Type)expr` — checked BEFORE tuple/paren so `(int)x` is a cast, not a parenthesized `int`
+        // (Parser.cs :4783). A CastExpression's DiagnosticSpanFromExpression falls to the (line, column, 1)
+        // default (:5960).
+        if Check(TokenType.LeftParen) && IsCastExpression() {
+            Advance()                                       // consume '('
+            ParseTypeReferenceRecovery()                    // the cast type
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            ParseUnary()                                    // the cast operand (Parser.cs ParseUnaryExpression :4788)
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // Tuple or parenthesized expression `( … )` (Parser.cs :4793).
         if Check(TokenType.LeftParen) {
+            return ParseTupleOrParenthesizedExpression()
+        }
+
+        // Spread `...expr` (Parser.cs :4799). A SpreadExpression falls to the (line, column, 1) default.
+        if Check(TokenType.DotDotDot) {
             Advance()
-            inner := ParseExprValue()
-            if Check(TokenType.RightParen) {
-                Advance()
-            }
-            // A ParenthesizedExpression is not an IdentifierExpression; its span is the inner expression's.
-            return new ExprResult(inner.Span, false)
+            ParseExprValue()
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
         }
 
         if Check(TokenType.Identifier) {
@@ -3122,6 +3462,404 @@ public class ColumnarParserRecovery {
         }
         if ParserTokenFacts.IsModifierKeyword(Current().Type) {
             return false
+        }
+        return true
+    }
+
+    // ============================================================================
+    // Stage 10: the KEYWORD-LED PRIMARY sub-grammars — new / array / tuple-or-parenthesized / cast — plus the
+    // object-initializer discipline and the cast-detection lookahead. Carried through the SAME shared-panic
+    // model; CONSTRUCTION delegates to ParserErrorDiagnostics.Create and DECISIONS reuse ParserTokenFacts /
+    // IsTypeTerminator, so codes / messages / spans / snippets / hints match Parser.cs automatically.
+    // ============================================================================
+
+    // Parser.cs ParseNewExpression (:5209). Target-typed `new(args)` / `new { init }`, or traditional
+    // `new Type[len]?(args)?{ init }?`. A NewExpression's DiagnosticSpanFromExpression is (newLine,
+    // newColumn, "new".Length) (:5958).
+    func ParseNewExpression(): ExprResult {
+        newToken := Advance()                               // consume 'new'
+        hasArrayLength := false
+
+        if Check(TokenType.LeftParen) {
+            // Target-typed new: `new(args)` (Parser.cs :5220).
+            Advance()
+            ParseArgumentList()
+        } else {
+            if Check(TokenType.LeftBrace) {
+                // Target-typed new with initializer only: `new { … }` (Parser.cs :5226) — parsed below.
+            } else {
+                // Traditional new: `new TypeName …` (Parser.cs :5233).
+                ParseNewTypeReference(newToken)
+                if Check(TokenType.LeftBracket) {           // sized array `new Type[len]` (Parser.cs :5237)
+                    Advance()
+                    ParseExprValue()
+                    ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+                    hasArrayLength = true
+                }
+                if Check(TokenType.LeftParen) {             // constructor args (Parser.cs :5248)
+                    Advance()
+                    ParseArgumentList()
+                }
+                if hasArrayLength {
+                    // `new Type[len] { … }` sized-array initializer (Parser.cs :5257): bare-value elements
+                    // with the per-element panic-reset-on-progress discipline.
+                    if Check(TokenType.LeftBrace) {
+                        Advance()
+                        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+                            startPosition := Position
+                            ParseExprValue()
+                            if !Check(TokenType.RightBrace) {
+                                if Check(TokenType.Comma) {
+                                    Advance()
+                                }
+                            }
+                            if !EnsureProgress(startPosition) {
+                                PanicMode = false           // Parser.cs :5268-5269
+                            }
+                        }
+                        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+                    }
+                    return new ExprResult(new RecoverySpan(newToken.Line, newToken.Column, 3), false)
+                }
+            }
+        }
+
+        // Object / collection initializer `{ … }` (Parser.cs :5280).
+        if Check(TokenType.LeftBrace) {
+            ParseObjectInitializer()
+        }
+        return new ExprResult(new RecoverySpan(newToken.Line, newToken.Column, 3), false)
+    }
+
+    // Parser.cs ParseNewTypeReference (:6579): the type after `new`, or the "Expected type name" NL102
+    // (anchored on the `new` keyword) when a type terminator immediately follows.
+    func ParseNewTypeReference(newToken: Token) {
+        if !IsTypeTerminator(Current().Type) {
+            ParseTypeReferenceRecovery()
+            return
+        }
+        span := SpanFromToken(newToken)
+        suggestions := new List<string>()
+        suggestions.Add("Add a type name after `new`")
+        suggestions.Add("Use `new()` for target-typed construction")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected type name. Got '" + Current().Value + "'",
+            span.Line,
+            span.Column,
+            "The `new` expression needs a type name, `()`, or an initializer after it.",
+            "Write `new TypeName(...)`, `new()`, or `new { Name: value }`.",
+            suggestions,
+            span.Length)
+    }
+
+    // Parser.cs's object / collection initializer loop (:5285-5340). Each element resets panic on natural
+    // progress (`if (!EnsureProgress(startPosition)) _panicMode = false;`, :5334) — DISTINCT from the with /
+    // match loops that never reset. The recovery model does not know the receiver's array-ness, so it always
+    // takes the object-initializer branch (indexer `[i] = v` and bare collection values reuse ParseExprValue),
+    // which reproduces the diagnostic-bearing property-name / missing-colon behaviour byte-exact.
+    func ParseObjectInitializer() {
+        Advance()                                           // consume '{'
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            startPosition := Position
+            if Check(TokenType.LeftBracket) {
+                // Indexer initializer `[i] = v` (Parser.cs :5299).
+                Advance()
+                ParseExprValue()
+                ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+                ConsumeToken(TokenType.Assign, "Expected '='", "=")
+                ParseExprValue()
+            } else {
+                // Regular property initializer `Name: value` (Parser.cs :5310).
+                propNameToken := Current()
+                propName := ConsumeIdentifier("Expected property name")
+                if Check(TokenType.Colon) {
+                    Advance()
+                    ParseObjectInitializerMemberValue(propNameToken, propName)
+                } else {
+                    ReportMissingObjectInitializerColon(propNameToken, propName)
+                }
+            }
+            if !Check(TokenType.RightBrace) {
+                if Check(TokenType.Comma) {
+                    Advance()
+                }
+            }
+            if !EnsureProgress(startPosition) {
+                PanicMode = false                           // Parser.cs :5334-5335
+            }
+        }
+        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+    }
+
+    // Parser.cs ParseObjectInitializerMemberValue (:5345): a required value after the member `:`, or the
+    // "Expected a value for object initializer member" NL102 anchored on the property.
+    func ParseObjectInitializerMemberValue(propertyToken: Token, propertyName: string) {
+        if !IsMissingRequiredExpressionBoundary(propertyToken) {
+            ParseExprValue()
+            return
+        }
+        propertyLength := MaxInt(1, propertyName.Length)
+        suggestions := new List<string>()
+        suggestions.Add("Add a value after '" + propertyName + ":'")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected a value for object initializer member '" + propertyName + "'",
+            propertyToken.Line,
+            propertyToken.Column,
+            "Object initializer member '" + propertyName + "' needs a value after ':'.",
+            "Write '" + propertyName + ": value'.",
+            suggestions,
+            propertyLength)
+    }
+
+    // Parser.cs ReportMissingObjectInitializerColon (:6605, NL102): anchored on the property token when its
+    // name is visible, else on the current offender.
+    func ReportMissingObjectInitializerColon(propertyToken: Token, propertyName: string) {
+        span := SpanFromToken(Current())
+        if IsVisibleName(propertyName) {
+            span = SpanFromToken(propertyToken)
+        }
+        suggestions := new List<string>()
+        suggestions.Add("Add ':' after '" + propertyName + "'")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected ':' after object initializer member '" + propertyName + "'",
+            span.Line,
+            span.Column,
+            "Object initializer member '" + propertyName + "' needs ':' before its value.",
+            "Write '" + propertyName + ": value'.",
+            suggestions,
+            span.Length)
+    }
+
+    // Parser.cs ParseArrayLiteral (:5407). `[ e, e, … ]`; the RightBracket close routes through the Stage-9
+    // recovery (NL108 when unclosed). An ArrayLiteralExpression falls to the (bracketLine, bracketColumn, 1)
+    // DiagnosticSpanFromExpression default (:5960).
+    func ParseArrayLiteral(): ExprResult {
+        bracketToken := Current()
+        ConsumeToken(TokenType.LeftBracket, "Expected '['", "[")
+        if !Check(TokenType.RightBracket) {
+            elementsLooping := true
+            while elementsLooping {
+                ParseExprValue()
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    elementsLooping = false
+                }
+            }
+        }
+        ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+        return new ExprResult(new RecoverySpan(bracketToken.Line, bracketToken.Column, 1), false)
+    }
+
+    // Parser.cs ParseTupleOrParenthesizedExpression (:5428): empty tuple `()`, the recovery-boundary
+    // `<error>`, single parenthesized `(e)`, named tuple `(a: x, b: y)`, or unnamed tuple `(a, b)`. Every
+    // closing `)` routes through the Stage-9 recovery. A TupleExpression falls to the (parenLine, parenColumn,
+    // 1) default; a ParenthesizedExpression carries its INNER expression's span (:5950).
+    func ParseTupleOrParenthesizedExpression(): ExprResult {
+        parenToken := Current()
+        line := parenToken.Line
+        column := parenToken.Column
+        ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
+
+        // Empty tuple `()` (Parser.cs :5435).
+        if Check(TokenType.RightParen) {
+            Advance()
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // Recovery boundary: a `)` cannot be reached on this construct (Parser.cs :5441). ConsumeToken here
+        // takes the closing-delimiter recovery / standard path; the result is a ParenthesizedExpression whose
+        // inner `<error>` span is (recoveredToken.Line, recoveredToken.Column, 1).
+        if IsArgumentListRecoveryBoundaryWithOpening(Previous()) {
+            recoveredToken := ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(recoveredToken.Line, recoveredToken.Column, 1), false)
+        }
+
+        firstExpr := ParseExprValue()
+
+        // Named tuple `(a: x, …)` — only when the first element is a bare identifier (Parser.cs :5454).
+        if Check(TokenType.Colon) && firstExpr.IsBareIdentifier {
+            Advance()
+            ParseExprValue()                                // the first value
+            while Check(TokenType.Comma) {
+                Advance()
+                ConsumeIdentifier("Expected identifier")    // Parser.cs :5465
+                ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+                ParseExprValue()
+            }
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // Unnamed tuple `(a, b, …)` (Parser.cs :5476).
+        if Check(TokenType.Comma) {
+            while Check(TokenType.Comma) {
+                Advance()
+                ParseExprValue()
+            }
+            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+            return new ExprResult(new RecoverySpan(line, column, 1), false)
+        }
+
+        // Parenthesized expression `(e)` (Parser.cs :5489). Its span is the inner expression's.
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        return new ExprResult(firstExpr.Span, false)
+    }
+
+    // ---- cast-detection lookahead (Parser.cs IsCastExpression :5573) ----
+    // A pure bounded lookahead deciding whether the `(` at the cursor opens a cast `(Type)operand` rather
+    // than a tuple / parenthesized expression. N# has no first-class Func values, so Parser.cs's nested
+    // scan closures are lowered to methods over two explicit scan-state fields (ScanPosition, ScanSplit).
+    // No cursor mutation, no diagnostics.
+    func IsCastExpression(): bool {
+        ScanPosition = Position + 1                         // skip '(' without mutating the parser cursor
+        ScanSplit = 0
+        if !ScanTypeReference() {
+            return false
+        }
+        if ScanCurrentType() != TokenType.RightParen {
+            return false
+        }
+        operandType := TokenType.Eof
+        if ScanPosition + 1 < Tokens.Count {
+            operandType = Tokens[ScanPosition + 1].Type
+        }
+        return ParserTokenFacts.IsCastOperandStart(operandType)
+    }
+
+    func ScanCurrentType(): TokenType {
+        if ScanSplit > 0 {
+            return TokenType.Greater
+        }
+        if ScanPosition < Tokens.Count {
+            return Tokens[ScanPosition].Type
+        }
+        return TokenType.Eof
+    }
+
+    func ScanAdvance() {
+        if ScanSplit > 0 {
+            ScanSplit = ScanSplit - 1
+            return
+        }
+        if ScanPosition < Tokens.Count {
+            ScanPosition = ScanPosition + 1
+        }
+    }
+
+    func ScanConsume(t: TokenType): bool {
+        if ScanCurrentType() != t {
+            return false
+        }
+        ScanAdvance()
+        return true
+    }
+
+    func ScanConsumeGreater(): bool {
+        if ScanCurrentType() == TokenType.Greater {
+            ScanAdvance()
+            return true
+        }
+        if ScanSplit == 0 && ScanPosition < Tokens.Count && Tokens[ScanPosition].Type == TokenType.RightShift {
+            ScanPosition = ScanPosition + 1
+            ScanSplit = ScanSplit + 1
+            return true
+        }
+        return false
+    }
+
+    // Parser.cs ScanTypeReference (:5627): a postfix type reference plus `| T` union alternatives.
+    func ScanTypeReference(): bool {
+        if !ScanPostfixTypeReference() {
+            return false
+        }
+        while ScanCurrentType() == TokenType.BitwiseOr {
+            ScanAdvance()
+            if !ScanPostfixTypeReference() {
+                return false
+            }
+        }
+        return true
+    }
+
+    // Parser.cs ScanPostfixTypeReference (:5642): a base type plus `[]` / `?` / `?[]` suffixes.
+    func ScanPostfixTypeReference(): bool {
+        if !ScanBaseTypeReference() {
+            return false
+        }
+        suffixLooping := true
+        while suffixLooping {
+            if ScanCurrentType() == TokenType.LeftBracket && ScanPosition + 1 < Tokens.Count && Tokens[ScanPosition + 1].Type == TokenType.RightBracket {
+                ScanAdvance()
+                ScanAdvance()
+            } else {
+                if ScanCurrentType() == TokenType.Question {
+                    ScanAdvance()
+                } else {
+                    if ScanCurrentType() == TokenType.QuestionBracket && ScanPosition + 1 < Tokens.Count && Tokens[ScanPosition + 1].Type == TokenType.RightBracket {
+                        ScanAdvance()
+                        ScanAdvance()
+                    } else {
+                        suffixLooping = false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    // Parser.cs ScanBaseTypeReference (:5679): `&T`, a parenthesized tuple type, or an identifier with
+    // optional qualified `.` segments and a `<…>` generic argument list.
+    func ScanBaseTypeReference(): bool {
+        if ScanCurrentType() == TokenType.BitwiseAnd {
+            ScanAdvance()
+            return ScanPostfixTypeReference()
+        }
+        if ScanCurrentType() == TokenType.LeftParen {
+            ScanAdvance()
+            if ScanCurrentType() == TokenType.RightParen {
+                return false
+            }
+            tupleLooping := true
+            while tupleLooping {
+                if ScanCurrentType() == TokenType.Identifier && ScanPosition + 1 < Tokens.Count && Tokens[ScanPosition + 1].Type == TokenType.Colon {
+                    ScanAdvance()
+                    ScanAdvance()
+                }
+                if !ScanTypeReference() {
+                    return false
+                }
+                if !ScanConsume(TokenType.Comma) {
+                    tupleLooping = false
+                }
+            }
+            return ScanConsume(TokenType.RightParen)
+        }
+        if ScanCurrentType() != TokenType.Identifier {
+            return false
+        }
+        ScanAdvance()
+        while ScanConsume(TokenType.Dot) {
+            if ScanCurrentType() != TokenType.Identifier {
+                return false
+            }
+            ScanAdvance()
+        }
+        if ScanConsume(TokenType.Less) {
+            if !ScanTypeReference() {
+                return false
+            }
+            while ScanConsume(TokenType.Comma) {
+                if !ScanTypeReference() {
+                    return false
+                }
+            }
+            if !ScanConsumeGreater() {
+                return false
+            }
         }
         return true
     }
