@@ -3514,3 +3514,271 @@ test "016 lambda: two functions each with a body-less lambda each report - the d
     assert e1.Length == 4
     assert e1.SourceSnippet == "    b := y =>"
 }
+
+// ---- the interpolated-string `$"…"` HOLE family (Parser.cs ParseInterpolatedString :4932) ----
+// Reached through the Stage-6 block-body statement vehicle `func f() { print $"…" }`, so the string
+// primary descends the full expression ladder into ParsePrimaryExprValue's string-literal arm, which
+// routes a `$"`-prefixed StringLiteral / InterpolatedRawStringLiteral into ParseInterpolatedString. Each
+// hole opens a FRESH sub-Lexer + sub-Parser with its OWN panic universe; the hole errors are the owned
+// expression grammar's, and the lone explicit report is the NL101 hole-tail. Golden values are the
+// production Parser.cs path captured from the freshly built CLI (`nlc check --json`, NL101-NL109).
+
+test "016 interpolation: a hole-free interpolated string reports no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"hello\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: a well-formed single hole reports no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"hello {x}\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: two well-formed holes report no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"{x} and {y}\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: a format-clause hole {x:D3} strips the format and reports no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"{x:D3}\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: escaped braces {{ }} are literal text and report no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"a{{b}}c\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: a well-formed nested interpolated string inside a hole reports no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"{g($\"{y}\")}\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: a well-formed raw interpolated string reports no parser diagnostic" {
+    errors := RunPreamble("func f() { print $\"\"\"val {x}\"\"\" }\n")
+    assert errors.Count == 0
+}
+
+test "016 interpolation: a dangling operator inside a hole reports the hole-expression NL102" {
+    // The hole expression `a +` is sub-parsed with its position adjusted into the enclosing file, so the
+    // dangling-operator span anchors on the hole's `a` (col 25) through `+`, exactly as the outer ladder.
+    errors := RunPreamble("func f() { print $\"val {a +}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 25
+    assert e.Length == 3
+    assert e.SourceSnippet == "func f() { print $\"val {a +}\" }"
+    assert e.HumanExplanation == "The '+' operator needs an expression on its right side."
+    assert e.ContextualHint == "Finish the expression after the operator, or remove the operator if the expression is already complete."
+    assert e.Suggestion == "Add an expression after '+'"
+}
+
+test "016 interpolation: extra syntax after the hole expression reports the NL101 hole-tail" {
+    errors := RunPreamble("func f() { print $\"val {a b}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unexpected token 'b' after interpolated string expression"
+    assert e.Line == 1
+    assert e.Column == 27
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f() { print $\"val {a b}\" }"
+    assert e.HumanExplanation == "I parsed a valid expression at the start of this interpolation hole, but there was extra syntax after it."
+    assert e.ContextualHint == "Keep exactly one expression inside each interpolation hole, or split additional text outside the braces."
+    assert e.Suggestion == null
+}
+
+test "016 interpolation: the hole-tail fires on the FIRST trailing token only" {
+    // `a b c` — the sub-parser parses `a`, then the hole-tail fires on `b`; `c` is never re-examined
+    // (the sub-panic is set by the tail report), so exactly one diagnostic is produced.
+    errors := RunPreamble("func f() { print $\"{a b c}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unexpected token 'b' after interpolated string expression"
+    assert e.Line == 1
+    assert e.Column == 23
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f() { print $\"{a b c}\" }"
+}
+
+test "016 interpolation: PANIC INDEPENDENCE - two bad holes in one string EACH report (fresh sub-parser per hole)" {
+    // Each hole is parsed by a fresh sub-parser with its own panic, so the second bad hole is NOT suppressed
+    // by the first — both dangling-operator diagnostics are produced.
+    errors := RunPreamble("func f() { print $\"{a +} {b +}\" }\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected expression after '+'"
+    assert e0.Line == 1
+    assert e0.Column == 21
+    assert e0.Length == 3
+    assert e0.SourceSnippet == "func f() { print $\"{a +} {b +}\" }"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected expression after '+'"
+    assert e1.Line == 1
+    assert e1.Column == 27
+    assert e1.Length == 3
+}
+
+test "016 interpolation: PANIC INDEPENDENCE - two bad-tail holes EACH report their hole-tail" {
+    errors := RunPreamble("func f() { print $\"{a b} {c d}\" }\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.UnexpectedToken
+    assert e0.Message == "Unexpected token 'b' after interpolated string expression"
+    assert e0.Line == 1
+    assert e0.Column == 23
+    assert e0.Length == 1
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token 'd' after interpolated string expression"
+    assert e1.Line == 1
+    assert e1.Column == 29
+    assert e1.Length == 1
+}
+
+test "016 interpolation: a bad first hole followed by a good hole reports only the first" {
+    errors := RunPreamble("func f() { print $\"{a +} {b}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 21
+    assert e.Length == 3
+}
+
+test "016 interpolation: a good first hole followed by a bad hole reports only the second (independence)" {
+    errors := RunPreamble("func f() { print $\"{a} {b +}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 25
+    assert e.Length == 3
+}
+
+test "016 interpolation: two holes with DIFFERENT error kinds each report independently" {
+    errors := RunPreamble("func f() { print $\"{a +} and {c d}\" }\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected expression after '+'"
+    assert e0.Line == 1
+    assert e0.Column == 21
+    assert e0.Length == 3
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token 'd' after interpolated string expression"
+    assert e1.Line == 1
+    assert e1.Column == 33
+    assert e1.Length == 1
+}
+
+test "016 interpolation: a hole-expression error SUPPRESSES the hole-tail (sub-panic gates the tail)" {
+    // `+ a b` — the prefix-`+` reports NL103 and sets the SUB-parser panic; the trailing `b` would be the
+    // hole-tail, but the sub-parser is in panic, so the tail is suppressed. Exactly one diagnostic.
+    errors := RunPreamble("func f() { print $\"{+ a b}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Prefix '+' is not supported"
+    assert e.Line == 1
+    assert e.Column == 21
+    assert e.Length == 3
+    assert e.SourceSnippet == "func f() { print $\"{+ a b}\" }"
+    assert e.HumanExplanation == "A leading '+' does not change the value in N#, so it is not part of the expression grammar."
+    assert e.ContextualHint == "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them."
+    assert e.Suggestion == "Remove the leading '+'"
+}
+
+test "016 interpolation: a format-clause hole {a +:D3} strips the format then reports the hole-expression error" {
+    // FindFormatSpecifierColon splits `:D3` off before the sub-parse, so the dangling `+` is the only error.
+    errors := RunPreamble("func f() { print $\"{a +:D3}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 21
+    assert e.Length == 3
+}
+
+test "016 interpolation: a bad NESTED hole reports through the recursive sub-parse with composed positions" {
+    // The outer hole's expression `g($"{y +}")` is itself sub-parsed; its interpolated-string argument recurses
+    // into ParseInterpolatedString, and the inner hole's dangling `+` anchors at the composed file position.
+    errors := RunPreamble("func f() { print $\"{g($\"{y +}\")}\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 26
+    assert e.Length == 3
+}
+
+test "016 interpolation: a bad hole inside a RAW interpolated string reports the hole-expression error" {
+    errors := RunPreamble("func f() { print $\"\"\"val {a +}\"\"\" }\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected expression after '+'"
+    assert e.Line == 1
+    assert e.Column == 27
+    assert e.Length == 3
+}
+
+test "016 interpolation: INTERLEAVING - an outer prefix-plus AND a hole error BOTH report (outer panic does not suppress the hole)" {
+    // The outer `+` reports NL103 and sets the OUTER panic BEFORE parsing its operand `$"{b +}"`; the hole's
+    // fresh sub-parser records the dangling `+` regardless (mirroring Parser.cs's `_errors.AddRange` bypass).
+    errors := RunPreamble("func g() { print + $\"{b +}\" }\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.InvalidSyntax
+    assert e0.Message == "Prefix '+' is not supported"
+    assert e0.Line == 1
+    assert e0.Column == 18
+    assert e0.Length == 10
+    assert e0.SourceSnippet == "func g() { print + $\"{b +}\" }"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected expression after '+'"
+    assert e1.Line == 1
+    assert e1.Column == 23
+    assert e1.Length == 3
+}
+
+test "016 interpolation: INTERLEAVING - a hole error recorded first but positioned after an outer dangling operator sorts correctly" {
+    // `print $"{a +}" +` — the hole dangling (col 21) is RECORDED before the outer dangling `+` (span col 18),
+    // but the diagnostics are presented position-sorted, so the outer error comes first (matching the oracle).
+    errors := RunPreamble("func g() { print $\"{a +}\" + }\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected expression after '+'"
+    assert e0.Line == 1
+    assert e0.Column == 18
+    assert e0.Length == 10
+    assert e0.SourceSnippet == "func g() { print $\"{a +}\" + }"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected expression after '+'"
+    assert e1.Line == 1
+    assert e1.Column == 21
+    assert e1.Length == 3
+}

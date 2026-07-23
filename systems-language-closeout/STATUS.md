@@ -16,10 +16,11 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 11 landed — the remaining keyword-led primaries [alloc /
-  stackalloc / lambda] and the `is`/`as` relational TYPE sub-grammar; 250 native parity contracts total [219 through
-  Stage 10 + 31], `ColumnarParserRecovery.nl` now 4,476 lines; interpolated-string `$"…"` hole grammar recut to
-  Stage 12) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 12 landed — the interpolated-string `$"…"` HOLE grammar:
+  the per-hole char scan, the FRESH per-hole sub-Lexer + sub-Parser with position adjustment + VERIFIED separate-
+  panic semantics, the owned expression grammar reached through the sub-parse, the format-clause split, and the
+  lone NL101 hole-tail; 271 native parity contracts total [250 through Stage 11 + 21], `ColumnarParserRecovery.nl`
+  now 4,854 lines; the remaining statement kinds recut to Stage 13) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -60,7 +61,81 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 11 of the parser-front-end arc — the remaining
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 12 of the parser-front-end arc — the
+  interpolated-string `$"…"` HOLE grammar (`ParseInterpolatedString`, Parser.cs :4932). Extended
+  `ColumnarParserRecovery.nl` to carry the hole grammar through the SAME shared-panic model, PROVEN byte-exact
+  against the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109, excluding the columnar-backend
+  emit-decline NL103 anchored at line 0). SITE INVENTORY (grep of `ParseInterpolatedString`): the whole `$"…"`
+  is ONE outer token whose VALUE is char-scanned; the method has ZERO `Consume` sites and exactly ONE explicit
+  ReportError — the NL101 "Unexpected token 'X' after interpolated string expression" hole-tail (:5141) — but
+  EVERY hole-EXPRESSION error is produced by a FRESH sub-Lexer + sub-Parser (`new Parser(subTokens, _fileName)`,
+  sourceCode=null → the CLI re-attaches the snippet by line number, verified) reaching the owned expression
+  grammar. The scan carries `{{`/`}}` escapes, non-raw `\` escapes, the raw `{`-literal heuristic (:5019), position
+  tracking through text/holes (`AdvancePosition` newline handling), the `braceDepth` + `inNestedString` hole-content
+  scan (:5051), the raw-with-newlines literal edge (:5101), the format-clause `:` split via the live shared
+  `ParserLiteralFacts.FindFormatSpecifierColon` (:5117, the same function Parser.cs calls), token position
+  adjustment (`tok.Line + exprStartLine - 1` / same-line `tok.Column + exprStartCol - 1`, :5129-5135), and the
+  closing-`}` consume. VERIFIED PANIC INDEPENDENCE (each probed against the oracle and pinned by a contract): each
+  hole's sub-parser has its OWN `_panicMode`, so (a) TWO bad holes in one string BOTH report — `$"{a +} {b +}"` →
+  two NL102, `$"{a b} {c d}"` → two NL101; (b) the OUTER parser's panic is UNAFFECTED by hole errors AND a hole
+  error records even when the outer parser is mid-panic, because Parser.cs appends the sub-parser's errors via
+  `_errors.AddRange(...)` which BYPASSES the outer panic gate — `print + $"{b +}"` → BOTH the outer prefix-plus
+  NL103 AND the hole NL102; (c) WITHIN a hole the sub-panic cascades, so a hole-EXPRESSION error SUPPRESSES the
+  hole-tail — `$"{+ a b}"` → only the prefix-plus NL103, the trailing `b` swallowed. IMPLEMENTATION: added the
+  interpolated dispatch to `ParsePrimaryExprValue`'s string-literal arm (Parser.cs :4654-4657 — a `$"`-prefixed
+  StringLiteral or an InterpolatedRawStringLiteral routes to `ParseInterpolatedString`; the malformed NL105 check
+  still runs FIRST), reached through the Stage-6 block-body statement vehicle `func f() { print $"…" }` (the Stage-3
+  `=>` expression body uses the minimal literal vehicle and does NOT descend `ParsePrimaryExprValue`, so the corpus
+  uses the block vehicle); `ParseInterpolatedString` (the full char-scan port — the C# local closures
+  `AdvancePosition`/`AppendText`/`EmitText` are inlined/dropped since N# has no first-class Func values AND the text
+  parts carry no diagnostic); `ParseHoleExpression` (the fresh sub-parse — the recovery model is a SINGLE instance,
+  so a hole SAVES the outer cursor/panic/split/boundary state, swaps in the position-adjusted + Newline-compacted
+  sub-token stream with `PanicMode=false` (a fresh panic universe → hole errors record even under outer panic,
+  reproducing the AddRange bypass), runs `ParseExprValue` + the hole-tail, then RESTORES the outer state (so the
+  hole never affects the outer panic universe); Errors + Source are SHARED, so hole diagnostics accumulate and the
+  CLI's by-line snippet re-attachment matches the model's Source-based snippet automatically; nested holes recurse
+  naturally via the sub-parse's own `ParsePrimaryExprValue`); and the helpers `IndexOfCharFrom` /
+  `RangeContainsNewline` / `ContainsNewline` / `EndsWithString` (a hand-rolled ordinal EndsWith so the owner needs
+  no `import System`). Also added a STABLE position-sort to `ParseFilePreamble` mirroring the CLI's
+  `OutputFormatter.DeduplicateAndSortDiagnostics` → `CodeIntelligenceResultKernels.DiagnosticIndexComesAfter`
+  (File, Line, Column, stable index): a hole diagnostic is RECORDED before a following outer-expression diagnostic
+  positioned EARLIER (e.g. `print $"{a +}" +` — the hole dangling at col 21 is recorded before the outer dangling
+  span at col 18), and the CLI presents diagnostics position-sorted; the stable sort is a proven no-op for every
+  already-in-order family (full suite 1033/1033, no Stage 1-11 contract moved). +21 native parity contracts in
+  `ColumnarParserRecovery.tests.nl` (7 negatives: hole-free / single hole / two holes / format `{x:D3}` / escaped
+  `{{ }}` / nested `{g($"{y}")}` / raw `$"""…"""`; dangling-hole NL102; hole-tail NL101; hole-tail-first-trailing-
+  only; two-bad-holes-EACH-report NL102 [independence]; two-tails-EACH-report NL101; bad-first/good-second; good-
+  first/bad-second; two-DIFFERENT-error-kinds independent; expr-error-SUPPRESSES-tail [sub-panic gate]; format-
+  expr-bad [format stripped]; nested-bad-inner [recursive composed positions, col 26]; raw-hole-bad; INTERLEAVE
+  outer-prefix-plus + hole BOTH report [outer panic does not suppress the hole]; INTERLEAVE hole-recorded-first-
+  positioned-after outer-dangling [position-sort]). DEFERRED (recorded, NOT covered — with reasons): the EMPTY
+  hole `$"{}"` — the sub-parse's unexpected-token terminal fires at the sub-EOF with `Current.Value.Length == 0`,
+  and the check pipeline clamps the JSON length 0→1, so the model's raw CompilerError (length 0) is unmatchable
+  against the clamped golden (length 1) — the SAME EOF-length-clamp class Stage 5 deferred for the EOF-anchored
+  `ConsumeGreater`; the raw multi-line `{`-literal heuristic + raw-with-newlines literal edge are PORTED faithfully
+  but corpus-light (single-line raw only — a multi-line raw string placed in the block vehicle would swallow the
+  block's closing `}`). NO production wiring; NO wall tripped (self-contained edit to one owner + its tests; the
+  packaged SDK 0.1.0 self-emitted the edited owner + all 1033 contracts cleanly — no repin). Evidence:
+  BootstrapServices contracts 1033/1033 (1012 baseline + 21; full-suite fresh no-build run,
+  `-p:NSharpExcludeTests=false`; interpolation-only filter 21/21); dev.sh Parser 381/381; ownership audit 18/18
+  (18 native tests; ratchet 0 refs to any `.nl` — no movement); git status shows ONLY the two `.nl` files + STATUS
+  (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` / `ParseFilePreamble`
+  are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests), so nothing in
+  the production compile path changed. No LSP/VS Code change → no extension reload. `ColumnarParserRecovery.nl`
+  4,476 → 4,854 lines (+378); `.tests.nl` 3,516 → 3,784 (+268). RESIDUAL-TO-PARITY MAP (what remains for full
+  Parser.cs syntax-diagnostic parity, after Stage 12): [1] the remaining statement kinds (yield / break / continue /
+  throw / try / using / lock / switch / allow / alloc-stmt / unsafe / assert / preprocessor / local-function /
+  await-foreach / off) + the C-style `for i;c;n` / tuple-deconstruction / typed `name: T = value` declarations +
+  the `on` subscription; [2] the MEMBER grammars (method / constructor / nested-type / record-positional /
+  union-case / interface / property) + the record / interface / union / enum / soa type BODIES (each with its own
+  missing-`}` + special diagnostics, e.g. soa's "not supported yet"); [3] the richer type-reference forms (union /
+  postfix array-nullable / byref / tuple / `Func<>`) shared across is/as/typeof/sizeof/cast/stackalloc; [4] the
+  TEST DSL (test / setup / teardown + the test-case rows) and ATTRIBUTES; [5] the garbage-type cascade shapes
+  (non-`{` braced found-other, non-identifier parameter name, named-tuple bad-name) needing `ParseTypeReference`-on-
+  garbage + position-sorted emit — NOW UNBLOCKED on the emit side by the stable position-sort added this stage.
+  THEN the AST/node-table-facts stage (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc (N+3). Next:
+  STAGE 13 = the remaining statement kinds (map residual [1]), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 11 of the parser-front-end arc — the remaining
   keyword-led primaries (map item [1]: alloc / stackalloc / lambda) + the `is`/`as` type sub-grammar (map item [2]).
   Extended `ColumnarParserRecovery.nl` to carry, through the SAME shared-panic model, four sub-families end-to-end,
   PROVEN byte-exact against the freshly built Release CLI oracle (`nlc check --json`, NL101-NL109, excluding the

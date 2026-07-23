@@ -155,11 +155,64 @@ public class ColumnarParserRecovery {
 
     // Parse the file preamble (namespace + package/import directives) and cross the
     // declaration boundary, reporting the import/namespace family diagnostics through the
-    // shared-panic model. Returns the diagnostics in source order.
+    // shared-panic model. Returns the diagnostics position-sorted, matching the order the
+    // CLI check pipeline presents them (OutputFormatter.DeduplicateAndSortDiagnostics →
+    // CodeIntelligenceResultKernels.DiagnosticIndexComesAfter: File, Line, Column, stable).
+    // Parser recording order is source order EXCEPT where a nested sub-parse records a hole
+    // diagnostic before a following outer-expression diagnostic that is positioned earlier
+    // (Stage 12 interpolation), so the sort is what the byte-exact oracle comparison needs;
+    // it is a stable no-op for every already-in-order family (Stages 1-11).
     public static func ParseFilePreamble(source: string, fileName: string?): List<CompilerError> {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
-        return recovery.Errors
+        return recovery.SortErrorsByPosition(recovery.Errors)
+    }
+
+    // Stable insertion sort by (Line, Column), mirroring the CLI's DiagnosticIndexComesAfter (the File
+    // component is constant within a single-file preamble parse, so it is not compared here). Ties preserve
+    // recording order, exactly as the CLI's stable sort does.
+    func SortErrorsByPosition(errors: List<CompilerError>): List<CompilerError> {
+        indices := new List<int>()
+        k := 0
+        while k < errors.Count {
+            indices.Add(k)
+            k = k + 1
+        }
+        i := 1
+        while i < indices.Count {
+            current := indices[i]
+            j := i - 1
+            keepMoving := true
+            while j >= 0 && keepMoving {
+                if ErrorComesAfter(errors, indices[j], current) {
+                    indices[j + 1] = indices[j]
+                    j = j - 1
+                } else {
+                    keepMoving = false
+                }
+            }
+            indices[j + 1] = current
+            i = i + 1
+        }
+        sorted := new List<CompilerError>()
+        m := 0
+        while m < indices.Count {
+            sorted.Add(errors[indices[m]])
+            m = m + 1
+        }
+        return sorted
+    }
+
+    func ErrorComesAfter(errors: List<CompilerError>, leftIndex: int, rightIndex: int): bool {
+        left := errors[leftIndex]
+        right := errors[rightIndex]
+        if left.Line != right.Line {
+            return left.Line > right.Line
+        }
+        if left.Column != right.Column {
+            return left.Column > right.Column
+        }
+        return leftIndex > rightIndex
     }
 
     // ---- token cursor (mirrors Parser.cs Current/Previous/Advance/Check/IsAtEnd) ----
@@ -3399,11 +3452,11 @@ public class ColumnarParserRecovery {
             return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
         }
 
-        // Char / string literals run the malformed-literal check (Parser.cs :4643/:4650). The interpolated
-        // string HOLE grammar (ParseInterpolatedString :4932 — its lone NL101 hole-tail + the hole-expression
-        // errors, all via a FRESH sub-Lexer + sub-Parser with per-hole position adjustment + separate-panic
-        // semantics) is DEFERRED to Stage 12; the malformed-`$"…"` NL105 (unterminated) is already owned here
-        // (Stage 3, via ReportMalformedStringLiteralIfNeeded). The corpus uses no `$"…"` interpolation hole.
+        // Char / string literals run the malformed-literal check (Parser.cs :4643/:4650). The malformed check
+        // runs FIRST (Parser.cs :4653), so an unterminated `$"…` still reports NL105 (Stage 3) before the hole
+        // grammar runs. A StringLiteral whose value begins `$"` OR an InterpolatedRawStringLiteral then routes
+        // into the interpolated-string HOLE grammar (Parser.cs :4654-4657, Stage 12); every other string is a
+        // plain literal.
         if Check(TokenType.CharLiteral) {
             token := Advance()
             ReportMalformedCharLiteralIfNeeded(token)
@@ -3412,6 +3465,12 @@ public class ColumnarParserRecovery {
         if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
             token := Advance()
             ReportMalformedStringLiteralIfNeeded(token)
+            if token.Type == TokenType.StringLiteral && StartsWithInterpolatedPrefix(token.Value) {
+                return ParseInterpolatedString(token, line, column, false)
+            }
+            if token.Type == TokenType.InterpolatedRawStringLiteral {
+                return ParseInterpolatedString(token, line, column, true)
+            }
             return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
         }
 
@@ -3636,6 +3695,325 @@ public class ColumnarParserRecovery {
         }
         if ParserTokenFacts.IsModifierKeyword(Current().Type) {
             return false
+        }
+        return true
+    }
+
+    // ============================================================================
+    // Stage 12: the interpolated-string `$"…"` HOLE grammar (Parser.cs ParseInterpolatedString :4932),
+    // carried through the SAME shared-panic model. Reached from ParsePrimaryExprValue's string-literal arm:
+    // a StringLiteral beginning `$"` OR an InterpolatedRawStringLiteral (`$"""…"""`). The whole `$"…"` is ONE
+    // outer token; ParseInterpolatedString char-scans the token VALUE, and for each `{expr[:format]}` hole
+    // opens a FRESH sub-Lexer + sub-Parser (Parser.cs `new Parser(subTokens, _fileName)`) whose position-
+    // adjusted errors are appended to the outer diagnostics. The site inventory (grep of Parser.cs
+    // ParseInterpolatedString): ZERO `Consume` sites and exactly ONE explicit ReportError — the NL101
+    // "…after interpolated string expression" hole-tail (:5141) — but every HOLE-EXPRESSION error is produced
+    // by the sub-parser reaching the owned expression grammar. The malformed-`$"…"` NL105 (unterminated) is
+    // already owned (Stage 3, via ReportMalformedStringLiteralIfNeeded, which Parser.cs runs FIRST at :4653).
+    //
+    // PANIC INDEPENDENCE (verified against the freshly built Release CLI oracle): each hole's sub-parser has
+    // its own `_panicMode`, so two bad holes in one string BOTH report (`$"{a +} {b +}"` → two NL102). The
+    // OUTER parser's panic is unaffected by hole errors, and a hole error records even when the outer parser is
+    // mid-panic — because Parser.cs appends the sub-parser's errors via `_errors.AddRange(...)`, bypassing the
+    // outer panic gate (`print + $"{b +}"` → BOTH the outer prefix-plus NL103 AND the hole NL102). WITHIN a
+    // hole the sub-panic cascades, so a hole-expression error suppresses the hole-tail NL101 (`$"{+ a b}"` →
+    // only the prefix-plus NL103, the trailing `b` is swallowed). The recovery model is a single instance, so
+    // a hole is modelled by ParseHoleExpression SAVING the outer cursor/panic state, swapping in the sub-token
+    // stream with a fresh panic universe, and RESTORING afterward (see there).
+    // ============================================================================
+
+    func ParseInterpolatedString(token: Token, line: int, column: int, isRaw: bool): ExprResult {
+        value := token.Value
+
+        // `$"…"` skips 2, `$"""…"""` skips 4 (Parser.cs :4937). end excludes the closing quote(s), or is the
+        // full length when unterminated (Parser.cs :4938 — the malformed NL105 was already reported).
+        start := 2
+        if isRaw {
+            start = 4
+        }
+        end := value.Length - 1
+        if isRaw {
+            end = value.Length - 3
+        }
+        closing := "\""
+        if isRaw {
+            closing = "\"\"\""
+        }
+        if end < start || !EndsWithString(value, closing) {
+            end = value.Length
+        }
+
+        currentLine := line
+        currentCol := column + start
+        i := start
+
+        while i < end {
+            ch := value[i]
+
+            // Escape `\x` (non-raw only, Parser.cs :4985): both chars are literal text.
+            if !isRaw && ch == '\\' && i + 1 < end {
+                if ch == '\n' {
+                    currentLine = currentLine + 1
+                    currentCol = 1
+                } else {
+                    currentCol = currentCol + 1
+                }
+                i = i + 1
+                escaped := value[i]
+                if escaped == '\n' {
+                    currentLine = currentLine + 1
+                    currentCol = 1
+                } else {
+                    currentCol = currentCol + 1
+                }
+                i = i + 1
+                continue
+            }
+
+            // `{{` escape (Parser.cs :4997) and `}}` escape (Parser.cs :5007): a literal brace.
+            if ch == '{' && i + 1 < end && value[i + 1] == '{' {
+                currentCol = currentCol + 1
+                i = i + 1
+                currentCol = currentCol + 1
+                i = i + 1
+                continue
+            }
+            if ch == '}' && i + 1 < end && value[i + 1] == '}' {
+                currentCol = currentCol + 1
+                i = i + 1
+                currentCol = currentCol + 1
+                i = i + 1
+                continue
+            }
+
+            if ch == '{' {
+                // Raw `{`-literal heuristic (Parser.cs :5019): inside a raw string a `{` preceded by `:`, or
+                // with no closing `}`, or whose content spans lines is literal text, not a hole.
+                if isRaw {
+                    previous := i - 1
+                    while previous >= start && char.IsWhiteSpace(value[previous]) {
+                        previous = previous - 1
+                    }
+                    nextClose := IndexOfCharFrom(value, '}', i + 1)
+                    contentSpansLine := false
+                    if nextClose >= 0 {
+                        contentSpansLine = RangeContainsNewline(value, i + 1, nextClose)
+                    }
+                    if (previous >= start && value[previous] == ':') || nextClose < 0 || contentSpansLine {
+                        currentCol = currentCol + 1
+                        i = i + 1
+                        continue
+                    }
+                }
+
+                // A hole. Advance past `{`; the sub-lexer anchors at the position just past it (Parser.cs :5042).
+                currentCol = currentCol + 1
+                i = i + 1
+                exprStartLine := currentLine
+                exprStartCol := currentCol
+
+                exprContentStart := i
+                braceDepth := 1
+                inNestedString := false
+                while i < end && braceDepth > 0 {
+                    ch = value[i]
+                    if inNestedString {
+                        if ch == '\\' && i + 1 < end {
+                            currentCol = currentCol + 1     // AdvancePosition('\\'); a backslash is never '\n'
+                            i = i + 1
+                            ch = value[i]
+                        } else {
+                            if ch == '"' {
+                                inNestedString = false
+                            }
+                        }
+                    } else {
+                        if ch == '"' {
+                            inNestedString = true
+                        } else {
+                            if ch == '{' {
+                                braceDepth = braceDepth + 1
+                            } else {
+                                if ch == '}' {
+                                    braceDepth = braceDepth - 1
+                                    if braceDepth == 0 {
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if ch == '\n' {
+                        currentLine = currentLine + 1
+                        currentCol = 1
+                    } else {
+                        currentCol = currentCol + 1
+                    }
+                    i = i + 1
+                }
+
+                exprContent := value.Substring(exprContentStart, i - exprContentStart)
+
+                // Raw hole content that spans lines is literal text, not an expression (Parser.cs :5101).
+                if isRaw && ContainsNewline(exprContent) {
+                    if i < end && value[i] == '}' {
+                        currentCol = currentCol + 1
+                        i = i + 1
+                    }
+                    continue
+                }
+
+                // Split off a `:format` clause (Parser.cs :5117); only the expression part is sub-parsed.
+                colonPos := ParserLiteralFacts.FindFormatSpecifierColon(exprContent)
+                if colonPos >= 0 {
+                    exprContent = exprContent.Substring(0, colonPos)
+                }
+
+                ParseHoleExpression(exprContent, exprStartLine, exprStartCol)
+
+                // Consume the closing `}` (Parser.cs :5154).
+                if i < end && value[i] == '}' {
+                    currentCol = currentCol + 1
+                    i = i + 1
+                }
+                continue
+            }
+
+            // Ordinary text char.
+            if ch == '\n' {
+                currentLine = currentLine + 1
+                currentCol = 1
+            } else {
+                currentCol = currentCol + 1
+            }
+            i = i + 1
+        }
+
+        // An InterpolatedStringExpression is anchored on (line, column); its DiagnosticSpanFromExpression falls
+        // to the (line, column, 1) default and it is never a bare identifier (Parser.cs :5172).
+        return new ExprResult(new RecoverySpan(line, column, 1), false)
+    }
+
+    // Sub-parse one interpolation hole through a FRESH sub-Lexer + sub-Parser (Parser.cs :5126-5150). Parser.cs
+    // builds `new Parser(subTokens, _fileName)` — a wholly separate parser with its OWN _panicMode — parses one
+    // expression, reports the hole-tail if extra tokens remain, then appends its errors to the outer parser via
+    // `_errors.AddRange(...)`. The recovery model is a single instance, so this SAVES the outer cursor/panic
+    // state, swaps in the position-adjusted sub-token stream with a fresh panic universe (PanicMode=false), runs
+    // the owned expression grammar + the hole-tail, then RESTORES the outer state. Running with PanicMode=false
+    // reproduces the AddRange bypass (the hole records even when the outer parser is mid-panic); restoring the
+    // outer panic afterward keeps a hole error from ever affecting the outer panic universe. Errors and Source
+    // are SHARED (not saved): hole diagnostics accumulate into the same list, and the CLI's by-line snippet
+    // re-attachment (the sub-parser's sourceCode is null) matches the model's Source-based snippet automatically.
+    func ParseHoleExpression(exprContent: string, exprStartLine: int, exprStartCol: int) {
+        subLexer := new Lexer(exprContent, FileName)
+        subRaw := subLexer.Tokenize()
+
+        // Adjust each sub-token's position into the enclosing file (Parser.cs :5129-5135): every token's line is
+        // offset by the hole's start line; a FIRST-line token additionally offsets its column by the hole's start
+        // column (a later-line token already begins at column 1 in both frames). Then drop Newline tokens exactly
+        // as the Parser constructor's compaction does.
+        subTokens := new List<Token>()
+        t := 0
+        while t < subRaw.Count {
+            tok := subRaw[t]
+            adjustedLine := tok.Line + exprStartLine - 1
+            adjustedColumn := tok.Column
+            if tok.Line == 1 {
+                adjustedColumn = tok.Column + exprStartCol - 1
+            }
+            if tok.Type != TokenType.Newline {
+                subTokens.Add(new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName, tok.IsTerminated))
+            }
+            t = t + 1
+        }
+
+        savedTokens := Tokens
+        savedPosition := Position
+        savedPanic := PanicMode
+        savedSplit := SplitGreaterDepth
+        savedBoundaryColumn := RecoveryBoundaryColumn
+        savedHasBoundaryColumn := HasRecoveryBoundaryColumn
+
+        Tokens = subTokens
+        Position = 0
+        PanicMode = false
+        SplitGreaterDepth = 0
+        HasRecoveryBoundaryColumn = false
+
+        ParseExprValue()
+
+        // The lone explicit ReportError (Parser.cs :5141): extra syntax after the hole expression. Routed through
+        // the SUB-parser's Report, so a hole-expression error that already tripped the sub-panic suppresses this.
+        if !IsAtEnd() {
+            Report(
+                ErrorCode.UnexpectedToken,
+                "Unexpected token '" + Current().Value + "' after interpolated string expression",
+                Current().Line,
+                Current().Column,
+                "I parsed a valid expression at the start of this interpolation hole, but there was extra syntax after it.",
+                "Keep exactly one expression inside each interpolation hole, or split additional text outside the braces.",
+                null,
+                MaxInt(1, Current().Value.Length))
+        }
+
+        Tokens = savedTokens
+        Position = savedPosition
+        PanicMode = savedPanic
+        SplitGreaterDepth = savedSplit
+        RecoveryBoundaryColumn = savedBoundaryColumn
+        HasRecoveryBoundaryColumn = savedHasBoundaryColumn
+    }
+
+    // Index of `target` in `value` at or after `startIndex`, else -1 (Parser.cs `value.IndexOf('}', i + 1)`).
+    func IndexOfCharFrom(value: string, target: char, startIndex: int): int {
+        idx := startIndex
+        while idx < value.Length {
+            if value[idx] == target {
+                return idx
+            }
+            idx = idx + 1
+        }
+        return -1
+    }
+
+    // Whether `value[startIndex, endIndexExclusive)` contains a CR or LF (Parser.cs `.IndexOfAny({'\r','\n'})`).
+    func RangeContainsNewline(value: string, startIndex: int, endIndexExclusive: int): bool {
+        idx := startIndex
+        while idx < endIndexExclusive {
+            c := value[idx]
+            if c == '\r' || c == '\n' {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    func ContainsNewline(text: string): bool {
+        idx := 0
+        while idx < text.Length {
+            c := text[idx]
+            if c == '\r' || c == '\n' {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    // Ordinal EndsWith (Parser.cs uses `value.EndsWith(closing, StringComparison.Ordinal)`); written by hand so
+    // the owner needs no `import System` for StringComparison and the comparison is unambiguously ordinal.
+    func EndsWithString(text: string, suffix: string): bool {
+        if suffix.Length > text.Length {
+            return false
+        }
+        offset := text.Length - suffix.Length
+        k := 0
+        while k < suffix.Length {
+            if text[offset + k] != suffix[k] {
+                return false
+            }
+            k = k + 1
         }
         return true
     }
