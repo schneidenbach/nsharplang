@@ -15,6 +15,14 @@ Last updated: 2026-07-22
 - 016 note: Parser.cs is the LSP-fallback parser — 016 slices are IDE-AFFECTING: VS Code-enabled
   gate + extension reinstall required per slice (computer-use visual check: denied twice, automated
   VS Code integration evidence stands in per the 014 precedent).
+- Task 016 status: UNCHECKED, PROVEN-BLOCKED-WITH-RECORD this turn (no production edit, no commit,
+  working tree clean — STATUS.md-only update). No bounded `Parser.cs` syntax behavior is deletion-ready
+  in one coherent byte-exact slice; the AST-shape half and the syntax-diagnostic half both gate on ONE
+  missing prerequisite (an N# parse front-end — recovery-aware diagnostics + AST/node-table facts — that
+  the C# tooling/LSP consumers can consume in place of `Parser.cs`). Full consumer inventory + three
+  independent blockers + honestly-sized prerequisite are in the "016 parser/diagnostic ownership finding"
+  section below. This is the escape-clause outcome the goal brief sanctions; the 015 arc established a
+  proven record is a respected outcome.
 - CORRECTION (post-Stage-2): sub-slice 5's Min/Max deletion (`86f4c251b`) was PARTIALLY WRONG — its
   "provably dead" claim held only for plannable receivers. `Select(v => ...).Min()/.Max()` chains
   whole-subtree-exit to the legacy residual (contextual-lambda decline), where the deleted emit +
@@ -283,6 +291,84 @@ mechanical host" criterion is met is ALL BLOCKED-WITH-RECORD policy that retires
 016 (parser) and 017 (analyzer) own the LSP-fallback parser/analyzer, NOT the emitter. 015's cursor is
 therefore: no movable decision remains in the emitter; 015 is gated on the four future tasks above.
 
+## 016 parser/diagnostic ownership finding
+
+Verdict (this turn, PROVEN-BLOCKED-WITH-RECORD; no production edit, no commit): no bounded syntax
+behavior can be moved from `src/NSharpLang.Compiler/Parser.cs` (7,117 lines; ratchet row
+`compiler-core`, ceiling 7,117, fingerprint `text-v1:895641da1f9de8a6`) to N# as the "sole production
+parser + ordered diagnostic authority" this turn while keeping every compiler AND Language Server
+consumer byte-exact. The AST-shape half and the syntax-diagnostic half are gated on the SAME missing
+prerequisite. Evidence below is code + committed-test grounded (the C# model is verified-green by the
+full VS Code-enabled gate at HEAD `2859f8329`); no fresh live run was required.
+
+### Inventory — who consumes `Parser.cs` output (exactly)
+`Parser.ParseCompilationUnit()` returns `ParseResult { CompilationUnit, Errors }` — the C#
+`CompilationUnit` AST + the syntax diagnostics. Every non-emit front-end consumes it MONOLITHICALLY:
+- `MultiFileCompiler.ParseAllFiles` (192-198): `_allErrors.AddRange(parseResult.Errors)` — the
+  production `nlc build`/check syntax-diagnostic source; Analyzer/Systems/Linter then run on the C# AST.
+- `LanguageServer/Services/DocumentManager` (250-296): builds `state.CompilationUnit` ONCE, then the
+  Analyzer, Linter, symbol/hover/completion extraction, and all 25+ LSP handlers read that one AST.
+- `Analyzer.cs` (5 parse sites: cross-file/project/import), `Formatter.cs`, CLI `Program.FormatSource`
+  (688) + `LintCommand` (90), `CodeIntelligence/{FixApplicator,CodeIntelligenceService}` (fix/query),
+  `Playground`.
+The N# columnar parser kernels (`CompilerServices/ColumnarParserKernels.nl`, 13,773 lines) produce
+columnar node TABLES consumed ONLY by the emit pipeline (`ColumnarProgramInputBuilder` →
+`ColumnarIlEmitter`), and only AFTER the C# path is error-free (`MultiFileCompiler` gates emit on zero
+errors). They build no `CompilationUnit` and feed no tooling/LSP consumer. NO node-table→C#-AST bridge
+exists; materialization-to-AST was explicitly rejected (memory
+`project_parser_routing_materialization_deadend`: "port downstream to consume columnar tables directly").
+
+### Why the AST-shape families are blocked (imports/namespaces, type/member decls, functions/generics, statements, expressions, patterns)
+Moving any AST-shape behavior to N# requires the tooling/LSP front-end to consume N#-produced facts for
+that behavior. The front-end reads the whole C# `CompilationUnit` as one recursive tree; a single node
+family cannot be excised from that tree without breaking the tree the Analyzer/LSP read, and there is no
+bridge to splice N# facts in per-family. Blocked on the bridge.
+
+### Why the syntax-diagnostic families are blocked (the unwired `ColumnarSyntaxDiagnostics` arc)
+A prior 9-commit arc (`760cf0203`..`771f741b7`, Jul 8, ALL ancestors of HEAD, ALL PURE ADDITIONS — zero
+`Parser.cs` deletion, zero consumer wiring) built an UNWIRED N# owner: `ColumnarSyntaxDiagnostics.ParseFile`
++ `ParserDiagnosticMessages.Materialize` + `ParserDiagnosticsTable`. It has ZERO external references (C#
+or N#), is in no `.tests.nl`, and `Parser.cs` still owns every production syntax diagnostic. It CANNOT be
+wired byte-exact, for three independent reasons:
+1. COVERAGE. It mirrors ~20 of `Parser.cs`'s ~256 distinct syntax diagnostics (100 emit sites) — 10
+   "expected-token/malformed" families only (`ParserDiagnosticMessageKind` 1-20). Wiring `ParseFile` as
+   the sole authority would LOSE ~236 diagnostics (missing `)`/`]`/`}`/`:`/`;`/`=>`, unexpected tokens,
+   dangling operators, constraint conflicts, pattern/match/test-DSL errors, …) — a catastrophic regression.
+2. DIVERGENT SUPPRESSION MODEL. `Parser.cs` emits inline during ONE recursive-descent pass gated by one
+   shared `_panicMode` flag (`ReportError` at 6856 returns early if panic; sets panic after each error;
+   resets only at true parse-structure sync points — declaration/statement/member/case boundaries).
+   Committed tests PIN this: `Parser_CascadingErrorsSuppressed` (`Errors.Count <= 5`),
+   `Parser_DanglingBinaryOperator_DoesNotSwallowFollowingStatements` (exactly one error, exact column 14
+   / length 3, parse-context message "Expected expression after '+'"). The N# owner runs 10 INDEPENDENT
+   whole-token-scan collectors, each with a per-token-boundary panic heuristic (`ParserDiagnosticTable.
+   PanicMode`, reset at Newline/Semicolon/Comma/Brace) threaded across sequential passes. The models
+   diverge exactly in the cascading-error cases the tests pin, and the collectors fire on scan-reached
+   tokens vs the parser's parse-reached tokens.
+3. SHARED-PANIC COUPLING ⇒ NO BOUNDED SINGLE-FAMILY EXTRACTION. Deleting any one family's inline
+   `Parser.cs` report also deletes its `_panicMode = true` side-effect, changing the suppression seen by
+   every subsequent diagnostic of EVERY OTHER family. So even a single-family diagnostic move is not
+   side-effect-free and cannot be verified byte-exact against the 520-assertion
+   `LanguageServerDiagnosticsTests` + `ParserErrorTests`/`ErrorHandlingTests`.
+Note: the C# report site already delegates `CompilerError` CONSTRUCTION to the shared N#
+`ParserErrorDiagnostics.Create`, so only the DECISION (whether/where to report, under the shared panic
+model) + the message/hint/suggestion literals are C#-owned. Moving just the literals is NOT a
+decision-ownership move and is declined.
+
+### Prerequisite that unblocks 016 (sized honestly)
+One N# parse front-end whose output the C# tooling/IDE consumers can consume in place of `Parser.cs`. Either:
+(a) Extend the N# columnar parser kernels to (i) emit the FULL syntax-diagnostic surface WITH the parser's
+    shared-panic recovery model (NOT the `ColumnarSyntaxDiagnostics` token-scan mirror) and (ii) expose a
+    `CompilationUnit`-equivalent / node-table facts the Analyzer/Linter/Formatter/LSP handlers consume;
+    validated byte-exact against the diagnostic + parser-error suites. This is a PARSER-KERNEL change → it
+    TRIPS THE TWO-STAGE BOOTSTRAP WALL (coordinator toolset repin required before dependent code compiles)
+    and is a multi-slice effort, not one bounded deletion. OR
+(b) Port the tooling front-end (Analyzer/Linter/Formatter/LSP handlers) to consume the columnar node tables
+    directly (the memory-endorsed direction) — task 017+ (analyzer ownership) scope, far beyond one bounded
+    parser slice.
+The `ColumnarSyntaxDiagnostics` arc is scaffolding for path (a)'s diagnostic half but is incomplete (~8%
+coverage) and model-divergent; it must NOT be wired as-is. `Parser.cs` stays the sole production syntax
+parser/diagnostic authority until the prerequisite lands; 016 stays UNCHECKED.
+
 ## Iterative-task targets
 
 These are populated only when their task becomes current.
@@ -290,7 +376,12 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: not selected
+- Task 016 next parser sub-slice: NONE deletion-ready — PROVEN-BLOCKED-WITH-RECORD (see the "016
+  parser/diagnostic ownership finding" section). The next ENABLING step is a PARSER-KERNEL slice
+  (path a: recovery-aware syntax diagnostics + AST/node-table facts in the columnar kernels) that
+  TRIPS the two-stage bootstrap wall — coordinator toolset repin required before dependent code
+  compiles — or the task-017 front-end port (path b). Do NOT wire `ColumnarSyntaxDiagnostics` as-is
+  (~8% coverage, divergent panic model, shared-panic coupling).
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
@@ -299,6 +390,17 @@ These are populated only when their task becomes current.
 ## Completion ledger
 
 Completed slices:
+
+- Task 016 — FIRST slice: PROVEN-BLOCKED-WITH-RECORD (no commit; mandate: do not commit; STATUS.md-only,
+  working tree otherwise clean). No C#/N# production delta. The full consumer inventory, the AST-bridge
+  blocker, the syntax-diagnostic blockers (`ColumnarSyntaxDiagnostics` ~8% coverage / divergent panic
+  model / shared-panic coupling), and the honestly-sized prerequisite are recorded in the "016
+  parser/diagnostic ownership finding" section. Evidence is code + committed-test grounded: ~256 vs ~20
+  diagnostic coverage; `Parser_CascadingErrorsSuppressed` + `Parser_DanglingBinaryOperator…` pin the
+  shared-panic model; `ColumnarSyntaxDiagnostics`/`ParserDiagnosticMessages`/`ParserDiagnosticsTable` have
+  ZERO external references and no `.tests.nl`; `MultiFileCompiler`/LSP/`Analyzer` all consume the C#
+  `CompilationUnit` monolithically with no node-table→AST bridge. Next: the enabling PARSER-KERNEL slice
+  (kernel-repin wall) or the task-017 front-end port.
 
 - Task 015 sub-slice — interpolation BASE-CALL classification → N# splitter. NOT committed this turn
   (mandate: do not commit); working tree carries the emitter deletion + the N# splitter method + its tests
