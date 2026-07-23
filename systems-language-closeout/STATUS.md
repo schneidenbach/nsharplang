@@ -16,25 +16,42 @@ Last updated: 2026-07-22
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stage 1
   landed this turn) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC OPENED — the prior PROVEN-BLOCKED-WITH-RECORD finding (below) is now
-  the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
-  parser/diagnostic ownership finding" section). STAGE 1 LANDED this turn (no production edit to any
-  consumer, no commit — mandate; working tree carries the two new N# files + the ColumnarSyntaxDiagnostics
-  scaffolding deletion + this STATUS update): the shared-panic RECOVERY MODEL is reproduced faithfully in
-  N# (`ColumnarParserRecovery.nl`) carrying the import/namespace/package diagnostic family end-to-end,
-  proven byte-exact against the production Parser.cs path on a golden parity corpus (11 native contracts,
-  including the cascading-suppression and does-not-swallow-following shapes). Parser.cs REMAINS the sole
-  production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape,
-  packaged SDK emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 1 of the parser-front-end arc. Added
-  `ColumnarParserRecovery.nl` (a faithful N# reproduction of Parser.cs's `_panicMode` lifecycle: one
-  shared flag, suppress-while-set, set-on-report, reset only at the declaration-boundary sync point;
-  ordered reporting; the ConsumeIdentifier reserved-keyword/EOF/found variants + LastVisibleTokenSpan
-  anchoring) carrying the import/namespace/package family end-to-end, plus `ColumnarParserRecovery.tests.nl`
-  (11 golden parity contracts). Deleted the inert divergent `ColumnarSyntaxDiagnostics` scaffolding closure
-  (see the arc plan's scaffolding-fate decision). Next: STAGE 2 = carry the next diagnostic family
-  (declaration-name family: func/class/struct/record/interface/union/enum/type-alias name errors, or the
-  malformed-literal family the deleted scaffolding used to mirror) through the SAME model; see the arc plan.
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 2 landed) — the prior PROVEN-BLOCKED-WITH-RECORD finding
+  (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
+  parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
+  family, 11 contracts) and STAGE 2 (the DECLARATION-NAME family — "Expected <kind> name" for func/class/struct/
+  record/soa/interface/union/enum/type-alias, with `DiagnosticSpanFromToken` keyword-anchoring + the
+  reserved-keyword-as-name variant, +24 contracts) have LANDED (no production edit to any consumer, no commit —
+  mandate; working tree carries the two N# files + the STAGE-1 ColumnarSyntaxDiagnostics scaffolding deletion +
+  this STATUS update). `ColumnarParserRecovery.nl` reproduces Parser.cs's recovery discipline faithfully and
+  is proven byte-exact against the production Parser.cs path on a golden parity corpus (35 native contracts
+  total, including the cascading-suppression, does-not-swallow-following, keyword-anchored absent/reserved
+  name, and cross-boundary panic-reset shapes). Parser.cs REMAINS the sole production syntax authority; cutover
+  is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK emits it — no repin).
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 2 of the parser-front-end arc — the
+  DECLARATION-NAME diagnostic family. Extended `ColumnarParserRecovery.nl` to carry the "Expected <kind>
+  name" diagnostics for func / class / struct / record / soa record / interface / union / enum / type-alias
+  declarations through the SAME shared-panic model, with the `DiagnosticSpanFromToken` KEYWORD-ANCHORING
+  discipline (a missing/invalid name underlines the DECLARATION KEYWORD, not the offending token, in all
+  three ConsumeIdentifier variants) and the reserved-keyword-as-name variant. Added `ConsumeDeclarationName`
+  (Parser.cs ConsumeIdentifier with a non-null diagnosticSpan), the `ParseTopLevelDeclaration` dispatch
+  (ParseModifiers + the exact Parser.cs keyword order incl. `ref struct` / `soa record` / `duck interface`
+  / `record struct` variants + LookAhead), the per-kind name parsers, and the boundary/force-advance loop
+  (Parser.cs ParseCompilationUnit :83/:99-108). Bodies are NOT parsed (a later arc stage); the loop makes
+  progress by consuming the keyword (and, for reserved-keyword recovery, the offender) or the stray token.
+  +24 native parity contracts in `ColumnarParserRecovery.tests.nl` (per-kind absent-name / reserved-keyword,
+  plus func/enum/type found-other + two panic-model interaction fixtures), proven byte-exact against golden
+  live-CLI Parser.cs output (`nlc check --json`, NL101-NL109). NO production wiring; NO wall tripped
+  (self-contained edit to one owner + its tests, packaged SDK emits it — no repin). Evidence: BootstrapServices
+  contracts 797/797 (773 baseline + 24); ownership audit 18/18; git status shows only the two `.nl` files
+  changed (no non-N# file moved). Next: STAGE 3 = the next-smallest family per the arc plan (malformed-literal:
+  unterminated string/char/triple/interpolated, empty char).
+- Prior sub-slice (016 arc, STAGE 1, LANDED — no commit): the shared-panic RECOVERY MODEL + import/namespace/
+  package family. Added `ColumnarParserRecovery.nl` (Parser.cs `_panicMode` lifecycle: one shared flag,
+  suppress-while-set, set-on-report, reset only at the declaration-boundary sync point; ordered reporting;
+  the ConsumeIdentifier reserved-keyword/EOF/found variants + LastVisibleTokenSpan anchoring) + 11 golden
+  parity contracts. Deleted the inert divergent `ColumnarSyntaxDiagnostics` scaffolding closure (see the arc
+  plan's scaffolding-fate decision).
 - CORRECTION (post-Stage-2): sub-slice 5's Min/Max deletion (`86f4c251b`) was PARTIALLY WRONG — its
   "provably dead" claim held only for plannable receivers. `Select(v => ...).Min()/.Max()` chains
   whole-subtree-exit to the legacy residual (contextual-lambda decline), where the deleted emit +
@@ -404,20 +421,32 @@ production shadow/comparison route ever runs — parity proofs live only in `.te
   `Parser_DanglingBinaryOperator_...`). NO production wiring; NO wall tripped (self-contained new files, the
   packaged SDK emits them — no repin). Evidence: BootstrapServices contracts 773/773 (762 baseline + 11);
   ownership audit 18/18; dev.sh Parser 381/381.
-- STAGE 2..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
+- STAGE 2 (LANDED this turn) — the DECLARATION-NAME family. Extended `ColumnarParserRecovery.nl` with
+  `ConsumeDeclarationName` (Parser.cs ConsumeIdentifier with a non-null diagnosticSpan, :6720) carrying the
+  "Expected <kind> name" diagnostics for func / class / struct / record / soa record / interface / union /
+  enum / type-alias, with the `DiagnosticSpanFromToken` KEYWORD-ANCHORING discipline (missing/invalid name
+  underlines the declaration keyword in all three variants) and the reserved-keyword-as-name variant; plus
+  the `ParseTopLevelDeclaration` dispatch (ParseModifiers + the exact Parser.cs keyword order incl.
+  `ref struct` / `soa record` / `duck interface` / `record struct` + LookAhead), the per-kind name parsers,
+  and the boundary/force-advance loop (Parser.cs ParseCompilationUnit :83/:99-108). Bodies are NOT parsed;
+  the corpus keeps to shapes where a name-only parser is byte-exact with the full Parser.cs body parse
+  (absent-at-EOF, reserved-keyword-then-EOF for every kind; found-other only for func/enum/type, whose
+  failing body consumes no trailing token so the stray token fires at the next boundary — the panic-reset
+  demonstration). +24 native contracts; BootstrapServices 797/797 (773+24); ownership audit 18/18; git
+  status shows only the two `.nl` files (no non-N# move). NO production wiring; NO wall (self-contained).
+- STAGE 3..N (per-family capability, each proven byte-exact on the parity corpus, NO production wiring):
   extend `ColumnarParserRecovery` family by family until it matches Parser.cs's full ~256-diagnostic
-  surface under the shared-panic model. Suggested order (smallest-coherent first): declaration-name family
-  (func/class/struct/record/interface/union/enum/type-alias `Expected <kind> name`, incl. the
-  `DiagnosticSpanFromToken` keyword anchoring) → malformed-literal family (unterminated string/char/triple/
-  interpolated, empty char — the families the deleted scaffolding used to mirror) → member/parameter/field
-  decls (`:`/`:=` colon and type errors) → generics/constraints (`ConsumeGreater`, split `>>`, type-param /
-  type-argument errors) → statements (the `SynchronizeToNextStatement` sync point + dangling-operator /
-  missing-initializer / missing-condition shapes the ParserErrorTests pin) → expressions/patterns →
-  closing-delimiter recovery (`TryReportMissingClosingDelimiter`, missing `)`/`]`/`}`). Each stage adds the
-  family's `ConsumeX`/`ReportError` sites + its sync-point discipline, and grows the parity corpus; each
-  stays self-contained (new/edited `.nl` in BootstrapServices + `.tests.nl`) UNLESS a stage needs a kernel
-  entry point dependents compile against — that stage TRIPS the two-stage bootstrap wall and needs a
-  coordinator repin (call it out at stage start).
+  surface under the shared-panic model. Suggested order (smallest-coherent first): malformed-literal family
+  (unterminated string/char/triple/interpolated, empty char — the families the deleted scaffolding used to
+  mirror) → member/parameter/field decls (`:`/`:=` colon and type errors) → generics/constraints
+  (`ConsumeGreater`, split `>>`, type-param / type-argument errors) → statements (the
+  `SynchronizeToNextStatement` sync point + dangling-operator / missing-initializer / missing-condition
+  shapes the ParserErrorTests pin) → expressions/patterns → closing-delimiter recovery
+  (`TryReportMissingClosingDelimiter`, missing `)`/`]`/`}`; note STAGE 2's declaration bodies retire here).
+  Each stage adds the family's `ConsumeX`/`ReportError` sites + its sync-point discipline, and grows the
+  parity corpus; each stays self-contained (new/edited `.nl` in BootstrapServices + `.tests.nl`) UNLESS a
+  stage needs a kernel entry point dependents compile against — that stage TRIPS the two-stage bootstrap
+  wall and needs a coordinator repin (call it out at stage start).
 - STAGE N+1 (AST/node-table facts): expose a `CompilationUnit`-equivalent / node-table surface the
   Analyzer/Linter/Formatter/LSP consume in place of Parser.cs's C# `CompilationUnit`, proven fact-equivalent.
 - STAGE N+2 (CUTOVER, IDE-AFFECTING): at full diagnostic + AST parity, route every consumer
@@ -448,15 +477,17 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE 2 of the parser-front-end arc (see the "Staged parser-front-end
-  ARC PLAN" in the "016 parser/diagnostic ownership finding" section). Extend `ColumnarParserRecovery.nl`
-  to carry the next diagnostic family through the SAME shared-panic model, proven byte-exact on the parity
-  corpus — smallest-coherent first: the DECLARATION-NAME family (`Expected <kind> name` for
-  func/class/struct/record/interface/union/enum/type-alias, incl. the `DiagnosticSpanFromToken` keyword
-  span anchoring) or the MALFORMED-LITERAL family. Still kernel-capability-only (no production wiring, no
-  IDE gate). Stays self-contained (BootstrapServices `.nl` + `.tests.nl`, no repin) unless the stage needs
-  a kernel entry point dependents compile against — call out the two-stage bootstrap wall at stage start.
-  Do NOT resurrect the deleted `ColumnarSyntaxDiagnostics` scanner (divergent per-token panic model).
+- Task 016 next parser sub-slice: STAGE 3 of the parser-front-end arc (see the "Staged parser-front-end
+  ARC PLAN"). STAGE 1 (recovery model + import/namespace/package) and STAGE 2 (declaration-NAME family) have
+  LANDED. STAGE 3 = the next-smallest family through the SAME shared-panic model, proven byte-exact on the
+  parity corpus — smallest-coherent first: the MALFORMED-LITERAL family (unterminated string/char/triple/
+  interpolated, empty char — the families the deleted scaffolding used to mirror), then member/parameter/
+  field decls. Still kernel-capability-only (no production wiring, no IDE gate). Stays self-contained
+  (BootstrapServices `.nl` + `.tests.nl`, no repin) unless the stage needs a kernel entry point dependents
+  compile against — call out the two-stage bootstrap wall at stage start. Do NOT resurrect the deleted
+  `ColumnarSyntaxDiagnostics` scanner (divergent per-token panic model). NOTE for a later stage: STAGE 2
+  models declaration NAMES only (no bodies), so found-other names for class/struct/record/interface/union
+  are deferred to the body/closing-delimiter stage where the member-list parse becomes byte-exact.
 - Task 017 next semantic sub-slice: not selected
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
@@ -465,6 +496,43 @@ These are populated only when their task becomes current.
 ## Completion ledger
 
 Completed slices:
+
+- Task 016 — THIRD slice (parser-front-end arc STAGE 2): the DECLARATION-NAME diagnostic family, in N#,
+  PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not commit); working tree carries the two
+  edited N# files + STATUS. NO production wiring — Parser.cs remains the sole production syntax authority.
+  - Extended N# owner `ColumnarParserRecovery.nl`: `ConsumeDeclarationName(message, anchor)` (Parser.cs
+    ConsumeIdentifier with a non-null diagnosticSpan, :6720) — the keyword-anchor overrides the offending-
+    token span in all three variants (reserved-keyword NL109 / end-of-file NL104 / found-other NL102), so a
+    missing/invalid declaration name underlines the DECLARATION KEYWORD. Added the `ParseTopLevelDeclaration`
+    dispatch (ParseModifiers + the exact Parser.cs ParseDeclaration keyword order, incl. `ref struct` /
+    `soa record` (contextual, LookAhead) / `duck interface` / `record struct` variants), the per-kind name
+    parsers (func/class/struct/record/soa/interface/union/enum/type-alias, each anchoring on
+    DiagnosticSpanFromToken(keywordToken) per Parser.cs :435/939/984/1029/1067/1143/1173/1247/1337), a
+    `LookAhead` helper, and the boundary loop with the force-advance safety net (Parser.cs
+    ParseCompilationUnit :83/:99-108). Removed the now-unreferenced `IsDeclarationStart`/
+    `IsContextualDeclarationStart` (superseded by the dispatch). Bodies are NOT parsed (a later arc stage).
+  - Site inventory (Parser.cs ConsumeIdentifier sites carried, with keyword anchor): func :435, class :939,
+    struct :984, record :1029, soa record :1067, interface :1143, union :1173, enum :1247, type-alias :1337
+    (the last uses `new DiagnosticSpan(line,column,Math.Max(1,"type".Length))` = SpanFromToken(typeToken)).
+    All route through the shared `ConsumeDeclarationName` + `ReportReservedKeywordAsName` + `Report` model;
+    the terminal unexpected-token arm reuses Parser.cs ParseDeclaration :241.
+  - +24 native contracts in `ColumnarParserRecovery.tests.nl`: per-kind absent-name (EOF, 11 incl. the soa
+    col-5 / duck col-6 / record-struct anchor variants), per-kind reserved-keyword-as-name (8 core kinds),
+    found-other for func/enum/type (the panic-reset shape: name error then the stray token fires at the next
+    boundary), and two panic-model interaction fixtures (`func 5\nenum` three-diagnostic cross-boundary;
+    `class struct\nfunc class` two reserved names at two boundaries). Every expected value is GOLDEN Parser.cs
+    output captured from the fresh Release CLI (`nlc check --json`, filtered to NL101-NL109).
+  - Method: BootstrapServices cannot reference Parser.cs, so parity is proven against golden Parser.cs output
+    captured out-of-band, same as STAGE 1. class/struct/record/interface/union found-other cases were
+    DELIBERATELY EXCLUDED (their member-list body consumes the trailing junk and resets panic, diverging from
+    a name-only parser — verified against the oracle, e.g. `class 5` → NL102+NL106+NL102 not NL102+NL101);
+    they retire in the body/closing-delimiter stage.
+  - Evidence: BootstrapServices contracts 797/797 (773 baseline + 24 new; packaged SDK 0.1.0 self-emits the
+    edited owner cleanly); ownership audit 18/18 (no ratchet change — all deltas are `.nl`); git status shows
+    ONLY the two `.nl` files changed (no non-N# file moved). Full unit suite / corpus IL sweeps are N/A —
+    nothing in the production compile path changed (the owner is inert, referenced only by its own tests). No
+    LSP/VS Code change → no extension reload. NO wall tripped (self-contained, no dependent compiles against a
+    changed kernel signature). Next: STAGE 3 (malformed-literal family).
 
 - Task 016 — SECOND slice (parser-front-end arc STAGE 1): shared-panic RECOVERY MODEL + import/namespace/
   package diagnostic family, in N#, PROVEN byte-exact against Parser.cs. NOT committed (mandate: do not

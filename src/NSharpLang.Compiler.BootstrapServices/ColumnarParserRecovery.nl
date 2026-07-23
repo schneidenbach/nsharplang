@@ -112,6 +112,15 @@ public class ColumnarParserRecovery {
         return Tokens[Position - 1]
     }
 
+    // Look at the token `offset` positions ahead without consuming (Parser.cs LookAhead, :6042).
+    func LookAhead(offset: int): Token {
+        pos := Position + offset
+        if pos < Tokens.Count {
+            return Tokens[pos]
+        }
+        return Tokens[Tokens.Count - 1]
+    }
+
     // ---- shared-panic reporting (mirrors Parser.cs ReportError, :6845) ----
 
     func Report(
@@ -290,6 +299,54 @@ public class ColumnarParserRecovery {
         return suggestions
     }
 
+    // ---- ConsumeDeclarationName (Parser.cs ConsumeIdentifier with a keyword anchor, :6720) ----
+    // Stage 2's declaration-NAME family funnels through here. It differs from ConsumeIdentifier
+    // (the import/namespace family) only in that the caller supplies the DECLARATION-KEYWORD span
+    // as the anchor (DiagnosticSpanFromToken(classToken), ...): a missing/invalid name underlines
+    // the keyword (`class`, `func`, ...), not the offending token, in ALL THREE variants
+    // (reserved-keyword / end-of-file / found-other). A declaration name is never a dot-access, so
+    // isDotAccess is always false and the plain (non-dot) message variants apply.
+
+    func ConsumeDeclarationName(message: string, anchor: RecoverySpan): string {
+        if Check(TokenType.Identifier) {
+            return Advance().Value
+        }
+
+        // A reserved keyword where a declaration name is required: keyword-specific diagnostic,
+        // anchored on the declaration keyword, and the offender is consumed so recovery continues.
+        if !IsAtEnd() {
+            if Lexer.IsReservedKeyword(Current().Type) {
+                ReportReservedKeywordAsName(message, anchor, false)
+                Advance()
+                return "<error>"
+            }
+        }
+
+        if IsAtEnd() {
+            Report(
+                ErrorCode.UnexpectedEndOfFile,
+                message + ", but reached the end of the file",
+                anchor.Line,
+                anchor.Column,
+                DotOrPlainEofExplanation(false),
+                DotOrPlainEofHint(false),
+                null,
+                anchor.Length)
+            return "<error>"
+        }
+
+        Report(
+            ErrorCode.ExpectedToken,
+            message + ". Got '" + Current().Value + "'",
+            anchor.Line,
+            anchor.Column,
+            DotOrPlainFoundExplanation(false, Current().Value),
+            DotOrPlainFoundHint(false),
+            DotAccessFoundSuggestions(false),
+            anchor.Length)
+        return "<error>"
+    }
+
     // ---- preamble grammar (mirrors Parser.cs ParseCompilationUnit prefix) ----
 
     func ParseQualifiedName() {
@@ -364,66 +421,203 @@ public class ColumnarParserRecovery {
             ParseImport()
         }
 
-        // Declaration boundary. Stage 1 reproduces the panic reset (Parser.cs :83) and the
-        // terminal unexpected-top-level-token arm (Parser.cs ParseDeclaration, :241). It
-        // stops at the first real declaration introducer; later arc stages parse declaration
-        // bodies and add their own sync-point recovery.
+        // Declaration boundary. Stage 2 carries the declaration-NAME family through the SAME
+        // shared-panic model: each top-level declaration resets panic (Parser.cs
+        // ParseCompilationUnit :83), then parses the declaration keyword + name, anchoring a
+        // missing/invalid name on the declaration keyword. Bodies are not parsed (a later arc
+        // stage); the loop makes progress by consuming the keyword (and, for the reserved-keyword
+        // recovery, the offending token) or the stray top-level token.
         while !IsAtEnd() {
             PanicMode = false
-            if IsDeclarationStart(Current()) {
-                return
-            }
+            startPosition := Position
+            ParseTopLevelDeclaration()
 
-            Report(
-                ErrorCode.UnexpectedToken,
-                "Unexpected token '" + Current().Value + "'",
-                Current().Line,
-                Current().Column,
-                "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '" + Current().Value + "' instead.",
-                "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.",
-                null,
-                Current().Value.Length)
-            Advance()
+            // Force-advance safety net (Parser.cs :99-108): if a declaration parse consumed
+            // nothing, advance so recovery cannot loop forever.
+            if Position == startPosition {
+                if !IsAtEnd() {
+                    Advance()
+                }
+            }
         }
     }
 
-    func IsDeclarationStart(token: Token): bool {
-        t := token.Type
-        if ParserTokenFacts.IsDeclarationKeyword(t) {
-            return true
+    // Parse one top-level declaration's modifiers + keyword + NAME (Parser.cs ParseDeclaration
+    // dispatch, :190-267). Stage 2 does not parse attributes or declaration bodies (later arc
+    // stages), nor the contextual test/setup/teardown declarations (not part of the
+    // declaration-name family). Every recognized keyword routes to a per-kind name parser that
+    // mirrors the exact Parser.cs ConsumeIdentifier site; an unrecognized token hits the terminal
+    // unexpected-token arm (Parser.cs ParseDeclaration :241), identical to Stage 1's arm.
+    func ParseTopLevelDeclaration() {
+        ParseModifiers()
+
+        if Check(TokenType.Func) {
+            ParseFunctionName()
+            return
         }
-        if ParserTokenFacts.IsModifierKeyword(t) {
-            return true
+        if Check(TokenType.Class) {
+            ParseClassName()
+            return
         }
+        if Check(TokenType.Ref) {
+            if LookAhead(1).Type == TokenType.Struct {
+                Advance()
+                ParseStructName()
+                return
+            }
+        }
+        if Check(TokenType.Struct) {
+            ParseStructName()
+            return
+        }
+        if IsSoaRecordDeclarationStart() {
+            ParseSoaRecordName()
+            return
+        }
+        if Check(TokenType.Record) {
+            ParseRecordName()
+            return
+        }
+        if Check(TokenType.Interface) {
+            ParseInterfaceName()
+            return
+        }
+        if Check(TokenType.Duck) {
+            if LookAhead(1).Type == TokenType.Interface {
+                ParseInterfaceName()
+                return
+            }
+        }
+        if Check(TokenType.Union) {
+            ParseUnionName()
+            return
+        }
+        if Check(TokenType.Enum) {
+            ParseEnumName()
+            return
+        }
+        if Check(TokenType.Type) {
+            ParseTypeAliasName()
+            return
+        }
+
+        Report(
+            ErrorCode.UnexpectedToken,
+            "Unexpected token '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '" + Current().Value + "' instead.",
+            "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.",
+            null,
+            Current().Value.Length)
+        Advance()
+    }
+
+    // Consume leading modifier keywords (Parser.cs ParseModifiers, :298) so a modifier-led
+    // declaration reaches its keyword.
+    func ParseModifiers() {
+        scanning := true
+        while scanning {
+            if !TryConsumeModifier() {
+                scanning = false
+            }
+        }
+    }
+
+    func TryConsumeModifier(): bool {
+        t := Current().Type
         if t == TokenType.Public {
+            Advance()
             return true
         }
         if t == TokenType.Private {
+            Advance()
             return true
         }
-        if t == TokenType.LeftBracket {
-            return true
-        }
-        if t == TokenType.PreprocessorDirective {
-            return true
-        }
-        return IsContextualDeclarationStart(token)
-    }
-
-    func IsContextualDeclarationStart(token: Token): bool {
-        if token.Type != TokenType.Identifier {
-            return false
-        }
-        if token.Value == "test" {
-            return true
-        }
-        if token.Value == "setup" {
-            return true
-        }
-        if token.Value == "teardown" {
+        if ParserTokenFacts.IsModifierKeyword(t) {
+            Advance()
             return true
         }
         return false
+    }
+
+    func IsSoaRecordDeclarationStart(): bool {
+        if Current().Type != TokenType.Identifier {
+            return false
+        }
+        if Current().Value != "soa" {
+            return false
+        }
+        return LookAhead(1).Type == TokenType.Record
+    }
+
+    // ---- per-kind declaration name parsers ----
+    // Each mirrors the exact Parser.cs ConsumeIdentifier site: the anchor is
+    // DiagnosticSpanFromToken of the declaration keyword, so a missing/invalid name underlines
+    // the keyword (Parser.cs :435/939/984/1029/1067/1143/1173/1247/1337).
+
+    func ParseFunctionName() {
+        funcToken := Current()
+        Advance()
+        ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
+    }
+
+    func ParseClassName() {
+        classToken := Current()
+        Advance()
+        ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
+    }
+
+    func ParseStructName() {
+        structToken := Current()
+        Advance()
+        ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
+    }
+
+    func ParseRecordName() {
+        recordToken := Current()
+        Advance()
+        // `record struct` consumes the contextual `struct` before the name (Parser.cs :1021).
+        if Check(TokenType.Struct) {
+            Advance()
+        }
+        ConsumeDeclarationName("Expected record name", SpanFromToken(recordToken))
+    }
+
+    func ParseSoaRecordName() {
+        Advance()                    // contextual 'soa'
+        recordToken := Current()     // the 'record' keyword
+        Advance()
+        ConsumeDeclarationName("Expected soa record name", SpanFromToken(recordToken))
+    }
+
+    func ParseInterfaceName() {
+        if Check(TokenType.Duck) {
+            Advance()                // contextual 'duck'
+        }
+        interfaceToken := Current()  // the 'interface' keyword
+        Advance()
+        ConsumeDeclarationName("Expected interface name", SpanFromToken(interfaceToken))
+    }
+
+    func ParseUnionName() {
+        unionToken := Current()
+        Advance()
+        ConsumeDeclarationName("Expected union name", SpanFromToken(unionToken))
+    }
+
+    func ParseEnumName() {
+        enumToken := Current()
+        Advance()
+        ConsumeDeclarationName("Expected enum name", SpanFromToken(enumToken))
+    }
+
+    func ParseTypeAliasName() {
+        typeToken := Current()
+        Advance()
+        // Parser.cs anchors with new DiagnosticSpan(line, column, Math.Max(1, "type".Length))
+        // (:1337); with the keyword value "type" that equals SpanFromToken(typeToken).
+        ConsumeDeclarationName("Expected type alias name", new RecoverySpan(typeToken.Line, typeToken.Column, MaxInt(1, 4)))
     }
 
     func MaxInt(a: int, b: int): int {
