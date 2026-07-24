@@ -172,6 +172,12 @@ public class ColumnarParserRecovery {
     DeclarationNodes: List<Declaration>
     UnitLine: int
     UnitColumn: int
+    // Stage N+1c tranche 3 (members): a nesting-safe stack of the member list currently being filled. A
+    // type body pushes a fresh member list on entry and pops it on exit; AddDeclaration targets the stack
+    // top when non-empty (the enclosing type's Members), else the top-level DeclarationNodes. This places a
+    // NESTED type declaration in its enclosing type's Members rather than at the top level. The `> >` space
+    // is the standard `>>`-tokenizer workaround for a nested-generic type.
+    TypeMemberStack: List<List<Declaration> >
 
     constructor(source: string, fileName: string?) {
         Source = source
@@ -191,6 +197,7 @@ public class ColumnarParserRecovery {
         DeclarationNodes = new List<Declaration>()
         UnitLine = 0
         UnitColumn = 0
+        TypeMemberStack = new List<List<Declaration> >()
 
         lexer := new Lexer(source, fileName)
         rawTokens := lexer.Tokenize()
@@ -1352,9 +1359,28 @@ public class ColumnarParserRecovery {
     // ParseFilePreamble position-sort (Stage 12) orders the emitted diagnostics to the CLI's display
     // order: for `class 5` the class-name NL102 and the missing-'}' NL106 both anchor at the class
     // keyword (column-tie, stable by emission order) and precede the in-body field-name NL102.
-    func ParseTypeBody(name: string, typeBodyDiagnosticSpan: RecoverySpan) {
+    // Stage N+1c tranche 3 (members): route a declaration node to the member list of the type currently
+    // being parsed (the stack top), or the top-level DeclarationNodes when no type body is open. Replaces
+    // the direct `DeclarationNodes.Add(...)`, so a NESTED type/member lands in its enclosing type's Members.
+    func AddDeclaration(node: Declaration) {
+        if TypeMemberStack.Count > 0 {
+            TypeMemberStack[TypeMemberStack.Count - 1].Add(node)
+        } else {
+            DeclarationNodes.Add(node)
+        }
+    }
+
+    // Stage N+1c tranche 3 (members): ParseTypeBody now RETURNS the member list it parsed, so each type
+    // name parser can hang a POPULATED Members list on its declaration node. A fresh list is pushed as the
+    // active member target for the duration of the body (so members + nested types append to it) and popped
+    // on exit, restoring the enclosing type's target for NESTED-type placement.
+    func ParseTypeBody(name: string, typeBodyDiagnosticSpan: RecoverySpan): List<Declaration> {
+        members := new List<Declaration>()
+        TypeMemberStack.Add(members)
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         ParseMemberList(typeBodyDiagnosticSpan)
+        TypeMemberStack.RemoveAt(TypeMemberStack.Count - 1)
+        return members
     }
 
     // Parser.cs ParseMemberList (:1359): reset panic at each MEMBER boundary (:1365), track the
@@ -1420,10 +1446,13 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
 
-        // Property modifiers required/init/readonly (Parser.cs :1644) — combinable, no diagnostic.
+        // Property modifiers required/init/readonly (Parser.cs :1644) — combinable, no diagnostic. Seeing
+        // any is a tranche-4 shape (PropertyModifier/Modifiers materialization) — decline the field node.
+        propModifierSeen := false
         scanningPropModifiers := true
         while scanningPropModifiers {
             if Check(TokenType.Required) || Check(TokenType.Init) || Check(TokenType.Readonly) {
+                propModifierSeen = true
                 Advance()
             } else {
                 scanningPropModifiers = false
@@ -1432,7 +1461,7 @@ public class ColumnarParserRecovery {
 
         name := ConsumeIdentifier("Expected field name")
 
-        // Type inference `Name := value` (Parser.cs :1670).
+        // Type inference `Name := value` (Parser.cs :1670) — an initializer expression, a later tranche.
         if Check(TokenType.ColonAssign) {
             Advance()
             ParseExprValue()
@@ -1440,9 +1469,10 @@ public class ColumnarParserRecovery {
         }
 
         fieldColonToken := ConsumeFieldColon(name, line, column)
-        ParseFieldTypeReference(name, line, column, fieldColonToken)
+        fieldType := ParseFieldTypeReference(name, line, column, fieldColonToken)
 
-        // Expression-bodied property `name: type => expr` (Parser.cs :1683).
+        // Expression-bodied property `name: type => expr` (Parser.cs :1683) — a PropertyDeclaration whose
+        // ExpressionBody is a later tranche.
         if Check(TokenType.Arrow) {
             Advance()
             ParseExprValue()
@@ -1481,10 +1511,26 @@ public class ColumnarParserRecovery {
             return
         }
 
-        // Field `= initializer` (Parser.cs :1762).
+        // Field `= initializer` (Parser.cs :1762) — the initializer expression is a later tranche, so a
+        // field WITH one is not yet byte-exact; parse it (diagnostics) but decline to materialize the node.
         if Check(TokenType.Assign) {
             initializerToken := Advance()
             ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This field declaration", null)
+            return
+        }
+
+        // N+1c tranche 3: materialize the plain FieldDeclaration for the initializer-free `name: <simple
+        // type>` corpus (Parser.cs :1771 — `new FieldDeclaration(name, type, initializer, modifiers,
+        // propertyModifier, attributes, line, column)`). Only within the materialized subset: no property
+        // modifiers (Modifiers.None / PropertyModifier.None / no attributes), a single-token simple type
+        // (fieldType non-null), and no initializer (guarded by the returns above). Line/Column anchor the
+        // field-name start (Parser.cs :1639-1640 capture Current before the name). FQN'd — a test-helper
+        // `class FieldDeclaration` in NSharpLang.Compiler collides under the tests-enabled build.
+        // AddDeclaration routes the field into the enclosing type's Members.
+        if !propModifierSeen && fieldType != null {
+            AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
+                name, fieldType, null, Modifiers.None, PropertyModifier.None,
+                new List<AttributeNode>(), line, column))
         }
     }
 
@@ -1901,10 +1947,26 @@ public class ColumnarParserRecovery {
     // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
     // the missing-type diagnostic anchored on the field name when a type terminator (and not the start
     // of the NEXT field) sits where the type should be.
-    func ParseFieldTypeReference(fieldName: string, fieldLine: int, fieldColumn: int, fieldColonToken: Token) {
+    // Stage N+1c tranche 3 (members): returns the parsed type reference for the byte-exact FIELD
+    // materialization — but only for the SINGLE-TOKEN simple type (`name: int`), the materialized field
+    // corpus. A single-token identifier consumes exactly one token, so `Position == startPosition + 1`
+    // proves the shape (no dots / generics / `[]` / `?` / union / tuple / Func / byref). For that shape the
+    // returned `SimpleTypeReference(name, line, column)` with `.Span = SourceSpan.FromStartAndLength(line,
+    // column, len)` is byte-exact to Parser.cs :1959-1962 (`new SimpleTypeReference(name, typeNameLine,
+    // typeNameColumn) { Span = SpanFromTokens(typeNameToken, typeNameToken) }`, since SpanFromTokens(t,t) ≡
+    // FromStartAndLength(t.Line, t.Column, t.Value.Length)). Any richer type or a missing-type error returns
+    // null (a later tranche), and the caller then declines to materialize that field.
+    func ParseFieldTypeReference(fieldName: string, fieldLine: int, fieldColumn: int, fieldColonToken: Token): TypeReference? {
         if !IsTypeTerminator(Current().Type) && !LooksLikeNextFieldAfterMissingType(fieldColonToken) {
+            typeToken := Current()
+            startPosition := Position
             ParseTypeReferenceRecovery()
-            return
+            if typeToken.Type == TokenType.Identifier && Position == startPosition + 1 {
+                simple := new SimpleTypeReference(typeToken.Value, typeToken.Line, typeToken.Column)
+                simple.Span = SourceSpan.FromStartAndLength(typeToken.Line, typeToken.Column, typeToken.Value.Length)
+                return simple
+            }
+            return null
         }
         visible := IsVisibleName(fieldName)
         span := TypeErrorAnchor(visible, fieldLine, fieldColumn, fieldName)
@@ -1923,6 +1985,7 @@ public class ColumnarParserRecovery {
             hint,
             SingleSuggestion("Add a field type after ':'"),
             span.Length)
+        return null
     }
 
     // Parser.cs LooksLikeNextFieldAfterMissingType (:6572): a following `Ident (: | :=)` on a LATER
@@ -2024,20 +2087,21 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()
         }
         ParseBaseTypeList()
-        ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 2: materialize the ClassDeclaration for the empty-body / modifier-free corpus
-        // (Parser.cs :973). Line/Column anchor the class keyword (Parser.cs :933-934 capture Current
+        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 2/3: materialize the ClassDeclaration for the empty-/simple-field-body, modifier-free
+        // corpus (Parser.cs :973). Line/Column anchor the class keyword (Parser.cs :933-934 capture Current
         // before consuming 'class', i.e. the classToken position). TypeParameters/BaseClass/
         // PrimaryConstructorParameters are null (Parser.cs :943/:952/:946 for the empty-shape corpus),
-        // Interfaces/Members/Attributes empty, Modifiers.None. The type is FULLY QUALIFIED
+        // Interfaces/Attributes empty, Modifiers.None. Members is the tranche-3 populated list from
+        // ParseTypeBody (simple fields + nested types). The type is FULLY QUALIFIED
         // (`NSharpLang.Compiler.Ast.ClassDeclaration`) deliberately: `AnalyzerDeclarationContext.tests.nl`
         // defines a local test-helper `class ClassDeclaration` in namespace `NSharpLang.Compiler`, which
         // collides with the real Ast type under the tests-enabled build (this file imports BOTH namespaces),
         // so the simple name resolves ambiguously and the columnar construction planner declines. The FQN
-        // resolves uniquely — byte-exact (same Ast type/args/node), no planner change. This was the tranche-1
-        // "constructor-planner gap on the BaseClass param": a mis-diagnosed name collision, not a planner gap.
-        DeclarationNodes.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(
-            name, null, null, new List<TypeReference>(), new List<Declaration>(),
+        // resolves uniquely — byte-exact (same Ast type/args/node), no planner change. AddDeclaration routes
+        // this to the enclosing type's Members when nested, else the top level.
+        AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
+            name, null, null, new List<TypeReference>(), members,
             null, Modifiers.None, new List<AttributeNode>(),
             classToken.Line, classToken.Column))
     }
@@ -2057,12 +2121,13 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :998)
-        ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1: materialize the StructDeclaration for the empty-body / modifier-free corpus
-        // (Parser.cs :1010). isRefStruct is false for the `struct S {}` corpus (`ref struct` is a
-        // deferred modifier-bearing shape). Deferred families take Parser.cs's empty-shape defaults.
-        DeclarationNodes.Add(new StructDeclaration(
-            name, null, new List<TypeReference>(), new List<Declaration>(),
+        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1/3: materialize the StructDeclaration for the empty-/simple-field-body, modifier-free
+        // corpus (Parser.cs :1010). isRefStruct is false for the `struct S {}` corpus (`ref struct` is a
+        // deferred modifier-bearing shape). Members is the tranche-3 populated list from ParseTypeBody.
+        // Deferred families take Parser.cs's empty-shape defaults.
+        AddDeclaration(new StructDeclaration(
+            name, null, new List<TypeReference>(), members,
             null, Modifiers.None, new List<AttributeNode>(),
             structToken.Line, structToken.Column, false))
     }
@@ -2088,12 +2153,13 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1037)
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :1043)
-        ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1: materialize the RecordDeclaration for the empty-body / positional-free corpus
-        // (Parser.cs :1052-ish). IsStruct reflects the consumed `record struct` contextual keyword.
-        // Positional parameters + interfaces + members are deferred families → empty-shape defaults.
-        DeclarationNodes.Add(new RecordDeclaration(
-            name, null, new List<TypeReference>(), new List<Declaration>(),
+        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1/3: materialize the RecordDeclaration for the empty-/simple-field-body,
+        // positional-free corpus (Parser.cs :1052-ish). IsStruct reflects the consumed `record struct`
+        // contextual keyword. Members is the tranche-3 populated list from ParseTypeBody. Positional
+        // parameters + interfaces are deferred families → empty-shape defaults.
+        AddDeclaration(new RecordDeclaration(
+            name, null, new List<TypeReference>(), members,
             null, isStruct, Modifiers.None, new List<AttributeNode>(),
             recordToken.Line, recordToken.Column))
     }
@@ -2148,13 +2214,14 @@ public class ColumnarParserRecovery {
         }
         ParseTypeParameters()                   // Parser.cs :1147
         ParseBaseTypeList()                     // base interface list (Parser.cs :1150)
-        ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1: materialize the InterfaceDeclaration for the empty-body / modifier-free corpus
-        // (Parser.cs :1150-return). Line/Column = the first-token position (`duck` if present, else
-        // `interface`) — the interfaceLine/interfaceColumn captured above match Parser.cs :1130-1131.
-        // TypeParameters/BaseInterfaces/Members/Modifiers/Attributes are deferred → empty-shape defaults.
-        DeclarationNodes.Add(new InterfaceDeclaration(
-            name, null, new List<TypeReference>(), new List<Declaration>(),
+        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1/3: materialize the InterfaceDeclaration for the empty-/simple-field-body,
+        // modifier-free corpus (Parser.cs :1150-return). Line/Column = the first-token position (`duck` if
+        // present, else `interface`) — the interfaceLine/interfaceColumn captured above match Parser.cs
+        // :1130-1131. Members is the tranche-3 populated list from ParseTypeBody. TypeParameters/
+        // BaseInterfaces/Modifiers/Attributes are deferred → empty-shape defaults.
+        AddDeclaration(new InterfaceDeclaration(
+            name, null, new List<TypeReference>(), members,
             Modifiers.None, isDuck, new List<AttributeNode>(),
             interfaceLine, interfaceColumn))
     }
@@ -2203,10 +2270,11 @@ public class ColumnarParserRecovery {
             }
         }
         ParseEnumBody(enumDiagnosticSpan, enumLine)
-        // N+1c tranche 1: materialize the EnumDeclaration for the empty-body / modifier-free corpus
+        // N+1c tranche 1/3: materialize the EnumDeclaration for the empty-body / modifier-free corpus
         // (Parser.cs :1189). Members are the deferred family (member values are expressions) → empty list;
-        // the corpus uses valueless empty enums so this is byte-exact.
-        DeclarationNodes.Add(new EnumDeclaration(
+        // the corpus uses valueless empty enums so this is byte-exact. AddDeclaration routes it to an
+        // enclosing type's Members when the enum is nested, else the top level.
+        AddDeclaration(new EnumDeclaration(
             name, new List<EnumMember>(), enumType, Modifiers.None, new List<AttributeNode>(),
             enumLine, enumColumn))
     }

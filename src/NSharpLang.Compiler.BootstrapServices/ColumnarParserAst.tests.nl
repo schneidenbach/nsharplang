@@ -21,11 +21,15 @@ import NSharpLang.Compiler.Ast
 // now construct the SAME N# node types (post-N+1b), matching the golden proves byte-exact node parity.
 //
 // TESTS-ONLY: `ParseFileAst` has no production caller; Parser.cs remains the sole production authority
-// until the N+2 cutover. Tranche 1 covers the CompilationUnit CONTAINER + the preamble + FileImports + the
-// empty-body / modifier-free top-level TYPE declarations struct/interface/enum/record. ClassDeclaration is
-// deferred (an emitter gap — see the Golden.AddStruct region note). Functions, members, statements,
-// expressions, type-references, parameters, type-params, base-types, modifiers, and attributes are later
-// tranches, so the corpus stays within the covered shapes.
+// until the N+2 cutover. Tranche 1 covered the CompilationUnit CONTAINER + preamble + FileImports + the
+// empty-body top-level TYPE declarations struct/interface/enum/record; tranche 2 added ClassDeclaration
+// (a mis-diagnosed name collision, not an emitter gap — see the Golden.AddClass region note). Tranche 3
+// (here) threads MEMBERS through the type bodies: the FieldDeclaration member for the initializer-free
+// `name: <simple type>` corpus (with a byte-exact single-token SimpleTypeReference), a POPULATED Members
+// list on class/struct/record/interface, and NESTED-type recursion (a nested type lands in its enclosing
+// type's Members). Functions/properties/methods/constructors, statements, expressions, initializers, richer
+// type-references, parameters, type-params, base-types, modifiers, and attributes are later tranches, so the
+// corpus stays within the covered shapes (plain fields + nested types).
 
 public class AstEq {
     // Recursively compare two AST node instances. Returns "" when structurally equal, else a
@@ -162,6 +166,16 @@ public class AstEq {
         if typeName == "EnumDeclaration" {
             return Names("Name Members Type Modifiers Attributes Line Column")
         }
+        // N+1c tranche 3 (members): the FIELD member + its type reference. FieldDeclaration's Type recurses
+        // into the SimpleTypeReference; PropertyModifier is compared as a scalar (enum). SimpleTypeReference's
+        // Span (a SourceSpan) is compared by value — SourceSpan is unregistered, so DiffValue falls to its
+        // by-value .Equals (the 4 ints). NameSpan is a computed property and is deliberately not registered.
+        if typeName == "FieldDeclaration" {
+            return Names("Name Type Initializer Modifiers PropertyModifier Attributes Line Column")
+        }
+        if typeName == "SimpleTypeReference" {
+            return Names("Name Line Column Span")
+        }
         return null
     }
 
@@ -231,6 +245,36 @@ public class Golden {
 
     public static func AddRecord(decls: List<Declaration>, name: string, isStruct: bool, line: int, column: int) {
         decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, isStruct, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    // N+1c tranche 3 (members): member-bearing type builders. Each hangs a pre-built `members` list on its
+    // declaration node (mirroring the owner, where ParseTypeBody returns the parsed member list). The
+    // ClassDeclaration/FieldDeclaration names are FULLY QUALIFIED to dodge the tests-enabled simple-name
+    // collision with the local test-helper classes in AnalyzerDeclarationContext.tests.nl.
+    public static func AddClassM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddStructM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
+        decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), line, column, false))
+    }
+
+    public static func AddInterfaceM(decls: List<Declaration>, name: string, isDuck: bool, members: List<Declaration>, line: int, column: int) {
+        decls.Add(new InterfaceDeclaration(name, null, new List<TypeReference>(), members, Modifiers.None, isDuck, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddRecordM(decls: List<Declaration>, name: string, isStruct: bool, members: List<Declaration>, line: int, column: int) {
+        decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), members, null, isStruct, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    // N+1c tranche 3 (members): append a plain FieldDeclaration `name: <simple type>` to a members list,
+    // byte-exact to Parser.cs :1771 — Type is a single-token SimpleTypeReference whose Span is
+    // SpanFromTokens(t,t) ≡ FromStartAndLength(typeLine, typeColumn, typeName.Length); Initializer null;
+    // Modifiers.None; PropertyModifier.None; no attributes.
+    public static func AddFieldTo(members: List<Declaration>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
+        simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
+        simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
+        members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, simple, null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
     }
 
     public static func AddImport(imports: List<ImportDirective>, ns: string, alias: string?, line: int, column: int) {
@@ -372,6 +416,84 @@ test "016 N+1c: a whole file with namespace + import + file-import + two declara
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
+// ---- tranche 3: MEMBERS threaded through type bodies ----
+// Golden positions below are triangulated against the LIVE Parser.cs via `nlc query ast` on the identical
+// source (owner == golden by these contracts; golden == Parser.cs by the query-ast oracle).
+
+test "016 N+1c: a struct materializes a simple initializer-free field member (Parser.cs :1771/:1959)" {
+    actual := RunAst("struct S {\n    x: int\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "x", "int", 2, 8, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a struct materializes multiple fields in declaration order with per-line anchoring" {
+    actual := RunAst("struct S {\n    x: int\n    y: int\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "x", "int", 2, 8, 2, 5)
+    Golden.AddFieldTo(members, "y", "int", 3, 8, 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a class field carries a user-named simple type with a byte-exact NameSpan (Parser.cs :1961)" {
+    actual := RunAst("class Box {\n    item: Widget\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "item", "Widget", 2, 11, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "Box", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: an interface body materializes a field member" {
+    actual := RunAst("interface I {\n    id: int\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "id", "int", 2, 9, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddInterfaceM(decls, "I", false, members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a record body materializes a field member" {
+    actual := RunAst("record R {\n    id: int\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "id", "int", 2, 9, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddRecordM(decls, "R", false, members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a nested empty struct lands in the enclosing class's Members, not the top level" {
+    actual := RunAst("class Outer {\n    struct Inner {}\n}")
+    outerMembers := new List<Declaration>()
+    Golden.AddStruct(outerMembers, "Inner", 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "Outer", outerMembers, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a field and a nested field-bearing struct nest byte-exact (Parser.cs :80-90/:973/:1010/:1771)" {
+    actual := RunAst("class Outer {\n    tag: int\n    struct Inner {\n        v: int\n    }\n}")
+    innerMembers := new List<Declaration>()
+    Golden.AddFieldTo(innerMembers, "v", "int", 4, 12, 4, 9)
+    outerMembers := new List<Declaration>()
+    Golden.AddFieldTo(outerMembers, "tag", "int", 2, 10, 2, 5)
+    Golden.AddStructM(outerMembers, "Inner", innerMembers, 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "Outer", outerMembers, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
 // A negative self-check: the comparator MUST detect a divergence (guards against a vacuous "" pass).
 test "016 N+1c: AstEq.Diff reports a mismatched declaration name rather than passing vacuously" {
     actual := RunAst("struct C {}")
@@ -381,4 +503,18 @@ test "016 N+1c: AstEq.Diff reports a mismatched declaration name rather than pas
     diff := AstEq.Diff(expected, actual, "unit")
     assert diff != ""
     assert diff == "unit.Declarations[0].Name: String(WRONG) != String(C)"
+}
+
+// A negative self-check for the NEW field-member comparison path: a wrong field type name must be caught
+// (guards the tranche-3 SimpleTypeReference recursion against a vacuous pass).
+test "016 N+1c: AstEq.Diff reports a mismatched field type rather than passing vacuously" {
+    actual := RunAst("struct S {\n    x: int\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldTo(members, "x", "long", 2, 8, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Type.Name: String(long) != String(int)"
 }

@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 2 — ClassDeclaration materialized; tranche-1 "planner-gap" blocker DISPROVEN — it was a simple-name TYPE COLLISION, resolved by a fully-qualified name, no planner change / no wall)
+Last updated: 2026-07-24 (STAGE N+1c tranche 3 — MEMBERS threaded through type bodies: FieldDeclaration + simple TypeReference materialized, Members populated on class/struct/record/interface shells, nested-type recursion routed via AddDeclaration; +N contracts)
 
 ## Cursor
 
@@ -79,6 +79,68 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 2 — ClassDeclaration materialized
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 3 = MEMBERS threaded through the type bodies. The owner now materializes a POPULATED `Members` list
+  on every class/struct/record/interface shell, the FieldDeclaration member for the initializer-free
+  `name: <simple type>` corpus, and NESTED-type recursion (a nested type lands in its enclosing type's
+  Members, not the top level). MECHANISM (as recorded by tranche 2): (1) a nesting-safe member-list stack
+  `TypeMemberStack: List<List<Declaration> >` (the `> >` space is the `>>`-tokenizer workaround) + an
+  `AddDeclaration(node)` helper that targets the stack top when a type body is open, else the top-level
+  `DeclarationNodes` — replaces every `DeclarationNodes.Add(...)` at the five type construction sites; (2)
+  `ParseTypeBody` now RETURNS the parsed member list — it pushes a fresh list on entry (the active member
+  target), parses members into it, pops on exit (restoring the enclosing target for nested placement), and
+  the caller hangs that list on the declaration node's `Members`; (3) `ParseFieldMember` materializes the
+  plain FieldDeclaration at Parser.cs :1771, guarded to the materialized subset (no property modifiers, a
+  single-token simple type, no initializer); (4) `ParseFieldTypeReference` now returns `TypeReference?` — for
+  the single-token identifier type (`Position == startPosition + 1`) it builds the byte-exact
+  `SimpleTypeReference(name, line, column)` with `.Span = SourceSpan.FromStartAndLength(line, column, len)`
+  (≡ Parser.cs :1959-1962 `new SimpleTypeReference(name, typeNameLine, typeNameColumn) { Span =
+  SpanFromTokens(typeNameToken, typeNameToken) }`, since SpanFromTokens(t,t) ≡ FromStartAndLength(t.Line,
+  t.Column, t.Value.Length) — Parser.cs :5878 vs SourceSpan.nl :42), else null (richer/error types are a
+  later tranche → the caller declines to materialize that field). MEMBER CONSTRUCTION-SITE INVENTORY (owner,
+  each byte-exact to Parser.cs): FieldDeclaration → `ParseFieldMember` end vs Parser.cs :1771
+  (`new FieldDeclaration(name, type, initializer, modifiers, propertyModifier, attributes, line, column)`,
+  Line/Column on the field-name start :1639-1640, Modifiers.None / PropertyModifier.None / [] / null
+  Initializer for the corpus); SimpleTypeReference → `ParseFieldTypeReference` vs Parser.cs :1959-1962;
+  ClassDeclaration/StructDeclaration/RecordDeclaration/InterfaceDeclaration → their name parsers now hang the
+  `members` list from ParseTypeBody (Parser.cs :973/:1010/:1052/:1150). FQN: `FieldDeclaration` (like
+  `ClassDeclaration`) collides with a test-helper `class FieldDeclaration` in
+  `AnalyzerDeclarationContext.tests.nl` under the tests-enabled build → fully qualified
+  `NSharpLang.Compiler.Ast.FieldDeclaration`; `SimpleTypeReference` has no collision (simple name used).
+  STUB DISCIPLINE RECORD: NOTHING is stubbed in this tranche — every materialized node/field is a real,
+  byte-exact value, so no field is excluded from the golden comparison. The corpus is confined to the
+  fully-byte-exact subset (plain `name: <simple identifier type>` fields + nested types); any field with a
+  property modifier, `:=` inference, `=> expr`, a `{ get/set }` accessor block, an `= initializer`, or a
+  richer/qualified/generic type is PARSED for diagnostics but its node is NOT materialized (deferred), so it
+  never enters a golden comparison. Properties/methods/constructors are DEFERRED to tranche 4 because their
+  bodies are BlockStatement/Expression and statement/expression materialization is a later tranche (an empty
+  `func f() {}` body would still require the whole FunctionDeclaration/Parameter/BlockStatement surface — out
+  of scope here). DELIVERABLES: `ColumnarParserRecovery.nl` +106/−38 (the stack field + AddDeclaration +
+  ParseTypeBody return + five AddDeclaration rewrites + FieldDeclaration/SimpleTypeReference construction +
+  ParseFieldTypeReference return); `ColumnarParserAst.tests.nl` +141/−5 (registered FieldDeclaration +
+  SimpleTypeReference in AstEq.FieldNames; added `AddClassM/AddStructM/AddInterfaceM/AddRecordM/AddFieldTo`
+  golden builders; 7 positive member contracts + 1 field-type-mismatch negative self-check). EQUALITY /
+  TRIANGULATION: all 8 new contracts prove owner == golden (AstEq); every positive golden's positions were
+  DERIVED from and re-checked against the LIVE Parser.cs via `nlc query ast` (freshly built CLI, scratch
+  project) — struct{x:int,y:int}, class Box{item:Widget}, interface I{id:int}, record R{id:int}, nested
+  class Outer{tag:int, struct Inner{v:int}}, nested empty struct — every field/type Line/Column/Span and the
+  nested placement matched byte-for-byte (golden == Parser.cs). REAL-CORPUS FILES: no in-repo `.nl` file fits
+  the current narrow subset — the pure-data candidates (`PlaygroundWasmModels.nl`, `SystemsAotReport.nl`,
+  `SystemsReportSummary.nl`, `SystemsEffectFacts.nl`) are all `public` positional records (Modifiers.Public +
+  PrimaryConstructorParameters, both deferred), so a real-file whole-tree comparison is deferred to the
+  tranche that materializes modifiers + primary-ctor params + methods; the realistic multi-field/nested/
+  user-named-type surfaces above were triangulated against the live Parser.cs oracle in their place.
+  EVIDENCE: BootstrapServices contracts 1225/1225 (1217 tranche-2 baseline + 8, fresh CLEAN `rm -rf obj bin`
+  + `dotnet test -p:NSharpExcludeTests=false`); the 1217 baseline unchanged proves the member side-effect
+  still does not perturb diagnostics; dev.sh Parser 381/381; ownership audit 18/18. Production compile path
+  UNTOUCHED — `ParseFileAst` still has ZERO callers outside its `.tests.nl` (grep across src+editors+tests);
+  Parser.cs stays the sole production authority. Only `.nl`/`.tests.nl`/`.md` changed (all ratchet-ignored)
+  → no ownership repin. No LSP/VS Code change → no reload. NO two-stage bootstrap wall (byte-exact idioms —
+  no planner/kernel/OpCode change; the packaged SDK self-emitted the new constructs incl. the nullable
+  `TypeReference?` return local, the `List<List<Declaration> >` stack field, and the `.Span`-via-factory
+  set). Next: TRANCHE 4 — properties/methods/constructors (blocked on statement/expression body
+  materialization), then modifiers/attributes/primary-ctor params/richer type references, then the remaining
+  member + statement/expression families.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 2 = ClassDeclaration materialized + the tranche-1 blocker ROOT-CAUSED and DISPROVEN. The mandate's #1
   item was "resolve the ClassDeclaration blocker" recorded in tranche 1 (`new ClassDeclaration(...)` supposedly
   declines in the columnar constructor planner when nullable-generic-list args are null AND the `BaseClass:
