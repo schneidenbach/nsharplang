@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 1 — CompilationUnit container + FileImports + struct/interface/enum/record skeleton)
+Last updated: 2026-07-24 (STAGE N+1c tranche 2 — ClassDeclaration materialized; tranche-1 "planner-gap" blocker DISPROVEN — it was a simple-name TYPE COLLISION, resolved by a fully-qualified name, no planner change / no wall)
 
 ## Cursor
 
@@ -19,10 +19,13 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 1 — CompilationUnit container + F
 - Task 016 status: UNCHECKED, ARC IN PROGRESS. The diagnostic-CAPABILITY arc (Stages 0-17) is COMPLETE and the
   parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction), N+1b
   (the full AST-hierarchy MIGRATION from C# records to N# classes — the C# `Ast/` directory DELETED, CompilationUnit now
-  owner-constructable, the Except site made reference-based), and N+1c TRANCHE 1 (the owner's `ParseFileAst` now returns a
+  owner-constructable, the Except site made reference-based), N+1c TRANCHE 1 (the owner's `ParseFileAst` now returns a
   real `CompilationUnit` for the container + preamble + FileImports + empty-body struct/interface/enum/record top-level
-  declarations, proven node-by-node equal to Parser.cs by the reflection deep-equal harness `AstEq`; contracts 1215/1215;
-  ClassDeclaration deferred on a columnar constructor-planner gap) have ALL landed — see the THIS-TURN Active sub-slice +
+  declarations, proven node-by-node equal to Parser.cs by the reflection deep-equal harness `AstEq`; contracts 1215/1215),
+  and N+1c TRANCHE 2 (ClassDeclaration materialized, +2 contracts → 1217/1217; the tranche-1 "constructor-planner gap"
+  was DISPROVEN — the real cause was a simple-name TYPE COLLISION with test-helper classes in
+  AnalyzerDeclarationContext.tests.nl, resolved by the byte-exact fully-qualified-name idiom, no planner change / no wall)
+  have ALL landed — see the THIS-TURN Active sub-slice +
   the "## 016 AST/facts bridge (N+1) design record" section. Capability-arc
   summary follows (STAGE 17 landed — the CAPABILITY SURFACE IS NOW COMPLETE: residual map
   item [5], the LAST capability family — the garbage-type cascade shapes [`class 5` / `struct 5` non-`{` braced
@@ -76,6 +79,65 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 1 — CompilationUnit container + F
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 2 = ClassDeclaration materialized + the tranche-1 blocker ROOT-CAUSED and DISPROVEN. The mandate's #1
+  item was "resolve the ClassDeclaration blocker" recorded in tranche 1 (`new ClassDeclaration(...)` supposedly
+  declines in the columnar constructor planner when nullable-generic-list args are null AND the `BaseClass:
+  TypeReference?` param is present). THAT THEORY IS WRONG. The real root cause is a SIMPLE-NAME TYPE COLLISION:
+  `AnalyzerDeclarationContext.tests.nl` (namespace `NSharpLang.Compiler`) defines LOCAL test-helper classes named
+  `ClassDeclaration`, `TypeAliasDeclaration`, `FieldDeclaration` (dummy stand-ins for the reflection-`object`
+  AnalyzerDeclarationContext tests). The owner's namespace `NSharpLang.Compiler.Columnar` imports BOTH
+  `NSharpLang.Compiler` and `NSharpLang.Compiler.Ast`, so when the test files are compiled (tests-enabled build),
+  the simple name `ClassDeclaration` resolves AMBIGUOUSLY (two visible types, neither in the owner's own namespace)
+  → `TryResolveExactExplicitTypeInContext` fails → the columnar construction planner declines. struct/record/
+  interface/enum have NO colliding test-helper → resolve unambiguously → emit (which is why tranche 1 saw ONLY
+  ClassDeclaration decline and mis-attributed it to the `BaseClass` param). PROOF (all empirical, clean builds):
+  (a) the tests-EXCLUDED build (no test helpers present) EMITS the identical `new ClassDeclaration(name, null, null,
+  [], [], null, None, [], line, col)` fine — so it is NOT an intrinsic construction gap; (b) under tests-ENABLED
+  the empty-LIST-args variant AND the assign-to-a-local-then-Add variant BOTH decline identically → not the null
+  generic-list args; (c) `TypeReference` is a `class`, so a null BaseClass adopts via ldnull, and the resolver scores
+  a null-literal arg 4 against any reference/nullable param → not the null; (d) `AnalyzerDeclarationContext.tests.nl`
+  itself does `new ClassDeclaration("X")` and is GREEN because its SAME-NAMESPACE local helper wins resolution.
+  RESOLUTION (byte-exact idiom, the mandate's preferred path — NO planner extension, so NO two-stage bootstrap wall):
+  fully-qualify the type at the construction site — `new NSharpLang.Compiler.Ast.ClassDeclaration(...)` — which
+  resolves uniquely to the real AST type; identical type, args, and runtime node values (byte-exact). Applied at the
+  owner's `ParseClassName` site AND at the harness `Golden.AddClass` (which is in `NSharpLang.Compiler.Columnar` and
+  imports both namespaces, so it had the same collision). WHAT LANDED in `ColumnarParserRecovery.nl` (+7 lines):
+  `ParseClassName` now appends `new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new
+  List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), classToken.Line,
+  classToken.Column)` — byte-exact to Parser.cs :973 (Line/Column on the class keyword per :933-934; TypeParameters/
+  BaseClass/PrimaryConstructorParameters null per :943/:952/:946; Interfaces/Members/Attributes empty; Modifiers.None)
+  for the empty-body / modifier-free corpus. HARNESS (`ColumnarParserAst.tests.nl`): `Golden.AddClass` added (FQN'd);
+  the ClassDeclaration field registry was already present from tranche 1; +2 contracts (empty-body class materializes
+  null TypeParameters/BaseClass/PrimaryConstructorParameters — Parser.cs :973; a class-alongside-a-struct preserves
+  declaration order + per-line anchoring). CORRECTED the stale tranche-1 deferral comment in the harness. EVIDENCE:
+  BootstrapServices contracts 1217/1217 (1215 tranche-1 baseline + 2, fresh CLEAN `dotnet test
+  -p:NSharpExcludeTests=false`); the 1215 baseline unchanged proves the AST side-effect still does not perturb
+  diagnostics; dev.sh Parser 381/381. Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers
+  outside its `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. Only
+  `.nl`/`.tests.nl` files changed (both ratchet-ignored) → no ownership repin. No LSP/VS Code change → no reload. NO
+  two-stage bootstrap wall (byte-exact idiom, no planner/kernel/OpCode change; the packaged SDK self-emits it).
+  MEMBER GRAMMAR — RECUT to TRANCHE 3, but PROVEN VIABLE this turn (de-risked, no blocker): probes (clean, tests-
+  enabled) show `new NSharpLang.Compiler.Ast.SimpleTypeReference("int", l, c)` + `new
+  NSharpLang.Compiler.Ast.FieldDeclaration(...)` EMIT, and — crucially — setting the byte-exact `TypeReference.Span`
+  via `SourceSpan.FromStartAndLength(l, c, len)` ALSO emits. The cumulative "no value-struct construction" gap applies
+  to `new SourceSpan(...)` but NOT to a static FACTORY that returns the struct; and for a single-token simple type
+  Parser.cs's `SpanFromTokens(t, t)` (Parser.cs :5873, `new SourceSpan(sl, sc, sl, sc+max(1,len))`) is value-equal to
+  `SourceSpan.FromStartAndLength(sl, sc, len)` — so byte-exact spans ARE achievable via the factory. `nlc query ast`
+  serializes every public property (OutputFormatter.AstValueToJson :138-143), so `TypeReference.Span`/`NameSpan` ARE
+  observed and MUST be set for the golden==Parser.cs triangulation. TRANCHE-3 MECHANISM (recorded): (1) thread a
+  `CurrentTypeMembers` recovery field through `ParseTypeBody` (save/restore around the recursive call for NESTED
+  types — currently the type parsers append unconditionally to top-level `DeclarationNodes`, which would mis-place a
+  nested type's node; replace `DeclarationNodes.Add(...)` with an `AddDeclaration` that targets `CurrentTypeMembers`
+  when set); (2) make `ParseModifiers`/`ParseAttributes` return the parsed `Modifiers`/`List<AttributeNode>` for
+  byte-exact member `.Modifiers`/`.Attributes` (or restrict the first member corpus to no-modifier/no-attribute
+  plain fields, `Modifiers.None`+`[]`); (3) materialize FieldDeclaration first (the simplest, initializer-free
+  `name: type` corpus — no expression stub needed since Initializer is null), then properties/methods(signatures)/
+  ctors/nested-types; (4) FQN the colliding member names (`FieldDeclaration`, `TypeAliasDeclaration`). FOLLOW-UP
+  (optional, filed as a chip): the three shadowing test-helper types in `AnalyzerDeclarationContext.tests.nl` are a
+  latent hazard for ALL member tranches — renaming them (e.g. `Stub*`) would let the whole owner use simple names,
+  but FQN is the lower-risk per-site idiom and is what this tranche used. Next: TRANCHE 3 — thread members through
+  ParseTypeBody and materialize the FieldDeclaration family per the mechanism above.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 1 = the CompilationUnit CONTAINER + FileImports + the top-level TYPE-declaration skeleton (struct/interface/
   enum/record). The owner's (already full-diagnostic-parity) recovery grammar now CONSTRUCTS the production
   `CompilationUnit` as it parses, materialized as a PURE side-effect into recovery fields (the N+1a pattern, so the
@@ -1809,15 +1871,26 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 - N+1c: extend the owner's recovery grammar (already at full diagnostic parity) to also MATERIALIZE the full node tree
   (declarations/statements/expressions) it currently parses for diagnostics only, returning a real `CompilationUnit`;
   prove node-by-node structural equality against Parser.cs on the parity corpus (comparison in `.tests.nl` only).
-  - TRANCHE 1 LANDED (this turn): `ParseFileAst` returns a real `CompilationUnit` for the container + preamble +
+  - TRANCHE 1 LANDED: `ParseFileAst` returns a real `CompilationUnit` for the container + preamble +
     FileImports + empty-body struct/interface/enum/record top-level declarations, proven node-by-node equal to
     Parser.cs by the reflection deep-equal harness `AstEq` in `ColumnarParserAst.tests.nl` (13 contracts; 1215/1215
-    BootstrapServices). ClassDeclaration deferred — columnar constructor-planner gap on `new ClassDeclaration(...)`
-    with null nullable-generic-list args + the `BaseClass: TypeReference?` param (see the THIS-TURN Active sub-slice).
-  - TRANCHE 2+ (next): fix/route the ClassDeclaration construction, then materialize members (fields/methods/ctors/
-    props), type-references, parameters, type-params/base-types, modifiers/attributes, then statement bodies, then
-    expressions/patterns — extending the same `AstEq` harness per family until a whole valid-or-malformed file parses
-    into (CompilationUnit, Errors) provably equal to Parser.cs.
+    BootstrapServices). ClassDeclaration deferred on a MISDIAGNOSED "planner gap" (see tranche 2).
+  - TRANCHE 2 LANDED (this turn): ClassDeclaration materialized (empty-body/modifier-free corpus), +2 contracts
+    (1217/1217). The tranche-1 ClassDeclaration blocker was root-caused and DISPROVEN — it was NOT a columnar
+    constructor-planner gap on the `BaseClass: TypeReference?` param but a SIMPLE-NAME TYPE COLLISION:
+    `AnalyzerDeclarationContext.tests.nl` defines local test-helper classes `ClassDeclaration`/`TypeAliasDeclaration`/
+    `FieldDeclaration` (namespace `NSharpLang.Compiler`) that collide, under the tests-enabled build, with the real
+    `NSharpLang.Compiler.Ast.*` types the owner constructs, making the simple name resolve ambiguously. Resolved with
+    the byte-exact fully-qualified-name idiom (`new NSharpLang.Compiler.Ast.ClassDeclaration(...)`) — NO planner
+    extension, NO two-stage wall. Full detail + the member-tranche viability proofs are in the THIS-TURN Active
+    sub-slice.
+  - TRANCHE 3+ (next): thread a members list through `ParseTypeBody` (nesting-safe save/restore) and materialize the
+    member families — FieldDeclaration first (initializer-free `name: type`), then properties/methods(signatures)/
+    ctors/nested-types — with byte-exact `TypeReference`s (SimpleTypeReference + `.Span` via the
+    `SourceSpan.FromStartAndLength` factory, PROVEN to emit this turn — the value-struct-construction gap does not
+    block the factory path), parameters, type-params/base-types, modifiers/attributes; then statement bodies, then
+    expressions/patterns — extending the same `AstEq` harness per family (FQN the colliding member names). Proceed
+    until a whole valid-or-malformed file parses into (CompilationUnit, Errors) provably equal to Parser.cs.
 - N+2 (CUTOVER, IDE-AFFECTING): at full AST + diagnostic parity, route every consumer (MultiFileCompiler.ParseAllFiles,
   DocumentManager, Analyzer's 4 sites, Formatter, CLI format/lint, CodeIntelligence, Playground) to the N# owner. VS
   Code-enabled gate + extension reinstall + computer-use visual check. No shadow route.

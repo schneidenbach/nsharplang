@@ -205,12 +205,17 @@ public class Golden {
         return new CompilationUnit(ns, imports, fileImports, pkg, decls, line, column)
     }
 
-    // NOTE: ClassDeclaration is DEFERRED from tranche 1 — the columnar constructor planner declines the
-    // `new ClassDeclaration(...)` call whenever a nullable-generic-list arg (TypeParameters/
-    // PrimaryConstructorParameters) is null AND the extra `BaseClass: TypeReference?` param is present
-    // (struct/record/interface/enum, which lack that param, emit fine with the same null args). A
-    // zero-null construction emits, but that is not byte-exact to Parser.cs's null. Deferred to the next
-    // tranche pending the emitter fix / a byte-exact null-typing idiom.
+    // N+1c tranche 2: ClassDeclaration is now materialized. The tranche-1 "constructor-planner gap on the
+    // BaseClass param" was a MISDIAGNOSIS: the real cause is a SIMPLE-NAME TYPE COLLISION —
+    // `AnalyzerDeclarationContext.tests.nl` defines a local test-helper `class ClassDeclaration` (namespace
+    // `NSharpLang.Compiler`) that collides, under the tests-enabled build, with the real
+    // `NSharpLang.Compiler.Ast.ClassDeclaration`. This file imports BOTH namespaces, so the simple name
+    // resolves ambiguously and the columnar planner declines. Fully qualifying the type resolves it
+    // uniquely — byte-exact, no planner change, no wall. (struct/record/interface/enum have no colliding
+    // helper, which is why tranche 1 saw only ClassDeclaration decline.)
+    public static func AddClass(decls: List<Declaration>, name: string, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
 
     public static func AddStruct(decls: List<Declaration>, name: string, line: int, column: int) {
         decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
@@ -302,6 +307,23 @@ test "016 N+1c: a 'record struct' sets IsStruct=true with Line/Column on the rec
     actual := RunAst("record struct R {}")
     decls := new List<Declaration>()
     Golden.AddRecord(decls, "R", true, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: an empty-body class materializes null TypeParameters/BaseClass/PrimaryConstructorParameters (Parser.cs :973)" {
+    actual := RunAst("class C {}")
+    decls := new List<Declaration>()
+    Golden.AddClass(decls, "C", 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c: a class alongside a struct preserves declaration order and per-line anchoring (Parser.cs :80-90/:973/:1010)" {
+    actual := RunAst("class C {}\nstruct S {}")
+    decls := new List<Declaration>()
+    Golden.AddClass(decls, "C", 1, 1)
+    Golden.AddStruct(decls, "S", 2, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

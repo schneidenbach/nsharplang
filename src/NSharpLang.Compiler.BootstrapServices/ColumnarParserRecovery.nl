@@ -2025,6 +2025,21 @@ public class ColumnarParserRecovery {
         }
         ParseBaseTypeList()
         ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 2: materialize the ClassDeclaration for the empty-body / modifier-free corpus
+        // (Parser.cs :973). Line/Column anchor the class keyword (Parser.cs :933-934 capture Current
+        // before consuming 'class', i.e. the classToken position). TypeParameters/BaseClass/
+        // PrimaryConstructorParameters are null (Parser.cs :943/:952/:946 for the empty-shape corpus),
+        // Interfaces/Members/Attributes empty, Modifiers.None. The type is FULLY QUALIFIED
+        // (`NSharpLang.Compiler.Ast.ClassDeclaration`) deliberately: `AnalyzerDeclarationContext.tests.nl`
+        // defines a local test-helper `class ClassDeclaration` in namespace `NSharpLang.Compiler`, which
+        // collides with the real Ast type under the tests-enabled build (this file imports BOTH namespaces),
+        // so the simple name resolves ambiguously and the columnar construction planner declines. The FQN
+        // resolves uniquely — byte-exact (same Ast type/args/node), no planner change. This was the tranche-1
+        // "constructor-planner gap on the BaseClass param": a mis-diagnosed name collision, not a planner gap.
+        DeclarationNodes.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(
+            name, null, null, new List<TypeReference>(), new List<Declaration>(),
+            null, Modifiers.None, new List<AttributeNode>(),
+            classToken.Line, classToken.Column))
     }
 
     func ParseStructName() {
