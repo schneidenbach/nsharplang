@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 3 — MEMBERS threaded through type bodies: FieldDeclaration + simple TypeReference materialized, Members populated on class/struct/record/interface shells, nested-type recursion routed via AddDeclaration; +N contracts)
+Last updated: 2026-07-24 (STAGE N+1c tranche 4 LANDED — MODIFIERS + PRIMARY-CONSTRUCTOR PARAMETERS + argument-free ATTRIBUTES materialized; WHOLE-FILE equality achieved on THREE real-corpus public-positional-record files [PlaygroundWasmModels/SystemsAotReport/SystemsReportSummary]; +13 contracts → 1238/1238)
 
 ## Cursor
 
@@ -79,6 +79,65 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 3 — MEMBERS threaded through type
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 4 = MODIFIERS + PRIMARY-CONSTRUCTOR PARAMETERS + argument-free ATTRIBUTES. MILESTONE ACHIEVED:
+  WHOLE-FILE `ParseFileAst(corpus) == golden` on THREE real-corpus public-positional-record files
+  (PlaygroundWasmModels.nl [int/string, 3 params], SystemsAotReport.nl [string/bool, 4 params],
+  SystemsReportSummary.nl [7 int params]) — exceeding the ≥2 bar; each golden triangulated against LIVE Parser.cs
+  via `nlc query ast`, so owner == golden (by the AstEq contract) == Parser.cs (by the query-ast oracle). These
+  were the tranche-3 pure-data candidates, blocked ONLY on `Modifiers.Public` + the primary-ctor Parameter list.
+  CONSTRUCTION-SITE INVENTORY (owner, each byte-exact to Parser.cs): (1) MODIFIERS — `ParseModifiers` now returns
+  the byte-exact `Modifiers` Parser.cs :215/:298 hangs on the node. It accumulates an int bitmask (`value = value |
+  System.Convert.ToInt32(Modifiers.X)`) over Parser.cs's exact recognized flag set/order (Public/Private/Static/
+  Internal/Protected/Virtual/Override/Abstract/Sealed/Partial/Async/File) and returns `(Modifiers)value` — the
+  emittable idiom (DeclarationFacts.nl :52 / TypeInfoFactories.nl :938; enum bitwise operators route through the C#
+  fenced residual and are avoided in dogfood .nl). Consumption is PRESERVED exactly: `Readonly` (never a ParseModifiers
+  flag in Parser.cs) is still consumed via `IsModifierKeyword` for recovery but contributes NO flag (the 1225 diagnostic
+  baseline stayed green, proving zero consumption/report perturbation). System.Convert is FULLY-QUALIFIED (no
+  `import System` — the 7270-line owner has 214 bare `Type`/27 `Func`/… identifiers, a collision hazard). (2)
+  PRIMARY-CTOR PARAMS — `ParseParameterListRecovery` now RETURNS `List<Parameter>` and materializes each parameter as
+  a PURE side-effect of the existing diagnostic parse (byte-exact to Parser.cs :811 — `new Parameter(paramName, paramType,
+  null [DefaultValue], false [IsThis], ParameterModifier.None, null [Attributes], paramLine, paramColumn, false [IsScoped],
+  null [Lifetime])`; Line/Column on the param-name start :796-797). `ParseParameterTypeReference` now returns
+  `TypeReference?` reusing the field single-token-identifier heuristic (Parser.cs :1959 — `new SimpleTypeReference(name,
+  line, column) { Span = SpanFromTokens(t,t) }` ≡ `FromStartAndLength(t.Line, t.Column, t.Value.Length)`), else null for
+  richer forms. (3) ATTRIBUTES — `ParseAttributes` now RETURNS `List<AttributeNode>`, materializing the argument-free
+  shape byte-exact to Parser.cs :292 (`new AttributeNode(name, [], attrLine, attrColumn)`; Line = the `[` line, Column =
+  the `[` column + 1, Parser.cs :274-275). (4) THREADING + GATE — both dispatch sites (ParseTopLevelDeclaration :761 +
+  the member-level ParseMemberDeclaration :1424) capture `attributes`/`attrsOk`/`modifiers` and thread them into the five
+  materializing name parsers (ParseClassName/ParseStructName/ParseRecordName/ParseInterfaceName/ParseEnumName, now taking
+  `(modifiers, attributes, attrsOk)`). Each applies a NO-STUB materialization GATE — `canMaterialize := attrsOk && paramsOk
+  && !hasTypeParams && !hasBaseList` — so a declaration carrying a DEFERRED feature (a richer/qualified/generic param
+  type, a param default `=`, a per-parameter or argument-bearing attribute, a generic type-parameter list, or a base/
+  interface list) is DECLINED (no node added) rather than partially compared. Two transient recovery fields
+  (`ParamListMaterializable` / `AttributesMaterializable`) carry the gate signals, captured into the caller's local
+  IMMEDIATELY (before the body parse whose nested params/attrs would reset them). RICHER TypeReference forms
+  (generic/qualified/array/nullable/tuple/Func), attribute-with-args, generics, and base lists stay DEFERRED-and-
+  UNMATERIALIZED (the corpus uses none). DELIVERABLES: `ColumnarParserRecovery.nl` 7,117 → 7,270 (+153 net; +266/−113):
+  the two gate fields + ParseModifiers/ModifierFlagOrZero rewrite + ParseAttributes materialization + ParseParameterList-
+  Recovery/ParseParameterTypeReference materialization + the two dispatch rewrites + the five name-parser rewrites.
+  `ColumnarParserAst.tests.nl` 520 → 719 (+199): registered `Parameter` + `AttributeNode` in AstEq.FieldNames; added
+  `AddParam`/`AddRecordParams`/`AddStructFull`/`AddClassFull`/`AddAttr`/`Mods2` golden builders; +13 contracts. CONTRACTS
+  (+13, all AstEq owner==golden): 3 WHOLE-FILE corpus equalities (the milestone); a public struct (Modifiers.Public); a
+  `public sealed class` (multi-flag bitmask Public|Sealed = 129, proving the OR accumulation); an argument-free `[Foo]
+  struct` (AttributeNode); a `record R(a: int, b: string)`; 4 NO-STUB decline gates (richer generic param type / param
+  default value / generic type-param list / argument-bearing attribute — each proven to leave Declarations EMPTY, the
+  intentional deferral, NOT a Parser.cs-parity claim); 2 negative self-checks (a wrong Modifiers value + a wrong param
+  type both caught, guarding the new comparison paths against a vacuous pass). GOTCHA RESOLVED: `params` is a reserved
+  keyword (TokenType.Params) — the golden builders/locals use `paramList`; and `(Modifiers)(<parenthesized expr>)` fails
+  the columnar cast-detection parse — cast a bare local (`value := …; return (Modifiers)value`) instead. EVIDENCE:
+  BootstrapServices contracts 1238/1238 (1225 tranche-3 baseline + 13; fresh CLEAN `rm -rf obj bin` + `dotnet test
+  -p:NSharpExcludeTests=false`); the 1225 baseline unchanged proves the materialization side-effect + the ParseModifiers/
+  ParseAttributes/ParseParameterListRecovery return-value refactor still do NOT perturb the diagnostic stream; dev.sh
+  Parser 381/381; ownership audit 18/18. Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers
+  outside its `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. Only
+  `.nl`/`.tests.nl`/`.md` changed (all ratchet-ignored) → no ownership repin (audit 18/18 confirms). No LSP/VS Code change
+  → no reload. NO two-stage bootstrap wall (byte-exact idioms — int OR / `(Modifiers)value` cast / `System.Convert.ToInt32`
+  FQN / nullable `TypeReference?` + non-null `List<Parameter>` returns / `new Parameter` / `new AttributeNode` /
+  `List<Argument>` — no planner/kernel/OpCode change; the packaged SDK self-emitted them, clean build). Next: TRANCHE 5 —
+  richer TypeReference forms in param/field types (generic/qualified/array/nullable/tuple/Func materialization from the
+  owned stage-15 grammar), then functions/properties/methods/constructors (blocked on statement/expression body
+  materialization), then the remaining member + statement/expression families.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 3 = MEMBERS threaded through the type bodies. The owner now materializes a POPULATED `Members` list
   on every class/struct/record/interface shell, the FieldDeclaration member for the initializer-free
   `name: <simple type>` corpus, and NESTED-type recursion (a nested type lands in its enclosing type's

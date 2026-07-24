@@ -176,6 +176,17 @@ public class AstEq {
         if typeName == "SimpleTypeReference" {
             return Names("Name Line Column Span")
         }
+        // N+1c tranche 4 (modifiers + primary-ctor params): the Parameter node (compared element-by-element
+        // inside a declaration's PrimaryConstructorParameters list) and the AttributeNode (compared inside a
+        // declaration's Attributes list). Parameter.Type recurses into its SimpleTypeReference; Modifier /
+        // IsThis / IsScoped / DefaultValue / Attributes / Lifetime are compared as scalars (null/enum/bool).
+        // AttributeNode.Arguments is an empty Argument list for the argument-free materialized shape.
+        if typeName == "Parameter" {
+            return Names("Name Type DefaultValue IsThis Modifier Attributes Line Column IsScoped Lifetime")
+        }
+        if typeName == "AttributeNode" {
+            return Names("Name Arguments Line Column")
+        }
         return null
     }
 
@@ -275,6 +286,47 @@ public class Golden {
         simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
         simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, simple, null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
+    }
+
+    // N+1c tranche 4 (primary-ctor params): append a byte-exact simple-typed Parameter to a params list,
+    // mirroring Parser.cs :811 (`new Parameter(name, type, null, false, ParameterModifier.None, null, line,
+    // column, false, null)`). The Type is a single-token SimpleTypeReference whose Span is
+    // SpanFromTokens(t,t) ≡ FromStartAndLength(typeLine, typeColumn, typeName.Length) — the same construction
+    // as a field type (Parser.cs :1959).
+    public static func AddParam(paramList: List<Parameter>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
+        simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
+        simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
+        paramList.Add(new Parameter(name, simple, null, false, ParameterModifier.None, null, line, column, false, null))
+    }
+
+    // N+1c tranche 4: a record with a primary-constructor parameter list (empty body, no interfaces/generics,
+    // no attributes) — the public-positional-record real-corpus shape. Modifiers is the threaded value.
+    public static func AddRecordParams(decls: List<Declaration>, name: string, paramList: List<Parameter>, modifiers: Modifiers, line: int, column: int) {
+        decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), paramList, false, modifiers, new List<AttributeNode>(), line, column))
+    }
+
+    // N+1c tranche 4: a struct with threaded modifiers + attributes, no primary-ctor params (null), empty body.
+    public static func AddStructFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
+        decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, modifiers, attrs, line, column, false))
+    }
+
+    // N+1c tranche 4: a class with threaded modifiers + attributes, no primary-ctor params (null), empty body.
+    // FQN'd to dodge the tests-enabled `class ClassDeclaration` test-helper collision.
+    public static func AddClassFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), new List<Declaration>(), null, modifiers, attrs, line, column))
+    }
+
+    // N+1c tranche 4: append an argument-free AttributeNode (Parser.cs :292 — empty Argument list; line = the
+    // `[` line, column = the `[` column + 1).
+    public static func AddAttr(attrs: List<AttributeNode>, name: string, line: int, column: int) {
+        attrs.Add(new AttributeNode(name, new List<Argument>(), line, column))
+    }
+
+    // N+1c tranche 4: build the exact multi-flag Modifiers value (e.g. public sealed = Public | Sealed = 129)
+    // via the int-bitmask + `(Modifiers)value` idiom, matching what the owner's ParseModifiers produces.
+    public static func Mods2(a: Modifiers, b: Modifiers): Modifiers {
+        value := System.Convert.ToInt32(a) | System.Convert.ToInt32(b)
+        return (Modifiers)value
     }
 
     public static func AddImport(imports: List<ImportDirective>, ns: string, alias: string?, line: int, column: int) {
@@ -517,4 +569,151 @@ test "016 N+1c: AstEq.Diff reports a mismatched field type rather than passing v
     diff := AstEq.Diff(expected, actual, "unit")
     assert diff != ""
     assert diff == "unit.Declarations[0].Members[0].Type.Name: String(long) != String(int)"
+}
+
+// ============================================================================
+// tranche 4: MODIFIERS + PRIMARY-CONSTRUCTOR PARAMETERS + argument-free ATTRIBUTES.
+// All golden positions/modifiers below are triangulated against the LIVE Parser.cs via `nlc query ast` on
+// the identical source (owner == golden by these contracts; golden == Parser.cs by the query-ast oracle).
+// ============================================================================
+
+// ---- MODIFIERS ----
+
+test "016 N+1c tranche 4: a public struct carries Modifiers.Public (Parser.cs :298/:1010)" {
+    actual := RunAst("namespace N\n\npublic struct S {}\n")
+    decls := new List<Declaration>()
+    Golden.AddStructFull(decls, "S", Modifiers.Public, new List<AttributeNode>(), 3, 8)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: `public sealed class` accumulates the flag bitmask Public|Sealed (Parser.cs :298)" {
+    actual := RunAst("namespace N\n\npublic sealed class C {}\n")
+    decls := new List<Declaration>()
+    Golden.AddClassFull(decls, "C", Golden.Mods2(Modifiers.Public, Modifiers.Sealed), new List<AttributeNode>(), 3, 15)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- ARGUMENT-FREE ATTRIBUTES ----
+
+test "016 N+1c tranche 4: `[Foo] struct S` materializes an argument-free AttributeNode (Parser.cs :292)" {
+    actual := RunAst("namespace N\n\n[Foo] struct S {}\n")
+    attrs := new List<AttributeNode>()
+    Golden.AddAttr(attrs, "Foo", 3, 2)
+    decls := new List<Declaration>()
+    Golden.AddStructFull(decls, "S", Modifiers.None, attrs, 3, 7)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- PRIMARY-CONSTRUCTOR PARAMETERS ----
+
+test "016 N+1c tranche 4: a record materializes its positional parameters (Parser.cs :811/:1039/:1055)" {
+    actual := RunAst("namespace N\n\nrecord R(a: int, b: string) {}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParam(paramList, "a", "int", 3, 13, 3, 10)
+    Golden.AddParam(paramList, "b", "string", 3, 21, 3, 18)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "R", paramList, Modifiers.None, 3, 1)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- WHOLE-FILE REAL-CORPUS EQUALITY (THE MILESTONE) ----
+// The source strings below are the EXACT byte content of the in-repo real-corpus files.
+
+test "016 N+1c tranche 4: WHOLE-FILE equality on PlaygroundWasmModels.nl (public positional record)" {
+    actual := RunAst("namespace NSharpLang.Playground.Wasm\n\npublic record PlaygroundVersionResponse(\n    SchemaVersion: int,\n    Compiler: string,\n    WasmHost: string) {\n}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParam(paramList, "SchemaVersion", "int", 4, 20, 4, 5)
+    Golden.AddParam(paramList, "Compiler", "string", 5, 15, 5, 5)
+    Golden.AddParam(paramList, "WasmHost", "string", 6, 15, 6, 5)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "PlaygroundVersionResponse", paramList, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Playground.Wasm", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: WHOLE-FILE equality on SystemsAotReport.nl (string/bool positional record)" {
+    actual := RunAst("namespace NSharpLang.Compiler.Performance\n\npublic record SystemsAotReport(\n    Target: string,\n    Analysis: string,\n    NativeImageEmitted: bool,\n    TrimSafe: bool) {\n}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParam(paramList, "Target", "string", 4, 13, 4, 5)
+    Golden.AddParam(paramList, "Analysis", "string", 5, 15, 5, 5)
+    Golden.AddParam(paramList, "NativeImageEmitted", "bool", 6, 25, 6, 5)
+    Golden.AddParam(paramList, "TrimSafe", "bool", 7, 15, 7, 5)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "SystemsAotReport", paramList, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.Performance", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: WHOLE-FILE equality on SystemsReportSummary.nl (7-field int positional record)" {
+    actual := RunAst("namespace NSharpLang.Compiler.Performance\n\npublic record SystemsReportSummary(\n    Functions: int,\n    HotFunctions: int,\n    BoundaryFunctions: int,\n    Findings: int,\n    Errors: int,\n    Warnings: int,\n    TrustedSites: int) {\n}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParam(paramList, "Functions", "int", 4, 16, 4, 5)
+    Golden.AddParam(paramList, "HotFunctions", "int", 5, 19, 5, 5)
+    Golden.AddParam(paramList, "BoundaryFunctions", "int", 6, 24, 6, 5)
+    Golden.AddParam(paramList, "Findings", "int", 7, 15, 7, 5)
+    Golden.AddParam(paramList, "Errors", "int", 8, 13, 8, 5)
+    Golden.AddParam(paramList, "Warnings", "int", 9, 15, 9, 5)
+    Golden.AddParam(paramList, "TrustedSites", "int", 10, 19, 10, 5)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "SystemsReportSummary", paramList, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.Performance", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NO-STUB DECLINE GATES (the owner declines rather than partially comparing) ----
+// These prove the materialization gate: a declaration carrying a DEFERRED feature (a richer parameter type,
+// a default value, a generic type-parameter list, or an argument-bearing attribute) is NOT materialized, so
+// the owner's Declarations stays empty rather than emitting a partial/wrong node. (Parser.cs DOES materialize
+// these; the empty result is the owner's intentional no-stub deferral, not a Parser.cs-parity claim.)
+
+test "016 N+1c tranche 4: a richer (generic) parameter type DECLINES record materialization (no-stub)" {
+    actual := RunAst("record R(x: List<int>) {}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: a parameter with a default value DECLINES record materialization (no-stub)" {
+    actual := RunAst("record R(x: int = 5) {}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: a generic type-parameter list DECLINES record materialization (no-stub)" {
+    actual := RunAst("record R<T>(x: int) {}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 4: an argument-bearing attribute DECLINES declaration materialization (no-stub)" {
+    actual := RunAst("[Attr(1)] struct S {}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NEGATIVE SELF-CHECKS (guard the new comparison paths against a vacuous pass) ----
+
+test "016 N+1c tranche 4: AstEq.Diff catches a mismatched Modifiers value rather than passing vacuously" {
+    actual := RunAst("namespace N\n\npublic struct S {}\n")
+    decls := new List<Declaration>()
+    Golden.AddStructFull(decls, "S", Modifiers.None, new List<AttributeNode>(), 3, 8)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Modifiers: Modifiers(None) != Modifiers(Public)"
+}
+
+test "016 N+1c tranche 4: AstEq.Diff catches a mismatched parameter type rather than passing vacuously" {
+    actual := RunAst("namespace N\n\nrecord R(a: int) {}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParam(paramList, "a", "long", 3, 13, 3, 10)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "R", paramList, Modifiers.None, 3, 1)
+    expected := Golden.Unit(Golden.Ns("N", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].PrimaryConstructorParameters[0].Type.Name: String(long) != String(int)"
 }

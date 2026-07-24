@@ -178,6 +178,16 @@ public class ColumnarParserRecovery {
     // NESTED type declaration in its enclosing type's Members rather than at the top level. The `> >` space
     // is the standard `>>`-tokenizer workaround for a nested-generic type.
     TypeMemberStack: List<List<Declaration> >
+    // Stage N+1c tranche 4 (modifiers + primary-ctor params): transient no-stub materialization gates,
+    // set by the sub-parsers and captured by the caller into a local IMMEDIATELY. ParamListMaterializable
+    // is cleared by ParseParameterListRecovery when a primary-ctor parameter is not byte-exactly
+    // representable (a non-simple type, a default value, a modifier/this, or an attribute), so the enclosing
+    // declaration declines materialization rather than emitting a partial parameter list. AttributesMaterializable
+    // is cleared by ParseAttributes when an attribute carries arguments (Argument/Expression nodes are a later
+    // tranche) or its name is `<error>`, so the enclosing declaration declines rather than emitting an
+    // argument-free attribute node where Parser.cs would carry arguments.
+    ParamListMaterializable: bool
+    AttributesMaterializable: bool
 
     constructor(source: string, fileName: string?) {
         Source = source
@@ -198,6 +208,8 @@ public class ColumnarParserRecovery {
         UnitLine = 0
         UnitColumn = 0
         TypeMemberStack = new List<List<Declaration> >()
+        ParamListMaterializable = true
+        AttributesMaterializable = true
 
         lexer := new Lexer(source, fileName)
         rawTokens := lexer.Tokenize()
@@ -758,27 +770,31 @@ public class ColumnarParserRecovery {
             return
         }
 
-        // Attributes precede modifiers (Parser.cs :214).
-        ParseAttributes()
-        ParseModifiers()
+        // Attributes precede modifiers (Parser.cs :214). Both are captured (attributes as a real
+        // AttributeNode list, attrsOk = whether every attribute was byte-exactly materializable) and threaded
+        // into the materializing name parsers (Stage N+1c tranche 4). ParseModifiers now returns the exact
+        // Modifiers value Parser.cs :215 hangs on the declaration node.
+        attributes := ParseAttributes()
+        attrsOk := AttributesMaterializable
+        modifiers := ParseModifiers()
 
         if Check(TokenType.Func) {
             ParseFunctionName()
             return
         }
         if Check(TokenType.Class) {
-            ParseClassName()
+            ParseClassName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Ref) {
             if LookAhead(1).Type == TokenType.Struct {
                 Advance()
-                ParseStructName()
+                ParseStructName(modifiers, attributes, attrsOk)
                 return
             }
         }
         if Check(TokenType.Struct) {
-            ParseStructName()
+            ParseStructName(modifiers, attributes, attrsOk)
             return
         }
         if IsSoaRecordDeclarationStart() {
@@ -786,16 +802,16 @@ public class ColumnarParserRecovery {
             return
         }
         if Check(TokenType.Record) {
-            ParseRecordName()
+            ParseRecordName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Interface) {
-            ParseInterfaceName()
+            ParseInterfaceName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Duck) {
             if LookAhead(1).Type == TokenType.Interface {
-                ParseInterfaceName()
+                ParseInterfaceName(modifiers, attributes, attrsOk)
                 return
             }
         }
@@ -804,7 +820,7 @@ public class ColumnarParserRecovery {
             return
         }
         if Check(TokenType.Enum) {
-            ParseEnumName()
+            ParseEnumName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Type) {
@@ -824,32 +840,56 @@ public class ColumnarParserRecovery {
         Advance()
     }
 
-    // Consume leading modifier keywords (Parser.cs ParseModifiers, :298) so a modifier-led
-    // declaration reaches its keyword.
-    func ParseModifiers() {
+    // Consume leading modifier keywords (Parser.cs ParseModifiers, :298) so a modifier-led declaration
+    // reaches its keyword, and RETURN the byte-exact Modifiers value Parser.cs hangs on the declaration node.
+    // The flags are accumulated as an int bitmask and cast back with `(Modifiers)value` — the emittable idiom
+    // (DeclarationFacts.nl :52 / TypeInfoFactories.nl :938; enum bitwise operators route through the C# fenced
+    // residual and are avoided in dogfood N#). The VALUE set exactly mirrors Parser.cs's recognized flags and
+    // order (Public/Private/Static/Internal/Protected/Virtual/Override/Abstract/Sealed/Partial/Async/File);
+    // Readonly (which Parser.cs's ParseModifiers never maps — Const/Readonly/Required/Init/Generator are set
+    // elsewhere) is still CONSUMED for recovery robustness via IsModifierKeyword but contributes NO flag,
+    // keeping the token consumption identical to the prior owner while the value matches Parser.cs.
+    func ParseModifiers(): Modifiers {
+        value := 0
         scanning := true
         while scanning {
-            if !TryConsumeModifier() {
+            t := Current().Type
+            flag := ModifierFlagOrZero(t)
+            if flag != 0 {
+                value = value | flag
+                Advance()
+            } else if t == TokenType.Public {
+                value = value | System.Convert.ToInt32(Modifiers.Public)
+                Advance()
+            } else if t == TokenType.Private {
+                value = value | System.Convert.ToInt32(Modifiers.Private)
+                Advance()
+            } else if ParserTokenFacts.IsModifierKeyword(t) {
+                // A modifier keyword Parser.cs's ParseModifiers does not map to a flag (Readonly): consumed
+                // for recovery, no flag contribution.
+                Advance()
+            } else {
                 scanning = false
             }
         }
+        return (Modifiers)value
     }
 
-    func TryConsumeModifier(): bool {
-        t := Current().Type
-        if t == TokenType.Public {
-            Advance()
-            return true
-        }
-        if t == TokenType.Private {
-            Advance()
-            return true
-        }
-        if ParserTokenFacts.IsModifierKeyword(t) {
-            Advance()
-            return true
-        }
-        return false
+    // The Parser.cs ParseModifiers flag for a modifier token, or 0 when the token is not one of the flags
+    // ParseModifiers maps (Public/Private are handled by the caller since they are checked before
+    // IsModifierKeyword in the owner's dispatch order).
+    func ModifierFlagOrZero(t: TokenType): int {
+        if t == TokenType.Static { return System.Convert.ToInt32(Modifiers.Static) }
+        if t == TokenType.Internal { return System.Convert.ToInt32(Modifiers.Internal) }
+        if t == TokenType.Protected { return System.Convert.ToInt32(Modifiers.Protected) }
+        if t == TokenType.Virtual { return System.Convert.ToInt32(Modifiers.Virtual) }
+        if t == TokenType.Override { return System.Convert.ToInt32(Modifiers.Override) }
+        if t == TokenType.Abstract { return System.Convert.ToInt32(Modifiers.Abstract) }
+        if t == TokenType.Sealed { return System.Convert.ToInt32(Modifiers.Sealed) }
+        if t == TokenType.Partial { return System.Convert.ToInt32(Modifiers.Partial) }
+        if t == TokenType.Async { return System.Convert.ToInt32(Modifiers.Async) }
+        if t == TokenType.File { return System.Convert.ToInt32(Modifiers.File) }
+        return 0
     }
 
     func IsSoaRecordDeclarationStart(): bool {
@@ -1167,14 +1207,23 @@ public class ColumnarParserRecovery {
 
     // ---- parameter list (Parser.cs ParseParameterList :751) ----
 
-    func ParseParameterListRecovery() {
+    func ParseParameterListRecovery(): List<Parameter> {
         // Minimal recovery vehicle. The params/ref/out/this modifiers, scoped/lifetime annotations,
         // default values, and the IsParameterListRecoveryBoundary early break are LATER arc stages; the
         // member/parameter corpus uses none of them. Stage 16 carries the per-parameter attribute list
         // (Parser.cs :770). Stage 9 carries the trailing-comma recovery (Parser.cs :761) and routes the
         // closing ')' through ConsumeToken so the missing-')' closing-delimiter recovery (NL107) is reachable.
+        // Stage N+1c tranche 4: MATERIALIZE each parameter as a byte-exact `Parameter` node (Parser.cs :811),
+        // a PURE side-effect of the existing diagnostic parse. `ParamListMaterializable` is cleared when the
+        // list is not byte-exactly representable (an error/missing name, a non-simple type, a per-parameter
+        // attribute, a trailing default `=`, or the trailing-comma recovery), so the caller declines the whole
+        // declaration rather than comparing a partial list. Non-corpus modifier/this/scoped shapes surface as
+        // an `<error>` name (a leading `ref`/`out`/`this` is a reserved keyword to ConsumeNameWithSpan), which
+        // the name-error guard already declines.
+        ParamListMaterializable = true
+        paramNodes := new List<Parameter>()
         if !Check(TokenType.LeftParen) {
-            return
+            return paramNodes
         }
         Advance()                               // consume '('
 
@@ -1189,19 +1238,34 @@ public class ColumnarParserRecovery {
                 if Check(TokenType.RightParen) && Previous().Type == TokenType.Comma && lastParameterStartToken != null {
                     startToken := lastParameterStartToken ?? Current()
                     ReportMissingParameterAfterTrailingComma(DiagnosticSpanFromTokenRange(startToken, Previous()))
+                    ParamListMaterializable = false     // trailing-comma malformed list → decline
                     parsing = false
                 } else {
                     // Per-parameter attributes (Parser.cs :770), before the modifier/name.
-                    ParseAttributes()
+                    paramAttrs := ParseAttributes()
                     paramStartToken := Current()
                     paramLine := Current().Line
                     paramColumn := Current().Column
                     paramName := ConsumeNameWithSpan("Expected parameter name", GetMissingParameterNameDiagnosticSpan())
                     ConsumeParameterColon(paramName, paramLine, paramColumn)
-                    ParseParameterTypeReference(paramName, paramLine, paramColumn)
+                    paramType := ParseParameterTypeReference(paramName, paramLine, paramColumn)
 
                     if paramName != "<error>" {
                         lastParameterStartToken = paramStartToken
+                    }
+
+                    // Materialize the byte-exact Parameter (Parser.cs :811) for the simple corpus shape:
+                    // a non-error name, a single-token SimpleTypeReference (paramType non-null), no per-parameter
+                    // attribute, and no trailing default `=`. DefaultValue null / IsThis false /
+                    // ParameterModifier.None / null Attributes / IsScoped false / null Lifetime — the values the
+                    // owner's diagnostic parse (which does not consume modifiers/this/defaults) leaves at their
+                    // corpus defaults. Line/Column anchor the parameter name (Parser.cs :796-797).
+                    if paramName != "<error>" && paramType != null && paramAttrs.Count == 0 && !Check(TokenType.Assign) {
+                        paramNodes.Add(new Parameter(
+                            paramName, paramType, null, false, ParameterModifier.None,
+                            null, paramLine, paramColumn, false, null))
+                    } else {
+                        ParamListMaterializable = false
                     }
 
                     // Parser.cs's `do { … } while (Match(Comma))`.
@@ -1217,6 +1281,7 @@ public class ColumnarParserRecovery {
         // Parser.cs Consume(RightParen) (:819): a present ')' advances; a missing one routes through the
         // Stage-9 closing-delimiter recovery (NL107) or the standard ExpectedToken path.
         ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        return paramNodes
     }
 
     // Parser.cs ReportMissingParameterAfterTrailingComma (:6487).
@@ -1321,11 +1386,23 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseParameterTypeReference (:6504). Consumes a full type reference (Parser.cs :6507
     // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
     // the missing-type diagnostic anchored on the parameter name when a type terminator sits where the
-    // type should be.
-    func ParseParameterTypeReference(parameterName: string, parameterLine: int, parameterColumn: int) {
+    // type should be. Stage N+1c tranche 4: RETURN the byte-exact `SimpleTypeReference` for a single-token
+    // identifier type — IDENTICAL to Parser.cs :1959 (`new SimpleTypeReference(name, line, column) { Span =
+    // SpanFromTokens(t, t) }`, since a single-token type has lastNameToken == typeNameToken and SpanFromTokens(t,t)
+    // ≡ FromStartAndLength(t.Line, t.Column, t.Value.Length)) — the SAME heuristic ParseFieldTypeReference uses.
+    // Richer forms (qualified / generic / array / nullable / tuple / Func) advance more than one token and return
+    // null (deferred → the caller declines to materialize the parameter, no-stub).
+    func ParseParameterTypeReference(parameterName: string, parameterLine: int, parameterColumn: int): TypeReference? {
         if !IsTypeTerminator(Current().Type) {
+            typeToken := Current()
+            startPosition := Position
             ParseTypeReferenceRecovery()
-            return
+            if typeToken.Type == TokenType.Identifier && Position == startPosition + 1 {
+                simple := new SimpleTypeReference(typeToken.Value, typeToken.Line, typeToken.Column)
+                simple.Span = SourceSpan.FromStartAndLength(typeToken.Line, typeToken.Column, typeToken.Value.Length)
+                return simple
+            }
+            return null
         }
         visible := IsVisibleName(parameterName)
         span := TypeErrorAnchor(visible, parameterLine, parameterColumn, parameterName)
@@ -1344,6 +1421,7 @@ public class ColumnarParserRecovery {
             hint,
             SingleSuggestion("Add a parameter type after ':'"),
             span.Length)
+        return null
     }
 
     // ---- braced type body → member list → field family (Parser.cs :1359/:1412/:1637) ----
@@ -1590,22 +1668,24 @@ public class ColumnarParserRecovery {
             return
         }
 
-        // Stage 16: member attributes precede modifiers (Parser.cs :1424).
-        ParseAttributes()
-        ParseModifiers()
+        // Stage 16: member attributes precede modifiers (Parser.cs :1424). Stage N+1c tranche 4 threads the
+        // captured modifiers + attributes into a nested type declaration (same as the top-level dispatch).
+        attributes := ParseAttributes()
+        attrsOk := AttributesMaterializable
+        modifiers := ParseModifiers()
 
         // Nested type declarations (Parser.cs :1428-1460), in the same dispatch order.
         if Check(TokenType.Class) {
-            ParseClassName()
+            ParseClassName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct {
             Advance()
-            ParseStructName()
+            ParseStructName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Struct) {
-            ParseStructName()
+            ParseStructName(modifiers, attributes, attrsOk)
             return
         }
         if IsSoaRecordDeclarationStart() {
@@ -1613,11 +1693,11 @@ public class ColumnarParserRecovery {
             return
         }
         if Check(TokenType.Record) {
-            ParseRecordName()
+            ParseRecordName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Enum) {
-            ParseEnumName()
+            ParseEnumName(modifiers, attributes, attrsOk)
             return
         }
         if Check(TokenType.Union) {
@@ -1625,7 +1705,7 @@ public class ColumnarParserRecovery {
             return
         }
         if Check(TokenType.Interface) {
-            ParseInterfaceName()
+            ParseInterfaceName(modifiers, attributes, attrsOk)
             return
         }
 
@@ -2066,7 +2146,7 @@ public class ColumnarParserRecovery {
         return suggestions
     }
 
-    func ParseClassName() {
+    func ParseClassName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         classToken := Current()
         Advance()
         nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :937)
@@ -2079,34 +2159,47 @@ public class ColumnarParserRecovery {
         }
         // Type parameter list `<T>` (Stage 5, Parser.cs :943) — parsed after the name, before the body,
         // so a malformed `class C<> { }` reports ReportMissingTypeParameterName. A no-op for the
-        // non-generic class corpus (Check(Less) is false → returns immediately).
+        // non-generic class corpus (Check(Less) is false → returns immediately). Its PRESENCE gates
+        // materialization (a TypeParameter list is a deferred family — see canMaterialize below).
+        hasTypeParams := Check(TokenType.Less)
         ParseTypeParameters()
         // Primary constructor parameters `(…)` (Parser.cs :947) and the base class + interface list
-        // `: T, U` (Parser.cs :955) — Stage 14.
-        if Check(TokenType.LeftParen) {
-            ParseParameterListRecovery()
+        // `: T, U` (Parser.cs :955). The params are materialized as the byte-exact Parameter list when the
+        // list is fully representable (ParamListMaterializable), captured into a local BEFORE the body parse.
+        hasParams := Check(TokenType.LeftParen)
+        primaryParams := new List<Parameter>()
+        paramsOk := true
+        if hasParams {
+            primaryParams = ParseParameterListRecovery()
+            paramsOk = ParamListMaterializable
         }
+        hasBaseList := Check(TokenType.Colon)
         ParseBaseTypeList()
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 2/3: materialize the ClassDeclaration for the empty-/simple-field-body, modifier-free
-        // corpus (Parser.cs :973). Line/Column anchor the class keyword (Parser.cs :933-934 capture Current
-        // before consuming 'class', i.e. the classToken position). TypeParameters/BaseClass/
-        // PrimaryConstructorParameters are null (Parser.cs :943/:952/:946 for the empty-shape corpus),
-        // Interfaces/Attributes empty, Modifiers.None. Members is the tranche-3 populated list from
-        // ParseTypeBody (simple fields + nested types). The type is FULLY QUALIFIED
-        // (`NSharpLang.Compiler.Ast.ClassDeclaration`) deliberately: `AnalyzerDeclarationContext.tests.nl`
-        // defines a local test-helper `class ClassDeclaration` in namespace `NSharpLang.Compiler`, which
-        // collides with the real Ast type under the tests-enabled build (this file imports BOTH namespaces),
-        // so the simple name resolves ambiguously and the columnar construction planner declines. The FQN
-        // resolves uniquely — byte-exact (same Ast type/args/node), no planner change. AddDeclaration routes
-        // this to the enclosing type's Members when nested, else the top level.
-        AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
-            name, null, null, new List<TypeReference>(), members,
-            null, Modifiers.None, new List<AttributeNode>(),
-            classToken.Line, classToken.Column))
+        // N+1c tranche 2/3/4: materialize the ClassDeclaration (Parser.cs :973). Line/Column anchor the class
+        // keyword (Parser.cs :933-934). Modifiers + Attributes are the tranche-4 threaded values;
+        // PrimaryConstructorParameters is the captured Parameter list (or null when absent). TypeParameters
+        // stays null and Interfaces/BaseClass empty/null — a generic or base/interface list is a DEFERRED
+        // family, so its presence DECLINES materialization (no-stub: never partially compared). Members is the
+        // tranche-3 populated list. FULLY QUALIFIED (`NSharpLang.Compiler.Ast.ClassDeclaration`): a test-helper
+        // `class ClassDeclaration` in NSharpLang.Compiler collides under the tests-enabled build.
+        canMaterialize := attrsOk && paramsOk && !hasTypeParams && !hasBaseList
+        if canMaterialize {
+            if hasParams {
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
+                    name, null, null, new List<TypeReference>(), members,
+                    primaryParams, modifiers, attributes,
+                    classToken.Line, classToken.Column))
+            } else {
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
+                    name, null, null, new List<TypeReference>(), members,
+                    null, modifiers, attributes,
+                    classToken.Line, classToken.Column))
+            }
+        }
     }
 
-    func ParseStructName() {
+    func ParseStructName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         structToken := Current()
         Advance()
         nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :982)
@@ -2116,23 +2209,39 @@ public class ColumnarParserRecovery {
         if name == "<error>" {
             typeBodyDiagnosticSpan = new RecoverySpan(structToken.Line, structToken.Column, MaxInt(1, 6))
         }
+        hasTypeParams := Check(TokenType.Less)
         ParseTypeParameters()
-        if Check(TokenType.LeftParen) {
-            ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
+        hasParams := Check(TokenType.LeftParen)
+        primaryParams := new List<Parameter>()
+        paramsOk := true
+        if hasParams {
+            primaryParams = ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
+            paramsOk = ParamListMaterializable
         }
+        hasBaseList := Check(TokenType.Colon)
         ParseBaseTypeList()                     // interface list (Parser.cs :998)
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1/3: materialize the StructDeclaration for the empty-/simple-field-body, modifier-free
-        // corpus (Parser.cs :1010). isRefStruct is false for the `struct S {}` corpus (`ref struct` is a
-        // deferred modifier-bearing shape). Members is the tranche-3 populated list from ParseTypeBody.
-        // Deferred families take Parser.cs's empty-shape defaults.
-        AddDeclaration(new StructDeclaration(
-            name, null, new List<TypeReference>(), members,
-            null, Modifiers.None, new List<AttributeNode>(),
-            structToken.Line, structToken.Column, false))
+        // N+1c tranche 1/3/4: materialize the StructDeclaration (Parser.cs :1010). isRefStruct is false for
+        // the `struct S {}` corpus (`ref struct` is a deferred shape). Modifiers/Attributes/PrimaryConstructor-
+        // Parameters are the tranche-4 threaded/captured values; a generic or interface list DECLINES
+        // materialization (no-stub). Members is the tranche-3 populated list.
+        canMaterialize := attrsOk && paramsOk && !hasTypeParams && !hasBaseList
+        if canMaterialize {
+            if hasParams {
+                AddDeclaration(new StructDeclaration(
+                    name, null, new List<TypeReference>(), members,
+                    primaryParams, modifiers, attributes,
+                    structToken.Line, structToken.Column, false))
+            } else {
+                AddDeclaration(new StructDeclaration(
+                    name, null, new List<TypeReference>(), members,
+                    null, modifiers, attributes,
+                    structToken.Line, structToken.Column, false))
+            }
+        }
     }
 
-    func ParseRecordName() {
+    func ParseRecordName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         recordToken := Current()
         Advance()
         // `record struct` consumes the contextual `struct` before the name (Parser.cs :1021).
@@ -2148,20 +2257,37 @@ public class ColumnarParserRecovery {
         if name == "<error>" {
             typeBodyDiagnosticSpan = new RecoverySpan(recordToken.Line, recordToken.Column, MaxInt(1, 6))
         }
+        hasTypeParams := Check(TokenType.Less)
         ParseTypeParameters()                   // Parser.cs :1033
-        if Check(TokenType.LeftParen) {
-            ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1037)
+        hasParams := Check(TokenType.LeftParen)
+        primaryParams := new List<Parameter>()
+        paramsOk := true
+        if hasParams {
+            primaryParams = ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1039)
+            paramsOk = ParamListMaterializable
         }
+        hasBaseList := Check(TokenType.Colon)
         ParseBaseTypeList()                     // interface list (Parser.cs :1043)
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1/3: materialize the RecordDeclaration for the empty-/simple-field-body,
-        // positional-free corpus (Parser.cs :1052-ish). IsStruct reflects the consumed `record struct`
-        // contextual keyword. Members is the tranche-3 populated list from ParseTypeBody. Positional
-        // parameters + interfaces are deferred families → empty-shape defaults.
-        AddDeclaration(new RecordDeclaration(
-            name, null, new List<TypeReference>(), members,
-            null, isStruct, Modifiers.None, new List<AttributeNode>(),
-            recordToken.Line, recordToken.Column))
+        // N+1c tranche 1/3/4: materialize the RecordDeclaration (Parser.cs :1055). IsStruct reflects the
+        // consumed `record struct`. Modifiers/Attributes are the tranche-4 threaded values; PrimaryConstructor-
+        // Parameters is the captured Parameter list (or null when absent) — THE UNLOCK for the public-positional-
+        // record real-corpus files. A generic or interface list DECLINES materialization (no-stub). Members is
+        // the tranche-3 populated list.
+        canMaterialize := attrsOk && paramsOk && !hasTypeParams && !hasBaseList
+        if canMaterialize {
+            if hasParams {
+                AddDeclaration(new RecordDeclaration(
+                    name, null, new List<TypeReference>(), members,
+                    primaryParams, isStruct, modifiers, attributes,
+                    recordToken.Line, recordToken.Column))
+            } else {
+                AddDeclaration(new RecordDeclaration(
+                    name, null, new List<TypeReference>(), members,
+                    null, isStruct, modifiers, attributes,
+                    recordToken.Line, recordToken.Column))
+            }
+        }
     }
 
     func ParseSoaRecordName() {
@@ -2185,7 +2311,7 @@ public class ColumnarParserRecovery {
         ParseSoaRecordBody(soaDiagnosticSpan, soaLine)
     }
 
-    func ParseInterfaceName() {
+    func ParseInterfaceName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         interfaceLine := Current().Line
         interfaceColumn := Current().Column
         isDuck := false
@@ -2212,18 +2338,22 @@ public class ColumnarParserRecovery {
         if name == "<error>" {
             typeBodyDiagnosticSpan = new RecoverySpan(interfaceLine, interfaceColumn, MaxInt(1, keywordLength))
         }
+        hasTypeParams := Check(TokenType.Less)
         ParseTypeParameters()                   // Parser.cs :1147
+        hasBaseList := Check(TokenType.Colon)
         ParseBaseTypeList()                     // base interface list (Parser.cs :1150)
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
-        // N+1c tranche 1/3: materialize the InterfaceDeclaration for the empty-/simple-field-body,
-        // modifier-free corpus (Parser.cs :1150-return). Line/Column = the first-token position (`duck` if
-        // present, else `interface`) — the interfaceLine/interfaceColumn captured above match Parser.cs
-        // :1130-1131. Members is the tranche-3 populated list from ParseTypeBody. TypeParameters/
-        // BaseInterfaces/Modifiers/Attributes are deferred → empty-shape defaults.
-        AddDeclaration(new InterfaceDeclaration(
-            name, null, new List<TypeReference>(), members,
-            Modifiers.None, isDuck, new List<AttributeNode>(),
-            interfaceLine, interfaceColumn))
+        // N+1c tranche 1/3/4: materialize the InterfaceDeclaration (Parser.cs :1150-return). Line/Column = the
+        // first-token position (`duck` if present, else `interface`). Modifiers/Attributes are the tranche-4
+        // threaded values; a generic or base-interface list is a DEFERRED family that DECLINES materialization
+        // (no-stub). Members is the tranche-3 populated list. Interfaces have no primary-ctor params.
+        canMaterialize := attrsOk && !hasTypeParams && !hasBaseList
+        if canMaterialize {
+            AddDeclaration(new InterfaceDeclaration(
+                name, null, new List<TypeReference>(), members,
+                modifiers, isDuck, attributes,
+                interfaceLine, interfaceColumn))
+        }
     }
 
     func ParseUnionName() {
@@ -2242,7 +2372,7 @@ public class ColumnarParserRecovery {
         ParseUnionBody(unionDiagnosticSpan, unionLine)
     }
 
-    func ParseEnumName() {
+    func ParseEnumName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         enumLine := Current().Line
         enumColumn := Current().Column
         enumToken := Current()
@@ -2270,13 +2400,17 @@ public class ColumnarParserRecovery {
             }
         }
         ParseEnumBody(enumDiagnosticSpan, enumLine)
-        // N+1c tranche 1/3: materialize the EnumDeclaration for the empty-body / modifier-free corpus
-        // (Parser.cs :1189). Members are the deferred family (member values are expressions) → empty list;
-        // the corpus uses valueless empty enums so this is byte-exact. AddDeclaration routes it to an
+        // N+1c tranche 1/3/4: materialize the EnumDeclaration for the empty-body corpus (Parser.cs :1189).
+        // Members are the deferred family (member values are expressions) → empty list; the corpus uses
+        // valueless empty enums so this is byte-exact. Modifiers/Attributes are the tranche-4 threaded values.
+        // The `: int|string` backing type is the EnumType (handled above), not a base list — no base-list gate.
+        // An argument-bearing attribute DECLINES materialization (no-stub). AddDeclaration routes it to an
         // enclosing type's Members when the enum is nested, else the top level.
-        AddDeclaration(new EnumDeclaration(
-            name, new List<EnumMember>(), enumType, Modifiers.None, new List<AttributeNode>(),
-            enumLine, enumColumn))
+        if attrsOk {
+            AddDeclaration(new EnumDeclaration(
+                name, new List<EnumMember>(), enumType, modifiers, attributes,
+                enumLine, enumColumn))
+        }
     }
 
     // Parser.cs ParseSoaRecordDeclaration's generic-soa report (:1074).
@@ -7090,20 +7224,39 @@ public class ColumnarParserRecovery {
     // ConsumeAttributeIdentifier (Identifier/Alloc/Allow, else the owned ConsumeIdentifier NL102); the
     // optional `(args)` reuses the Stage-10 ParseArgumentList; the closing `]` routes through the
     // Stage-9 closing-delimiter recovery (ConsumeToken → NL108 when unclosed, else the plain NL102).
-    func ParseAttributes() {
+    // Stage N+1c tranche 4: return the materialized `AttributeNode` list (Parser.cs :292 —
+    // `new AttributeNode(name, args, attributeLine, attributeColumn)`; the line is the `[` line, the column is
+    // the `[` column + 1 — Parser.cs :274-275). The ARGUMENT-FREE shape materializes a byte-exact node with an
+    // empty Argument list; an argument-bearing attribute (or an `<error>` name) carries Argument/Expression
+    // nodes that are a later tranche, so it clears `AttributesMaterializable` and the enclosing declaration
+    // declines materialization (no-stub — never partially compared). Callers capture `AttributesMaterializable`
+    // into a local immediately after this returns.
+    func ParseAttributes(): List<AttributeNode> {
+        AttributesMaterializable = true
+        attributes := new List<AttributeNode>()
         while Check(TokenType.LeftBracket) {
+            attrLine := Current().Line
+            attrColumn := Current().Column + 1          // Parser.cs :275
             Advance()                                   // consume '['
-            ConsumeAttributeIdentifier("Expected attribute name")
+            name := ConsumeAttributeIdentifier("Expected attribute name")
             while Check(TokenType.Dot) {
                 Advance()                               // consume '.'
-                ConsumeAttributeIdentifier("Expected identifier after '.'")
+                name = name + "." + ConsumeAttributeIdentifier("Expected identifier after '.'")
             }
+            hasArgs := false
             if Check(TokenType.LeftParen) {
+                hasArgs = true
                 Advance()                               // consume '('
                 ParseArgumentList()
             }
             ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+            if hasArgs || name == "<error>" {
+                AttributesMaterializable = false        // argument/error attribute → decline the declaration
+            } else {
+                attributes.Add(new AttributeNode(name, new List<Argument>(), attrLine, attrColumn))
+            }
         }
+        return attributes
     }
 
     // Parser.cs ConsumeAttributeIdentifier (:6811): an attribute name may be an Identifier or the
