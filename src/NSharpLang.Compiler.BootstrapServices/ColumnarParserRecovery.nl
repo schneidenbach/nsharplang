@@ -1199,21 +1199,36 @@ public class ColumnarParserRecovery {
         ParseMemberList(typeBodyDiagnosticSpan)
     }
 
-    // Parser.cs ParseMemberList (:1359): reset panic at each MEMBER boundary (:1365), parse one
-    // member, force-advance on no progress (:1379). Stage 4 parses FIELD members only; nested-type /
-    // constructor / method / record-positional / union-case member grammars are LATER arc stages.
-    // Stage 9 carries the type-body end-of-file missing-'}' (NL106) report (:1396), anchored on the
-    // type-body diagnostic span (the type name, or the declaration keyword for a '<error>' name).
+    // Parser.cs ParseMemberList (:1359): reset panic at each MEMBER boundary (:1365), track the
+    // member's start column as the recovery boundary (:1367-1376), parse one member, and on no
+    // progress synchronize then force-advance (:1379). Stage 14 dispatches the FULL member grammar
+    // (ParseMemberDeclaration); Stage 4 parsed FIELD members only. Stage 9 carries the type-body
+    // end-of-file missing-'}' (NL106) report (:1396), anchored on the type-body diagnostic span (the
+    // type name, or the declaration keyword for a '<error>' name).
     func ParseMemberList(ownerSpan: RecoverySpan?) {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
             SplitGreaterDepth = 0
             startPosition := Position
-            ParseFieldMember()
+            // The member's start column is the recovery boundary for its own body/initializer
+            // expression recovery (Parser.cs :1367-1376, saved/restored around ParseMemberDeclaration).
+            prevBoundary := RecoveryBoundaryColumn
+            prevHasBoundary := HasRecoveryBoundaryColumn
+            RecoveryBoundaryColumn = Current().Column
+            HasRecoveryBoundaryColumn = true
+            ParseMemberDeclaration()
+            RecoveryBoundaryColumn = prevBoundary
+            HasRecoveryBoundaryColumn = prevHasBoundary
 
+            // No-progress guard (Parser.cs :1379-1388): synchronize, then force-advance.
             if Position == startPosition {
                 if !IsAtEnd() {
-                    Advance()
+                    SynchronizeToNextStatement()
+                    if Position == startPosition {
+                        if !IsAtEnd() {
+                            Advance()
+                        }
+                    }
                 }
             }
         }
@@ -1240,22 +1255,461 @@ public class ColumnarParserRecovery {
 
     // Parser.cs ParseMemberDeclaration (:1412) FIELD/PROPERTY fall-through (:1481) → ParseFieldDeclaration
     // (:1637). Field name errors funnel through the shared no-span ConsumeIdentifier Parser.cs uses at
-    // :1666 (a field name is never a dot-access, so its plain message variants apply).
+    // :1666 (a field name is never a dot-access, so its plain message variants apply). Stage 14 carries the
+    // property forms: the leading required/init/readonly modifiers, the expression-bodied `=> expr` property,
+    // and the `{ get/set }` accessor block (with its "Expected 'get' or 'set'" reports).
     func ParseFieldMember() {
         line := Current().Line
         column := Current().Column
+
+        // Property modifiers required/init/readonly (Parser.cs :1644) — combinable, no diagnostic.
+        scanningPropModifiers := true
+        while scanningPropModifiers {
+            if Check(TokenType.Required) || Check(TokenType.Init) || Check(TokenType.Readonly) {
+                Advance()
+            } else {
+                scanningPropModifiers = false
+            }
+        }
+
         name := ConsumeIdentifier("Expected field name")
 
-        // Type inference `Name := value` (Parser.cs :1670): a well-formed inferred field ends the
-        // member with no diagnostic. Corpus fields are all explicitly typed.
+        // Type inference `Name := value` (Parser.cs :1670).
         if Check(TokenType.ColonAssign) {
             Advance()
-            ParseLiteralBearingExpression()
+            ParseExprValue()
             return
         }
 
         fieldColonToken := ConsumeFieldColon(name, line, column)
         ParseFieldTypeReference(name, line, column, fieldColonToken)
+
+        // Expression-bodied property `name: type => expr` (Parser.cs :1683).
+        if Check(TokenType.Arrow) {
+            Advance()
+            ParseExprValue()
+            return
+        }
+
+        // Property with `{ get/set }` accessors (Parser.cs :1691).
+        if Check(TokenType.LeftBrace) {
+            Advance()                           // consume '{'
+            while !Check(TokenType.RightBrace) && !IsAtEnd() {
+                if Check(TokenType.Identifier) {
+                    accessorLine := Current().Line
+                    accessorColumn := Current().Column
+                    accessor := Current().Value
+                    Advance()
+                    accessorSpan := new RecoverySpan(accessorLine, accessorColumn, MaxInt(1, accessor.Length))
+                    if accessor == "get" {
+                        ParseBlock(accessorSpan)
+                    } else {
+                        if accessor == "set" {
+                            ParseBlock(accessorSpan)
+                        } else {
+                            ReportPropertyAccessorInvalidIdentifier(accessor)
+                            // Skip to the next accessor or the closing brace (Parser.cs :1732).
+                            while !Check(TokenType.RightBrace) && !Check(TokenType.Identifier) && !IsAtEnd() {
+                                Advance()
+                            }
+                        }
+                    }
+                } else {
+                    ReportPropertyAccessorExpectedGetSet()
+                    Advance()                   // skip the invalid token (Parser.cs :1752)
+                }
+            }
+            ConsumeToken(TokenType.RightBrace, "Expected '}' after property accessors", "}")
+            return
+        }
+
+        // Field `= initializer` (Parser.cs :1762).
+        if Check(TokenType.Assign) {
+            initializerToken := Advance()
+            ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This field declaration", null)
+        }
+    }
+
+    // Parser.cs ParseFieldDeclaration accessor error (:1718): an identifier that is neither 'get' nor
+    // 'set'. Anchored on the CURRENT token (Parser.cs advances past the bad accessor first) but sized to
+    // the bad accessor's length.
+    func ReportPropertyAccessorInvalidIdentifier(accessor: string) {
+        suggestions := new List<string>()
+        suggestions.Add("Example: get { return _value; }")
+        suggestions.Add("Example: set { _value = value; }")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected 'get' or 'set' accessor, got '" + accessor + "'",
+            Current().Line,
+            Current().Column,
+            "Property accessors must be either 'get' (for reading) or 'set' (for writing).",
+            "Use 'get' to define how to retrieve the property value, or 'set' to define how to assign a new value.",
+            suggestions,
+            accessor.Length)
+    }
+
+    // Parser.cs ParseFieldDeclaration accessor error (:1738): a non-identifier where an accessor is
+    // required. Anchored on and sized to the offending token.
+    func ReportPropertyAccessorExpectedGetSet() {
+        suggestions := new List<string>()
+        suggestions.Add("Add a 'get' accessor to make the property readable")
+        suggestions.Add("Add a 'set' accessor to make the property writable")
+        suggestions.Add("Example: { get { return _value; } set { _value = value; } }")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected 'get' or 'set' accessor. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "Inside property declaration braces, I need to see either 'get' or 'set' accessors.",
+            "Properties define how to get and/or set their values using accessor blocks.",
+            suggestions,
+            Current().Value.Length)
+    }
+
+    // ============================================================================
+    // Stage 14: the MEMBER grammars + the remaining type BODIES (residual map item [2]) — carried through
+    // the SAME shared-panic model over the already-owned expression / statement / type / delimiter / block
+    // grammars. ParseMemberList now dispatches the full ParseMemberDeclaration (Parser.cs :1412): the
+    // preprocessor member, modifiers, the nested-type declarations, the constructor, the indexer, methods
+    // (incl. func* generators / async / operator overloads / implicit-explicit conversions), and the
+    // field/property fall-through. The record / interface bodies reuse this member list; the union / enum /
+    // soa bodies have their OWN loops (carried in their name parsers below).
+    // ============================================================================
+
+    // Parser.cs ParseMemberDeclaration (:1412): the member dispatch. Attributes are residual [4] (deferred);
+    // the corpus carries no member attributes, so — like the top-level ParseTopLevelDeclaration — this omits
+    // ParseAttributes and consumes only the modifier keywords before the member-kind dispatch.
+    func ParseMemberDeclaration() {
+        // Preprocessor directive member (Parser.cs :1415).
+        if Check(TokenType.PreprocessorDirective) {
+            Advance()
+            return
+        }
+
+        ParseModifiers()
+
+        // Nested type declarations (Parser.cs :1428-1460), in the same dispatch order.
+        if Check(TokenType.Class) {
+            ParseClassName()
+            return
+        }
+        if Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct {
+            Advance()
+            ParseStructName()
+            return
+        }
+        if Check(TokenType.Struct) {
+            ParseStructName()
+            return
+        }
+        if IsSoaRecordDeclarationStart() {
+            ParseSoaRecordName()
+            return
+        }
+        if Check(TokenType.Record) {
+            ParseRecordName()
+            return
+        }
+        if Check(TokenType.Enum) {
+            ParseEnumName()
+            return
+        }
+        if Check(TokenType.Union) {
+            ParseUnionName()
+            return
+        }
+        if Check(TokenType.Interface) {
+            ParseInterfaceName()
+            return
+        }
+
+        // Constructor (Parser.cs :1463): the contextual `constructor` identifier.
+        if Check(TokenType.Identifier) && Current().Value == "constructor" {
+            ParseConstructorMember()
+            return
+        }
+
+        // Indexer (Parser.cs :1469): `func this[...]`, checked before the general method.
+        if Check(TokenType.Func) && LookAhead(1).Type == TokenType.This {
+            ParseIndexerMember()
+            return
+        }
+
+        // Method / conversion operator (Parser.cs :1475).
+        if Check(TokenType.Func) || Check(TokenType.Implicit) || Check(TokenType.Explicit) {
+            ParseMethodMember()
+            return
+        }
+
+        // Field / property (Parser.cs :1481).
+        ParseFieldMember()
+    }
+
+    // Parser.cs ParseConstructorDeclaration (:1484): `constructor(params) [: this(args) | : base(args)] { body }`.
+    // The `constructor` keyword is a contextual identifier; the initializer target must be `this` or `base`,
+    // else the ExpectedToken report fires and the offending token is skipped.
+    func ParseConstructorMember() {
+        line := Current().Line
+        column := Current().Column
+        Advance()                               // consume the 'constructor' identifier (Parser.cs :1488)
+        ParseParameterListRecovery()
+
+        // Optional initializer `: this(args)` / `: base(args)` (Parser.cs :1493).
+        if Check(TokenType.Colon) {
+            Advance()                           // Match(Colon) — advances past ':'
+            if Check(TokenType.This) {
+                Advance()
+                ConsumeToken(TokenType.LeftParen, "Expected '(' after 'this'", "(")
+                ParseArgumentList()
+            } else {
+                if Check(TokenType.Base) {
+                    Advance()
+                    ConsumeToken(TokenType.LeftParen, "Expected '(' after 'base'", "(")
+                    ParseArgumentList()
+                } else {
+                    ReportConstructorInitializerTarget()
+                    if !IsAtEnd() {
+                        Advance()               // skip the invalid token (Parser.cs :1555)
+                    }
+                }
+            }
+        }
+
+        // Body (Parser.cs :1559): ParseBlock consumes the '{' first, owner span on the 'constructor' keyword
+        // (length 11).
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, 11)))
+    }
+
+    // Parser.cs ParseConstructorDeclaration's initializer-target error (:1534).
+    func ReportConstructorInitializerTarget() {
+        suggestions := new List<string>()
+        suggestions.Add("Use 'this' to call another constructor in the same class")
+        suggestions.Add("Use 'base' to call a parent class constructor")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected 'this' or 'base' after ':'. Got '" + Current().Value + "'",
+            Current().Line,
+            Current().Column,
+            "In constructor initialization, the colon ':' must be followed by either 'this' (to call another constructor) or 'base' (to call parent constructor).",
+            "Constructor chaining syntax: 'constructor(params) : this(args) { }' or 'constructor(params) : base(args) { }'",
+            suggestions,
+            Current().Value.Length)
+    }
+
+    // Parser.cs ParseIndexerDeclaration (:1564): `func this[params]: retType { get/set }`.
+    func ParseIndexerMember() {
+        line := Current().Line
+        column := Current().Column
+        ConsumeToken(TokenType.Func, "Expected 'func'", "func")
+        ConsumeToken(TokenType.This, "Expected 'this'", "this")
+        ConsumeToken(TokenType.LeftBracket, "Expected '['", "[")
+
+        // Indexer parameter list (Parser.cs :1574): `name: Type` entries, comma-separated.
+        if !Check(TokenType.RightBracket) {
+            parsing := true
+            while parsing {
+                paramLine := Current().Line
+                paramColumn := Current().Column
+                paramName := ConsumeIdentifier("Expected parameter name")
+                ConsumeParameterColon(paramName, paramLine, paramColumn)
+                ParseParameterTypeReference(paramName, paramLine, paramColumn)
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    parsing = false
+                }
+            }
+        }
+
+        ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+        ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+        ParseTypeReferenceRecovery()
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+
+        // Accessor list (Parser.cs :1596): `get`/`set` blocks, else the "Expected 'get' or 'set' accessor"
+        // report + skip.
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            accessorLine := Current().Line
+            accessorColumn := Current().Column
+            accessor := ConsumeIdentifier("Expected 'get' or 'set'")
+            accessorSpan := new RecoverySpan(accessorLine, accessorColumn, MaxInt(1, accessor.Length))
+            if accessor == "get" {
+                ParseBlock(accessorSpan)
+            } else {
+                if accessor == "set" {
+                    ParseBlock(accessorSpan)
+                } else {
+                    ReportIndexerAccessorInvalid(accessor)
+                    while !Check(TokenType.RightBrace) && !Check(TokenType.Identifier) && !IsAtEnd() {
+                        Advance()
+                    }
+                }
+            }
+        }
+
+        ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+    }
+
+    // Parser.cs ParseIndexerDeclaration's accessor error (:1613).
+    func ReportIndexerAccessorInvalid(accessor: string) {
+        suggestions := new List<string>()
+        suggestions.Add("Example: get { return items[i]; }")
+        suggestions.Add("Example: set { items[i] = value; }")
+        Report(
+            ErrorCode.ExpectedToken,
+            "Expected 'get' or 'set' accessor, got '" + accessor + "'",
+            Current().Line,
+            Current().Column,
+            "Indexer accessors must be either 'get' (for reading) or 'set' (for writing).",
+            "Use 'get' to define how to retrieve a value, or 'set' to define how to assign a value.",
+            suggestions,
+            accessor.Length)
+    }
+
+    // Parser.cs ParseFunctionDeclaration (:373) reached as a MEMBER method: the func / func* generator /
+    // func operator / implicit-explicit conversion forms, the keyword-anchored name (ConsumeDeclarationName,
+    // DiagnosticSpanFromToken(funcToken), :435), the type parameters, the parameter list, the `: T` / `-> T`
+    // return type (or the missing-return-type-marker report), the returns-lifetime annotation, the generic
+    // constraints, and the `=> expr` / `{ }` body. Unlike a LOCAL function, a method with NO body is valid
+    // (an abstract / interface method), so there is no missing-body report.
+    func ParseMethodMember() {
+        line := Current().Line
+        column := Current().Column
+
+        isConversionOperator := false
+        name := "function"
+        markerName := "function"
+        markerLine := line
+        markerColumn := column
+        markerLength := MaxInt(1, Current().Value.Length)
+
+        if Check(TokenType.Implicit) || Check(TokenType.Explicit) {
+            // Conversion operator (Parser.cs :393): no 'func' keyword; the return type comes BEFORE params.
+            isConversionOperator = true
+            Advance()                           // consume 'implicit' / 'explicit'
+            ConsumeToken(TokenType.Operator, "Expected 'operator' after 'implicit' or 'explicit'", "operator")
+        } else {
+            funcToken := Current()
+            Advance()                           // consume 'func' (Parser.cs :406)
+            if Check(TokenType.Star) {
+                Advance()                       // generator func* (Parser.cs :409)
+            }
+            if Check(TokenType.Operator) {
+                // Operator overload (Parser.cs :415): `func operator SYM`. The return-type marker anchors on
+                // the `operator` keyword.
+                operatorToken := Advance()      // consume 'operator'
+                markerName = "operator overload"
+                markerLine = operatorToken.Line
+                markerColumn = operatorToken.Column
+                markerLength = MaxInt(1, operatorToken.Value.Length)
+                ParseOperatorSymbol()
+            } else {
+                nameLine := Current().Line
+                nameColumn := Current().Column
+                name = ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
+                if name != "<error>" {
+                    markerName = name
+                    markerLine = nameLine
+                    markerColumn = nameColumn
+                    markerLength = MaxInt(1, name.Length)
+                }
+            }
+        }
+
+        ParseTypeParameters()
+
+        // For conversion operators the return type is parsed BEFORE the parameter list (Parser.cs :452).
+        if isConversionOperator {
+            ParseTypeReferenceRecovery()
+        }
+
+        ParseParameterListRecovery()
+        parameterListEndToken := Previous()
+
+        // Return type after the params (Parser.cs :462): `: T` or `-> T`, else the missing-marker report.
+        if !isConversionOperator {
+            if Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater) {
+                if Check(TokenType.Colon) {
+                    Advance()
+                } else {
+                    Advance()                   // consume '-'
+                    ConsumeToken(TokenType.Greater, "Expected '>' after '-' in return type arrow", "greater")
+                }
+                ParseTypeReferenceRecovery()
+            } else {
+                if IsLikelyMissingReturnTypeMarker(parameterListEndToken) {
+                    ReportMissingReturnTypeMarker(markerName, markerLine, markerColumn, markerLength)
+                    ParseTypeReferenceRecovery()
+                }
+            }
+        }
+
+        ParseReturnLifetimeAnnotation()
+        ParseGenericConstraints()
+
+        // Body (Parser.cs :493): an expression body, a block body, or NOTHING (abstract / interface method).
+        if Check(TokenType.Arrow) {
+            Advance()
+            ParseExprValue()
+            return
+        }
+        if Check(TokenType.LeftBrace) {
+            bodySpan := new RecoverySpan(markerLine, markerColumn, markerLength)
+            ParseBlock(bodySpan)
+        }
+    }
+
+    // Parser.cs ParseOperatorSymbol (:5752): maps the operator token to its symbol and advances, reporting
+    // the InvalidSyntax "Invalid operator symbol" when the token cannot be an overloadable operator.
+    func ParseOperatorSymbol() {
+        if IsOverloadableOperator(Current().Type) {
+            Advance()
+            return
+        }
+        token := Current()
+        suggestions := new List<string>()
+        suggestions.Add("Arithmetic: +, -, *, /, %")
+        suggestions.Add("Comparison: ==, !=, <, >, <=, >=")
+        suggestions.Add("Unary: !, ~, ++, --")
+        suggestions.Add("Conversion: true, false")
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Invalid operator symbol '" + token.Value + "' for operator overloading",
+            token.Line,
+            token.Column,
+            "This operator cannot be overloaded, or is not a valid operator symbol.",
+            "Only certain operators can be overloaded in operator declarations.",
+            suggestions,
+            token.Value.Length)
+        Advance()
+    }
+
+    // Parser.cs ParseOperatorSymbol's overloadable-operator set (:5757-5843), lowered from the switch to a
+    // token predicate (the symbol string itself is unused by the recovery model).
+    func IsOverloadableOperator(t: TokenType): bool {
+        if t == TokenType.Plus { return true }
+        if t == TokenType.Minus { return true }
+        if t == TokenType.Star { return true }
+        if t == TokenType.Slash { return true }
+        if t == TokenType.Percent { return true }
+        if t == TokenType.Equal { return true }
+        if t == TokenType.NotEqual { return true }
+        if t == TokenType.Less { return true }
+        if t == TokenType.LessEqual { return true }
+        if t == TokenType.Greater { return true }
+        if t == TokenType.GreaterEqual { return true }
+        if t == TokenType.Not { return true }
+        if t == TokenType.BitwiseNot { return true }
+        if t == TokenType.BitwiseAnd { return true }
+        if t == TokenType.BitwiseOr { return true }
+        if t == TokenType.BitwiseXor { return true }
+        if t == TokenType.LeftShift { return true }
+        if t == TokenType.RightShift { return true }
+        if t == TokenType.Increment { return true }
+        if t == TokenType.Decrement { return true }
+        if t == TokenType.True { return true }
+        if t == TokenType.False { return true }
+        return false
     }
 
     // Parser.cs ConsumeFieldColon (:6651). Anchors the missing-':'/':=' diagnostic on the field NAME.
@@ -1410,9 +1864,14 @@ public class ColumnarParserRecovery {
         }
         // Type parameter list `<T>` (Stage 5, Parser.cs :943) — parsed after the name, before the body,
         // so a malformed `class C<> { }` reports ReportMissingTypeParameterName. A no-op for the
-        // non-generic Stage-4 class corpus (Check(Less) is false → returns immediately). Primary-ctor
-        // params `(…)` and base lists `: …` are a later arc stage; the Stage-5 class corpus has neither.
+        // non-generic class corpus (Check(Less) is false → returns immediately).
         ParseTypeParameters()
+        // Primary constructor parameters `(…)` (Parser.cs :947) and the base class + interface list
+        // `: T, U` (Parser.cs :955) — Stage 14.
+        if Check(TokenType.LeftParen) {
+            ParseParameterListRecovery()
+        }
+        ParseBaseTypeList()
         ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
@@ -1427,6 +1886,10 @@ public class ColumnarParserRecovery {
             typeBodyDiagnosticSpan = new RecoverySpan(structToken.Line, structToken.Column, MaxInt(1, 6))
         }
         ParseTypeParameters()
+        if Check(TokenType.LeftParen) {
+            ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
+        }
+        ParseBaseTypeList()                     // interface list (Parser.cs :998)
         ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
@@ -1437,35 +1900,266 @@ public class ColumnarParserRecovery {
         if Check(TokenType.Struct) {
             Advance()
         }
-        ConsumeDeclarationName("Expected record name", SpanFromToken(recordToken))
+        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :1027)
+        name := ConsumeDeclarationName("Expected record name", SpanFromToken(recordToken))
+        // Parser.cs :1030-1032 ("record".Length == 6).
+        typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            typeBodyDiagnosticSpan = new RecoverySpan(recordToken.Line, recordToken.Column, MaxInt(1, 6))
+        }
+        ParseTypeParameters()                   // Parser.cs :1033
+        if Check(TokenType.LeftParen) {
+            ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1037)
+        }
+        ParseBaseTypeList()                     // interface list (Parser.cs :1043)
+        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
     func ParseSoaRecordName() {
+        soaLine := Current().Line
+        soaColumn := Current().Column
         Advance()                    // contextual 'soa'
         recordToken := Current()     // the 'record' keyword
         Advance()
-        ConsumeDeclarationName("Expected soa record name", SpanFromToken(recordToken))
+        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1065)
+        name := ConsumeDeclarationName("Expected soa record name", SpanFromToken(recordToken))
+        // Parser.cs :1068-1070 ("soa".Length == 3, anchored at the soa keyword for a '<error>' name).
+        soaDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            soaDiagnosticSpan = new RecoverySpan(soaLine, soaColumn, MaxInt(1, 3))
+        }
+        // Generic soa records are not supported yet (Parser.cs :1072): report then consume the `<…>` list.
+        if Check(TokenType.Less) {
+            ReportSoaTypeParametersUnsupported()
+            ParseTypeParameters()
+        }
+        ParseSoaRecordBody(soaDiagnosticSpan, soaLine)
     }
 
     func ParseInterfaceName() {
+        interfaceLine := Current().Line
+        interfaceColumn := Current().Column
+        isDuck := false
         if Check(TokenType.Duck) {
+            isDuck = true
+            interfaceLine = Current().Line      // Parser.cs anchors the '<error>' keyword span on 'duck' or 'interface'
+            interfaceColumn = Current().Column
             Advance()                // contextual 'duck'
         }
         interfaceToken := Current()  // the 'interface' keyword
+        if !isDuck {
+            interfaceLine = interfaceToken.Line
+            interfaceColumn = interfaceToken.Column
+        }
         Advance()
-        ConsumeDeclarationName("Expected interface name", SpanFromToken(interfaceToken))
+        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1141)
+        name := ConsumeDeclarationName("Expected interface name", SpanFromToken(interfaceToken))
+        // Parser.cs :1144-1146 ("interface".Length == 9, "duck".Length == 4).
+        keywordLength := 9
+        if isDuck {
+            keywordLength = 4
+        }
+        typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            typeBodyDiagnosticSpan = new RecoverySpan(interfaceLine, interfaceColumn, MaxInt(1, keywordLength))
+        }
+        ParseTypeParameters()                   // Parser.cs :1147
+        ParseBaseTypeList()                     // base interface list (Parser.cs :1150)
+        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
     }
 
     func ParseUnionName() {
+        unionLine := Current().Line
+        unionColumn := Current().Column
         unionToken := Current()
         Advance()
-        ConsumeDeclarationName("Expected union name", SpanFromToken(unionToken))
+        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1171)
+        name := ConsumeDeclarationName("Expected union name", SpanFromToken(unionToken))
+        // Parser.cs :1174-1176 ("union".Length == 5).
+        unionDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            unionDiagnosticSpan = new RecoverySpan(unionLine, unionColumn, MaxInt(1, 5))
+        }
+        ParseTypeParameters()                   // Parser.cs :1177
+        ParseUnionBody(unionDiagnosticSpan, unionLine)
     }
 
     func ParseEnumName() {
+        enumLine := Current().Line
+        enumColumn := Current().Column
         enumToken := Current()
         Advance()
-        ConsumeDeclarationName("Expected enum name", SpanFromToken(enumToken))
+        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1245)
+        name := ConsumeDeclarationName("Expected enum name", SpanFromToken(enumToken))
+        // Parser.cs :1248-1250 ("enum".Length == 4).
+        enumDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
+        if name == "<error>" {
+            enumDiagnosticSpan = new RecoverySpan(enumLine, enumColumn, MaxInt(1, 4))
+        }
+        // Optional `: int|string` backing type (Parser.cs :1255).
+        if Check(TokenType.Colon) {
+            Advance()
+            typeTokenLine := Current().Line
+            typeTokenColumn := Current().Column
+            typeName := ConsumeIdentifier("Expected enum backing type ('int' or 'string')")
+            if typeName != "string" && typeName != "int" {
+                ReportEnumBackingTypeUnsupported(typeName, typeTokenLine, typeTokenColumn)
+            }
+        }
+        ParseEnumBody(enumDiagnosticSpan, enumLine)
+    }
+
+    // Parser.cs ParseSoaRecordDeclaration's generic-soa report (:1074).
+    func ReportSoaTypeParametersUnsupported() {
+        Report(
+            ErrorCode.InvalidSyntax,
+            "soa record type parameters are not supported yet",
+            Current().Line,
+            Current().Column,
+            "This parser slice only accepts non-generic soa records. Generic soa tables need an explicit ABI design before they can be accepted.",
+            "Remove the type parameter list for now.",
+            null,
+            MaxInt(1, Current().Value.Length))
+    }
+
+    // Parser.cs ParseEnumDeclaration's unsupported-backing-type report (:1268). ReportError omits the
+    // length there, so the default 0 flows through (both paths route through the same Create).
+    func ReportEnumBackingTypeUnsupported(typeName: string, typeTokenLine: int, typeTokenColumn: int) {
+        Report(
+            ErrorCode.UnexpectedToken,
+            "Unsupported enum backing type '" + typeName + "'. Only 'int' and 'string' are supported.",
+            typeTokenLine,
+            typeTokenColumn,
+            null,
+            null,
+            null,
+            0)
+    }
+
+    // Parser.cs class/struct/record/interface base-type list (:955/:998/:1043/:1150): `: T` then a
+    // comma-separated tail. The class form uses `ParseTypeReference()` + `while Match(Comma)`, the others a
+    // `do { … } while (Match(Comma))`; both parse the same at-least-one comma-separated list.
+    func ParseBaseTypeList() {
+        if !Check(TokenType.Colon) {
+            return
+        }
+        Advance()                               // consume ':'
+        ParseTypeReferenceRecovery()
+        while Check(TokenType.Comma) {
+            Advance()
+            ParseTypeReferenceRecovery()
+        }
+    }
+
+    // Parser.cs ParseUnionDeclaration body (:1179): the union-case loop. Each case is a bare name with an
+    // optional `{ prop: type, … }` payload; the loop resets panic after EnsureProgress and reports the
+    // union-specific missing-'}' (NL106) on the union diagnostic span. Assumes the '{' is next.
+    func ParseUnionBody(unionDiagnosticSpan: RecoverySpan, openingLine: int) {
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            startPosition := Position
+            ConsumeIdentifier("Expected union case name")      // Parser.cs :1187
+            if Check(TokenType.LeftBrace) {
+                Advance()                       // consume the payload '{'
+                while !Check(TokenType.RightBrace) && !IsAtEnd() {
+                    propStart := Position
+                    ConsumeIdentifier("Expected property name")   // Parser.cs :1198
+                    ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+                    ParseTypeReferenceRecovery()
+                    if !Check(TokenType.RightBrace) {
+                        if Check(TokenType.Comma) {
+                            Advance()
+                        }
+                    }
+                    EnsureProgress(propStart)
+                }
+                ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+            }
+            if EnsureProgress(startPosition) {
+                PanicMode = false               // reset for the next case (Parser.cs :1216)
+            }
+        }
+        if Check(TokenType.RightBrace) {
+            Advance()
+        } else {
+            if IsAtEnd() {
+                ReportTypeBodyMissingClosingBrace(unionDiagnosticSpan, openingLine, "union")
+            }
+        }
+    }
+
+    // Parser.cs ParseEnumDeclaration body (:1274): the enum-member loop. Each member is a name with an
+    // optional `= value` initializer; a member without a trailing comma ends the list. Reports the
+    // enum-specific missing-'}' (NL106) on the enum diagnostic span. Assumes the '{' is next.
+    func ParseEnumBody(enumDiagnosticSpan: RecoverySpan, openingLine: int) {
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        if !Check(TokenType.RightBrace) {
+            looping := true
+            while looping && !Check(TokenType.RightBrace) && !IsAtEnd() {
+                startPosition := Position
+                ConsumeIdentifier("Expected enum member name")    // Parser.cs :1284
+                if Check(TokenType.Assign) {
+                    Advance()
+                    ParseExprValue()            // the member value (Parser.cs :1290)
+                }
+                if Check(TokenType.Comma) {
+                    Advance()
+                } else {
+                    looping = false
+                }
+                if looping {
+                    EnsureProgress(startPosition)
+                }
+            }
+        }
+        if Check(TokenType.RightBrace) {
+            Advance()
+        } else {
+            if IsAtEnd() {
+                ReportTypeBodyMissingClosingBrace(enumDiagnosticSpan, openingLine, "enum")
+            }
+        }
+    }
+
+    // Parser.cs ParseSoaRecordDeclaration body (:1085): the soa-column loop. Each column is `name: Type`;
+    // a trailing comma or semicolon is optional between columns. Resets panic at each column boundary and
+    // reports the soa-specific missing-'}' (NL106) on the soa diagnostic span. Assumes the '{' is next.
+    func ParseSoaRecordBody(soaDiagnosticSpan: RecoverySpan, openingLine: int) {
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
+        while !Check(TokenType.RightBrace) && !IsAtEnd() {
+            PanicMode = false                   // reset at each column boundary (Parser.cs :1090)
+            startPosition := Position
+            ConsumeIdentifier("Expected soa column name")         // Parser.cs :1094
+            ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+            ParseTypeReferenceRecovery()
+            if Check(TokenType.Comma) || Check(TokenType.Semicolon) {
+                Advance()
+            }
+            EnsureProgress(startPosition)
+        }
+        if Check(TokenType.RightBrace) {
+            Advance()
+        } else {
+            if IsAtEnd() {
+                ReportTypeBodyMissingClosingBrace(soaDiagnosticSpan, openingLine, "soa record")
+            }
+        }
+    }
+
+    // The union / enum / soa body's own end-of-file missing-'}' report (Parser.cs :1114/:1225/:1317). Each
+    // kind's message names its own body kind ("union body" / "enum body" / "soa record body"); the code,
+    // span, hint suffix ("union declaration" / "enum declaration" / "soa record declaration"), and length
+    // mirror the per-kind ReportError exactly.
+    func ReportTypeBodyMissingClosingBrace(span: RecoverySpan, openingLine: int, kind: string) {
+        Report(
+            ErrorCode.MissingClosingBrace,
+            "Missing closing '}'",
+            span.Line,
+            span.Column,
+            "The " + kind + " body that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.",
+            "Add a '}' to close this " + kind + " declaration.",
+            null,
+            span.Length)
     }
 
     func ParseTypeAliasName() {

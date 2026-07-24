@@ -16,12 +16,15 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 13 landed — the REMAINING STATEMENT kinds: yield / break /
-  continue / throw / try-catch-finally / using / lock / switch / allow / alloc-block / unsafe / assert /
-  preprocessor / local-function / await-foreach / off / on, plus the C-style `for(init;cond;incr)` / tuple
-  deconstruction / typed `name: T = value` declarations — carried through the SAME shared-panic model over the
-  already-owned expression / type / pattern / delimiter grammars; 316 native parity contracts total [271 through
-  Stage 12 + 45], `ColumnarParserRecovery.nl` now 5,826 lines; residual map item [1] is now DONE) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 14 landed — the MEMBER grammars: methods [incl. func*
+  generators / async / operator overloads / implicit-explicit conversions] / constructors / indexers / properties
+  [arrow + get/set block] / nested types / record-class-struct positional param lists + base lists / union-case
+  declarations [incl. payload shapes] / interface members, and the record / interface / union / enum / soa type
+  BODIES [member-list loops + own body loops, boundary resets, closing braces + special diagnostics — soa's "not
+  supported yet", enum backing type] — carried through the SAME shared-panic model over the already-owned expression /
+  statement / type / delimiter / block grammars, retiring the stage-2 deferred non-`{` braced found-other cases for
+  record/interface/union/enum/soa; 352 native parity contracts total [316 through Stage 13 + 36],
+  `ColumnarParserRecovery.nl` now 6,520 lines; residual map items [1] and [2] are now DONE) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -62,7 +65,101 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 13 of the parser-front-end arc — the REMAINING
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 14 of the parser-front-end arc — the MEMBER
+  grammars + the remaining type BODIES (residual map item [2]), carried through the SAME shared-panic model over the
+  already-owned expression / statement / type / delimiter / block grammars, PROVEN byte-exact against the freshly
+  built Release CLI oracle (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the SEMANTIC
+  diagnostics — not-all-paths-return NL305, undefined-name NL3xx, etc. — which are analyzer, not parser,
+  diagnostics). SITE INVENTORY (grep of the type-declaration + `ParseMemberList`/`ParseMemberDeclaration` +
+  `ParseFieldDeclaration`/`ParseFunctionDeclaration`/`ParseConstructorDeclaration`/`ParseIndexerDeclaration` grammars
+  in Parser.cs): (a) the MEMBER dispatch — `ParseMemberDeclaration` (:1412): the preprocessor member (:1415), the
+  modifiers (attributes are residual [4], omitted like the top-level dispatch), the nested-type declarations
+  (class / ref-struct / struct / soa / record / enum / union / interface, :1428-1460), the `constructor` contextual
+  identifier (:1463), the `func this[…]` indexer (:1469), the method / conversion-operator (:1475), and the
+  field/property fall-through (:1481); `ParseMemberList` (:1359) now dispatches this full grammar (was FIELD-only at
+  Stage 4) with the member-boundary panic reset, the `_currentRecoveryBoundaryColumn` save/set/restore around each
+  member (:1367-1376), and the no-progress `SynchronizeToNextStatement`-then-force-advance (:1379-1388). (b) METHODS
+  `ParseMethodMember` (Parser.cs `ParseFunctionDeclaration` :373 reached as a member) — the keyword-anchored name
+  (`ConsumeDeclarationName`, DiagnosticSpanFromToken(funcToken), :435), `func*` generators (:409), `async`
+  (via `ParseModifiers`), `func operator SYM` overloads (:415, `ParseOperatorSymbol` :5752 + the invalid-symbol
+  NL103), `implicit`/`explicit operator` conversions (:393, return type BEFORE params :452), the `: T`/`-> T` return
+  type or the `ReportMissingReturnTypeMarker` (NL102, name/operator-keyword-anchored, length = the NAME length so
+  `func A() int` reports length 1 while `func Foo() int` reports 3), the `returns`-lifetime + generic constraints,
+  and the `=> expr` / `{ }` body — with NO missing-body report (an abstract / interface method with no body is
+  valid, unlike a local function). (c) CONSTRUCTORS `ParseConstructorMember` (:1484) — the `constructor` identifier,
+  the parameter list, the optional `: this(args)` / `: base(args)` initializer (each `Consume(LeftParen)` +
+  `ParseArgumentList`), the "Expected 'this' or 'base' after ':'" NL102 (+ skip the offender), and the block body
+  (owner span on `constructor`, length 11). (d) INDEXERS `ParseIndexerMember` (:1564) — `func this[params]: retType
+  { get/set }`, the `[`/`]`/`:`/`{` Consumes, the parameter loop (`ConsumeParameterColon`), and the accessor loop's
+  "Expected 'get' or 'set' accessor, got X" NL102 (:1613) + skip. (e) PROPERTIES — `ParseFieldMember` extended
+  (Parser.cs `ParseFieldDeclaration` :1637): the leading `required`/`init`/`readonly` property modifiers (:1644),
+  the `:=` inferred form, the expression-bodied `=> expr` property (:1683), and the `{ get/set }` accessor block
+  with the ", got X" invalid-identifier NL102 (:1718, anchored on the token AFTER the accessor, length = the bad
+  accessor's) + skip, the ". Got X" non-identifier NL102 (:1738) + skip, and the "Expected '}' after property
+  accessors" close (:1756); the `= initializer` field via `ParseRequiredExpressionAfter` (:1762). (f) the class /
+  struct / record positional (primary-ctor) parameter lists (`(…)` after the type-params, :947/:992/:1037) and the
+  base / interface lists (`: T, U`, `ParseBaseTypeList`, :955/:998/:1043/:1150) — added to `ParseClassName` /
+  `ParseStructName` / `ParseRecordName` / `ParseInterfaceName`. (g) the record / interface type BODIES route through
+  the shared `ParseMemberList` (like class/struct); the UNION body (`ParseUnionBody`, :1179) has its OWN case loop
+  (the "Expected union case name" ConsumeIdentifier, the `{ prop: type, … }` payload with its "Expected ':'"
+  ConsumeToken + `EnsureProgress`-per-property, the `EnsureProgress`-then-panic-reset per case, and the union-specific
+  missing-`}` NL106 anchored on the union name / keyword, "The union body that started on line N…"); the ENUM body
+  (`ParseEnumBody`, :1274) has its OWN member loop (the optional `= value` via `ParseExprValue`, the comma-or-break,
+  the "Expected enum member name", and the enum-specific missing-`}` NL106) plus the optional `: int|string` backing
+  type ("Expected enum backing type" + the "Unsupported enum backing type 'X'" NL101, length via the shared Create
+  default-0 fallback → the type-name length); the SOA body (`ParseSoaRecordBody`, :1085) has its OWN column loop
+  (the "Expected soa column name", the "Expected ':'" ConsumeToken, the trailing `,`/`;`, the per-column panic reset,
+  and the soa-specific missing-`}` NL106) plus the generic-soa `<…>` "soa record type parameters are not supported
+  yet" NL103. RETIRED the stage-2 deferred non-`{` braced found-other cases for record / interface / union / enum /
+  soa: their name parsers now capture the name-token span (or the declaration-keyword span for a `<error>` name) and
+  parse the body, exactly like class/struct since Stage 4, so a `record {` / `union {` etc. flows into body parsing
+  byte-exact (verified against the oracle with the Stage-12 position-sort in place). IMPLEMENTATION: extended
+  `ParseMemberList` + `ParseFieldMember` and added ~18 new parser methods + reports (`ParseMemberDeclaration`,
+  `ParseConstructorMember`, `ParseIndexerMember`, `ParseMethodMember`, `ParseOperatorSymbol`, `IsOverloadableOperator`,
+  `ParseBaseTypeList`, `ParseUnionBody`, `ParseEnumBody`, `ParseSoaRecordBody`, `ReportTypeBodyMissingClosingBrace`,
+  `ReportConstructorInitializerTarget`, `ReportIndexerAccessorInvalid`, `ReportPropertyAccessorInvalidIdentifier`,
+  `ReportPropertyAccessorExpectedGetSet`, `ReportSoaTypeParametersUnsupported`, `ReportEnumBackingTypeUnsupported`),
+  all delegating construction to the shared `Report` / `ConsumeToken` / `ConsumeIdentifier` /
+  `ParseRequiredExpressionAfter` and reusing the live shared `ParserTokenFacts` / `ParserErrorDiagnostics.Create`, so
+  codes / messages / spans / snippets / hints / suggestions match Parser.cs automatically. VERIFIED PANIC INTERACTIONS
+  (each pinned by a contract): two class methods each missing the `:` marker BOTH report (member-boundary reset); two
+  properties each with a bad accessor BOTH report; a body-less method's missing-marker panic-suppresses the type-body
+  EOF missing-`}` (one diagnostic); an unclosed NESTED enum reports its OWN missing-`}` and panic-suppresses the outer
+  class body's; the invalid-accessor / bad-init-target cascades produce the byte-exact trailing "Unexpected token '}'"
+  / EOF missing-`}` the oracle produces. +36 native parity contracts in `ColumnarParserRecovery.tests.nl` (20
+  positive-diagnostic: interface-method-missing-marker / two-methods-each-report / method-missing-marker-suppresses-
+  type-`}` / ctor-bad-init-target-then-`}` / ctor-this-missing-`(` / prop-non-ident-accessor / prop-invalid-ident-
+  accessor-then-`}` / two-props-each-report / indexer-invalid-accessor-then-`}` / record-positional-param-colon /
+  union-case-name / union-missing-`}` NL106 / union-payload-missing-`:` / enum-member-name-then-cascade / enum-
+  unsupported-backing NL101 / enum-missing-`}` NL106 / soa-missing-`:` / soa-generic NL103 / soa-missing-`}` NL106 /
+  nested-enum-missing-`}`; 3 stage-2 found-other retirement: record/union/enum whose name is a `{`; 13 negatives:
+  method block / generator func* / async / expr-body / operator-overload / implicit-conversion / ctor-this-init /
+  property-get-set / expr-body-property / nested-enum / union-payload / interface-members / record-positional).
+  DEFERRED (recorded, NOT corpus-pinned — with reasons): the operator-symbol
+  INVALID case (`func operator @`) is modelled faithfully (`ParseOperatorSymbol`'s NL103) but corpus-light (the corpus
+  uses valid operators); the `returns`-lifetime body is shared-owned (Stage 13) and unchanged; the richer
+  type-reference forms in base lists / indexer return types / method return types (union / postfix array-nullable /
+  byref / tuple / `Func<>`) remain shared residual [3] (the member corpus uses simple / qualified / generic type
+  names). NO production wiring; NO wall tripped (self-contained edit to one owner + its tests; the packaged SDK 0.1.0
+  self-emitted the edited owner — incl. `ParseMemberList`/`ParseFieldMember` refactors + all new parsers + all 1114
+  contracts cleanly — no repin). Evidence: BootstrapServices contracts 1114/1114 (1078 baseline + 36; full-suite
+  fresh no-build run, `-p:NSharpExcludeTests=false`; `FullyQualifiedName~016Member|016TypeBody` filter 33/33 [+ the 3
+  found-other retirement contracts under the decl-name/type-body names]); dev.sh Parser 381/381; ownership audit 18/18
+  (`nlc test --project tests/native/ownership-audit`); git status shows ONLY the two `.nl` files + STATUS (no non-N#
+  file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` / `ParseFilePreamble` are referenced
+  ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests: zero references outside the owner +
+  its tests), so nothing in the production compile path changed. No LSP/VS Code change → no extension reload.
+  `ColumnarParserRecovery.nl` 5,826 → 6,520 lines (+694); `.tests.nl` 4,303 → 4,731 (+428). RESIDUAL-TO-PARITY MAP
+  (what remains for full Parser.cs syntax-diagnostic parity, after Stage 14):
+  [1 — DONE Stage 13] the remaining statement kinds; [2 — DONE] the MEMBER grammars + the record / interface / union /
+  enum / soa type BODIES (this stage); [3] the richer type-reference forms (union / postfix array-nullable / byref /
+  tuple / `Func<>`) shared across is/as/typeof/sizeof/cast/stackalloc/catch/typed-decl/local-func-return/base-lists/
+  member-return-types; [4] the TEST DSL (test / setup / teardown + the test-case rows) and ATTRIBUTES (member +
+  declaration); [5] the garbage-type cascade shapes (non-identifier parameter name, named-tuple bad-name) needing
+  `ParseTypeReference`-on-garbage + the stable position-sorted emit (unblocked since Stage 12). THEN the
+  AST/node-table-facts stage (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc (N+3). Next: STAGE 15 =
+  the richer type-reference forms (map residual [3]), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 13 of the parser-front-end arc — the REMAINING
   STATEMENT kinds (residual map item [1]), carried through the SAME shared-panic model over the already-owned
   expression / type / pattern / delimiter grammars, PROVEN byte-exact against the freshly built Release CLI oracle
   (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the line-0 columnar-backend decline and

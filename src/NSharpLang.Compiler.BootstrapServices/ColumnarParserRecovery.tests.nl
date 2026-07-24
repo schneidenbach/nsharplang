@@ -4301,3 +4301,431 @@ test "016 stmt: on subscriptions with single-param and multi-param lambda handle
     errors2 := RunPreamble("func f() {\n    on w.Clicked (s, a) => 1\n}\n")
     assert errors2.Count == 0
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 14: parity contracts for the MEMBER grammars + the remaining
+// type BODIES (residual map item [2]), carried through the SAME shared-panic model. Reached through the
+// type-declaration vehicle `class C { <member> }` (and the record / interface / union / enum / soa
+// declarations). Every golden below is the byte-exact output of the production Parser.cs path, captured
+// out-of-band from the freshly built Release CLI (`nlc check --json`, filtered to the parser codes
+// NL101-NL109 — excluding the SEMANTIC diagnostics [not-all-paths-return NL305, undefined-name, etc.]
+// which are analyzer, not parser, diagnostics).
+// ============================================================================
+
+// ---- methods (missing return-type marker; reached as a MEMBER and as an INTERFACE member) ----
+
+test "016 member: an interface method missing its ':' return-type marker reports NL102 anchored on the method name" {
+    errors := RunPreamble("interface I {\n  func Foo() int\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' before return type. Got 'int'"
+    assert e.Line == 2
+    assert e.Column == 8
+    assert e.Length == 3
+    assert e.SourceSnippet == "  func Foo() int"
+    assert e.HumanExplanation == "Function 'Foo' needs a ':' before its return type."
+    assert e.ContextualHint == "Write the return type as `func name(...): Type { ... }`."
+    assert e.Suggestion == "Add ':' before 'int'"
+}
+
+test "016 member: two class methods each missing the ':' marker each report at their own member boundary" {
+    errors := RunPreamble("class C {\n  func A() int {\n  }\n  func B() int {\n  }\n}\n")
+    assert errors.Count == 2
+    a := errors[0]
+    assert a.Code == ErrorCode.ExpectedToken
+    assert a.Message == "Expected ':' before return type. Got 'int'"
+    assert a.Line == 2
+    assert a.Column == 8
+    assert a.Length == 1
+    assert a.HumanExplanation == "Function 'A' needs a ':' before its return type."
+    b := errors[1]
+    assert b.Code == ErrorCode.ExpectedToken
+    assert b.Message == "Expected ':' before return type. Got 'int'"
+    assert b.Line == 4
+    assert b.Column == 8
+    assert b.Length == 1
+    assert b.HumanExplanation == "Function 'B' needs a ':' before its return type."
+}
+
+test "016 member: a body-less method missing its ':' marker panic-suppresses the type-body missing-'}' at EOF" {
+    errors := RunPreamble("class C {\n  func A() int\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' before return type. Got 'int'"
+    assert e.Line == 2
+    assert e.Column == 8
+    assert e.Length == 1
+}
+
+// ---- constructors ----
+
+test "016 member: a constructor initializer target that is neither 'this' nor 'base' reports NL102 then cascades to the EOF missing-'}'" {
+    errors := RunPreamble("class C {\n  constructor() : foo() {\n  }\n}\n")
+    assert errors.Count == 2
+    brace := errors[0]
+    assert brace.Code == ErrorCode.MissingClosingBrace
+    assert brace.Message == "Missing closing '}'"
+    assert brace.Line == 1
+    assert brace.Column == 7
+    assert brace.Length == 1
+    assert brace.HumanExplanation == "The type body that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    target := errors[1]
+    assert target.Code == ErrorCode.ExpectedToken
+    assert target.Message == "Expected 'this' or 'base' after ':'. Got 'foo'"
+    assert target.Line == 2
+    assert target.Column == 19
+    assert target.Length == 3
+    assert target.HumanExplanation == "In constructor initialization, the colon ':' must be followed by either 'this' (to call another constructor) or 'base' (to call parent constructor)."
+    assert target.ContextualHint == "Constructor chaining syntax: 'constructor(params) : this(args) { }' or 'constructor(params) : base(args) { }'"
+    assert target.Suggestion == "Use 'this' to call another constructor in the same class"
+}
+
+test "016 member: a constructor 'this' initializer missing its '(' reports the ConsumeToken NL102" {
+    errors := RunPreamble("class C {\n  constructor() : this {\n  }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '(' after 'this'. Expected '(', got '{'"
+    assert e.Line == 2
+    assert e.Column == 24
+    assert e.Length == 1
+}
+
+// ---- properties (get/set accessor block) ----
+
+test "016 member: a non-identifier where a property accessor is required reports the 'Got' NL102 anchored on the offender" {
+    errors := RunPreamble("class C {\n  X: int {\n    5\n  }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected 'get' or 'set' accessor. Got '5'"
+    assert e.Line == 3
+    assert e.Column == 5
+    assert e.Length == 1
+    assert e.SourceSnippet == "    5"
+    assert e.HumanExplanation == "Inside property declaration braces, I need to see either 'get' or 'set' accessors."
+    assert e.ContextualHint == "Properties define how to get and/or set their values using accessor blocks."
+    assert e.Suggestion == "Add a 'get' accessor to make the property readable"
+}
+
+test "016 member: an invalid identifier accessor reports the ', got' NL102 (anchored on the token after the accessor) then the trailing '}' is unexpected" {
+    errors := RunPreamble("class C {\n  X: int {\n    getter { }\n  }\n}\n")
+    assert errors.Count == 2
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected 'get' or 'set' accessor, got 'getter'"
+    assert e0.Line == 3
+    assert e0.Column == 12
+    assert e0.Length == 6
+    assert e0.HumanExplanation == "Property accessors must be either 'get' (for reading) or 'set' (for writing)."
+    assert e0.ContextualHint == "Use 'get' to define how to retrieve the property value, or 'set' to define how to assign a new value."
+    assert e0.Suggestion == "Example: get { return _value; }"
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '}'"
+    assert e1.Line == 5
+    assert e1.Column == 1
+    assert e1.Length == 1
+}
+
+test "016 member: two properties each with a bad accessor each report at their own member boundary" {
+    errors := RunPreamble("class C {\n  X: int {\n    5\n  }\n  Y: int {\n    6\n  }\n}\n")
+    assert errors.Count == 2
+    assert errors[0].Message == "Expected 'get' or 'set' accessor. Got '5'"
+    assert errors[0].Line == 3
+    assert errors[0].Column == 5
+    assert errors[1].Message == "Expected 'get' or 'set' accessor. Got '6'"
+    assert errors[1].Line == 6
+    assert errors[1].Column == 5
+}
+
+// ---- indexers ----
+
+test "016 member: an invalid indexer accessor reports the ', got' NL102 then the trailing '}' is unexpected" {
+    errors := RunPreamble("class C {\n  func this[i: int]: int {\n    xyz { }\n  }\n}\n")
+    assert errors.Count == 2
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected 'get' or 'set' accessor, got 'xyz'"
+    assert e0.Line == 3
+    assert e0.Column == 9
+    assert e0.Length == 3
+    assert e0.HumanExplanation == "Indexer accessors must be either 'get' (for reading) or 'set' (for writing)."
+    assert e0.ContextualHint == "Use 'get' to define how to retrieve a value, or 'set' to define how to assign a value."
+    assert e0.Suggestion == "Example: get { return items[i]; }"
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '}'"
+    assert e1.Line == 5
+    assert e1.Column == 1
+}
+
+// ---- record / class positional (primary-ctor) parameter lists ----
+
+test "016 member: a record positional parameter missing its ':' reports the shared parameter-colon NL102" {
+    errors := RunPreamble("record R(x int) {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' after parameter name. Got 'int'"
+    assert e.Line == 1
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.HumanExplanation == "Parameter 'x' needs a ':' before its type."
+    assert e.ContextualHint == "Write this parameter as `x: Type`."
+    assert e.Suggestion == "Add ':' after 'x'"
+}
+
+// ---- union type body ----
+
+test "016 type-body: a non-identifier union case name reports the plain 'Expected union case name' NL102" {
+    errors := RunPreamble("union U {\n  5\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected union case name. Got '5'"
+    assert e.Line == 2
+    assert e.Column == 3
+    assert e.Length == 1
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 type-body: an unclosed union body reports the union-specific missing-'}' NL106 anchored on the union name" {
+    errors := RunPreamble("union U {\n  A\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 1
+    assert e.Column == 7
+    assert e.Length == 1
+    assert e.HumanExplanation == "The union body that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this union declaration."
+}
+
+test "016 type-body: a union-case payload property missing its ':' reports the ConsumeToken NL102" {
+    errors := RunPreamble("union U {\n  A { x int }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got 'int'"
+    assert e.Line == 2
+    assert e.Column == 9
+    assert e.Length == 3
+}
+
+// ---- enum type body ----
+
+test "016 type-body: a non-identifier enum member name reports NL102, then the break leaves the offender + '}' as unexpected top-level tokens" {
+    errors := RunPreamble("enum E {\n  5\n}\n")
+    assert errors.Count == 3
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected enum member name. Got '5'"
+    assert e0.Line == 2
+    assert e0.Column == 3
+    assert e0.Length == 1
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '5'"
+    assert e1.Line == 2
+    assert e1.Column == 3
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.UnexpectedToken
+    assert e2.Message == "Unexpected token '}'"
+    assert e2.Line == 3
+    assert e2.Column == 1
+}
+
+test "016 type-body: an unsupported enum backing type reports the UnexpectedToken NL101 anchored on the type name" {
+    errors := RunPreamble("enum E: float {\n  A\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedToken
+    assert e.Message == "Unsupported enum backing type 'float'. Only 'int' and 'string' are supported."
+    assert e.Line == 1
+    assert e.Column == 9
+    assert e.Length == 5
+}
+
+test "016 type-body: an unclosed enum body reports the enum-specific missing-'}' NL106 anchored on the enum name" {
+    errors := RunPreamble("enum E {\n  A\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 1
+    assert e.Column == 6
+    assert e.Length == 1
+    assert e.HumanExplanation == "The enum body that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this enum declaration."
+}
+
+// ---- soa record type body ----
+
+test "016 type-body: a soa column missing its ':' reports the ConsumeToken NL102" {
+    errors := RunPreamble("soa record S {\n  x int\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':'. Expected ':', got 'int'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 3
+}
+
+test "016 type-body: a generic soa record reports the InvalidSyntax NL103 anchored on the '<'" {
+    errors := RunPreamble("soa record S<T> {\n  x: int\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "soa record type parameters are not supported yet"
+    assert e.Line == 1
+    assert e.Column == 13
+    assert e.Length == 1
+    assert e.HumanExplanation == "This parser slice only accepts non-generic soa records. Generic soa tables need an explicit ABI design before they can be accepted."
+    assert e.ContextualHint == "Remove the type parameter list for now."
+}
+
+test "016 type-body: an unclosed soa record body reports the soa-specific missing-'}' NL106 anchored on the soa name" {
+    errors := RunPreamble("soa record S {\n  x: int\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 1
+    assert e.Column == 12
+    assert e.Length == 1
+    assert e.HumanExplanation == "The soa record body that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this soa record declaration."
+}
+
+// ---- nested type bodies + cross-boundary panic ----
+
+test "016 type-body: an unclosed nested enum reports its OWN missing-'}' and panic-suppresses the outer class body's" {
+    errors := RunPreamble("class C {\n  enum E {\n    A\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBrace
+    assert e.Message == "Missing closing '}'"
+    assert e.Line == 2
+    assert e.Column == 8
+    assert e.Length == 1
+    assert e.HumanExplanation == "The enum body that started on line 2 is missing its closing brace. I reached the end of the file without finding it."
+    assert e.ContextualHint == "Add a '}' to close this enum declaration."
+}
+
+// ---- negatives: well-formed member / body shapes report NO parser diagnostic ----
+
+test "016 member: a well-formed block-bodied method reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  func Foo(): int {\n    return 1\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: a generator func* method reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  func* Gen(): int {\n    yield 1\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: an async method reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  async func Go(): int {\n    return 1\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: an expression-bodied method reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  func Add(a: int, b: int): int => a + b\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: a func operator overload reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  func operator +(a: C, b: C): C => a\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: an implicit conversion operator (return type before params) reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  implicit operator int(c: C) => 0\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: a constructor chaining to this() reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  constructor() {\n  }\n  constructor(x: int) : this() {\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: a property with get/set accessor blocks reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  Name: string {\n    get { return _n }\n    set { _n = value }\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 member: an expression-bodied property reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  Total: int => 42\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 type-body: a nested enum with members reports no parser diagnostic" {
+    errors := RunPreamble("class C {\n  enum Color {\n    Red,\n    Blue\n  }\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 type-body: a union with a payload case and a bare case reports no parser diagnostic" {
+    errors := RunPreamble("union Shape {\n  Circle { radius: int }\n  Square\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 type-body: an interface with a method and a property member reports no parser diagnostic" {
+    errors := RunPreamble("interface I {\n  func Foo(): int\n  Name: string\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 type-body: a record with positional parameters reports no parser diagnostic" {
+    errors := RunPreamble("record Point(x: int, y: int) {\n}\n")
+    assert errors.Count == 0
+}
+
+// ---- retirement of the stage-2 deferred non-'{' braced found-other cases for record / union / enum ----
+// A '{' where the type name is required now reports the keyword-anchored found-other name NL102 (Stage 2)
+// AND flows into the body parse (Stage 14), exactly like class/struct since Stage 4 — proven byte-exact
+// against the oracle with the Stage-12 position-sort in place.
+
+test "016 type-body: a record whose name is a '{' reports the found-other name NL102 then parses the body (a field colon error)" {
+    errors := RunPreamble("record {\n  A\n}\n")
+    assert errors.Count == 2
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected record name. Got '{'"
+    assert e0.Line == 1
+    assert e0.Column == 1
+    assert e0.Length == 6
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected ':' or ':=' after field name. Got '}'"
+    assert e1.Line == 2
+    assert e1.Column == 3
+    assert e1.Length == 1
+    assert e1.Suggestion == "Add ':' after 'A'"
+}
+
+test "016 type-body: a union whose name is a '{' reports the found-other name NL102 then parses the (clean) body" {
+    errors := RunPreamble("union {\n  A\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected union name. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 5
+}
+
+test "016 type-body: an enum whose name is a '{' reports the found-other name NL102 then parses the (clean) body" {
+    errors := RunPreamble("enum {\n  A\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected enum name. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 4
+}
