@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 5 LANDED — the RICHER TypeReference node family materialized [generic/qualified-dotted/array/nullable/tuple/Func/union/byref], byte-exact to Parser.cs and VERIFIED owner==live-Parser.cs whole-tree on 15 shapes; richer field/param types NO LONGER decline [`hasTypeParams`/`hasBaseList` gates retained]; WHOLE-FILE equality on THREE more real-corpus files [CodeIntelligenceParameterResult/DocCommandModels/CodeIntelligenceImplementorModels]; +17 contracts → 1255/1255)
+Last updated: 2026-07-24 (STAGE N+1c tranche 6 LANDED — TYPE-PARAMETER LISTS + BASE/INTERFACE LISTS + the remaining TYPE BODIES [union cases + payloads, enum members, soa columns, type-alias/newtype underlying type] materialized byte-exact to Parser.cs and VERIFIED owner==live-Parser.cs whole-tree on 24 shapes; `hasTypeParams`/`hasBaseList` gates RELAXED; WHOLE-FILE equality on THREE more real-corpus files [ErrorSeverity/DiagnosticSeverity valueless enums + CodeIntelligenceCallGraphModels generic/nullable records]; +26 contracts → 1281/1281)
 
 ## Cursor
 
@@ -79,6 +79,79 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 5 LANDED — the RICHER TypeReferen
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 6 = TYPE-PARAMETER LISTS + BASE/INTERFACE LISTS + the remaining TYPE BODIES (union cases + payloads,
+  enum members, soa columns, type-alias/newtype underlying type). The `hasTypeParams` and `hasBaseList` gates
+  are now RELAXED; a generic and/or based/interfaced declaration NO LONGER declines. CONSTRUCTION-SITE
+  INVENTORY (owner, each byte-exact to Parser.cs, VERIFIED owner==LIVE-Parser.cs whole-tree via the AstToJson
+  serializer on 24 shapes): (1) TYPE-PARAMETER LISTS — `ParseTypeParameters` now RETURNS `List<TypeParameter>?`
+  (null when no `<`, else one `new TypeParameter(name)` per param, name = the lifetime token value or the
+  ConsumeIdentifier result — Parser.cs :736/:755), threaded into class/struct/record/interface/union; a
+  malformed list (`<>`/`<T,>`/reserved-keyword name — a diagnostic fires) or an in-panic parse clears the new
+  `TypeParamsMaterializable` gate → the declaration declines. (2) BASE/INTERFACE LISTS — `ParseBaseTypeList`
+  now RETURNS `List<TypeReference>` through the shared ParseMaterializedTypeReference gate (each base type the
+  full stage-15 grammar), and the CALLER applies the class-vs-others DISPATCH byte-exact to Parser.cs: a class
+  splits [0]→BaseClass, [1..]→Interfaces (Parser.cs :977-978, the NL010-era single-colon-to-BaseClass finding);
+  struct/record take the whole list as Interfaces (:1008/:1053); interface takes it as BaseInterfaces (:1160).
+  A structurally-unbuildable / multi-line base type clears the new `BaseListMaterializable` gate → decline.
+  (3) UNION BODIES — `ParseUnionBody` now RETURNS `List<UnionCase>` (each `new UnionCase(name, properties,
+  line, column)`, Parser.cs :1223; payloads `new UnionCaseProperty(name, type)` :1212 with the type through the
+  materialization gate; NEWLINE-separated cases — the comma-separated form yields `<error>` cases in Parser.cs,
+  so the owner correctly declines it), and ParseUnionName (now threaded modifiers/attributes) materializes the
+  UnionDeclaration. (4) ENUM MEMBERS — `ParseEnumBody` now RETURNS `List<EnumMember>` (each `new EnumMember(
+  name, null, line, column)`, Parser.cs :1310); VALUELESS members materialize byte-exact, a VALUE-bearing
+  member `A = 1` clears the shared `TypeBodyMaterializable` gate (the Value is an Expression, a later tranche)
+  → the enum declines (the tranche-1..5 empty-members placeholder is REPLACED by the real list). (5) SOA
+  BODIES — `ParseSoaRecordBody` now RETURNS `List<SoaColumnDeclaration>` (:1108), and ParseSoaRecordName (now
+  threaded modifiers/attributes) materializes the SoaRecordDeclaration; a generic soa is the error shape →
+  decline. (6) TYPE-ALIAS / NEWTYPE — ParseTypeAliasName captures the name + routes the `= <type>` underlying
+  type through the materialization gate, materializing TypeAliasDeclaration (Parser.cs :1361, FQN'd — a
+  TestStubs `class TypeAliasDeclaration` twin) or NewtypeDeclaration (:1356) for the `newtype` variant; these
+  carry NO modifiers/attributes (the model has no such fields), byte-exact. NEW GATE FIELDS (transient no-stub,
+  captured by the caller into a local IMMEDIATELY before ParseTypeBody, whose nested decls overwrite them):
+  `TypeParamsMaterializable`, `BaseListMaterializable`, `TypeBodyMaterializable`. GATES RELAXED: `hasTypeParams`
+  (generic type-param list ON the declaration) and `hasBaseList` (base/interface list). GATES RETAINED (still
+  decline, unchanged): a parameter DEFAULT `=`, a per-parameter attribute, an argument-bearing attribute, field
+  property-modifiers/initializers/accessors, and EVERYTHING BODY-SHAPED (function/property/method/constructor
+  bodies — BlockStatement/Expression materialization, a later tranche); a VALUE-bearing enum member (Expression
+  Value). NO EMITTER GAP hit — the packaged SDK self-emitted every new construct (the node constructors, the
+  nullable-list-local avoidance via inline `null` at the UnionCase/EnumMember construction sites, the
+  List<X>-returning body functions); the ONLY reused workaround is inlining `null` for the absent
+  Properties/Value rather than a `List<T>?` local. DELIVERABLES: `ColumnarParserRecovery.nl` 7,473 → 7,654
+  (+270/−89): ParseTypeParameters/ParseBaseTypeList/ParseUnionBody/ParseEnumBody/ParseSoaRecordBody rewritten to
+  return their lists + set gates, the 6 declaration sites (class/struct/record/interface/union/soa) threaded,
+  ParseTypeAliasName materialized, ParseUnionName/ParseSoaRecordName given modifiers/attributes params + the 4
+  dispatch call sites updated, 3 new gate fields. `ColumnarParserAst.tests.nl` 1,074 → 1,538 (+466/−2): 9 new
+  AstEq FieldNames registrations (TypeParameter/UnionDeclaration/UnionCase/UnionCaseProperty/SoaRecordDeclaration/
+  SoaColumnDeclaration/EnumMember/TypeAliasDeclaration/NewtypeDeclaration) + 18 golden builders + 30 new
+  contracts (the tranche-4 "generic type-param list DECLINES" test CONVERTED to a positive materialization →
+  +26 net). CONTRACTS (all AstEq owner==golden, every golden Span/position TRIANGULATED against LIVE Parser.cs
+  via the AstToJson oracle): 4 base/interface shapes (class base, class base+interface split, struct interface,
+  interface base), 5 type-param shapes (generic class, two-param generic struct, generic record + T-typed param,
+  generic record + interface list, public generic class + base + interface), the converted generic-record
+  positive, 3 union shapes (bare newline-separated cases, single payload, multi-property mixed-case), 2 enum
+  shapes (valueless int members, valueless string-backed members), 1 soa shape, 4 type-alias/newtype shapes
+  (simple, union, generic underlying, newtype), 3 WHOLE-FILE real-corpus equalities (ErrorSeverity.nl +
+  DiagnosticSeverity.nl — public valueless enums, the DIRECT tranche-6 enum-member unlock; CodeIntelligence-
+  CallGraphModels.nl — two public records with generic/nullable primary-ctor param types + import), 3 negative
+  self-checks (mismatched type-param name / union-case name / base-class name — guarding the new recursion
+  paths against a vacuous pass), and 1 retained-gate decline (a value-bearing enum member declines). TRIANGULATION
+  MECHANISM: a THROWAWAY (deleted) fresh-Compiler ProjectReference probe ran BOTH live Parser.cs AND the owner's
+  ParseFileAst through the identical `OutputFormatter.AstToJson` serializer and diffed the JSON — 24/24 whole-tree
+  MATCH (21 synthetic + 3 whole-file), the strongest owner==Parser.cs proof. EVIDENCE: BootstrapServices
+  contracts 1281/1281 (1255 tranche-5 baseline + 26; fresh CLEAN `rm -rf obj bin` + `dotnet test
+  -p:NSharpExcludeTests=false`); the diagnostic-stream tests (ColumnarParserRecovery.tests.nl) UNCHANGED-green
+  prove the list-returning body/type-param/base-list refactor still does NOT perturb the diagnostic stream;
+  dev.sh Parser slice 384/384 (0 failures — the C# Parser.cs path is untouched); ownership audit: only
+  `.nl`/`.tests.nl`/`.md` changed (the 3 changed files are absent from the non-nsharp-growth ratchet manifest) →
+  no ownership repin. Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers outside its
+  `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. No LSP/VS Code
+  change → no reload. NO two-stage bootstrap wall (the packaged SDK self-emitted every new construct — no
+  planner/kernel/OpCode change). Next: TRANCHE 7 — the STATEMENT + EXPRESSION + PATTERN families that unblock
+  function/property/method/constructor bodies (BlockStatement/Expression materialization) and value-bearing enum
+  members, then field property-modifiers/initializers/accessors + argument-bearing attributes + parameter
+  defaults, until a whole valid-or-malformed file parses into (CompilationUnit, Errors) provably equal to
+  Parser.cs (the N+2 cutover prerequisite).
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 5 = the RICHER TypeReference node family. The owner's already-full-diagnostic-parity stage-15 type
   grammar (ParseTypeReferenceRecovery → Postfix → Base → Tuple / Func) now RETURNS the byte-exact
   TypeReference node it parses (or null for a structurally-unbuildable sub-part) as a PURE side-effect — the

@@ -216,6 +216,38 @@ public class AstEq {
         if typeName == "AttributeNode" {
             return Names("Name Arguments Line Column")
         }
+        // N+1c tranche 6 (type-param lists + base/interface lists + the remaining type bodies): the leaf/body
+        // node types. TypeParameter carries ONLY Name (no AstNode base — no Line/Column). UnionDeclaration's
+        // Cases + SoaRecordDeclaration's Columns + UnionCase's Properties recurse element-by-element;
+        // EnumMember.Value / UnionCaseProperty.Type / *.Type recurse or compare as scalars. The declaration
+        // registries (Class/Struct/Record/Interface/Enum) already carry TypeParameters + BaseClass/Interfaces.
+        if typeName == "TypeParameter" {
+            return Names("Name")
+        }
+        if typeName == "UnionDeclaration" {
+            return Names("Name TypeParameters Cases Modifiers Attributes Line Column")
+        }
+        if typeName == "UnionCase" {
+            return Names("Name Properties Line Column")
+        }
+        if typeName == "UnionCaseProperty" {
+            return Names("Name Type")
+        }
+        if typeName == "SoaRecordDeclaration" {
+            return Names("Name Columns Modifiers Attributes Line Column")
+        }
+        if typeName == "SoaColumnDeclaration" {
+            return Names("Name Type Line Column")
+        }
+        if typeName == "EnumMember" {
+            return Names("Name Value Line Column")
+        }
+        if typeName == "TypeAliasDeclaration" {
+            return Names("Name Type Line Column")
+        }
+        if typeName == "NewtypeDeclaration" {
+            return Names("Name UnderlyingType Line Column")
+        }
         return null
     }
 
@@ -455,6 +487,98 @@ public class Golden {
 
     public static func Pkg(name: string, line: int, column: int): PackageDeclaration {
         return new PackageDeclaration(name, line, column)
+    }
+
+    // ---- N+1c tranche 6: type-parameter lists + base/interface lists + the remaining type bodies ----
+    // All golden positions/spans below are transcribed from the LIVE Parser.cs oracle (the AstToJson
+    // serializer over Parser.cs's parse tree); owner == golden proves owner == Parser.cs.
+
+    // A TypeParameter carries ONLY its Name (Parser.cs :755).
+    public static func AddTP(tps: List<TypeParameter>, name: string) {
+        tps.Add(new TypeParameter(name))
+    }
+
+    // ---- base/interface lists (no generics) ----
+    // A class's `: T, U` splits [0]→BaseClass, [1..]→Interfaces (Parser.cs :977-978).
+    public static func AddClassBase(decls: List<Declaration>, name: string, baseClass: TypeReference?, interfaces: List<TypeReference>, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, baseClass, interfaces, new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    // A struct's `: T, U` is a pure interface list (Parser.cs :1008-1015).
+    public static func AddStructIface(decls: List<Declaration>, name: string, interfaces: List<TypeReference>, line: int, column: int) {
+        decls.Add(new StructDeclaration(name, null, interfaces, new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
+    }
+
+    // An interface's `: T, U` is its BaseInterfaces list (Parser.cs :1160-1168).
+    public static func AddInterfaceBase(decls: List<Declaration>, name: string, baseInterfaces: List<TypeReference>, line: int, column: int) {
+        decls.Add(new InterfaceDeclaration(name, null, baseInterfaces, new List<Declaration>(), Modifiers.None, false, new List<AttributeNode>(), line, column))
+    }
+
+    // ---- type-parameter lists on declarations ----
+    public static func AddClassGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddStructGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
+        decls.Add(new StructDeclaration(name, typeParams, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
+    }
+
+    // A record with generics + an interface list + positional params (Parser.cs :1066). interfaces empty when absent.
+    public static func AddRecordGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, interfaces: List<TypeReference>, paramList: List<Parameter>, mods: Modifiers, line: int, column: int) {
+        decls.Add(new RecordDeclaration(name, typeParams, interfaces, new List<Declaration>(), paramList, false, mods, new List<AttributeNode>(), line, column))
+    }
+
+    // A class with generics + base/interface split + modifiers (Parser.cs :984). FQN'd (test-stub collision).
+    public static func AddClassGPBase(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, baseClass: TypeReference?, interfaces: List<TypeReference>, mods: Modifiers, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, new List<Declaration>(), null, mods, new List<AttributeNode>(), line, column))
+    }
+
+    // ---- union bodies ----
+    public static func AddUnion(decls: List<Declaration>, name: string, cases: List<UnionCase>, line: int, column: int) {
+        decls.Add(new UnionDeclaration(name, null, cases, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    // A bare union case (no payload) — Properties null (Parser.cs :1223).
+    public static func AddUCaseBare(cases: List<UnionCase>, name: string, line: int, column: int) {
+        cases.Add(new UnionCase(name, null, line, column))
+    }
+
+    // A union case with a `{ prop: Type, … }` payload (Parser.cs :1223).
+    public static func AddUCaseProps(cases: List<UnionCase>, name: string, props: List<UnionCaseProperty>, line: int, column: int) {
+        cases.Add(new UnionCase(name, props, line, column))
+    }
+
+    public static func AddUProp(props: List<UnionCaseProperty>, name: string, typeRef: TypeReference) {
+        props.Add(new UnionCaseProperty(name, typeRef))
+    }
+
+    // ---- enum members ----
+    public static func AddEnumM(decls: List<Declaration>, name: string, members: List<EnumMember>, enumType: EnumType, mods: Modifiers, line: int, column: int) {
+        decls.Add(new EnumDeclaration(name, members, enumType, mods, new List<AttributeNode>(), line, column))
+    }
+
+    // A valueless enum member — Value null (Parser.cs :1310).
+    public static func AddEMem(members: List<EnumMember>, name: string, line: int, column: int) {
+        members.Add(new EnumMember(name, null, line, column))
+    }
+
+    // ---- soa record bodies ----
+    public static func AddSoa(decls: List<Declaration>, name: string, columns: List<SoaColumnDeclaration>, line: int, column: int) {
+        decls.Add(new SoaRecordDeclaration(name, columns, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddSCol(columns: List<SoaColumnDeclaration>, name: string, typeRef: TypeReference, line: int, column: int) {
+        columns.Add(new SoaColumnDeclaration(name, typeRef, line, column))
+    }
+
+    // ---- type-alias underlying type ----
+    // FQN'd: a test-helper `class TypeAliasDeclaration` in NSharpLang.Compiler.TestStubs shares the simple name.
+    public static func AddTypeAlias(decls: List<Declaration>, name: string, typeRef: TypeReference, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.TypeAliasDeclaration(name, typeRef, line, column))
+    }
+
+    public static func AddNewtype(decls: List<Declaration>, name: string, underlyingType: TypeReference, line: int, column: int) {
+        decls.Add(new NewtypeDeclaration(name, underlyingType, line, column))
     }
 }
 
@@ -1009,9 +1133,17 @@ test "016 N+1c tranche 4: a parameter with a default value DECLINES record mater
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 4: a generic type-parameter list DECLINES record materialization (no-stub)" {
+// tranche 6 CONVERTED the tranche-4 "generic type-parameter list DECLINES" gate to a positive
+// materialization: a generic declaration now materializes its TypeParameter list (Parser.cs :1033/:755).
+test "016 N+1c tranche 6: a generic type-parameter list now MATERIALIZES the record (was the tranche-4 decline gate)" {
     actual := RunAst("record R<T>(x: int) {}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    paramList := new List<Parameter>()
+    Golden.AddParamT(paramList, "x", Golden.SimpleT("int", 1, 16, 19), 1, 13)
+    decls := new List<Declaration>()
+    Golden.AddRecordGP(decls, "R", tps, new List<TypeReference>(), paramList, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -1071,4 +1203,336 @@ test "016 N+1c tranche 5: AstEq.Diff catches a nullable node compared against a 
     diff := AstEq.Diff(expected, actual, "unit")
     assert diff != ""
     assert diff == "unit.Declarations[0].Members[0].Type: node type SimpleTypeReference != NullableTypeReference"
+}
+
+// ============================================================================
+// tranche 6: TYPE-PARAMETER LISTS + BASE/INTERFACE LISTS + the remaining TYPE BODIES (union cases, enum
+// members, soa columns, type-alias underlying type). Every golden position/span below is transcribed from the
+// LIVE Parser.cs oracle (the AstToJson serializer over Parser.cs's parse tree); owner == golden proves owner ==
+// Parser.cs (verified whole-tree owner==Parser.cs on all 24 shapes via a throwaway ProjectReference probe).
+// The `hasTypeParams` / `hasBaseList` gates are RELAXED; RETAINED: param defaults, per-param/argument-bearing
+// attributes, field property-modifiers/initializers/accessors, and everything body-shaped (function/property/
+// method/ctor bodies — statement/expression materialization). Value-bearing enum members still decline (Value
+// is an Expression).
+// ============================================================================
+
+// ---- BASE / INTERFACE LISTS ----
+
+test "016 N+1c tranche 6: a class base type materializes BaseClass with empty Interfaces (Parser.cs :977)" {
+    actual := RunAst("class C: Base {}")
+    decls := new List<Declaration>()
+    Golden.AddClassBase(decls, "C", Golden.SimpleT("Base", 1, 10, 14), new List<TypeReference>(), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a class base + interface splits BaseClass=first, Interfaces=rest (Parser.cs :977-978)" {
+    actual := RunAst("class C: Base, IFoo {}")
+    ifaces := new List<TypeReference>()
+    ifaces.Add(Golden.SimpleT("IFoo", 1, 16, 20))
+    decls := new List<Declaration>()
+    Golden.AddClassBase(decls, "C", Golden.SimpleT("Base", 1, 10, 14), ifaces, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a struct interface list materializes as Interfaces with no BaseClass split (Parser.cs :1008)" {
+    actual := RunAst("struct S: IFoo {}")
+    ifaces := new List<TypeReference>()
+    ifaces.Add(Golden.SimpleT("IFoo", 1, 11, 15))
+    decls := new List<Declaration>()
+    Golden.AddStructIface(decls, "S", ifaces, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: an interface base list materializes as BaseInterfaces (Parser.cs :1160)" {
+    actual := RunAst("interface I: IBase {}")
+    ifaces := new List<TypeReference>()
+    ifaces.Add(Golden.SimpleT("IBase", 1, 14, 19))
+    decls := new List<Declaration>()
+    Golden.AddInterfaceBase(decls, "I", ifaces, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- TYPE-PARAMETER LISTS ----
+
+test "016 N+1c tranche 6: a generic class materializes a TypeParameter list (Parser.cs :755)" {
+    actual := RunAst("class C<T> {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    decls := new List<Declaration>()
+    Golden.AddClassGP(decls, "C", tps, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a two-parameter generic struct materializes both TypeParameters in order (Parser.cs :744-756)" {
+    actual := RunAst("struct S<T, U> {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    Golden.AddTP(tps, "U")
+    decls := new List<Declaration>()
+    Golden.AddStructGP(decls, "S", tps, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a generic record materializes TypeParameters + a param typed by T (Parser.cs :1033/:811)" {
+    actual := RunAst("record R<T>(x: T) {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    paramList := new List<Parameter>()
+    Golden.AddParamT(paramList, "x", Golden.SimpleT("T", 1, 16, 17), 1, 13)
+    decls := new List<Declaration>()
+    Golden.AddRecordGP(decls, "R", tps, new List<TypeReference>(), paramList, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a generic record with an interface list materializes TypeParameters + Interfaces + params (Parser.cs :1033/:1043)" {
+    actual := RunAst("record R<T>(x: T): IFoo {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    ifaces := new List<TypeReference>()
+    ifaces.Add(Golden.SimpleT("IFoo", 1, 20, 24))
+    paramList := new List<Parameter>()
+    Golden.AddParamT(paramList, "x", Golden.SimpleT("T", 1, 16, 17), 1, 13)
+    decls := new List<Declaration>()
+    Golden.AddRecordGP(decls, "R", tps, ifaces, paramList, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a public generic class with base + interface materializes all four (Parser.cs :984)" {
+    actual := RunAst("public class Box<T>: IFoo, IBar {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "T")
+    ifaces := new List<TypeReference>()
+    ifaces.Add(Golden.SimpleT("IBar", 1, 28, 32))
+    decls := new List<Declaration>()
+    Golden.AddClassGPBase(decls, "Box", tps, Golden.SimpleT("IFoo", 1, 22, 26), ifaces, Modifiers.Public, 1, 8)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- UNION BODIES ----
+
+test "016 N+1c tranche 6: a union materializes bare newline-separated cases (Parser.cs :1223/:1247)" {
+    actual := RunAst("union U {\n    A\n    B\n}")
+    cases := new List<UnionCase>()
+    Golden.AddUCaseBare(cases, "A", 2, 5)
+    Golden.AddUCaseBare(cases, "B", 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddUnion(decls, "U", cases, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a union case with a payload materializes UnionCaseProperty (Parser.cs :1212)" {
+    actual := RunAst("union U {\n    A { x: int }\n    B\n}")
+    props := new List<UnionCaseProperty>()
+    Golden.AddUProp(props, "x", Golden.SimpleT("int", 2, 12, 15))
+    cases := new List<UnionCase>()
+    Golden.AddUCaseProps(cases, "A", props, 2, 5)
+    Golden.AddUCaseBare(cases, "B", 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddUnion(decls, "U", cases, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a multi-property + mixed-case union materializes byte-exact (Parser.cs :1179-1247)" {
+    actual := RunAst("union LookupResult {\n    Found { name: string, score: int }\n    Missing { id: int }\n}")
+    foundProps := new List<UnionCaseProperty>()
+    Golden.AddUProp(foundProps, "name", Golden.SimpleT("string", 2, 19, 25))
+    Golden.AddUProp(foundProps, "score", Golden.SimpleT("int", 2, 34, 37))
+    missingProps := new List<UnionCaseProperty>()
+    Golden.AddUProp(missingProps, "id", Golden.SimpleT("int", 3, 19, 22))
+    cases := new List<UnionCase>()
+    Golden.AddUCaseProps(cases, "Found", foundProps, 2, 5)
+    Golden.AddUCaseProps(cases, "Missing", missingProps, 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddUnion(decls, "LookupResult", cases, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- ENUM MEMBERS ----
+
+test "016 N+1c tranche 6: an enum materializes valueless members in order (Parser.cs :1310)" {
+    actual := RunAst("enum E {\n    A,\n    B,\n    C\n}")
+    members := new List<EnumMember>()
+    Golden.AddEMem(members, "A", 2, 5)
+    Golden.AddEMem(members, "B", 3, 5)
+    Golden.AddEMem(members, "C", 4, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a string-backed enum materializes valueless members with EnumType.String (Parser.cs :1125/:1310)" {
+    actual := RunAst("enum Color: string {\n    Red,\n    Green\n}")
+    members := new List<EnumMember>()
+    Golden.AddEMem(members, "Red", 2, 5)
+    Golden.AddEMem(members, "Green", 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "Color", members, EnumType.String, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- SOA RECORD BODIES ----
+
+test "016 N+1c tranche 6: a soa record materializes its columns (Parser.cs :1108/:1136)" {
+    actual := RunAst("soa record R {\n    x: int\n    y: int\n}")
+    columns := new List<SoaColumnDeclaration>()
+    Golden.AddSCol(columns, "x", Golden.SimpleT("int", 2, 8, 11), 2, 5)
+    Golden.AddSCol(columns, "y", Golden.SimpleT("int", 3, 8, 11), 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddSoa(decls, "R", columns, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- TYPE-ALIAS UNDERLYING TYPE ----
+
+test "016 N+1c tranche 6: a type alias materializes TypeAliasDeclaration with a simple underlying type (Parser.cs :1361)" {
+    actual := RunAst("type T = int")
+    decls := new List<Declaration>()
+    Golden.AddTypeAlias(decls, "T", Golden.SimpleT("int", 1, 10, 13), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a type alias to a union underlying type materializes UnionTypeReference (Parser.cs :1808/:1361)" {
+    actual := RunAst("type T = int | string")
+    arms := new List<TypeReference>()
+    arms.Add(Golden.SimpleT("int", 1, 10, 13))
+    arms.Add(Golden.SimpleT("string", 1, 16, 22))
+    decls := new List<Declaration>()
+    Golden.AddTypeAlias(decls, "T", Golden.UnionT(arms, 1, 10, 22), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a type alias to a generic underlying type materializes GenericTypeReference (Parser.cs :1951/:1361)" {
+    actual := RunAst("type T = List<int>")
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("int", 1, 15, 18))
+    decls := new List<Declaration>()
+    Golden.AddTypeAlias(decls, "T", Golden.GenericT("List", args, 1, 10, 19), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: a newtype materializes NewtypeDeclaration with its underlying type (Parser.cs :1356)" {
+    actual := RunAst("type T = newtype int")
+    decls := new List<Declaration>()
+    Golden.AddNewtype(decls, "T", Golden.SimpleT("int", 1, 18, 21), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- WHOLE-FILE REAL-CORPUS EQUALITY (tranche-6 unlock: valueless enums + generic/nullable records) ----
+// EXACT byte content of in-repo pure-data files. The enum files are the DIRECT tranche-6 unlock (real
+// EnumMember lists); the callgraph file broadens the generic/nullable record coverage. Positions triangulated
+// against LIVE Parser.cs via the AstToJson oracle (owner == golden == Parser.cs).
+
+test "016 N+1c tranche 6: WHOLE-FILE equality on ErrorSeverity.nl (public 2-member enum)" {
+    actual := RunAst("namespace NSharpLang.Compiler\n\npublic enum ErrorSeverity {\n    Warning,\n    Error\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMem(members, "Warning", 4, 5)
+    Golden.AddEMem(members, "Error", 5, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "ErrorSeverity", members, EnumType.Int, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: WHOLE-FILE equality on DiagnosticSeverity.nl (public 3-member enum)" {
+    actual := RunAst("namespace NSharpLang.Compiler\n\npublic enum DiagnosticSeverity {\n    Warning,\n    Error,\n    Info\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMem(members, "Warning", 4, 5)
+    Golden.AddEMem(members, "Error", 5, 5)
+    Golden.AddEMem(members, "Info", 6, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "DiagnosticSeverity", members, EnumType.Int, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 6: WHOLE-FILE equality on CodeIntelligenceCallGraphModels.nl (two records, generic + nullable params)" {
+    actual := RunAst("namespace NSharpLang.Compiler.CodeIntelligence\n\nimport System.Collections.Generic\n\npublic record CallSiteResult(\n    Name: string,\n    File: string?,\n    Line: int,\n    Column: int) {\n}\n\npublic record CallGraphResult(\n    Function: string?,\n    Callers: List<CallSiteResult>,\n    Callees: List<CallSiteResult>,\n    Truncated: bool) {\n}\n")
+    siteParams := new List<Parameter>()
+    Golden.AddParamT(siteParams, "Name", Golden.SimpleT("string", 6, 11, 17), 6, 5)
+    Golden.AddParamT(siteParams, "File", Golden.NullableT(Golden.SimpleT("string", 7, 11, 17), 7, 11, 18), 7, 5)
+    Golden.AddParamT(siteParams, "Line", Golden.SimpleT("int", 8, 11, 14), 8, 5)
+    Golden.AddParamT(siteParams, "Column", Golden.SimpleT("int", 9, 13, 16), 9, 5)
+    callersArgs := new List<TypeReference>()
+    callersArgs.Add(Golden.SimpleT("CallSiteResult", 14, 19, 33))
+    calleesArgs := new List<TypeReference>()
+    calleesArgs.Add(Golden.SimpleT("CallSiteResult", 15, 19, 33))
+    graphParams := new List<Parameter>()
+    Golden.AddParamT(graphParams, "Function", Golden.NullableT(Golden.SimpleT("string", 13, 15, 21), 13, 15, 22), 13, 5)
+    Golden.AddParamT(graphParams, "Callers", Golden.GenericT("List", callersArgs, 14, 14, 34), 14, 5)
+    Golden.AddParamT(graphParams, "Callees", Golden.GenericT("List", calleesArgs, 15, 14, 34), 15, 5)
+    Golden.AddParamT(graphParams, "Truncated", Golden.SimpleT("bool", 16, 16, 20), 16, 5)
+    imports := new List<ImportDirective>()
+    Golden.AddImport(imports, "System.Collections.Generic", null, 3, 1)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "CallSiteResult", siteParams, Modifiers.Public, 5, 8)
+    Golden.AddRecordParams(decls, "CallGraphResult", graphParams, Modifiers.Public, 12, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.CodeIntelligence", 1, 1), imports, NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NEGATIVE SELF-CHECKS (guard the new tranche-6 recursion paths against a vacuous pass) ----
+
+test "016 N+1c tranche 6: AstEq.Diff catches a mismatched type-parameter name rather than passing vacuously" {
+    actual := RunAst("class C<T> {}")
+    tps := new List<TypeParameter>()
+    Golden.AddTP(tps, "U")
+    decls := new List<Declaration>()
+    Golden.AddClassGP(decls, "C", tps, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].TypeParameters[0].Name: String(U) != String(T)"
+}
+
+test "016 N+1c tranche 6: AstEq.Diff catches a mismatched union case name rather than passing vacuously" {
+    actual := RunAst("union U {\n    A\n    B\n}")
+    cases := new List<UnionCase>()
+    Golden.AddUCaseBare(cases, "A", 2, 5)
+    Golden.AddUCaseBare(cases, "WRONG", 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddUnion(decls, "U", cases, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Cases[1].Name: String(WRONG) != String(B)"
+}
+
+test "016 N+1c tranche 6: AstEq.Diff catches a mismatched base-class node against an interface list slot" {
+    actual := RunAst("class C: Base {}")
+    decls := new List<Declaration>()
+    Golden.AddClassBase(decls, "C", Golden.SimpleT("WRONG", 1, 10, 14), new List<TypeReference>(), 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].BaseClass.Name: String(WRONG) != String(Base)"
+}
+
+// ---- RETAINED-GATE DECLINES (tranche 6 leaves these body-shaped / expression families deferred) ----
+// A value-bearing enum member declines (Value is an Expression, a later tranche); the owner's Declarations
+// stays empty rather than emitting a wrong node. (Parser.cs DOES materialize it; the empty result is the
+// owner's intentional no-stub deferral.)
+
+test "016 N+1c tranche 6: a value-bearing enum member DECLINES enum materialization (no-stub)" {
+    actual := RunAst("enum E {\n    A = 1\n}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
 }
