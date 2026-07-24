@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 4 LANDED — MODIFIERS + PRIMARY-CONSTRUCTOR PARAMETERS + argument-free ATTRIBUTES materialized; WHOLE-FILE equality achieved on THREE real-corpus public-positional-record files [PlaygroundWasmModels/SystemsAotReport/SystemsReportSummary]; +13 contracts → 1238/1238)
+Last updated: 2026-07-24 (STAGE N+1c tranche 5 LANDED — the RICHER TypeReference node family materialized [generic/qualified-dotted/array/nullable/tuple/Func/union/byref], byte-exact to Parser.cs and VERIFIED owner==live-Parser.cs whole-tree on 15 shapes; richer field/param types NO LONGER decline [`hasTypeParams`/`hasBaseList` gates retained]; WHOLE-FILE equality on THREE more real-corpus files [CodeIntelligenceParameterResult/DocCommandModels/CodeIntelligenceImplementorModels]; +17 contracts → 1255/1255)
 
 ## Cursor
 
@@ -79,6 +79,80 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 4 LANDED — MODIFIERS + PRIMARY-CO
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 5 = the RICHER TypeReference node family. The owner's already-full-diagnostic-parity stage-15 type
+  grammar (ParseTypeReferenceRecovery → Postfix → Base → Tuple / Func) now RETURNS the byte-exact
+  TypeReference node it parses (or null for a structurally-unbuildable sub-part) as a PURE side-effect — the
+  Advance/Report/Consume sequence is UNCHANGED, so the diagnostic stream (1238 baseline) is unperturbed. The
+  ~30 diagnostic-only callers discard the returned node; the field/parameter sites capture it. TYPE-REFERENCE
+  CONSTRUCTION-SITE INVENTORY (owner, each byte-exact to Parser.cs, VERIFIED owner==LIVE-Parser.cs whole-tree
+  via the AstToJson serializer on 15 shapes): (1) SimpleTypeReference incl. the QUALIFIED dotted-name form
+  `A.B.C` (Parser.cs :1959 — name = dot-joined via the `while Check(Dot)` loop, Line/Column = first id token,
+  Span = SpanFromTokens(typeNameToken, lastNameToken) where lastNameToken is the LAST id, captured as Current
+  BEFORE each ConsumeIdentifier per :1921); (2) GenericTypeReference `List<T>` (Parser.cs :1951 — the 4-arg
+  ctor sets Line/Column = typeNameToken, Span = SpanFromTokens(typeNameToken, greater)); NESTED `List<List<T>>`
+  works via the SPLIT-`>>` discipline — ConsumeGreater splits a `>>` into a virtual `>` at rightShift.Column
+  and the enclosing close consumes an owed `>` at prev.Column+1, both byte-identical to Parser.cs, so the two
+  generic spans end at rightShift.Column+1 / rightShift.Column+2 EXACTLY (verified `[2,13..22]` / `[2,8..23]`
+  vs oracle); (3) ArrayTypeReference `T[]` (Parser.cs :1825, Span = ExtendSpan(base, rightBracket)); (4)
+  NullableTypeReference `T?` (Parser.cs :1857, Span = ExtendSpan(base, question)) AND the `T?[]` half whose
+  span ends at questionBracket.Column+1 (Parser.cs :1835-1844 — NOT token-length-extended, a distinct span
+  rule); (5) TupleTypeReference `(a: T, b: U)` (Parser.cs :1994, named/unnamed elements) PLUS the single-
+  UNNAMED-element UNWRAP (Parser.cs :1988-1992 — returns the inner type with its Span RESET to the whole
+  paren extent but Line/Column left on the inner name token); (6) FunctionTypeReference `Func<…>` (Parser.cs
+  :2017 — the LAST parsed type is ReturnType, the preceding ones ParameterTypes); (7) UnionTypeReference
+  `A | B` (Parser.cs :1808, Span = ExtendSpan(first, lastToken=Previous)); (8) ByRefTypeReference `&T`
+  (Parser.cs :1890, Span from the ampersand through inner.Span.EndColumn, else FromStartAndLength(amp,1)).
+  SPAN IDIOM: SourceSpan's only multi-arg factory is the single-line FromStartAndLength, so two helpers
+  (SpanFromTokensSingleLine / ExtendSpanFromNode) reproduce Parser.cs's SpanFromTokens/ExtendSpan for a
+  SINGLE-LINE span (the corpus shape), and the materialization gate defers any multi-line type. MATERIALIZATION
+  GATE (ParseMaterializedTypeReference, at the field + parameter sites): returns the node only when the parse
+  produced NO diagnostic (well-formed), did not ENTER in panic, and was SINGLE-LINE; else null → the caller
+  declines (no-stub). This is the RELAXATION: `ParseFieldTypeReference`/`ParseParameterTypeReference` no longer
+  restrict to the single-token simple type — every richer WELL-FORMED form now materializes, so a richer
+  field/param type NO LONGER declines its declaration (the existing `fieldType != null` / `paramType != null`
+  checks do the relaxation automatically once the grammar returns richer nodes). GATES RETAINED (still-deferred
+  families, unchanged): `hasTypeParams` (a generic type-parameter list ON the declaration, `record R<T>(…)`),
+  `hasBaseList` (a base/interface list `class C: Base`), a parameter DEFAULT `=`, a per-parameter attribute, an
+  argument-bearing attribute, and field property-modifiers/initializers/accessors — each still DECLINES.
+  EMITTER GAP FOUND + WORKED AROUND (surfaced by a fresh-Compiler ProjectReference emit probe): a property
+  assignment through a list-index + property chain (`elements[0].Type.Span = …`, the tuple single-unnamed
+  unwrap) declines the columnar backend (NL103 emit.statement.block-child node-kind-23) — resolved by binding
+  the element + its inner type to LOCALS first (`onlyElement := elements[0]; innerType := onlyElement.Type;
+  innerType.Span = …`), byte-identical. DELIVERABLES: `ColumnarParserRecovery.nl` 7,270 → 7,473 (+267/−64):
+  the 2 span helpers + ParseMaterializedTypeReference gate + the 5 grammar functions rewritten to return
+  TypeReference? + the ByRef/Array/Nullable/`?[`-Nullable wrapper helpers + the 2 field/param site rewrites.
+  `ColumnarParserAst.tests.nl` 719 → 1,074 (+363/−8): 8 new AstEq FieldNames registrations (Generic/Array/
+  Nullable/Tuple/TupleTypeElement/Function/Union/ByRef) + 11 golden type-ref builders (SpanOf/SimpleT/
+  SimpleTSpan/GenericT/ArrayT/NullableT/ByRefT/UnionT/FuncT/TupleElem/TupleT + AddFieldT/AddParamT); +17
+  contracts (net; one tranche-4 decline test converted to positive). CONTRACTS (all AstEq owner==golden, every
+  golden Span TRIANGULATED against LIVE Parser.cs via the AstToJson oracle): 11 synthetic field shapes (generic,
+  qualified-dotted, nullable, array, nested-generic split-`>>`, named tuple, single-unnamed-tuple unwrap,
+  union, Func, byref, nullable-array), a two-richer-field class, the tranche-4 "generic param type DECLINES"
+  test CONVERTED to a positive materialization, 3 WHOLE-FILE real-corpus equalities on in-repo pure-data files
+  that carry richer param types (CodeIntelligenceParameterResult.nl [nullable `string?`],
+  DocCommandModels.nl [generic `IReadOnlyList<DocPage>`, 2 records + a namespace import],
+  CodeIntelligenceImplementorModels.nl [nullable + generic `List<ImplementorResult>`, 2 records + import]) —
+  each triangulated so owner == golden == Parser.cs, and 2 NEW negative self-checks (a wrong generic type-
+  argument name; a Nullable-vs-Simple node-type mismatch — guarding the new recursion paths against a vacuous
+  pass). TRIANGULATION MECHANISM: a THROWAWAY (deleted) fresh-Compiler ProjectReference probe ran BOTH live
+  Parser.cs AND the owner's ParseFileAst through the identical `OutputFormatter.AstToJson` serializer and
+  diffed the JSON — 15/15 whole-tree MATCH (11 synthetic + 4 whole-file), the strongest owner==Parser.cs proof.
+  EVIDENCE: BootstrapServices contracts 1255/1255 (1238 tranche-4 baseline + 17; fresh CLEAN `rm -rf obj bin`
+  + restore + `dotnet test -p:NSharpExcludeTests=false`); the 1238 baseline UNCHANGED proves the node-returning
+  grammar refactor still does NOT perturb the diagnostic stream; dev.sh Parser slice 384/384 (0 failures — the
+  C# Parser.cs path is untouched); ownership audit 18/18.
+  Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers outside its `.tests.nl` (grep across
+  src+editors+tests); Parser.cs stays the sole production authority. Only `.nl`/`.tests.nl`/`.md` changed (all
+  ratchet-ignored; the 3 changed files are absent from the non-nsharp-growth ratchet manifest) → no ownership
+  repin. No LSP/VS Code change → no reload. NO two-stage bootstrap wall (the packaged SDK self-emitted every
+  new construct — the node constructors + the single-line span factory + the nullable TypeReference? returns —
+  no planner/kernel/OpCode change; the local-extraction workaround for the list-index property-set is the ONLY
+  new emit accommodation, and it stays inside dogfood N#). Next: TRANCHE 6 — functions/properties/methods/
+  constructors (blocked on statement/expression body materialization), then type-parameter lists + base/
+  interface lists on declarations (relaxing `hasTypeParams`/`hasBaseList`), then union/soa/type-alias bodies,
+  then the statement + expression + pattern families, until a whole valid-or-malformed file parses into
+  (CompilationUnit, Errors) provably equal to Parser.cs.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 4 = MODIFIERS + PRIMARY-CONSTRUCTOR PARAMETERS + argument-free ATTRIBUTES. MILESTONE ACHIEVED:
   WHOLE-FILE `ParseFileAst(corpus) == golden` on THREE real-corpus public-positional-record files
   (PlaygroundWasmModels.nl [int/string, 3 params], SystemsAotReport.nl [string/bool, 4 params],
@@ -2005,13 +2079,19 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
     the byte-exact fully-qualified-name idiom (`new NSharpLang.Compiler.Ast.ClassDeclaration(...)`) — NO planner
     extension, NO two-stage wall. Full detail + the member-tranche viability proofs are in the THIS-TURN Active
     sub-slice.
-  - TRANCHE 3+ (next): thread a members list through `ParseTypeBody` (nesting-safe save/restore) and materialize the
-    member families — FieldDeclaration first (initializer-free `name: type`), then properties/methods(signatures)/
-    ctors/nested-types — with byte-exact `TypeReference`s (SimpleTypeReference + `.Span` via the
-    `SourceSpan.FromStartAndLength` factory, PROVEN to emit this turn — the value-struct-construction gap does not
-    block the factory path), parameters, type-params/base-types, modifiers/attributes; then statement bodies, then
-    expressions/patterns — extending the same `AstEq` harness per family (FQN the colliding member names). Proceed
-    until a whole valid-or-malformed file parses into (CompilationUnit, Errors) provably equal to Parser.cs.
+  - TRANCHE 3 LANDED: members threaded through `ParseTypeBody` (nesting-safe), FieldDeclaration + single-token
+    SimpleTypeReference materialized. TRANCHE 4 LANDED: modifiers + primary-ctor params + argument-free attributes,
+    with WHOLE-FILE equality on 3 public-positional-record files. TRANCHE 5 LANDED (this turn): the RICHER
+    TypeReference node family (generic / qualified-dotted / array / nullable / tuple / Func / union / byref) in
+    field + parameter types — each byte-exact to Parser.cs and verified owner==live-Parser.cs whole-tree; richer
+    field/param types no longer decline (the `hasTypeParams`/`hasBaseList` decls-level gates + the default/attr/
+    property-modifier gates are RETAINED); +3 whole-file real-corpus equalities on richer-typed pure-data records.
+    See the THIS-TURN Active sub-slice for the construction-site inventory + evidence.
+  - TRANCHE 6+ (next): thread type-parameter lists + base/interface lists on the declaration nodes (relaxing
+    `hasTypeParams`/`hasBaseList`); functions/properties/methods/constructors (blocked on statement/expression body
+    materialization); union/soa/type-alias bodies; then the statement + expression + pattern families — extending
+    the same `AstEq` harness per family. Proceed until a whole valid-or-malformed file parses into
+    (CompilationUnit, Errors) provably equal to Parser.cs.
 - N+2 (CUTOVER, IDE-AFFECTING): at full AST + diagnostic parity, route every consumer (MultiFileCompiler.ParseAllFiles,
   DocumentManager, Analyzer's 4 sites, Formatter, CLI format/lint, CodeIntelligence, Playground) to the N# owner. VS
   Code-enabled gate + extension reinstall + computer-use visual check. No shadow route.

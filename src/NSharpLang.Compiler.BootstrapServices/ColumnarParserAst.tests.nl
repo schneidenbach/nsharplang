@@ -176,6 +176,35 @@ public class AstEq {
         if typeName == "SimpleTypeReference" {
             return Names("Name Line Column Span")
         }
+        // N+1c tranche 5 (richer TypeReference forms): the full stage-15 type-node family. Each derived node
+        // registers its stored data members + the base TypeReference `Span` (a SourceSpan, compared by value —
+        // SourceSpan is unregistered, so DiffValue falls to its .Equals over the 4 ints). Computed `NameSpan`
+        // (Simple/Generic) is a pure function of Name/Line/Column/Span and is deliberately not registered.
+        // TupleTypeElement is NOT a TypeReference (no Span) — its Type recurses, Name is a scalar (string?).
+        if typeName == "GenericTypeReference" {
+            return Names("Name TypeArguments Line Column Span")
+        }
+        if typeName == "ArrayTypeReference" {
+            return Names("ElementType Span")
+        }
+        if typeName == "NullableTypeReference" {
+            return Names("InnerType Span")
+        }
+        if typeName == "TupleTypeReference" {
+            return Names("Elements Span")
+        }
+        if typeName == "TupleTypeElement" {
+            return Names("Type Name")
+        }
+        if typeName == "FunctionTypeReference" {
+            return Names("ParameterTypes ReturnType Span")
+        }
+        if typeName == "UnionTypeReference" {
+            return Names("Arms Span")
+        }
+        if typeName == "ByRefTypeReference" {
+            return Names("InnerType Span")
+        }
         // N+1c tranche 4 (modifiers + primary-ctor params): the Parameter node (compared element-by-element
         // inside a declaration's PrimaryConstructorParameters list) and the AttributeNode (compared inside a
         // declaration's Attributes list). Parameter.Type recurses into its SimpleTypeReference; Modifier /
@@ -297,6 +326,86 @@ public class Golden {
         simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
         simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
         paramList.Add(new Parameter(name, simple, null, false, ParameterModifier.None, null, line, column, false, null))
+    }
+
+    // ---- N+1c tranche 5: richer TypeReference golden builders ----
+    // Each builds one node of the stage-15 type-node family with its Span hard-coded from the LIVE Parser.cs
+    // oracle (`nlc query ast` / the AstToJson serializer over Parser.cs's tree). A single-line span
+    // [startLine, startColumn .. startLine, endColumn] is FromStartAndLength(startLine, startColumn, endColumn -
+    // startColumn) (byte-identical to Parser.cs SpanFromTokens/ExtendSpan on one line). Passing the ORACLE's
+    // endColumn (not re-deriving it) keeps golden == Parser.cs, so owner == golden proves owner == Parser.cs.
+    public static func SpanOf(startLine: int, startColumn: int, endColumn: int): SourceSpan {
+        return SourceSpan.FromStartAndLength(startLine, startColumn, endColumn - startColumn)
+    }
+
+    public static func SimpleT(name: string, line: int, column: int, endColumn: int): TypeReference {
+        node := new SimpleTypeReference(name, line, column)
+        node.Span = Golden.SpanOf(line, column, endColumn)
+        return node
+    }
+
+    // A SimpleTypeReference whose Span start differs from its Line/Column — the single-unnamed-tuple unwrap
+    // `(int)`, where Parser.cs resets the inner type's Span to the whole parenthesized extent but leaves
+    // Line/Column on the inner name token (Parser.cs :1990).
+    public static func SimpleTSpan(name: string, line: int, column: int, spanStartColumn: int, spanEndColumn: int): TypeReference {
+        node := new SimpleTypeReference(name, line, column)
+        node.Span = Golden.SpanOf(line, spanStartColumn, spanEndColumn)
+        return node
+    }
+
+    public static func GenericT(name: string, args: List<TypeReference>, line: int, column: int, endColumn: int): TypeReference {
+        node := new GenericTypeReference(name, args, line, column)
+        node.Span = Golden.SpanOf(line, column, endColumn)
+        return node
+    }
+
+    public static func ArrayT(element: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new ArrayTypeReference(element)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    public static func NullableT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new NullableTypeReference(inner)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    public static func ByRefT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new ByRefTypeReference(inner)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    public static func UnionT(arms: List<TypeReference>, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new UnionTypeReference(arms)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    public static func FuncT(paramTypes: List<TypeReference>, returnType: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new FunctionTypeReference(paramTypes, returnType)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    public static func TupleElem(typeRef: TypeReference, name: string?): TupleTypeElement {
+        return new TupleTypeElement(typeRef, name)
+    }
+
+    public static func TupleT(elements: List<TupleTypeElement>, startLine: int, startColumn: int, endColumn: int): TypeReference {
+        node := new TupleTypeReference(elements)
+        node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
+        return node
+    }
+
+    // Append a field / parameter carrying a PRE-BUILT rich type reference (the tranche-5 unlock).
+    public static func AddFieldT(members: List<Declaration>, name: string, fieldType: TypeReference, line: int, column: int) {
+        members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddParamT(paramList: List<Parameter>, name: string, paramType: TypeReference, line: int, column: int) {
+        paramList.Add(new Parameter(name, paramType, null, false, ParameterModifier.None, null, line, column, false, null))
     }
 
     // N+1c tranche 4: a record with a primary-constructor parameter list (empty body, no interfaces/generics,
@@ -664,17 +773,235 @@ test "016 N+1c tranche 4: WHOLE-FILE equality on SystemsReportSummary.nl (7-fiel
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-// ---- NO-STUB DECLINE GATES (the owner declines rather than partially comparing) ----
-// These prove the materialization gate: a declaration carrying a DEFERRED feature (a richer parameter type,
-// a default value, a generic type-parameter list, or an argument-bearing attribute) is NOT materialized, so
-// the owner's Declarations stays empty rather than emitting a partial/wrong node. (Parser.cs DOES materialize
-// these; the empty result is the owner's intentional no-stub deferral, not a Parser.cs-parity claim.)
+// ============================================================================
+// tranche 5: the RICHER TypeReference node family (Generic / qualified-dotted Simple / Array / Nullable /
+// Tuple / Func / Union / ByRef). Every golden Span below is transcribed from the LIVE Parser.cs oracle
+// (the AstToJson serializer over Parser.cs's parse tree — `nlc query ast`); owner == golden proves owner ==
+// Parser.cs. Each field/parameter type that was DEFERRED-and-declined in tranche 4 now materializes.
+// ============================================================================
 
-test "016 N+1c tranche 4: a richer (generic) parameter type DECLINES record materialization (no-stub)" {
-    actual := RunAst("record R(x: List<int>) {}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+test "016 N+1c tranche 5: a generic field type materializes GenericTypeReference<SimpleTypeReference> (Parser.cs :1951)" {
+    actual := RunAst("struct S {\n    tags: List<int>\n}")
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("int", 2, 16, 19))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "tags", Golden.GenericT("List", args, 2, 11, 20), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
+
+test "016 N+1c tranche 5: a qualified dotted field type materializes a dot-joined SimpleTypeReference (Parser.cs :1918/:1959)" {
+    actual := RunAst("struct S {\n    id: A.B.C\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "id", Golden.SimpleT("A.B.C", 2, 9, 14), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a nullable field type materializes NullableTypeReference (Parser.cs :1857)" {
+    actual := RunAst("struct S {\n    name: string?\n}")
+    inner := Golden.SimpleT("string", 2, 11, 17)
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "name", Golden.NullableT(inner, 2, 11, 18), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: an array field type materializes ArrayTypeReference (Parser.cs :1825)" {
+    actual := RunAst("struct S {\n    xs: int[]\n}")
+    inner := Golden.SimpleT("int", 2, 9, 12)
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "xs", Golden.ArrayT(inner, 2, 9, 14), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a nested generic materializes GenericTypeReference nesting with split-`>>` spans (Parser.cs :2107)" {
+    actual := RunAst("struct S {\n    m: List<List<int>>\n}")
+    innerArgs := new List<TypeReference>()
+    innerArgs.Add(Golden.SimpleT("int", 2, 18, 21))
+    outerArgs := new List<TypeReference>()
+    outerArgs.Add(Golden.GenericT("List", innerArgs, 2, 13, 22))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "m", Golden.GenericT("List", outerArgs, 2, 8, 23), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a named tuple field type materializes TupleTypeReference with named elements (Parser.cs :1994)" {
+    actual := RunAst("struct S {\n    p: (x: int, y: int)\n}")
+    elements := new List<TupleTypeElement>()
+    elements.Add(Golden.TupleElem(Golden.SimpleT("int", 2, 12, 15), "x"))
+    elements.Add(Golden.TupleElem(Golden.SimpleT("int", 2, 20, 23), "y"))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "p", Golden.TupleT(elements, 2, 8, 24), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a single unnamed tuple element UNWRAPS to the inner type with the paren-extent span (Parser.cs :1988-1992)" {
+    actual := RunAst("struct S {\n    p: (int)\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "p", Golden.SimpleTSpan("int", 2, 9, 8, 13), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a union field type materializes UnionTypeReference (Parser.cs :1808)" {
+    actual := RunAst("struct S {\n    u: int | string\n}")
+    arms := new List<TypeReference>()
+    arms.Add(Golden.SimpleT("int", 2, 8, 11))
+    arms.Add(Golden.SimpleT("string", 2, 14, 20))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "u", Golden.UnionT(arms, 2, 8, 20), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a Func field type materializes FunctionTypeReference (last type = return) (Parser.cs :2017)" {
+    actual := RunAst("struct S {\n    f: Func<int, string>\n}")
+    fnParams := new List<TypeReference>()
+    fnParams.Add(Golden.SimpleT("int", 2, 13, 16))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "f", Golden.FuncT(fnParams, Golden.SimpleT("string", 2, 18, 24), 2, 8, 25), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a byref field type materializes ByRefTypeReference (Parser.cs :1890)" {
+    actual := RunAst("struct S {\n    r: &int\n}")
+    inner := Golden.SimpleT("int", 2, 9, 12)
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "r", Golden.ByRefT(inner, 2, 8, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a nullable-array field type nests ArrayTypeReference over NullableTypeReference (Parser.cs :1835/:1847)" {
+    actual := RunAst("struct S {\n    q: int?[]\n}")
+    inner := Golden.SimpleT("int", 2, 8, 11)
+    nullable := Golden.NullableT(inner, 2, 8, 12)
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "q", Golden.ArrayT(nullable, 2, 8, 14), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: a class with two richer-typed fields (generic + nullable) nests byte-exact" {
+    actual := RunAst("class Box {\n    tags: List<int>\n    label: string?\n}")
+    genArgs := new List<TypeReference>()
+    genArgs.Add(Golden.SimpleT("int", 2, 16, 19))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "tags", Golden.GenericT("List", genArgs, 2, 11, 20), 2, 5)
+    Golden.AddFieldT(members, "label", Golden.NullableT(Golden.SimpleT("string", 3, 12, 18), 3, 12, 19), 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "Box", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A generic PARAMETER type now materializes (the tranche-4 "richer parameter type DECLINES" gate is RELAXED).
+test "016 N+1c tranche 5: a generic parameter type now MATERIALIZES the record (was the tranche-4 decline gate)" {
+    actual := RunAst("record R(x: List<int>) {}")
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("int", 1, 18, 21))
+    paramList := new List<Parameter>()
+    Golden.AddParamT(paramList, "x", Golden.GenericT("List", args, 1, 13, 22), 1, 10)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "R", paramList, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- WHOLE-FILE REAL-CORPUS EQUALITY on richer-typed records (tranche 5 unlock) ----
+// EXACT byte content of in-repo pure-data files that carry nullable / generic parameter types — declined by
+// tranche 4, now fully materialized. Positions triangulated against LIVE Parser.cs via the AstToJson oracle.
+
+test "016 N+1c tranche 5: WHOLE-FILE equality on CodeIntelligenceParameterResult.nl (nullable param type)" {
+    actual := RunAst("namespace NSharpLang.Compiler.CodeIntelligence\n\npublic record ParameterResult(\n    Name: string,\n    Type: string,\n    HasDefault: bool,\n    DefaultValue: string?) {\n}\n")
+    paramList := new List<Parameter>()
+    Golden.AddParamT(paramList, "Name", Golden.SimpleT("string", 4, 11, 17), 4, 5)
+    Golden.AddParamT(paramList, "Type", Golden.SimpleT("string", 5, 11, 17), 5, 5)
+    Golden.AddParamT(paramList, "HasDefault", Golden.SimpleT("bool", 6, 17, 21), 6, 5)
+    Golden.AddParamT(paramList, "DefaultValue", Golden.NullableT(Golden.SimpleT("string", 7, 19, 25), 7, 19, 26), 7, 5)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "ParameterResult", paramList, Modifiers.Public, 3, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.CodeIntelligence", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: WHOLE-FILE equality on DocCommandModels.nl (generic param + two records)" {
+    actual := RunAst("namespace NSharpLang.Cli.Commands\n\nimport System.Collections.Generic\n\npublic record DocManifest(\n    IndexPath: string,\n    PageCount: int,\n    Pages: IReadOnlyList<DocPage>) {\n}\n\npublic record DocPage(\n    Name: string,\n    Kind: string,\n    Path: string) {\n}\n")
+    manifestParams := new List<Parameter>()
+    Golden.AddParamT(manifestParams, "IndexPath", Golden.SimpleT("string", 6, 16, 22), 6, 5)
+    Golden.AddParamT(manifestParams, "PageCount", Golden.SimpleT("int", 7, 16, 19), 7, 5)
+    pagesArgs := new List<TypeReference>()
+    pagesArgs.Add(Golden.SimpleT("DocPage", 8, 26, 33))
+    Golden.AddParamT(manifestParams, "Pages", Golden.GenericT("IReadOnlyList", pagesArgs, 8, 12, 34), 8, 5)
+    pageParams := new List<Parameter>()
+    Golden.AddParamT(pageParams, "Name", Golden.SimpleT("string", 12, 11, 17), 12, 5)
+    Golden.AddParamT(pageParams, "Kind", Golden.SimpleT("string", 13, 11, 17), 13, 5)
+    Golden.AddParamT(pageParams, "Path", Golden.SimpleT("string", 14, 11, 17), 14, 5)
+    imports := new List<ImportDirective>()
+    Golden.AddImport(imports, "System.Collections.Generic", null, 3, 1)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "DocManifest", manifestParams, Modifiers.Public, 5, 8)
+    Golden.AddRecordParams(decls, "DocPage", pageParams, Modifiers.Public, 11, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Cli.Commands", 1, 1), imports, NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 5: WHOLE-FILE equality on CodeIntelligenceImplementorModels.nl (nullable + generic params)" {
+    actual := RunAst("namespace NSharpLang.Compiler.CodeIntelligence\n\nimport System.Collections.Generic\n\npublic record ImplementorResult(\n    TypeName: string,\n    Kind: string,\n    File: string?,\n    Line: int,\n    Column: int) {\n}\n\npublic record ImplementorsResult(\n    Interface: string,\n    Results: List<ImplementorResult>) {\n}\n")
+    resultParams := new List<Parameter>()
+    Golden.AddParamT(resultParams, "TypeName", Golden.SimpleT("string", 6, 15, 21), 6, 5)
+    Golden.AddParamT(resultParams, "Kind", Golden.SimpleT("string", 7, 11, 17), 7, 5)
+    Golden.AddParamT(resultParams, "File", Golden.NullableT(Golden.SimpleT("string", 8, 11, 17), 8, 11, 18), 8, 5)
+    Golden.AddParamT(resultParams, "Line", Golden.SimpleT("int", 9, 11, 14), 9, 5)
+    Golden.AddParamT(resultParams, "Column", Golden.SimpleT("int", 10, 13, 16), 10, 5)
+    resultsArgs := new List<TypeReference>()
+    resultsArgs.Add(Golden.SimpleT("ImplementorResult", 15, 19, 36))
+    implsParams := new List<Parameter>()
+    Golden.AddParamT(implsParams, "Interface", Golden.SimpleT("string", 14, 16, 22), 14, 5)
+    Golden.AddParamT(implsParams, "Results", Golden.GenericT("List", resultsArgs, 15, 14, 37), 15, 5)
+    imports := new List<ImportDirective>()
+    Golden.AddImport(imports, "System.Collections.Generic", null, 3, 1)
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "ImplementorResult", resultParams, Modifiers.Public, 5, 8)
+    Golden.AddRecordParams(decls, "ImplementorsResult", implsParams, Modifiers.Public, 13, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.CodeIntelligence", 1, 1), imports, NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NO-STUB DECLINE GATES (the owner declines rather than partially comparing) ----
+// These prove the RETAINED materialization gates: a declaration carrying a STILL-DEFERRED feature (a
+// parameter default value, a generic type-parameter list ON the declaration, or an argument-bearing
+// attribute) is NOT materialized, so the owner's Declarations stays empty rather than emitting a
+// partial/wrong node. (Parser.cs DOES materialize these; the empty result is the owner's intentional no-stub
+// deferral, not a Parser.cs-parity claim.) The tranche-4 "richer parameter TYPE declines" gate is now RELAXED
+// (see the tranche-5 positive contract above) — richer field/parameter types materialize.
 
 test "016 N+1c tranche 4: a parameter with a default value DECLINES record materialization (no-stub)" {
     actual := RunAst("record R(x: int = 5) {}\n")
@@ -716,4 +1043,32 @@ test "016 N+1c tranche 4: AstEq.Diff catches a mismatched parameter type rather 
     diff := AstEq.Diff(expected, actual, "unit")
     assert diff != ""
     assert diff == "unit.Declarations[0].PrimaryConstructorParameters[0].Type.Name: String(long) != String(int)"
+}
+
+// tranche 5: guard the GenericTypeReference.TypeArguments recursion — a wrong type-argument name is caught.
+test "016 N+1c tranche 5: AstEq.Diff catches a mismatched generic type argument rather than passing vacuously" {
+    actual := RunAst("struct S {\n    tags: List<int>\n}")
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("long", 2, 16, 19))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "tags", Golden.GenericT("List", args, 2, 11, 20), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Type.TypeArguments[0].Name: String(long) != String(int)"
+}
+
+// tranche 5: guard the wrapper-vs-simple distinction — a NullableTypeReference is not a SimpleTypeReference.
+test "016 N+1c tranche 5: AstEq.Diff catches a nullable node compared against a simple node rather than passing vacuously" {
+    actual := RunAst("struct S {\n    name: string?\n}")
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "name", Golden.SimpleT("string", 2, 11, 18), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Type: node type SimpleTypeReference != NullableTypeReference"
 }

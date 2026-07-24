@@ -1386,23 +1386,13 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseParameterTypeReference (:6504). Consumes a full type reference (Parser.cs :6507
     // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
     // the missing-type diagnostic anchored on the parameter name when a type terminator sits where the
-    // type should be. Stage N+1c tranche 4: RETURN the byte-exact `SimpleTypeReference` for a single-token
-    // identifier type — IDENTICAL to Parser.cs :1959 (`new SimpleTypeReference(name, line, column) { Span =
-    // SpanFromTokens(t, t) }`, since a single-token type has lastNameToken == typeNameToken and SpanFromTokens(t,t)
-    // ≡ FromStartAndLength(t.Line, t.Column, t.Value.Length)) — the SAME heuristic ParseFieldTypeReference uses.
-    // Richer forms (qualified / generic / array / nullable / tuple / Func) advance more than one token and return
-    // null (deferred → the caller declines to materialize the parameter, no-stub).
+    // type should be. Stage N+1c tranche 5: RETURN the byte-exact materialized type node through the shared
+    // ParseMaterializedTypeReference gate — the FULL stage-15 grammar (simple / qualified / generic / array /
+    // nullable / tuple / Func / union / byref), each construction byte-exact to Parser.cs. Only a malformed,
+    // multi-line, or in-panic parse defers (null → the caller declines to materialize the parameter, no-stub).
     func ParseParameterTypeReference(parameterName: string, parameterLine: int, parameterColumn: int): TypeReference? {
         if !IsTypeTerminator(Current().Type) {
-            typeToken := Current()
-            startPosition := Position
-            ParseTypeReferenceRecovery()
-            if typeToken.Type == TokenType.Identifier && Position == startPosition + 1 {
-                simple := new SimpleTypeReference(typeToken.Value, typeToken.Line, typeToken.Column)
-                simple.Span = SourceSpan.FromStartAndLength(typeToken.Line, typeToken.Column, typeToken.Value.Length)
-                return simple
-            }
-            return null
+            return ParseMaterializedTypeReference()
         }
         visible := IsVisibleName(parameterName)
         span := TypeErrorAnchor(visible, parameterLine, parameterColumn, parameterName)
@@ -2027,26 +2017,14 @@ public class ColumnarParserRecovery {
     // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
     // the missing-type diagnostic anchored on the field name when a type terminator (and not the start
     // of the NEXT field) sits where the type should be.
-    // Stage N+1c tranche 3 (members): returns the parsed type reference for the byte-exact FIELD
-    // materialization — but only for the SINGLE-TOKEN simple type (`name: int`), the materialized field
-    // corpus. A single-token identifier consumes exactly one token, so `Position == startPosition + 1`
-    // proves the shape (no dots / generics / `[]` / `?` / union / tuple / Func / byref). For that shape the
-    // returned `SimpleTypeReference(name, line, column)` with `.Span = SourceSpan.FromStartAndLength(line,
-    // column, len)` is byte-exact to Parser.cs :1959-1962 (`new SimpleTypeReference(name, typeNameLine,
-    // typeNameColumn) { Span = SpanFromTokens(typeNameToken, typeNameToken) }`, since SpanFromTokens(t,t) ≡
-    // FromStartAndLength(t.Line, t.Column, t.Value.Length)). Any richer type or a missing-type error returns
-    // null (a later tranche), and the caller then declines to materialize that field.
+    // Stage N+1c tranche 5 (richer types): returns the parsed type reference for the byte-exact FIELD
+    // materialization through the shared ParseMaterializedTypeReference gate — the FULL stage-15 grammar
+    // (simple / qualified / generic / array / nullable / tuple / Func / union / byref), each construction
+    // byte-exact to Parser.cs. Only a malformed / multi-line / in-panic type parse returns null (deferred),
+    // and the caller then declines to materialize that field.
     func ParseFieldTypeReference(fieldName: string, fieldLine: int, fieldColumn: int, fieldColonToken: Token): TypeReference? {
         if !IsTypeTerminator(Current().Type) && !LooksLikeNextFieldAfterMissingType(fieldColonToken) {
-            typeToken := Current()
-            startPosition := Position
-            ParseTypeReferenceRecovery()
-            if typeToken.Type == TokenType.Identifier && Position == startPosition + 1 {
-                simple := new SimpleTypeReference(typeToken.Value, typeToken.Line, typeToken.Column)
-                simple.Span = SourceSpan.FromStartAndLength(typeToken.Line, typeToken.Column, typeToken.Value.Length)
-                return simple
-            }
-            return null
+            return ParseMaterializedTypeReference()
         }
         visible := IsVisibleName(fieldName)
         span := TypeErrorAnchor(visible, fieldLine, fieldColumn, fieldName)
@@ -2657,6 +2635,62 @@ public class ColumnarParserRecovery {
             span.Length)
     }
 
+    // ---- span helpers for the materialized type grammar (Stage N+1c tranche 5) ----
+    // Reproduce Parser.cs SpanFromTokens(start, end) (:5873) BYTE-EXACT for a SINGLE-LINE span. SourceSpan's
+    // only multi-arg factory is FromStartAndLength (single-line), and every corpus type reference is single-
+    // line, so the caller gates single-line (start.Line == end.Line — enforced at the field/parameter
+    // materialization site) and this reproduces `new SourceSpan(start.Line, start.Column, end.Line,
+    // end.Column + Max(1, end.Value.Length))` when start.Line == end.Line: FromStartAndLength(line, col, len)
+    // is `new SourceSpan(line, col, line, col + Max(1, len))`, and with len = end.Column + Max(1,
+    // end.Value.Length) - start.Column (always >= 1 for an ordered same-line pair) the end column matches.
+    // The start.Line<=0/Column<=0 → None guard mirrors SpanFromTokens :5875 (FromStartAndLength :43 shares it).
+    func SpanFromTokensSingleLine(start: Token, end: Token): SourceSpan {
+        return SourceSpan.FromStartAndLength(start.Line, start.Column, end.Column + MaxInt(1, end.Value.Length) - start.Column)
+    }
+
+    // Reproduce Parser.cs ExtendSpan(TypeReference start, Token end) (:5885) BYTE-EXACT for a single-line
+    // span: None when the start node's span is invalid, else `new SourceSpan(start.Span.StartLine,
+    // start.Span.StartColumn, end.Line, end.Column + Max(1, end.Value.Length))` — reproduced via
+    // FromStartAndLength on the (single-line-gated) start line. Used for the `T[]` / `T?` postfix + `A | B`
+    // union close, where the extent runs from the inner node's start through the closing suffix / last-arm
+    // token.
+    func ExtendSpanFromNode(start: TypeReference, end: Token): SourceSpan {
+        if !start.Span.IsValid {
+            return SourceSpan.None
+        }
+        return SourceSpan.FromStartAndLength(start.Span.StartLine, start.Span.StartColumn, end.Column + MaxInt(1, end.Value.Length) - start.Span.StartColumn)
+    }
+
+    // Stage N+1c tranche 5: the field / parameter type materialization gate. Parses a full type reference
+    // through the (now node-returning) recovery grammar and returns its byte-exact node ONLY when the parse
+    // was WELL-FORMED and SINGLE-LINE — the corpus shape. Deferral (return null → the caller declines to
+    // materialize the field/parameter/declaration, no-stub) fires when: the grammar could not structurally
+    // build the node (a non-identifier name, a null sub-part); the parse ENTERED in panic (a prior malformed
+    // construct — Report is suppressed, so an error-count delta cannot see it); ANY diagnostic was reported
+    // during the parse (a malformed type — Parser.cs materializes an <error>/partial node, deferred here);
+    // or the type spans multiple lines (SourceSpan's single-line factory cannot reproduce a multi-line span
+    // byte-exact). A well-formed single-line type reports nothing and stays on one line, so every richer
+    // form (qualified / generic / array / nullable / tuple / Func / union / byref) now materializes.
+    func ParseMaterializedTypeReference(): TypeReference? {
+        panicBefore := PanicMode
+        errorsBefore := Errors.Count
+        startToken := Current()
+        node := ParseTypeReferenceRecovery()
+        if node == null {
+            return null
+        }
+        if panicBefore {
+            return null
+        }
+        if Errors.Count != errorsBefore {
+            return null
+        }
+        if startToken.Line != Previous().Line {
+            return null
+        }
+        return node
+    }
+
     // ---- full type reference grammar (Parser.cs ParseTypeReference :1774) ----
     // Stage 15: the entry is the UNION layer (Parser.cs `ParseTypeReference` → `ParseUnionTypeReference`
     // :1776) — a `|`-separated list of POSTFIX type references. Every consumer already threaded through
@@ -2666,10 +2700,22 @@ public class ColumnarParserRecovery {
     // through ParseTypeReference. The Stage 5-11 simple / qualified / generic corpus flows straight
     // through union → postfix → base → the identifier arm unchanged (no `|` / `[]` / `?` / `&` / `(` /
     // `Func` ⇒ byte-exact identical output), so no prior contract moves.
-    func ParseTypeReferenceRecovery() {
-        ParsePostfixTypeReferenceRecovery()                 // first arm (Parser.cs :1781)
+    // Stage N+1c tranche 5: each grammar layer now RETURNS the byte-exact TypeReference node it parses (or
+    // null for a structurally-unbuildable sub-part) as a PURE side-effect — the Advance/Report/Consume
+    // sequence is unchanged, so the diagnostic stream (the 1238 baseline) is unperturbed. The ~30 diagnostic-
+    // only callers discard the returned node; the field/parameter sites capture it through
+    // ParseMaterializedTypeReference above.
+    func ParseTypeReferenceRecovery(): TypeReference? {
+        first := ParsePostfixTypeReferenceRecovery()        // first arm (Parser.cs :1781)
         if !Check(TokenType.BitwiseOr) {                    // Parser.cs :1782 early return
-            return
+            return first
+        }
+        // Union `A | B | …` (Parser.cs :1785). Arms accumulate; armsOk tracks a null (unbuildable) arm so the
+        // union declines. lastToken tracks the last consumed real token, ExtendSpan's end (Parser.cs :1805).
+        arms := new List<TypeReference>()
+        armsOk := first != null
+        if first != null {
+            arms.Add(first)
         }
         scanningUnion := true
         while scanningUnion {
@@ -2677,14 +2723,28 @@ public class ColumnarParserRecovery {
                 Advance()                                   // consume '|' (Parser.cs :1790)
                 if IsTypeTerminator(Current().Type) {       // trailing `|` (Parser.cs :1791)
                     ReportUnionMissingTypeArm()             // NL103 (Parser.cs :1793), then break
+                    armsOk = false
                     scanningUnion = false
                 } else {
-                    ParsePostfixTypeReferenceRecovery()     // next arm (Parser.cs :1804)
+                    arm := ParsePostfixTypeReferenceRecovery()   // next arm (Parser.cs :1804)
+                    if arm == null {
+                        armsOk = false
+                    } else {
+                        arms.Add(arm)
+                    }
                 }
             } else {
                 scanningUnion = false
             }
         }
+        if !armsOk || first == null {
+            return null
+        }
+        // Parser.cs :1808 `new UnionTypeReference(arms) { Span = ExtendSpan(first, lastToken) }`, lastToken =
+        // Previous after the last arm (:1805).
+        result := new UnionTypeReference(arms)
+        result.Span = ExtendSpanFromNode(first, Previous())
+        return result
     }
 
     // Parser.cs ParseUnionTypeReference's missing-arm report (:1793): a `|` immediately followed by a type
@@ -2708,59 +2768,116 @@ public class ColumnarParserRecovery {
     // follows), so their `Consume(RightBracket)` (:1824/:1846) NEVER fails — no reachable diagnostic. The
     // suffixes only shape the consumed extent so a FOLLOWING error (a trailing union `|`, or the next
     // declaration) anchors byte-exact.
-    func ParsePostfixTypeReferenceRecovery() {
-        ParseBaseTypeReferenceRecovery()
+    func ParsePostfixTypeReferenceRecovery(): TypeReference? {
+        baseType := ParseBaseTypeReferenceRecovery()
         suffixLooping := true
         while suffixLooping {
             if Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket {
                 Advance()                                   // '[' (Parser.cs :1823)
-                Advance()                                   // guaranteed ']' (Consume never fails, :1824)
+                rightBracket := Advance()                   // guaranteed ']' (Consume never fails, :1824)
+                baseType = WrapArrayType(baseType, rightBracket)   // Parser.cs :1825
             } else {
                 if Check(TokenType.QuestionBracket) && LookAhead(1).Type == TokenType.RightBracket {
-                    Advance()                               // '?[' (Parser.cs :1834)
-                    Advance()                               // guaranteed ']' (:1846)
+                    questionBracket := Advance()            // '?[' (Parser.cs :1834)
+                    baseType = WrapNullableQuestionBracketType(baseType, questionBracket)   // Parser.cs :1835
+                    rightBracket := Advance()               // guaranteed ']' (:1846)
+                    baseType = WrapArrayType(baseType, rightBracket)   // Parser.cs :1847
                 } else {
                     if Check(TokenType.Question) {
-                        Advance()                           // '?' nullable (Parser.cs :1856)
+                        question := Advance()               // '?' nullable (Parser.cs :1856)
+                        baseType = WrapNullableType(baseType, question)   // Parser.cs :1857
                     } else {
                         suffixLooping = false               // Parser.cs :1864 break
                     }
                 }
             }
         }
+        return baseType
+    }
+
+    // Parser.cs :1825/:1847 `new ArrayTypeReference(baseType) { Span = ExtendSpan(baseType, rightBracket) }`.
+    func WrapArrayType(element: TypeReference?, rightBracket: Token): TypeReference? {
+        if element == null {
+            return null
+        }
+        result := new ArrayTypeReference(element)
+        result.Span = ExtendSpanFromNode(element, rightBracket)
+        return result
+    }
+
+    // Parser.cs :1857 `new NullableTypeReference(baseType) { Span = ExtendSpan(baseType, question) }`.
+    func WrapNullableType(inner: TypeReference?, question: Token): TypeReference? {
+        if inner == null {
+            return null
+        }
+        result := new NullableTypeReference(inner)
+        result.Span = ExtendSpanFromNode(inner, question)
+        return result
+    }
+
+    // Parser.cs :1835-1844: the nullable half of `T?[]`. The span ends one column PAST the `?[` token
+    // (questionBracket.Column + 1 — the `?`), NOT extended by the token length, so this does not route
+    // through ExtendSpanFromNode. Single-line-gated at the site, reproduced via FromStartAndLength.
+    func WrapNullableQuestionBracketType(inner: TypeReference?, questionBracket: Token): TypeReference? {
+        if inner == null {
+            return null
+        }
+        result := new NullableTypeReference(inner)
+        if inner.Span.IsValid {
+            result.Span = SourceSpan.FromStartAndLength(inner.Span.StartLine, inner.Span.StartColumn, questionBracket.Column + 1 - inner.Span.StartColumn)
+        } else {
+            result.Span = SourceSpan.None
+        }
+        return result
     }
 
     // Parser.cs ParseBaseTypeReference (:1884): a byref `&T`, a parenthesized / tuple type `( … )`, a
     // `Func<…>` function type, or the simple / qualified / generic identifier arm (owned since Stage 5).
-    func ParseBaseTypeReferenceRecovery() {
+    func ParseBaseTypeReferenceRecovery(): TypeReference? {
         if Check(TokenType.BitwiseAnd) {                    // byref &T (Parser.cs :1886)
+            ampersand := Current()
             Advance()
-            ParsePostfixTypeReferenceRecovery()             // inner is a POSTFIX type (Parser.cs :1889)
-            return
+            inner := ParsePostfixTypeReferenceRecovery()    // inner is a POSTFIX type (Parser.cs :1889)
+            return MakeByRefType(ampersand, inner)
         }
         if Check(TokenType.LeftParen) {                     // tuple / parenthesized (Parser.cs :1899)
-            ParseParenthesizedOrTupleTypeReferenceRecovery()
-            return
+            return ParseParenthesizedOrTupleTypeReferenceRecovery()
         }
         if Check(TokenType.Identifier) && Current().Value == "Func" {   // Func<…> (Parser.cs :1905)
-            ParseFunctionTypeReferenceRecovery()
-            return
+            return ParseFunctionTypeReferenceRecovery()
         }
 
-        // simple / qualified / generic (Parser.cs :1910-1962)
+        // simple / qualified / generic (Parser.cs :1910-1962). Capture the accumulated dotted name + the
+        // last name token (ExtendSpan's end for a simple type) so a qualified `A.B.C` materializes byte-exact.
         typeNameToken := Current()
-        ConsumeIdentifier("Expected type name")             // Parser.cs :1914
+        firstName := ConsumeIdentifier("Expected type name")   // Parser.cs :1914
+        name := firstName
+        nameOk := firstName != "<error>"
+        lastNameToken := typeNameToken
         while Check(TokenType.Dot) {                         // qualified name A.B (Parser.cs :1918)
             Advance()
-            ConsumeIdentifier("Expected identifier after '.'")
+            lastNameToken = Current()                       // Parser.cs :1921 captures Current BEFORE consuming
+            segment := ConsumeIdentifier("Expected identifier after '.'")
+            name = name + "." + segment
+            if segment == "<error>" {
+                nameOk = false
+            }
         }
 
         if Check(TokenType.Less) {
             lessToken := Advance()                          // consume '<'
+            typeArgs := new List<TypeReference>()
+            argsOk := true
             if Check(TokenType.Greater) {
                 ReportMissingGenericTypeArgument(typeNameToken, lessToken)  // `Name<>` (Parser.cs :1930)
+                argsOk = false
             } else {
-                ParseTypeReferenceRecovery()                // first type argument (full grammar, Parser.cs :1936)
+                firstArg := ParseTypeReferenceRecovery()    // first type argument (full grammar, Parser.cs :1936)
+                if firstArg == null {
+                    argsOk = false
+                } else {
+                    typeArgs.Add(firstArg)
+                }
                 scanning := true
                 while scanning {
                     if Check(TokenType.Comma) {
@@ -2768,17 +2885,56 @@ public class ColumnarParserRecovery {
                         if Check(TokenType.Greater) {
                             // `Name<T,>` trailing comma (Parser.cs :1940-1943).
                             ReportMissingGenericTypeArgument(typeNameToken, lessToken)
+                            argsOk = false
                             scanning = false
                         } else {
-                            ParseTypeReferenceRecovery()
+                            nextArg := ParseTypeReferenceRecovery()
+                            if nextArg == null {
+                                argsOk = false
+                            } else {
+                                typeArgs.Add(nextArg)
+                            }
                         }
                     } else {
                         scanning = false
                     }
                 }
             }
-            ConsumeGreater("Expected '>'")                  // Parser.cs :1950
+            greater := ConsumeGreater("Expected '>'")       // Parser.cs :1950
+            if !nameOk || !argsOk {
+                return null
+            }
+            // Parser.cs :1951 `new GenericTypeReference(name, typeArgs) { Line = typeNameLine, Column =
+            // typeNameColumn, Span = SpanFromTokens(typeNameToken, greater) }` — the 4-arg ctor sets Line/Column.
+            result := new GenericTypeReference(name, typeArgs, typeNameToken.Line, typeNameToken.Column)
+            result.Span = SpanFromTokensSingleLine(typeNameToken, greater)
+            return result
         }
+
+        if !nameOk {
+            return null
+        }
+        // Parser.cs :1959 `new SimpleTypeReference(name, typeNameLine, typeNameColumn) { Span =
+        // SpanFromTokens(typeNameToken, lastNameToken) }` — a single-token type has lastNameToken == typeNameToken.
+        simple := new SimpleTypeReference(name, typeNameToken.Line, typeNameToken.Column)
+        simple.Span = SpanFromTokensSingleLine(typeNameToken, lastNameToken)
+        return simple
+    }
+
+    // Parser.cs :1890-1895 `new ByRefTypeReference(inner) { Span = inner.Span.IsValid ? new SourceSpan(
+    // ampersand.Line, ampersand.Column, inner.Span.EndLine, inner.Span.EndColumn) : FromStartAndLength(
+    // ampersand.Line, ampersand.Column, 1) }`. Single-line-gated, so inner.Span.EndLine == ampersand.Line.
+    func MakeByRefType(ampersand: Token, inner: TypeReference?): TypeReference? {
+        if inner == null {
+            return null
+        }
+        result := new ByRefTypeReference(inner)
+        if inner.Span.IsValid {
+            result.Span = SourceSpan.FromStartAndLength(ampersand.Line, ampersand.Column, inner.Span.EndColumn - ampersand.Column)
+        } else {
+            result.Span = SourceSpan.FromStartAndLength(ampersand.Line, ampersand.Column, 1)
+        }
+        return result
     }
 
     // Parser.cs ParseParenthesizedOrTupleTypeReference (:1965): a `( … )` list of comma-separated element
@@ -2788,22 +2944,49 @@ public class ColumnarParserRecovery {
     // plain NL102). Each element type descends the full ParseTypeReferenceRecovery (:1981). The
     // single-unnamed-element unwrap and the named-element detection shape the (unbuilt) AST only — no
     // diagnostic — so the recovery model just consumes them.
-    func ParseParenthesizedOrTupleTypeReferenceRecovery() {
+    func ParseParenthesizedOrTupleTypeReferenceRecovery(): TypeReference? {
+        leftParen := Current()
         Advance()                                           // '(' (Consume guarded, Parser.cs :1967)
+        elements := new List<TupleTypeElement>()
+        elementsOk := true
         tupleLooping := true
         while tupleLooping {
+            elementName: string? = null
             if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
-                Advance()                                   // element name (Parser.cs :1977)
+                elementName = Advance().Value               // element name (Parser.cs :1977)
                 Advance()                                   // ':' (Parser.cs :1978)
             }
-            ParseTypeReferenceRecovery()                    // element type (Parser.cs :1981)
+            elementType := ParseTypeReferenceRecovery()     // element type (Parser.cs :1981)
+            if elementType == null {
+                elementsOk = false
+            } else {
+                elements.Add(new TupleTypeElement(elementType, elementName))   // Parser.cs :1982
+            }
             if Check(TokenType.Comma) {                     // Parser.cs :1984 `while Match(Comma)`
                 Advance()
             } else {
                 tupleLooping = false
             }
         }
-        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")   // Parser.cs :1986
+        rightParen := ConsumeToken(TokenType.RightParen, "Expected ')'", ")")   // Parser.cs :1986
+        if !elementsOk {
+            return null
+        }
+        tupleSpan := SpanFromTokensSingleLine(leftParen, rightParen)
+        // Parser.cs :1988-1992: a single UNNAMED element unwraps to the inner type (its span reset to the
+        // whole parenthesized extent), NOT a TupleTypeReference. The inner type is bound to a LOCAL before the
+        // span set — the columnar backend declines a property assignment through a list-index + property chain
+        // (`elements[0].Type.Span = …`).
+        if elements.Count == 1 && elements[0].Name == null {
+            onlyElement := elements[0]
+            innerType := onlyElement.Type
+            innerType.Span = tupleSpan
+            return innerType
+        }
+        // Parser.cs :1994 `new TupleTypeReference(elements) { Span = SpanFromTokens(leftParen, rightParen) }`.
+        result := new TupleTypeReference(elements)
+        result.Span = tupleSpan
+        return result
     }
 
     // Parser.cs ParseFunctionTypeReference (:2000): `Func< T, … >`. The leading `Func` identifier is
@@ -2813,15 +2996,35 @@ public class ColumnarParserRecovery {
     // ConsumeGreater (:2014). Unlike the generic identifier arm, `Func` does NOT call
     // ReportMissingGenericTypeArgument — it routes each argument straight through ParseTypeReference, so
     // `Func<>` / `Func<int,>` reach the ConsumeIdentifier NL102 on the `>` (verified against the oracle).
-    func ParseFunctionTypeReferenceRecovery() {
+    func ParseFunctionTypeReferenceRecovery(): TypeReference? {
+        funcToken := Current()
         Advance()                                           // 'Func' (Consume guarded, Parser.cs :2002)
         ConsumeToken(TokenType.Less, "Expected '<'", "less")   // Parser.cs :2003
-        ParseTypeReferenceRecovery()                        // first type = return (Parser.cs :2006)
+        // Parser.cs :2005-2012: the LAST parsed type is the return type; the preceding ones are the parameter
+        // types. So each comma pushes the CURRENT returnType into paramTypes before the next parse.
+        paramTypes := new List<TypeReference>()
+        returnType := ParseTypeReferenceRecovery()          // first type = return (Parser.cs :2006)
+        typesOk := returnType != null
         while Check(TokenType.Comma) {                      // Parser.cs :2008 `while Match(Comma)`
             Advance()
-            ParseTypeReferenceRecovery()                    // Parser.cs :2011
+            if returnType != null {
+                paramTypes.Add(returnType)                  // Parser.cs :2010
+            } else {
+                typesOk = false
+            }
+            returnType = ParseTypeReferenceRecovery()       // Parser.cs :2011
+            if returnType == null {
+                typesOk = false
+            }
         }
-        ConsumeGreater("Expected '>'")                      // Parser.cs :2014
+        greater := ConsumeGreater("Expected '>'")           // Parser.cs :2014
+        if !typesOk || returnType == null {
+            return null
+        }
+        // Parser.cs :2017 `new FunctionTypeReference(paramTypes, returnType) { Span = SpanFromTokens(funcToken, greater) }`.
+        result := new FunctionTypeReference(paramTypes, returnType)
+        result.Span = SpanFromTokensSingleLine(funcToken, greater)
+        return result
     }
 
     // Parser.cs ReportMissingGenericTypeArgument (:6457). The span runs from the type name to the
