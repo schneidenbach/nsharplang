@@ -599,6 +599,30 @@ public class ColumnarParserRecovery {
     // mirrors the exact Parser.cs ConsumeIdentifier site; an unrecognized token hits the terminal
     // unexpected-token arm (Parser.cs ParseDeclaration :241), identical to Stage 1's arm.
     func ParseTopLevelDeclaration() {
+        // Stage 16: the contextual test-DSL declarations (Parser.cs ParseDeclaration :192-202) are
+        // dispatched BEFORE attributes/modifiers, so each is its own top-level declaration and
+        // participates in the declaration-boundary panic reset (Run's per-iteration PanicMode reset).
+        if IsTestDeclarationStart() {
+            ParseTestDeclaration()
+            return
+        }
+        if IsSetupDeclarationStart() {
+            ParseSetupDeclaration()
+            return
+        }
+        if IsTeardownDeclarationStart() {
+            ParseTeardownDeclaration()
+            return
+        }
+
+        // Top-level preprocessor directive (Parser.cs :205): a bare advance, no diagnostic.
+        if Check(TokenType.PreprocessorDirective) {
+            Advance()
+            return
+        }
+
+        // Attributes precede modifiers (Parser.cs :214).
+        ParseAttributes()
         ParseModifiers()
 
         if Check(TokenType.Func) {
@@ -1007,11 +1031,11 @@ public class ColumnarParserRecovery {
     // ---- parameter list (Parser.cs ParseParameterList :751) ----
 
     func ParseParameterListRecovery() {
-        // Minimal recovery vehicle. Attributes, the params/ref/out/this modifiers, scoped/lifetime
-        // annotations, default values, and the IsParameterListRecoveryBoundary early break are LATER arc
-        // stages; the member/parameter corpus uses none of them. Stage 9 carries the trailing-comma
-        // recovery (Parser.cs :761) and routes the closing ')' through ConsumeToken so the missing-')'
-        // closing-delimiter recovery (NL107) is reachable.
+        // Minimal recovery vehicle. The params/ref/out/this modifiers, scoped/lifetime annotations,
+        // default values, and the IsParameterListRecoveryBoundary early break are LATER arc stages; the
+        // member/parameter corpus uses none of them. Stage 16 carries the per-parameter attribute list
+        // (Parser.cs :770). Stage 9 carries the trailing-comma recovery (Parser.cs :761) and routes the
+        // closing ')' through ConsumeToken so the missing-')' closing-delimiter recovery (NL107) is reachable.
         if !Check(TokenType.LeftParen) {
             return
         }
@@ -1030,6 +1054,8 @@ public class ColumnarParserRecovery {
                     ReportMissingParameterAfterTrailingComma(DiagnosticSpanFromTokenRange(startToken, Previous()))
                     parsing = false
                 } else {
+                    // Per-parameter attributes (Parser.cs :770), before the modifier/name.
+                    ParseAttributes()
                     paramStartToken := Current()
                     paramLine := Current().Line
                     paramColumn := Current().Column
@@ -1387,6 +1413,8 @@ public class ColumnarParserRecovery {
             return
         }
 
+        // Stage 16: member attributes precede modifiers (Parser.cs :1424).
+        ParseAttributes()
         ParseModifiers()
 
         // Nested type declarations (Parser.cs :1428-1460), in the same dispatch order.
@@ -6636,5 +6664,178 @@ public class ColumnarParserRecovery {
             return a
         }
         return b
+    }
+
+    // ============================================================================
+    // Stage 16: the TEST DSL + ATTRIBUTES diagnostic family — carried through the SAME shared-panic
+    // model. The test-DSL declarations (`test "desc" { … }`, `setup { … }`, `teardown { … }`) are
+    // dispatched from ParseTopLevelDeclaration BEFORE attributes/modifiers (Parser.cs ParseDeclaration
+    // :192-202), so each is its own declaration and resets panic at the Run() declaration boundary.
+    // Attributes (`[Name(args)]`) precede modifiers on top-level declarations (:214), members (:1424),
+    // and parameters (:770). Every error site reduces to an already-owned primitive: the description /
+    // skip string-literal ExpectedToken reports go straight through Report; the table `[` / row `(`
+    // Consumes are plain ConsumeToken; the row `)` / cases `]` / attribute `]` closes route through the
+    // Stage-9 closing-delimiter recovery; the attribute name reuses the Stage-1 ConsumeIdentifier; the
+    // attribute args reuse the Stage-10 ParseArgumentList; the bodies reuse the Stage-6/13 ParseBlock.
+    // ============================================================================
+
+    // Parser.cs IsTestDeclarationStart (:642): the `test` keyword token OR the contextual identifier.
+    func IsTestDeclarationStart(): bool {
+        if Check(TokenType.Test) {
+            return true
+        }
+        return Check(TokenType.Identifier) && Current().Value == "test"
+    }
+
+    // Parser.cs IsSetupDeclarationStart (:667): the contextual `setup` identifier followed by `{`.
+    func IsSetupDeclarationStart(): bool {
+        return Current().Type == TokenType.Identifier && Current().Value == "setup" && LookAhead(1).Type == TokenType.LeftBrace
+    }
+
+    // Parser.cs IsTeardownDeclarationStart (:704): the contextual `teardown` identifier followed by `{`.
+    func IsTeardownDeclarationStart(): bool {
+        return Current().Type == TokenType.Identifier && Current().Value == "teardown" && LookAhead(1).Type == TokenType.LeftBrace
+    }
+
+    // Parser.cs ConsumeTestKeyword (:650): advance past the `test` keyword (Test token or the contextual
+    // identifier). The final Consume(Test) fallback never fires — this is only reached when
+    // IsTestDeclarationStart already matched — but it is modelled faithfully.
+    func ConsumeTestKeyword() {
+        if Check(TokenType.Test) {
+            Advance()
+            return
+        }
+        if Check(TokenType.Identifier) && Current().Value == "test" {
+            Advance()
+            return
+        }
+        ConsumeToken(TokenType.Test, "Expected 'test'", "test")
+    }
+
+    // Parser.cs ParseTestDeclaration (:546). The description must be a string literal (else the
+    // ExpectedToken report + skip-the-offender); the optional table-driven `with (params) [ rows ]`;
+    // the optional `skip "reason"`; then the block body (owner span = the `test` keyword, length 4).
+    func ParseTestDeclaration() {
+        line := Current().Line
+        column := Current().Column
+        ConsumeTestKeyword()
+
+        // Test description must be a string literal (Parser.cs :554).
+        if Current().Type != TokenType.StringLiteral {
+            descSuggestions := new List<string>()
+            descSuggestions.Add("Example: test \"should calculate sum correctly\" { ... }")
+            descSuggestions.Add("Example: test \"validates user input\" { ... }")
+            Report(
+                ErrorCode.ExpectedToken,
+                "Expected string literal for test description. Got '" + Current().Value + "'",
+                Current().Line,
+                Current().Column,
+                "Test declarations require a string literal describing what the test does.",
+                "A test should start with the 'test' keyword followed by a string in quotes.",
+                descSuggestions,
+                Current().Value.Length)
+            if !IsAtEnd() {
+                Advance()                               // skip the invalid token (Parser.cs :570)
+            }
+        } else {
+            Advance()
+        }
+
+        // Table-driven test syntax `with (params) [ (row), … ]` (Parser.cs :582).
+        if Check(TokenType.With) {
+            Advance()                                   // consume 'with'
+            ParseParameterListRecovery()
+
+            ConsumeToken(TokenType.LeftBracket, "Expected '[' to start test cases", "[")
+            while !Check(TokenType.RightBracket) && !IsAtEnd() {
+                ConsumeToken(TokenType.LeftParen, "Expected '(' to start test case row", "(")
+                while !Check(TokenType.RightParen) && !IsAtEnd() {
+                    ParseExprValue()                    // Parser.cs ParseExpression (:596)
+                    if !Check(TokenType.RightParen) {
+                        if Check(TokenType.Comma) {     // Parser.cs Match(Comma) (:598)
+                            Advance()
+                        }
+                    }
+                }
+                ConsumeToken(TokenType.RightParen, "Expected ')' to end test case row", ")")
+                if !Check(TokenType.RightBracket) {
+                    if Check(TokenType.Comma) {         // Parser.cs Match(Comma) (:603)
+                        Advance()
+                    }
+                }
+            }
+            ConsumeToken(TokenType.RightBracket, "Expected ']' to end test cases", "]")
+        }
+
+        // Skip modifier `skip "reason"` (Parser.cs :611). The invalid-reason report does NOT skip the
+        // offender (matching Parser.cs), so a following block/EOF continues from that token.
+        if Current().Type == TokenType.Identifier && Current().Value == "skip" {
+            Advance()                                   // consume 'skip'
+            if Current().Type != TokenType.StringLiteral {
+                skipSuggestions := new List<string>()
+                skipSuggestions.Add("Example: test \"my test\" skip \"needs network\" { ... }")
+                Report(
+                    ErrorCode.ExpectedToken,
+                    "Expected string literal for skip reason. Got '" + Current().Value + "'",
+                    Current().Line,
+                    Current().Column,
+                    "The 'skip' modifier requires a string explaining why the test is skipped.",
+                    "Add a reason string after 'skip'.",
+                    skipSuggestions,
+                    Current().Value.Length)
+            } else {
+                Advance()
+            }
+        }
+
+        // Test body (Parser.cs :637). Owner span = the `test` keyword (line, column, "test".Length == 4).
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, 4)))
+    }
+
+    // Parser.cs ParseSetupDeclaration (:695): advance past `setup`, then the block body (owner span =
+    // the `setup` keyword, length 5). No own error site beyond the block.
+    func ParseSetupDeclaration() {
+        line := Current().Line
+        column := Current().Column
+        Advance()                                       // consume 'setup'
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, 5)))
+    }
+
+    // Parser.cs ParseTeardownDeclaration (:710): advance past `teardown`, then the block body (owner
+    // span = the `teardown` keyword, length 8). No own error site beyond the block.
+    func ParseTeardownDeclaration() {
+        line := Current().Line
+        column := Current().Column
+        Advance()                                       // consume 'teardown'
+        ParseBlock(new RecoverySpan(line, column, MaxInt(1, 8)))
+    }
+
+    // Parser.cs ParseAttributes (:269): a loop of `[ Name(.Name)* (args)? ]`. The name reuses the
+    // ConsumeAttributeIdentifier (Identifier/Alloc/Allow, else the owned ConsumeIdentifier NL102); the
+    // optional `(args)` reuses the Stage-10 ParseArgumentList; the closing `]` routes through the
+    // Stage-9 closing-delimiter recovery (ConsumeToken → NL108 when unclosed, else the plain NL102).
+    func ParseAttributes() {
+        while Check(TokenType.LeftBracket) {
+            Advance()                                   // consume '['
+            ConsumeAttributeIdentifier("Expected attribute name")
+            while Check(TokenType.Dot) {
+                Advance()                               // consume '.'
+                ConsumeAttributeIdentifier("Expected identifier after '.'")
+            }
+            if Check(TokenType.LeftParen) {
+                Advance()                               // consume '('
+                ParseArgumentList()
+            }
+            ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+        }
+    }
+
+    // Parser.cs ConsumeAttributeIdentifier (:6811): an attribute name may be an Identifier or the
+    // contextual Alloc / Allow keywords; anything else falls through to the shared ConsumeIdentifier.
+    func ConsumeAttributeIdentifier(message: string): string {
+        if Check(TokenType.Identifier) || Check(TokenType.Alloc) || Check(TokenType.Allow) {
+            return Advance().Value
+        }
+        return ConsumeIdentifier(message)
     }
 }

@@ -5067,3 +5067,281 @@ test "016 type-ref negative: a valid is-expression union type A | B is consumed 
 test "016 type-ref negative: a valid base-list union A | B routes through the full grammar with no diagnostic" {
     assert RunPreamble("class C : A | B {\n}").Count == 0
 }
+
+// ---------------------------------------------------------------------------
+// Task-016 parser-front-end arc, Stage 16: the TEST DSL + ATTRIBUTES family.
+// Every golden below is the byte-exact output of the freshly built Release CLI oracle
+// (`nlc check --json`, parser codes NL101-NL109, excluding the columnar-backend emit-decline
+// NL103 — for the test-DSL declarations the oracle also emits a line-0/1 emit decline that is a
+// backend diagnostic, not a parser one). The test-DSL declarations (`test`/`setup`/`teardown`)
+// are dispatched from ParseTopLevelDeclaration BEFORE attributes/modifiers, so each is its own
+// declaration and resets panic at the Run() declaration boundary; attributes (`[Name(args)]`)
+// precede modifiers on top-level declarations, members, and parameters.
+//
+// NOT corpus-pinnable (recorded, with reason): the malformed table-driven ROW shapes reached
+// via a following `{ }` body (`test "d" with (a) 9 { }`, `test "d" with (a) [ 9 ] { }`) HANG the
+// production parser — the row loop `while (!Check(RightParen) && !IsAtEnd()) ParseExpression()`
+// does NOT force-advance, and ParseExpression neither consumes nor skips a `}` / `]` in the
+// row-expression position (ShouldSkipUnexpectedExpressionToken returns false for an expression
+// terminator), so it spins. The model reproduces this loop faithfully, so pinning such a shape
+// would hang the suite. The malformed table sites are instead pinned at EOF (below), where the
+// loop terminates and the leading Consume error is the single unsuppressed diagnostic.
+
+test "016 test-dsl: a non-string test description reports the ExpectedToken direct diagnostic and skips the offender" {
+    errors := RunPreamble("test 5 {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected string literal for test description. Got '5'"
+    assert e.Line == 1
+    assert e.Column == 6
+    assert e.Length == 1
+    assert e.SourceSnippet == "test 5 {"
+    assert e.HumanExplanation == "Test declarations require a string literal describing what the test does."
+    assert e.ContextualHint == "A test should start with the 'test' keyword followed by a string in quotes."
+    assert e.Suggestion == "Example: test \"should calculate sum correctly\" { ... }"
+    assert e.Suggestions.Count == 2
+    assert e.Suggestions[1] == "Example: test \"validates user input\" { ... }"
+}
+
+test "016 test-dsl: two malformed test declarations BOTH report — the declaration-boundary panic reset" {
+    errors := RunPreamble("test 5 {\n}\ntest 6 {\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected string literal for test description. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 6
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected string literal for test description. Got '6'"
+    assert e1.Line == 3
+    assert e1.Column == 6
+}
+
+test "016 test-dsl: a malformed test followed by a valid declaration reports only the test error" {
+    errors := RunPreamble("test 5 {\n}\nfunc f() {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected string literal for test description. Got '5'"
+    assert e.Line == 1
+    assert e.Column == 6
+}
+
+test "016 test-dsl: a non-string skip reason reports the skip ExpectedToken diagnostic" {
+    errors := RunPreamble("test \"adds\" skip {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected string literal for skip reason. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 18
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"adds\" skip {"
+    assert e.HumanExplanation == "The 'skip' modifier requires a string explaining why the test is skipped."
+    assert e.ContextualHint == "Add a reason string after 'skip'."
+    assert e.Suggestion == "Example: test \"my test\" skip \"needs network\" { ... }"
+}
+
+test "016 test-dsl: a non-string skip reason before a body cascades the skip error and the block missing-'}' (position-sorted)" {
+    errors := RunPreamble("test \"adds\" skip 9 {\n}\n")
+    assert errors.Count == 2
+
+    // The block resets panic per statement, so the missing-'}' NL106 (anchored on the 'test'
+    // keyword at col 1) is recorded after the skip error but position-sorts before it.
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.MissingClosingBrace
+    assert e0.Message == "Missing closing '}'"
+    assert e0.Line == 1
+    assert e0.Column == 1
+    assert e0.Length == 4
+    assert e0.SourceSnippet == "test \"adds\" skip 9 {"
+    assert e0.HumanExplanation == "The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected string literal for skip reason. Got '9'"
+    assert e1.Line == 1
+    assert e1.Column == 18
+}
+
+test "016 test-dsl: a missing '[' before the test cases reports the table ExpectedToken diagnostic" {
+    errors := RunPreamble("test \"adds\" with (a: int) 9")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '[' to start test cases. Expected '[', got '9'"
+    assert e.Line == 1
+    assert e.Column == 27
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"adds\" with (a: int) 9"
+    assert e.HumanExplanation == "I was expecting [ here, but I found '9' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 test-dsl: a non-'(' where a test case row starts reports the row ExpectedToken diagnostic" {
+    errors := RunPreamble("test \"adds\" with (a: int) [ 9")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '(' to start test case row. Expected '(', got '9'"
+    assert e.Line == 1
+    assert e.Column == 29
+    assert e.Length == 1
+    assert e.HumanExplanation == "I was expecting ( here, but I found '9' instead."
+}
+
+test "016 test-dsl: an unclosed test-cases ']' routes through the Stage-9 closing-delimiter recovery (NL108)" {
+    errors := RunPreamble("test \"adds\" with (a: int) [ (1)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 1
+    assert e.Column == 27
+    assert e.Length == 1
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ']' that matches an earlier '['."
+    assert e.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+test "016 test-dsl negative: a valid empty test reports nothing" {
+    assert RunPreamble("test \"adds\" {\n}\n").Count == 0
+}
+
+test "016 test-dsl negative: a valid test with an assert body reports nothing" {
+    assert RunPreamble("test \"adds\" {\n  assert 1 == 1\n}\n").Count == 0
+}
+
+test "016 test-dsl negative: a valid skip reason reports nothing" {
+    assert RunPreamble("test \"adds\" skip \"flaky\" {\n}\n").Count == 0
+}
+
+test "016 test-dsl negative: a valid table-driven test with rows reports nothing" {
+    assert RunPreamble("test \"adds\" with (a: int, b: int) [\n  (1, 2),\n  (3, 4)\n] {\n}\n").Count == 0
+}
+
+test "016 test-dsl negative: a valid setup block reports nothing" {
+    assert RunPreamble("setup {\n  x := 1\n}\n").Count == 0
+}
+
+test "016 test-dsl negative: a valid teardown block reports nothing" {
+    assert RunPreamble("teardown {\n  y := 2\n}\n").Count == 0
+}
+
+test "016 attributes: a non-identifier attribute name reports the ConsumeIdentifier NL102 then the ']' unexpected-token at the boundary" {
+    errors := RunPreamble("[123]\nfunc g() {\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected attribute name. Got '123'"
+    assert e0.Line == 1
+    assert e0.Column == 2
+    assert e0.Length == 3
+    assert e0.SourceSnippet == "[123]"
+    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '123' instead."
+    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e0.Suggestion == null
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token ']'"
+    assert e1.Line == 1
+    assert e1.Column == 5
+    assert e1.Length == 1
+    assert e1.HumanExplanation == "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found ']' instead."
+    assert e1.ContextualHint == "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases."
+}
+
+test "016 attributes: a missing identifier after '.' in a qualified attribute name uses the dot-access ConsumeIdentifier variant" {
+    errors := RunPreamble("[System.]\nfunc g() {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected identifier after '.'. Got ']'"
+    assert e.Line == 1
+    assert e.Column == 9
+    assert e.Length == 1
+    assert e.SourceSnippet == "[System.]"
+    assert e.HumanExplanation == "I see a dot (.) operator but no member name after it. I found ']' instead."
+    assert e.ContextualHint == "After a dot, I need to see a property or method name."
+    assert e.Suggestion == "Check if you forgot to finish this line"
+}
+
+test "016 attributes: an unclosed attribute ']' routes through the Stage-9 closing-delimiter recovery (NL108)" {
+    errors := RunPreamble("[Foo\nfunc g() {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingBracket
+    assert e.Message == "Missing closing ']'"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "[Foo"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ']' that matches an earlier '['."
+    assert e.ContextualHint == "Every opening bracket '[' needs a matching closing bracket ']'."
+    assert e.Suggestion == "Add ']' before starting the next line"
+}
+
+test "016 attributes: an unclosed attribute argument ')' routes through the Stage-9/Stage-10 argument grammar (NL107)" {
+    errors := RunPreamble("[Foo(1\nfunc g() {\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 1
+    assert e.Column == 2
+    assert e.Length == 3
+    assert e.SourceSnippet == "[Foo(1"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+test "016 attributes: a non-identifier member attribute name cascades the attr-name and the field-name NL102 across the member-boundary reset" {
+    errors := RunPreamble("class C {\n  [123]\n  func m() {\n  }\n}\n")
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected attribute name. Got '123'"
+    assert e0.Line == 2
+    assert e0.Column == 4
+    assert e0.Length == 3
+    assert e0.SourceSnippet == "  [123]"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected field name. Got '123'"
+    assert e1.Line == 2
+    assert e1.Column == 4
+    assert e1.Length == 3
+}
+
+test "016 attributes negative: a valid attribute on a top-level function reports nothing" {
+    assert RunPreamble("[Foo]\nfunc g() {\n}\n").Count == 0
+}
+
+test "016 attributes negative: a valid attribute with arguments reports nothing" {
+    assert RunPreamble("[Foo(1, 2)]\nfunc g() {\n}\n").Count == 0
+}
+
+test "016 attributes negative: a valid qualified attribute name reports nothing" {
+    assert RunPreamble("[System.Foo]\nfunc g() {\n}\n").Count == 0
+}
+
+test "016 attributes negative: two stacked attributes on one declaration report nothing" {
+    assert RunPreamble("[Foo]\n[Bar]\nfunc g() {\n}\n").Count == 0
+}
+
+test "016 attributes negative: a valid attribute on a class member reports nothing" {
+    assert RunPreamble("class C {\n  [Foo]\n  func m() {\n  }\n}\n").Count == 0
+}
+
+test "016 attributes negative: a valid attribute on a parameter reports nothing" {
+    assert RunPreamble("func f([Foo] x: int) {\n}\n").Count == 0
+}

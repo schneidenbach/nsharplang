@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## Cursor
 
@@ -16,15 +16,14 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 15 landed — the richer TYPE-REFERENCE forms: the UNION layer
-  [`|`-separated arms + the NL103 trailing-`|` report], the POSTFIX layer [array `[]` / nullable-array `?[]` /
-  nullable `?` suffixes — lookahead-guarded, no reachable diagnostic], and the BASE dispatch [byref `&T`, tuple
-  `( … )` incl. named elements + the closing-`)` closing-delimiter recovery, and `Func<…>` incl. its
-  ConsumeIdentifier-on-`>` divergence from generic `<>`], restructuring `ParseTypeReferenceRecovery` into the full
-  Parser.cs `ParseTypeReference` union→postfix→base grammar and RETIRING the narrower `ParseSimpleTypeReference` so
-  the PARAMETER / FIELD / `let`-declaration consumers route through the full grammar too [matching Parser.cs's
-  `ParseTypeReference` threading]; 385 native parity contracts total [352 through Stage 14 + 33],
-  `ColumnarParserRecovery.nl` now 6,640 lines; residual map items [1], [2], and [3] are now DONE) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 16 landed — the TEST DSL [`test "desc" { … }` incl. the
+  description-not-a-string + `skip "reason"` ExpectedToken reports and the table-driven `with (params) [ (row), … ]`
+  grammar, `setup { … }`, `teardown { … }` — all dispatched from `ParseDeclaration` before attributes/modifiers so each
+  resets panic at the declaration boundary] and ATTRIBUTES [`[Name(.Name)* (args)?]` on top-level declarations,
+  members, and parameters — the `ConsumeAttributeIdentifier` name, the qualified `.` continuation, the `(args)` via the
+  owned `ParseArgumentList`, and the closing `]` via the owned Stage-9 recovery], plus the top-level PreprocessorDirective
+  declaration for dispatch fidelity; 410 native parity contracts total [385 through Stage 15 + 25],
+  `ColumnarParserRecovery.nl` now 6,841 lines; residual map items [1], [2], [3], and [4] are now DONE) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -65,7 +64,83 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 15 of the parser-front-end arc — the richer
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 16 of the parser-front-end arc — the TEST DSL +
+  ATTRIBUTES (residual map item [4]), carried through the SAME shared-panic owner over the already-owned expression /
+  statement / member / block / argument / closing-delimiter grammars, PROVEN byte-exact against the freshly built
+  Release CLI oracle (`nlc check --json`, parser codes NL101-NL109, excluding the columnar-backend emit-decline NL103 —
+  for the test-DSL declarations the oracle also emits a line-0/1 emit decline ["…unmodeled declaration shape such as
+  setup or teardown" / "…xunit attribute types were not resolvable"] which is a BACKEND diagnostic, not a parser one).
+  SITE INVENTORY (grep of `ParseTestDeclaration`/`ParseSetupDeclaration`/`ParseTeardownDeclaration`/`ParseAttributes`/
+  `ConsumeAttributeIdentifier` in Parser.cs): (a) the TEST-DSL declarations are dispatched from `ParseDeclaration`
+  (:190-202) BEFORE attributes/modifiers via `IsTestDeclarationStart`/`IsSetupDeclarationStart`/`IsTeardownDeclarationStart`
+  (:642/:667/:704), so each is its OWN top-level declaration and resets panic at the Run() declaration boundary. TEST
+  (`ParseTestDeclaration` :546): the description-not-a-string-literal ExpectedToken DIRECT report ("Expected string
+  literal for test description. Got 'X'", two example `suggestions`, length = Current.Value.Length) + skip-the-offender
+  (`if (!IsAtEnd()) Advance()`, :570); the table-driven `with (params) [ (row), … ]` (:582 — `ParseParameterList` +
+  `Consume(LeftBracket)` "…to start test cases" [plain NL102, LeftBracket declines closing-recovery] + the row loop's
+  `Consume(LeftParen)` "…to start test case row" + `ParseExpression` list + `Consume(RightParen)` "…to end test case
+  row" [NL107 via Stage-9] + `Consume(RightBracket)` "…to end test cases" [NL108 via Stage-9]); the `skip "reason"`
+  string-literal ExpectedToken DIRECT report (:611, one suggestion, does NOT skip the offender); the `ParseBlock` body
+  (owner span = the `test` keyword, length 4). SETUP/TEARDOWN (:695/:710): a bare `Advance()` past the contextual
+  keyword then `ParseBlock` (owner span length 5 / 8), no own error site. assert/assert-throws already owned (Stage
+  13). (b) ATTRIBUTES `[Name(.Name)* (args)?]` (`ParseAttributes` :269) precede modifiers on top-level declarations
+  (:214), members (`ParseMemberDeclaration` :1424), AND parameters (`ParseParameterList` :770 — the owner's
+  `ParseParameterListRecovery` per-parameter loop, closing the Stage-4-deferred parameter-attribute gap): the name via
+  `ConsumeAttributeIdentifier` (:6811 — Identifier/Alloc/Allow, else the owned Stage-1 `ConsumeIdentifier` NL102 with
+  its reserved-keyword / found-other / EOF variants + dot-access variant) + the qualified `.` continuation, the optional
+  `(args)` via the owned Stage-10 `ParseArgumentList` (NL107 when unclosed), and the closing `]` via the owned Stage-9
+  `Consume(RightBracket)` (NL108 when unclosed, else plain NL102). Also added the top-level PreprocessorDirective
+  declaration (:205, a bare advance) so the `ParseDeclaration` dispatch ORDER is faithful. IMPLEMENTATION: inserted the
+  test/setup/teardown/preprocessor checks + `ParseAttributes()` at the top of `ParseTopLevelDeclaration` (before
+  `ParseModifiers`), the member `ParseAttributes()` into `ParseMemberDeclaration` (between the preprocessor check and
+  `ParseModifiers`), and the per-parameter `ParseAttributes()` into `ParseParameterListRecovery`; added
+  `IsTestDeclarationStart`/`IsSetupDeclarationStart`/`IsTeardownDeclarationStart`, `ConsumeTestKeyword`,
+  `ParseTestDeclaration`, `ParseSetupDeclaration`, `ParseTeardownDeclaration`, `ParseAttributes`,
+  `ConsumeAttributeIdentifier` — all delegating construction to the shared `Report` / `ConsumeToken` /
+  `ConsumeIdentifier` / `ParseArgumentList` / `ParseBlock` / `ParseParameterListRecovery` and reusing the live shared
+  `ParserErrorDiagnostics.Create`, so codes / messages / spans / snippets / hints / suggestions match Parser.cs
+  automatically. VERIFIED PANIC INTERACTIONS (each pinned): two malformed tests BOTH report (declaration-boundary
+  reset); a malformed test then a valid decl reports only the test error; a non-string skip reason before a body
+  cascades the skip NL102 AND the block missing-`}` NL106 (block per-statement reset lets the NL106 record; the two are
+  position-sorted so NL106 @col1 precedes the skip @col18); a non-identifier top-level attribute name (`[123]`) reports
+  the ConsumeIdentifier NL102 then the `]` UnexpectedToken NL101 after the boundary reset re-dispatches (does-not-swallow-
+  following); a non-identifier MEMBER attribute name (`class C { [123] … }`) cascades the attr-name NL102 and the
+  field-name NL102 across the ParseMemberList member-boundary reset. +25 native parity contracts in
+  `ColumnarParserRecovery.tests.nl` (14 positive-diagnostic: test-desc-not-string / two-malformed-tests-boundary-reset /
+  malformed-test-then-valid / skip-not-string / skip-then-body-cascade [NL106+NL102 position-sorted] / table-missing-`[`
+  NL102 / table-row-missing-`(` NL102 / table-unclosed-`]` NL108 / attr-bad-name-then-`]`-NL101 / attr-bad-qualified-`.`
+  dot-access NL102 / attr-unclosed-`]` NL108 / attr-unclosed-args-`)` NL107 / member-attr-bad-name-cascade [attr-name +
+  field-name across member reset]; 11 negatives: empty-test / assert-body-test / valid-skip / valid-table / setup /
+  teardown / valid-attr / valid-attr-args / valid-qualified-attr / two-stacked-attrs / member-attr / parameter-attr).
+  DEFERRED / RECORDED (NOT corpus-pinned — with reasons): the malformed table-driven ROW shapes reached via a following
+  `{ }` BODY (`test "d" with (a) 9 { }`, `test "d" with (a) [ 9 ] { }`) HANG the PRODUCTION parser — the row loop
+  `while (!Check(RightParen) && !IsAtEnd()) ParseExpression()` does NOT force-advance and `ShouldSkipUnexpectedExpressionToken`
+  returns false for a `}` / `]` expression-terminator sitting in the row-expression position, so `ParseExpression` spins;
+  the model reproduces this loop faithfully, so pinning such a shape would hang the suite — the malformed table `[` / row
+  `(` / cases `]` Consume sites are instead pinned at EOF (where the loop terminates and the leading Consume error is the
+  single unsuppressed diagnostic), which exercises exactly those Consume sites. The bare-`test`-at-EOF description error
+  is the Stage-5/12 EOF-length-0-clamp class (Current.Value.Length 0 vs the JSON clamp to 1) so the corpus uses a
+  numeric bad description. NO production wiring; NO wall tripped (self-contained edit to one owner + its tests; the
+  packaged SDK 0.1.0 self-emitted the edited owner — incl. all new parsers + all 1172 contracts cleanly — no repin).
+  Evidence: BootstrapServices contracts 1172/1172 (1147 baseline + 25; full-suite fresh no-build run,
+  `-p:NSharpExcludeTests=false`; `FullyQualifiedName~Test_016Attributes|~Test_016TestDsl` filter 25/25); dev.sh Parser
+  381/381; ownership audit 18/18 (`Cli.dll test --project tests/native/ownership-audit`); git status shows ONLY the two
+  `.nl` files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` /
+  `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests:
+  zero references outside the owner + its tests), so nothing in the production compile path changed. No LSP/VS Code
+  change → no extension reload. `ColumnarParserRecovery.nl` 6,640 → 6,841 lines (+201); `.tests.nl` 5,069 → 5,347 (+278).
+  RESIDUAL-TO-PARITY MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 16):
+  [1 — DONE Stage 13] the remaining statement kinds; [2 — DONE Stage 14] the MEMBER grammars + the record / interface /
+  union / enum / soa type BODIES; [3 — DONE Stage 15] the richer type-reference forms (union / postfix array-nullable /
+  byref / tuple / `Func<>`); [4 — DONE] the TEST DSL (test / setup / teardown + the table-driven case rows) and
+  ATTRIBUTES (top-level / member / parameter) (this stage); [5] the garbage-type cascade shapes (non-identifier
+  parameter name, named-tuple bad-name) needing `ParseTypeReference`-on-garbage + the stable position-sorted emit
+  (unblocked since Stage 12), and the TYPE-ALIAS underlying-type consumer (`type T = A | B`, Parser.cs
+  `ParseTypeAliasDeclaration` :1344/:1348 — the owner's `ParseTypeAliasName` parses only the alias NAME, not the
+  `= <type>` body). THEN the AST/node-table-facts stage (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc
+  (N+3). Next: STAGE 17 = residual map item [5] (the garbage-type cascade shapes + the type-alias underlying-type
+  consumer), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 15 of the parser-front-end arc — the richer
   TYPE-REFERENCE forms (residual map item [3]), carried through the SAME shared owner over the already-owned
   simple / qualified / generic type subset, PROVEN byte-exact against the freshly built Release CLI oracle
   (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the SEMANTIC diagnostics — not-all-paths-
