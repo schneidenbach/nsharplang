@@ -285,6 +285,24 @@ public class AstEq {
         if typeName == "ParenthesizedExpression" {
             return Names("Inner Line Column")
         }
+        // N+1c tranche 8 (COMPOSED OPERATOR TIERS): the operator-composing nodes. Each recurses into its
+        // operand expression fields; Operator is a scalar enum (BinaryOperator / UnaryOperator /
+        // AssignmentOperator) compared by value. RangeExpression's Start/End are nullable (open ranges).
+        if typeName == "BinaryExpression" {
+            return Names("Left Operator Right Line Column")
+        }
+        if typeName == "UnaryExpression" {
+            return Names("Operator Operand Line Column")
+        }
+        if typeName == "TernaryExpression" {
+            return Names("Condition ThenExpression ElseExpression Line Column")
+        }
+        if typeName == "AssignmentExpression" {
+            return Names("Target Operator Value Line Column")
+        }
+        if typeName == "RangeExpression" {
+            return Names("Start End Line Column")
+        }
         return null
     }
 
@@ -669,6 +687,39 @@ public class Golden {
     // A value-bearing enum member — Value is the materialized expression (Parser.cs :1310).
     public static func AddEMemV(members: List<EnumMember>, name: string, value: Expression, line: int, column: int) {
         members.Add(new EnumMember(name, value, line, column))
+    }
+
+    // ---- N+1c tranche 8: composed operator-tier builders ----
+    // Each mirrors a Parser.cs Parse*Expression construction site (anchored on the OPERATOR token, except
+    // TernaryExpression on the `?`). Every position is transcribed from the LIVE Parser.cs AstToJson oracle.
+    public static func Bin(left: Expression, op: BinaryOperator, right: Expression, line: int, column: int): Expression {
+        return new BinaryExpression(left, op, right, line, column)
+    }
+
+    public static func Un(op: UnaryOperator, operand: Expression, line: int, column: int): Expression {
+        return new UnaryExpression(op, operand, line, column)
+    }
+
+    public static func Tern(condition: Expression, thenExpr: Expression, elseExpr: Expression, line: int, column: int): Expression {
+        return new TernaryExpression(condition, thenExpr, elseExpr, line, column)
+    }
+
+    public static func Assign(target: Expression, op: AssignmentOperator, value: Expression, line: int, column: int): Expression {
+        return new AssignmentExpression(target, op, value, line, column)
+    }
+
+    public static func Rng(start: Expression?, end: Expression?, line: int, column: int): Expression {
+        return new RangeExpression(start, end, line, column)
+    }
+
+    // A field member WITH an initializer (Parser.cs :1782 — explicit type) — the tranche-8 field consumer.
+    public static func AddFieldInit(members: List<Declaration>, name: string, fieldType: TypeReference, initializer: Expression, line: int, column: int) {
+        members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
+    }
+
+    // A `Name := value` type-inference field (Parser.cs :1686 — null Type + initializer).
+    public static func AddFieldInfer(members: List<Declaration>, name: string, initializer: Expression, line: int, column: int) {
+        members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, null, initializer, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
     }
 }
 
@@ -1792,25 +1843,389 @@ test "016 N+1c tranche 7: AstEq.Diff catches a wrong value NODE TYPE (Int golden
     assert diff == "unit.Declarations[0].Members[0].Value: node type IntLiteralExpression != IdentifierExpression"
 }
 
-// ---- RETAINED-GATE DECLINES (tranche 7 leaves the composed/operator tiers + non-leaf primaries deferred) ----
-// A value that COMPOSES any operator (binary/unary/ternary/coalescing/assignment/postfix) or opens a non-leaf
-// primary sub-grammar (new/match/cast/array/tuple/typeof/…) leaves ParseExprValue().Node null, so the enum
-// declines rather than emitting a partial node. These materialize in tranche 8.
+// ---- N+1c tranche 8: COMPOSED OPERATOR TIERS materialize (the tranche-7 binary/unary declines CONVERTED) ----
+// The tranche-7 "1 + 2 / -1 DECLINE" tests are now POSITIVE materializations (the composed tiers landed). Every
+// position/operator below is transcribed from the LIVE Parser.cs AstToJson oracle and re-verified whole-tree by
+// the throwaway fresh-Compiler probe (34/34 synthetic + whole-file shapes MATCH owner==Parser.cs). The
+// enum-member value (`A = <expr>`) is the reachable ParseExprValue vehicle (as in tranche 7); the operator
+// anchor is the OPERATOR token except TernaryExpression (the `?`) and the RangeExpression `..`.
 
-test "016 N+1c tranche 7: a binary-composed enum value (1 + 2) still DECLINES (operator tier deferred, no-stub)" {
+test "016 N+1c tranche 8: an additive enum value (1 + 2) materializes BinaryExpression(Add) anchored on '+' (Parser.cs :4240)" {
     actual := RunAst("enum E {\n    A = 1 + 2\n}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.Add, Golden.IntLit("2", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 7: a unary-composed enum value (-1) still DECLINES (unary tier deferred, no-stub)" {
+test "016 N+1c tranche 8: a multiplicative enum value (2 * 3) materializes BinaryExpression(Multiply) (Parser.cs :4285)" {
+    actual := RunAst("enum E {\n    A = 2 * 3\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("2", 2, 9), BinaryOperator.Multiply, Golden.IntLit("3", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a subtract enum value (5 - 1) materializes BinaryExpression(Subtract) (Parser.cs :4240)" {
+    actual := RunAst("enum E {\n    A = 5 - 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("5", 2, 9), BinaryOperator.Subtract, Golden.IntLit("1", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a left-shift enum value (1 << 4) materializes BinaryExpression(LeftShift) (Parser.cs :4225) — the flag-enum idiom" {
+    actual := RunAst("enum E {\n    A = 1 << 4\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.LeftShift, Golden.IntLit("4", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a right-shift enum value (8 >> 1) materializes BinaryExpression(RightShift) (Parser.cs :4225)" {
+    actual := RunAst("enum E {\n    A = 8 >> 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("8", 2, 9), BinaryOperator.RightShift, Golden.IntLit("1", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a bitwise-or enum value (1 | 2) materializes BinaryExpression(BitwiseOr) (Parser.cs :4094)" {
+    actual := RunAst("enum E {\n    A = 1 | 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.BitwiseOr, Golden.IntLit("2", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a bitwise-and enum value (6 & 2) materializes BinaryExpression(BitwiseAnd) (Parser.cs :4122)" {
+    actual := RunAst("enum E {\n    A = 6 & 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("6", 2, 9), BinaryOperator.BitwiseAnd, Golden.IntLit("2", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a bitwise-xor enum value (5 ^ 1) materializes BinaryExpression(BitwiseXor) (Parser.cs :4108)" {
+    actual := RunAst("enum E {\n    A = 5 ^ 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("5", 2, 9), BinaryOperator.BitwiseXor, Golden.IntLit("1", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: an equality enum value (1 == 2) materializes BinaryExpression(Equal) (Parser.cs :4137)" {
+    actual := RunAst("enum E {\n    A = 1 == 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.Equal, Golden.IntLit("2", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: an inequality enum value (1 != 2) materializes BinaryExpression(NotEqual) (Parser.cs :4137)" {
+    actual := RunAst("enum E {\n    A = 1 != 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.NotEqual, Golden.IntLit("2", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a relational enum value (1 < 2) materializes BinaryExpression(Less) (Parser.cs :4209)" {
+    actual := RunAst("enum E {\n    A = 1 < 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.Less, Golden.IntLit("2", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a relational enum value (1 <= 2) materializes BinaryExpression(LessOrEqual) (Parser.cs :4209)" {
+    actual := RunAst("enum E {\n    A = 1 <= 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.LessOrEqual, Golden.IntLit("2", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a relational enum value (1 >= 2) materializes BinaryExpression(GreaterOrEqual) (Parser.cs :4209)" {
+    actual := RunAst("enum E {\n    A = 1 >= 2\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.GreaterOrEqual, Golden.IntLit("2", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a logical-and enum value (a && b) materializes BinaryExpression(And) (Parser.cs :4080)" {
+    actual := RunAst("enum E {\n    A = a && b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.Ident("a", 2, 9), BinaryOperator.And, Golden.Ident("b", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a logical-or enum value (a || b) materializes BinaryExpression(Or) (Parser.cs :4066)" {
+    actual := RunAst("enum E {\n    A = a || b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.Ident("a", 2, 9), BinaryOperator.Or, Golden.Ident("b", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a null-coalesce enum value (a ?? b) materializes BinaryExpression(NullCoalesce) (Parser.cs :4052)" {
+    actual := RunAst("enum E {\n    A = a ?? b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.Ident("a", 2, 9), BinaryOperator.NullCoalesce, Golden.Ident("b", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: precedence composes bottom-up (1 + 2 * 3 = Add(1, Multiply(2,3))) (Parser.cs :4240/:4285)" {
+    actual := RunAst("enum E {\n    A = 1 + 2 * 3\n}\n")
+    members := new List<EnumMember>()
+    inner := Golden.Bin(Golden.IntLit("2", 2, 13), BinaryOperator.Multiply, Golden.IntLit("3", 2, 17), 2, 15)
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.Add, inner, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: same-tier composes left-associatively (1 + 2 + 3 = Add(Add(1,2),3)) (Parser.cs :4240)" {
+    actual := RunAst("enum E {\n    A = 1 + 2 + 3\n}\n")
+    members := new List<EnumMember>()
+    inner := Golden.Bin(Golden.IntLit("1", 2, 9), BinaryOperator.Add, Golden.IntLit("2", 2, 13), 2, 11)
+    Golden.AddEMemV(members, "A", Golden.Bin(inner, BinaryOperator.Add, Golden.IntLit("3", 2, 17), 2, 15), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a prefix-negate enum value (-1) materializes UnaryExpression(Negate) anchored on '-' (Parser.cs :4380)" {
     actual := RunAst("enum E {\n    A = -1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Un(UnaryOperator.Negate, Golden.IntLit("1", 2, 10), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a prefix-not enum value (!a) materializes UnaryExpression(Not) (Parser.cs :4380)" {
+    actual := RunAst("enum E {\n    A = !a\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Un(UnaryOperator.Not, Golden.Ident("a", 2, 10), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a prefix-bitwise-not enum value (~1) materializes UnaryExpression(BitwiseNot) (Parser.cs :4380)" {
+    actual := RunAst("enum E {\n    A = ~1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Un(UnaryOperator.BitwiseNot, Golden.IntLit("1", 2, 10), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a ternary enum value (a ? b : c) materializes TernaryExpression anchored on '?' (Parser.cs :4038)" {
+    actual := RunAst("enum E {\n    A = a ? b : c\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Tern(Golden.Ident("a", 2, 9), Golden.Ident("b", 2, 13), Golden.Ident("c", 2, 17), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a two-operand range enum value (a..b) materializes RangeExpression anchored on '..' (Parser.cs :4321)" {
+    actual := RunAst("enum E {\n    A = a..b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Rng(Golden.Ident("a", 2, 9), Golden.Ident("b", 2, 12), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: an open-start range enum value (..b) materializes RangeExpression(null, b) (Parser.cs :4305)" {
+    actual := RunAst("enum E {\n    A = ..b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Rng(null, Golden.Ident("b", 2, 11), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: an assignment enum value (b = 1) materializes AssignmentExpression(Assign) (Parser.cs :3752)" {
+    actual := RunAst("enum E {\n    A = b = 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Assign(Golden.Ident("b", 2, 9), AssignmentOperator.Assign, Golden.IntLit("1", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a compound-assignment enum value (b += 1) materializes AssignmentExpression(AddAssign) (Parser.cs :3752)" {
+    actual := RunAst("enum E {\n    A = b += 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Assign(Golden.Ident("b", 2, 9), AssignmentOperator.AddAssign, Golden.IntLit("1", 2, 14), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a parenthesized COMPOSED value ((1 + 2)) now wraps a BinaryExpression (tranche 7 wrapped only leaves)" {
+    actual := RunAst("enum E {\n    A = (1 + 2)\n}\n")
+    members := new List<EnumMember>()
+    innerBin := Golden.Bin(Golden.IntLit("1", 2, 10), BinaryOperator.Add, Golden.IntLit("2", 2, 14), 2, 12)
+    Golden.AddEMemV(members, "A", Golden.Paren(innerBin, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NEGATIVE SELF-CHECKS (guard the tranche-8 composed paths against a vacuous pass) ----
+
+test "016 N+1c tranche 8: AstEq.Diff catches a wrong BinaryOperator (Add golden vs Subtract actual)" {
+    actual := RunAst("enum E {\n    A = 5 - 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("5", 2, 9), BinaryOperator.Add, Golden.IntLit("1", 2, 13), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Value.Operator: BinaryOperator(Add) != BinaryOperator(Subtract)"
+}
+
+test "016 N+1c tranche 8: AstEq.Diff catches a wrong composed NODE TYPE (Binary golden vs Unary actual)" {
+    actual := RunAst("enum E {\n    A = -1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Bin(Golden.IntLit("1", 2, 10), BinaryOperator.Subtract, Golden.IntLit("1", 2, 10), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Value: node type BinaryExpression != UnaryExpression"
+}
+
+// ---- N+1c tranche 8: FIELD INITIALIZERS (the second consumer — FieldDeclaration.Initializer) ----
+// A `X: Type = <expr>` / `X := <expr>` field now materializes its Initializer node (Parser.cs :1782/:1686) when
+// the initializer expression materializes. A struct with only initialized fields fully materializes → whole-file.
+
+test "016 N+1c tranche 8: a field literal initializer (X: int = 5) materializes FieldDeclaration.Initializer (Parser.cs :1782)" {
+    actual := RunAst("struct S {\n    X: int = 5\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInit(members, "X", Golden.SimpleT("int", 2, 8, 11), Golden.IntLit("5", 2, 14), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a field composed initializer (X: int = 1 + 2) materializes a BinaryExpression Initializer" {
+    actual := RunAst("struct S {\n    X: int = 1 + 2\n}\n")
+    members := new List<Declaration>()
+    initBin := Golden.Bin(Golden.IntLit("1", 2, 14), BinaryOperator.Add, Golden.IntLit("2", 2, 18), 2, 16)
+    Golden.AddFieldInit(members, "X", Golden.SimpleT("int", 2, 8, 11), initBin, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a type-inference field (X := 5) materializes a null-Type FieldDeclaration with Initializer (Parser.cs :1686)" {
+    actual := RunAst("struct S {\n    X := 5\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInfer(members, "X", Golden.IntLit("5", 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- WHOLE-FILE EQUALITY (the DIRECT tranche-8 field-initializer unlock: a field-only struct) ----
+// A complete file (namespace + a struct whose members are ALL initialized fields) now fully materializes —
+// EVERY member must materialize for whole-tree equality (a declining member would shorten the list vs
+// Parser.cs). Positions transcribed from the LIVE Parser.cs AstToJson oracle (probe: owner == Parser.cs).
+
+test "016 N+1c tranche 8: WHOLE-FILE equality on a field-only struct with literal + computed initializers" {
+    actual := RunAst("namespace Demo\n\nstruct Config {\n    Width: int = 80\n    Height: int = 24\n    Ratio: int = 4 * 3\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInit(members, "Width", Golden.SimpleT("int", 4, 12, 15), Golden.IntLit("80", 4, 18), 4, 5)
+    Golden.AddFieldInit(members, "Height", Golden.SimpleT("int", 5, 13, 16), Golden.IntLit("24", 5, 19), 5, 5)
+    ratioInit := Golden.Bin(Golden.IntLit("4", 6, 18), BinaryOperator.Multiply, Golden.IntLit("3", 6, 22), 6, 20)
+    Golden.AddFieldInit(members, "Ratio", Golden.SimpleT("int", 6, 12, 15), ratioInit, 6, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "Config", members, 3, 1)
+    expected := Golden.Unit(Golden.Ns("Demo", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- RETAINED-GATE DECLINES (tranche 8 leaves is/as, await/must/throw, non-leaf primaries + postfix
+//      call/index/member/with deferred to tranche 9) ----
+// A value that opens one of the STILL-deferred sub-grammars leaves ParseExprValue().Node null → decline, no-stub.
+
+test "016 N+1c tranche 8: a call-composed enum value (F()) still DECLINES (postfix call deferred to tranche 9, no-stub)" {
+    actual := RunAst("enum E {\n    A = F()\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 7: a call-composed enum value (F()) still DECLINES (postfix tier deferred, no-stub)" {
-    actual := RunAst("enum E {\n    A = F()\n}\n")
+test "016 N+1c tranche 8: an is-type enum value (a is int) still DECLINES (is/as arm deferred to tranche 9, no-stub)" {
+    actual := RunAst("enum E {\n    A = a is int\n}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a new-object enum value (new T()) still DECLINES (non-leaf primary deferred to tranche 9, no-stub)" {
+    actual := RunAst("enum E {\n    A = new T()\n}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 8: a member-access enum value (a.b) still DECLINES (postfix member deferred to tranche 9, no-stub)" {
+    actual := RunAst("enum E {\n    A = a.b\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

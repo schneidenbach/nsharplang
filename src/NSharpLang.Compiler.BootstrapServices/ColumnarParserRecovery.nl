@@ -1566,10 +1566,19 @@ public class ColumnarParserRecovery {
 
         name := ConsumeIdentifier("Expected field name")
 
-        // Type inference `Name := value` (Parser.cs :1670) — an initializer expression, a later tranche.
+        // Type inference `Name := value` (Parser.cs :1681). Stage N+1c tranche 8: materialize the
+        // FieldDeclaration with a NULL type + the inferred initializer (Parser.cs :1686 —
+        // `new FieldDeclaration(name, null, initializerExpr, modifiers, propertyModifier, attributes, line,
+        // column)`) when the value materialized and no property modifier was seen (a modifier is a tranche-4
+        // shape → decline). FQN'd (a test-helper `class FieldDeclaration` collides under the tests build).
         if Check(TokenType.ColonAssign) {
             Advance()
-            ParseExprValue()
+            inferInit := ParseExprValue().Node
+            if !propModifierSeen && inferInit != null {
+                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
+                    name, null, inferInit, Modifiers.None, PropertyModifier.None,
+                    new List<AttributeNode>(), line, column))
+            }
             return
         }
 
@@ -1616,11 +1625,18 @@ public class ColumnarParserRecovery {
             return
         }
 
-        // Field `= initializer` (Parser.cs :1762) — the initializer expression is a later tranche, so a
-        // field WITH one is not yet byte-exact; parse it (diagnostics) but decline to materialize the node.
+        // Field `= initializer` (Parser.cs :1773). Stage N+1c tranche 8: materialize the FieldDeclaration WITH
+        // its initializer (Parser.cs :1782) when the initializer node materialized. A missing operand (synthetic
+        // error node) or a still-deferred expression form leaves initNode null → decline (no-stub). Gated the
+        // same as the tranche-3 initializer-free field: no property modifier + a non-null simple field type.
         if Check(TokenType.Assign) {
             initializerToken := Advance()
-            ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This field declaration", null)
+            initNode := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This field declaration", null)
+            if !propModifierSeen && fieldType != null && initNode != null {
+                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
+                    name, fieldType, initNode, Modifiers.None, PropertyModifier.None,
+                    new List<AttributeNode>(), line, column))
+            }
             return
         }
 
@@ -5254,17 +5270,46 @@ public class ColumnarParserRecovery {
         // admits only the six operators the switch handles), so it is not modelled.
         if ParserTokenFacts.IsAssignmentOperator(Current().Type) && Current().Line == Previous().Line {
             opToken := Advance()
+            op := AssignmentOpFor(opToken.Type)
             // Parser.cs's operand is ParseLambdaOrAssignmentExpression (right-associative); the fallback
             // span is the left expression's DiagnosticSpanFromExpression span (Parser.cs :3740).
+            valueNode: Expression? = null
             if !RightOperandMissingWithSpan(opToken, left.Span) {
-                ParseExprValue()
+                valueNode = ParseExprValue().Node
             }
             // The result is an AssignmentExpression; DiagnosticSpanFromExpression of one falls through
             // to the (line, column, 1) default at the operator position, and it is never a bare identifier.
-            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            assignResult := new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            // Stage N+1c tranche 8: `new AssignmentExpression(target, op, value, opToken.Line, opToken.Column)`
+            // (Parser.cs :3752) when the target and value both materialized.
+            if left.Node != null && valueNode != null {
+                assignResult.Node = new AssignmentExpression(left.Node, op, valueNode, opToken.Line, opToken.Column)
+            }
+            return assignResult
         }
 
         return left
+    }
+
+    // Parser.cs :3710-3726: the assignment-operator token → AssignmentOperator mapping. Default Assign mirrors
+    // the invalid-assignment-operator fallback (:3743, an unreachable dead arm the guard never admits).
+    func AssignmentOpFor(tokenType: TokenType): AssignmentOperator {
+        if tokenType == TokenType.PlusAssign {
+            return AssignmentOperator.AddAssign
+        }
+        if tokenType == TokenType.MinusAssign {
+            return AssignmentOperator.SubtractAssign
+        }
+        if tokenType == TokenType.StarAssign {
+            return AssignmentOperator.MultiplyAssign
+        }
+        if tokenType == TokenType.SlashAssign {
+            return AssignmentOperator.DivideAssign
+        }
+        if tokenType == TokenType.QuestionQuestionAssign {
+            return AssignmentOperator.NullCoalesceAssign
+        }
+        return AssignmentOperator.Assign
     }
 
     // Parser.cs IsLambdaExpression (:5535): a bounded lookahead over `( ident (, ident)* ) =>` (or the empty
@@ -5352,19 +5397,25 @@ public class ColumnarParserRecovery {
         expr := ParseNullCoalescing()
         if Check(TokenType.Question) {
             questionToken := Advance()
-            ParseRequiredExpressionAfter(
+            thenNode := ParseRequiredExpressionAfter(
                 questionToken,
                 "a then expression",
                 "This ternary expression",
                 DiagnosticSpanFromExpressionThroughToken(expr.Span, questionToken))
             colonToken := ConsumeToken(TokenType.Colon, "Expected ':' in ternary expression", ":")
-            ParseRequiredExpressionAfter(
+            elseNode := ParseRequiredExpressionAfter(
                 colonToken,
                 "an else expression",
                 "This ternary expression",
                 DiagnosticSpanFromExpressionThroughToken(expr.Span, colonToken))
             // A TernaryExpression is anchored on the `?` token and is never a bare identifier.
-            return new ExprResult(new RecoverySpan(questionToken.Line, questionToken.Column, 1), false)
+            ternaryResult := new ExprResult(new RecoverySpan(questionToken.Line, questionToken.Column, 1), false)
+            // Stage N+1c tranche 8: `new TernaryExpression(cond, then, else, questionToken.Line,
+            // questionToken.Column)` (Parser.cs :4038) when the condition + both branches materialized.
+            if expr.Node != null && thenNode != null && elseNode != null {
+                ternaryResult.Node = new TernaryExpression(expr.Node, thenNode, elseNode, questionToken.Line, questionToken.Column)
+            }
+            return ternaryResult
         }
         return expr
     }
@@ -5373,15 +5424,36 @@ public class ColumnarParserRecovery {
     // Every tier accumulates its result span as the operator-position (line, column, 1) default that
     // DiagnosticSpanFromExpression yields for a BinaryExpression, so the through-token span of a following
     // dangling operator is computed byte-exact from the accumulated left expression.
+    //
+    // Stage N+1c tranche 8 (COMPOSED OPERATOR TIERS): each tier now MATERIALIZES its byte-exact
+    // `new BinaryExpression(left, op, right, opToken.Line, opToken.Column)` (Parser.cs :4052/:4066/:4080/:4094/
+    // :4108/:4122/:4137/:4209/:4225/:4240/:4285) as a PURE side-effect — the leaf node the left operand carried
+    // (result.Node) composes with the right operand's node ONLY when BOTH are non-null (ComposeBinary), so a
+    // deferred/missing operand leaves Node null → the whole expression declines (the established no-stub gate).
+    // A left-associative chain nests naturally: iteration N's BinaryExpression becomes iteration N+1's left node.
+    // The BinaryExpression is anchored on the OPERATOR token (opToken.Line/Column), NOT the left operand.
+
+    // Compose a byte-exact BinaryExpression when both operands materialized, else null (decline). Parser.cs
+    // always builds the node (with a synthetic error right operand when missing); the owner declines on a
+    // missing/deferred operand rather than reconstruct a non-byte-exact stub.
+    func ComposeBinary(leftNode: Expression?, op: BinaryOperator, rightNode: Expression?, opToken: Token): Expression? {
+        if leftNode != null && rightNode != null {
+            return new BinaryExpression(leftNode, op, rightNode, opToken.Line, opToken.Column)
+        }
+        return null
+    }
 
     func ParseNullCoalescing(): ExprResult {
         result := ParseLogicalOr()
         while Check(TokenType.QuestionQuestion) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseLogicalOr()
+                rightNode = ParseLogicalOr().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.NullCoalesce, rightNode, opToken)
         }
         return result
     }
@@ -5390,10 +5462,13 @@ public class ColumnarParserRecovery {
         result := ParseLogicalAnd()
         while Check(TokenType.Or) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseLogicalAnd()
+                rightNode = ParseLogicalAnd().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.Or, rightNode, opToken)
         }
         return result
     }
@@ -5402,10 +5477,13 @@ public class ColumnarParserRecovery {
         result := ParseBitwiseOr()
         while Check(TokenType.And) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseBitwiseOr()
+                rightNode = ParseBitwiseOr().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.And, rightNode, opToken)
         }
         return result
     }
@@ -5414,10 +5492,13 @@ public class ColumnarParserRecovery {
         result := ParseBitwiseXor()
         while Check(TokenType.BitwiseOr) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseBitwiseXor()
+                rightNode = ParseBitwiseXor().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.BitwiseOr, rightNode, opToken)
         }
         return result
     }
@@ -5426,10 +5507,13 @@ public class ColumnarParserRecovery {
         result := ParseBitwiseAnd()
         while Check(TokenType.BitwiseXor) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseBitwiseAnd()
+                rightNode = ParseBitwiseAnd().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.BitwiseXor, rightNode, opToken)
         }
         return result
     }
@@ -5438,10 +5522,13 @@ public class ColumnarParserRecovery {
         result := ParseEquality()
         while Check(TokenType.BitwiseAnd) {
             opToken := Advance()
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseEquality()
+                rightNode = ParseEquality().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, BinaryOperator.BitwiseAnd, rightNode, opToken)
         }
         return result
     }
@@ -5450,10 +5537,18 @@ public class ColumnarParserRecovery {
         result := ParseRelational()
         while Check(TokenType.Equal) || Check(TokenType.NotEqual) {
             opToken := Advance()
+            // Parser.cs :4134: Equal token → Equal, else NotEqual.
+            op := BinaryOperator.Equal
+            if opToken.Type == TokenType.NotEqual {
+                op = BinaryOperator.NotEqual
+            }
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseRelational()
+                rightNode = ParseRelational().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, op, rightNode, opToken)
         }
         return result
     }
@@ -5488,24 +5583,51 @@ public class ColumnarParserRecovery {
                     result = new ExprResult(new RecoverySpan(asToken.Line, asToken.Column, 1), false)
                 } else {
                     opToken := Advance()
+                    // Parser.cs :4176-4185: Less/LessEqual/Greater/GreaterEqual → the matching comparison op.
+                    op := RelationalComparisonOp(opToken.Type)
+                    leftNode := result.Node
+                    rightNode: Expression? = null
                     if !BinaryRightOperandMissing(opToken, result.Span) {
-                        ParseShift()
+                        rightNode = ParseShift().Node
                     }
                     result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                    result.Node = ComposeBinary(leftNode, op, rightNode, opToken)
                 }
             }
         }
         return result
     }
 
+    // Parser.cs :4176-4185. The is/as arms are peeled off before this, so only the four comparisons reach here.
+    func RelationalComparisonOp(tokenType: TokenType): BinaryOperator {
+        if tokenType == TokenType.LessEqual {
+            return BinaryOperator.LessOrEqual
+        }
+        if tokenType == TokenType.Greater {
+            return BinaryOperator.Greater
+        }
+        if tokenType == TokenType.GreaterEqual {
+            return BinaryOperator.GreaterOrEqual
+        }
+        return BinaryOperator.Less
+    }
+
     func ParseShift(): ExprResult {
         result := ParseAdditive()
         while Check(TokenType.LeftShift) || Check(TokenType.RightShift) {
             opToken := Advance()
+            // Parser.cs :4222: LeftShift token → LeftShift, else RightShift.
+            op := BinaryOperator.LeftShift
+            if opToken.Type == TokenType.RightShift {
+                op = BinaryOperator.RightShift
+            }
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseAdditive()
+                rightNode = ParseAdditive().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, op, rightNode, opToken)
         }
         return result
     }
@@ -5514,10 +5636,18 @@ public class ColumnarParserRecovery {
         result := ParseMultiplicative()
         while Check(TokenType.Plus) || Check(TokenType.Minus) {
             opToken := Advance()
+            // Parser.cs :4237: Plus token → Add, else Subtract.
+            op := BinaryOperator.Add
+            if opToken.Type == TokenType.Minus {
+                op = BinaryOperator.Subtract
+            }
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseMultiplicative()
+                rightNode = ParseMultiplicative().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, op, rightNode, opToken)
         }
         return result
     }
@@ -5528,10 +5658,22 @@ public class ColumnarParserRecovery {
         result := ParseRange()
         while Check(TokenType.Star) || Check(TokenType.Slash) || Check(TokenType.Percent) {
             opToken := Advance()
+            // Parser.cs :4256-4262: Star → Multiply, Slash → Divide, Percent → Modulo.
+            op := BinaryOperator.Multiply
+            if opToken.Type == TokenType.Slash {
+                op = BinaryOperator.Divide
+            } else {
+                if opToken.Type == TokenType.Percent {
+                    op = BinaryOperator.Modulo
+                }
+            }
+            leftNode := result.Node
+            rightNode: Expression? = null
             if !BinaryRightOperandMissing(opToken, result.Span) {
-                ParseRange()
+                rightNode = ParseRange().Node
             }
             result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            result.Node = ComposeBinary(leftNode, op, rightNode, opToken)
         }
         return result
     }
@@ -5539,22 +5681,49 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseRangeExpression (:4280). `..end` / `..` (open start) and `start..end` / `start..`.
     // A RangeExpression is anchored on the `..` token; the end operand is a unary expression, guarded by
     // the same terminator set Parser.cs uses.
+    // Stage N+1c tranche 8: materialize `new RangeExpression(start?, end?, opToken.Line, opToken.Column)`
+    // (Parser.cs :4305/:4321). Start/End are legitimately nullable (open ranges), so the gate is "every
+    // PRESENT operand carried a node": a fully-open `..` always materializes; `..end` / `start..` / `start..end`
+    // materialize only when each present operand's node is non-null (a deferred operand declines, no-stub).
     func ParseRange(): ExprResult {
         if Check(TokenType.DotDot) {
             opToken := Advance()
-            if RangeHasEndOperand() {
-                ParseUnary()
+            endNode: Expression? = null
+            hasEnd := RangeHasEndOperand()
+            if hasEnd {
+                endNode = ParseUnary().Node
             }
-            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            rangeResult := new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            // Open-start range `..` / `..end`: Start is legitimately null.
+            canMaterialize := true
+            if hasEnd && endNode == null {
+                canMaterialize = false
+            }
+            if canMaterialize {
+                rangeResult.Node = new RangeExpression(null, endNode, opToken.Line, opToken.Column)
+            }
+            return rangeResult
         }
 
         expr := ParseUnary()
         if Check(TokenType.DotDot) {
             opToken := Advance()
-            if RangeHasEndOperand() {
-                ParseUnary()
+            startNode := expr.Node
+            endNode: Expression? = null
+            hasEnd := RangeHasEndOperand()
+            if hasEnd {
+                endNode = ParseUnary().Node
             }
-            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            rangeResult := new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            // `start..` / `start..end`: the start operand is always present, so its node must be non-null.
+            canMaterialize := startNode != null
+            if hasEnd && endNode == null {
+                canMaterialize = false
+            }
+            if canMaterialize {
+                rangeResult.Node = new RangeExpression(startNode, endNode, opToken.Line, opToken.Column)
+            }
+            return rangeResult
         }
         return expr
     }
@@ -5625,6 +5794,27 @@ public class ColumnarParserRecovery {
         return new RecoverySpan(startSpan.Line, startSpan.Column, MaxInt(startSpan.Length, endColumn - startSpan.Column))
     }
 
+    // Parser.cs :4340-4356: the prefix-operator token → UnaryOperator mapping. Default Not mirrors the
+    // Parser.cs invalid-unary fallback (:4374, an unreachable dead arm the guard never admits).
+    func PrefixUnaryOp(tokenType: TokenType): UnaryOperator {
+        if tokenType == TokenType.Minus {
+            return UnaryOperator.Negate
+        }
+        if tokenType == TokenType.BitwiseNot {
+            return UnaryOperator.BitwiseNot
+        }
+        if tokenType == TokenType.Increment {
+            return UnaryOperator.PreIncrement
+        }
+        if tokenType == TokenType.Decrement {
+            return UnaryOperator.PreDecrement
+        }
+        if tokenType == TokenType.BitwiseXor {
+            return UnaryOperator.IndexFromEnd
+        }
+        return UnaryOperator.Not
+    }
+
     // ---- unary (Parser.cs ParseUnaryExpression :4316) ----
     // Prefix `+` routes to the invalid-prefix-plus error; the recognized prefixes (! - ~ ++ -- ^) form a
     // UnaryExpression over a recursive unary operand; await / must / throw route through the shared
@@ -5637,9 +5827,16 @@ public class ColumnarParserRecovery {
 
         if Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) || Check(TokenType.Increment) || Check(TokenType.Decrement) || Check(TokenType.BitwiseXor) {
             opToken := Advance()
-            ParseUnary()
+            // Stage N+1c tranche 8: materialize `new UnaryExpression(op, operand, opToken.Line, opToken.Column)`
+            // (Parser.cs :4380). The operand is the recursive unary; it composes ONLY when its node is non-null.
+            op := PrefixUnaryOp(opToken.Type)
+            operand := ParseUnary()
             // A UnaryExpression is anchored on the operator and is never a bare identifier.
-            return new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            unaryResult := new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+            if operand.Node != null {
+                unaryResult.Node = new UnaryExpression(op, operand.Node, opToken.Line, opToken.Column)
+            }
+            return unaryResult
         }
 
         if Check(TokenType.Await) {
@@ -5756,12 +5953,23 @@ public class ColumnarParserRecovery {
                                 result = new ExprResult(result.Span, false)
                             } else {
                                 if Check(TokenType.Increment) {
+                                    // Postfix `x++` (Parser.cs :4504): `new UnaryExpression(PostIncrement,
+                                    // expr, opToken.Line, opToken.Column)` over the current receiver node.
                                     opToken := Advance()
+                                    operandNode := result.Node
                                     result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                                    if operandNode != null {
+                                        result.Node = new UnaryExpression(UnaryOperator.PostIncrement, operandNode, opToken.Line, opToken.Column)
+                                    }
                                 } else {
                                     if Check(TokenType.Decrement) {
+                                        // Postfix `x--` (Parser.cs :4509).
                                         opToken := Advance()
+                                        operandNode := result.Node
                                         result = new ExprResult(new RecoverySpan(opToken.Line, opToken.Column, 1), false)
+                                        if operandNode != null {
+                                            result.Node = new UnaryExpression(UnaryOperator.PostDecrement, operandNode, opToken.Line, opToken.Column)
+                                        }
                                     } else {
                                         if Check(TokenType.With) {
                                             result = ParseWithExpression()
@@ -7337,10 +7545,15 @@ public class ColumnarParserRecovery {
 
     // Parser.cs ParseRequiredExpressionAfter (:3855). When the required expression is present, parse it;
     // otherwise report "Expected <what> after '<anchor>'" anchored on the provided span (or the anchor).
-    func ParseRequiredExpressionAfter(anchorToken: Token, expectedDescription: string, ownerDescription: string, diagnosticSpan: RecoverySpan?) {
+    // Stage N+1c tranche 8: RETURNS the parsed operand's node (Parser.cs returns `ParseExpression()` on the
+    // present path, a synthetic `IdentifierExpression("<error>")` on the missing path). The present path returns
+    // the byte-exact materialized node (or null when the operand is a still-deferred form); the missing path
+    // declines (null) rather than reconstruct the synthetic error node. Statement-context callers ignore the
+    // return (a value-returning func may be called as a statement, as ParseExprValue already is); the ternary +
+    // field-initializer consumers capture it. The diagnostic stream is unchanged (Report calls are untouched).
+    func ParseRequiredExpressionAfter(anchorToken: Token, expectedDescription: string, ownerDescription: string, diagnosticSpan: RecoverySpan?): Expression? {
         if !IsMissingRequiredExpressionBoundary(anchorToken) {
-            ParseExprValue()
-            return
+            return ParseExprValue().Node
         }
 
         markerColumn := anchorToken.Column + MaxInt(1, anchorToken.Value.Length)
@@ -7363,6 +7576,8 @@ public class ColumnarParserRecovery {
             "Finish the expression before starting the next statement.",
             suggestions,
             span.Length)
+        // Parser.cs returns a synthetic IdentifierExpression("<error>") here; the owner declines (no-stub).
+        return null
     }
 
     // Parser.cs ShouldUnderlineAnchorForMissingRequiredExpression (:3887).
