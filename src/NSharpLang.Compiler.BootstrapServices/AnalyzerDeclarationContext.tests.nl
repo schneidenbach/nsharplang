@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
+import NSharpLang.Compiler.TestStubs
 
 class AnalyzerContextTestUnit {
     Package: object?
@@ -59,61 +60,35 @@ class AnalyzerContextTestNamespace {
     }
 }
 
-class ClassDeclaration {
-    Name: string
-    Line: int
-    Column: int
-    Modifiers: int
-    BaseClass: TypeReference?
-    Interfaces: List<TypeReference>
-    TypeParameters: List<TypeParameter>
-    PrimaryConstructorParameters: List<object>
-    Members: List<object>
-
-    constructor(name: string, baseClass: TypeReference? = null) {
-        Name = name
-        Line = 1
-        Column = 1
-        Modifiers = 0
-        BaseClass = baseClass
-        Interfaces = new List<TypeReference>()
-        TypeParameters = new List<TypeParameter>()
-        PrimaryConstructorParameters = new List<object>()
-        Members = new List<object>()
-    }
+// The declaration stubs live in NSharpLang.Compiler.TestStubs (AnalyzerDeclarationContextStubs.tests.nl):
+// their simple names must match the real Ast node names for the context's GetType().Name dispatch, and
+// keeping them out of NSharpLang.Compiler avoids the tests-enabled-build simple-name collision. These
+// factories are the only construction sites; they qualify fully because this file also imports
+// NSharpLang.Compiler.Ast, which declares the same three simple names.
+func StubClass(name: string): NSharpLang.Compiler.TestStubs.ClassDeclaration {
+    return new NSharpLang.Compiler.TestStubs.ClassDeclaration(name, null)
 }
 
-class TypeAliasDeclaration {
-    Name: string
-    Type: TypeReference
-    Line: int
-    Column: int
-
-    constructor(name: string, typeReference: TypeReference) {
-        Name = name
-        Type = typeReference
-        Line = 1
-        Column = 1
-    }
+func StubClassWithBase(
+    name: string,
+    baseClass: TypeReference): NSharpLang.Compiler.TestStubs.ClassDeclaration {
+    return new NSharpLang.Compiler.TestStubs.ClassDeclaration(name, baseClass)
 }
 
-class FieldDeclaration {
-    Name: string
-    Type: TypeReference
-    Modifiers: int
-    Line: int
-    Column: int
+func StubAlias(
+    name: string,
+    typeReference: TypeReference): NSharpLang.Compiler.TestStubs.TypeAliasDeclaration {
+    return new NSharpLang.Compiler.TestStubs.TypeAliasDeclaration(name, typeReference)
+}
 
-    constructor(
-        name: string,
-        typeReference: TypeReference,
-        modifiers: int) {
-        Name = name
-        Type = typeReference
-        Modifiers = modifiers
-        Line = 1
-        Column = 1
-    }
+func StubField(
+    name: string,
+    typeReference: TypeReference,
+    modifiers: int): NSharpLang.Compiler.TestStubs.FieldDeclaration {
+    return new NSharpLang.Compiler.TestStubs.FieldDeclaration(
+        name,
+        typeReference,
+        modifiers)
 }
 
 func AnalyzerContextDeclarations(first: object): List<object> {
@@ -282,7 +257,7 @@ func AnalyzerContextAssertOpenParameter(
 
 test "declaration context keeps source identifiers case-sensitive" {
     path := "/tmp/case-sensitive.nl"
-    declaration := new TypeAliasDeclaration(
+    declaration := StubAlias(
         "Widget",
         new SimpleTypeReference("int"))
     context := AnalyzerContextFor(
@@ -310,7 +285,7 @@ test "project imports are exhausted before runtime imports" {
         sourcePath,
         "MyTypes",
         new List<object>(),
-        AnalyzerContextDeclarations(new ClassDeclaration("DateTime")))
+        AnalyzerContextDeclarations(StubClass("DateTime")))
     imports := new List<object>()
     imports.Add(new AnalyzerContextTestImport("System"))
     imports.Add(new AnalyzerContextTestImport("MyTypes"))
@@ -361,7 +336,7 @@ test "unique exported lookup skips non-exported declarations" {
     context.Reset("/tmp", AnalyzerContextAssemblies())
     privatePath := "/tmp/private-widget.nl"
     publicPath := "/tmp/public-widget.nl"
-    privateWidget := new ClassDeclaration("Widget")
+    privateWidget := StubClass("Widget")
     privateWidget.Modifiers = 2
     AnalyzerContextAddUnit(
         context,
@@ -374,7 +349,7 @@ test "unique exported lookup skips non-exported declarations" {
         publicPath,
         "B",
         new List<object>(),
-        AnalyzerContextDeclarations(new ClassDeclaration("Widget")))
+        AnalyzerContextDeclarations(StubClass("Widget")))
 
     selection := new AnalyzerSourceTypeSelection(
         BuiltInTypes.Unknown, null, null, false)
@@ -385,8 +360,8 @@ test "unique exported lookup skips non-exported declarations" {
 
 test "declaration context terminates mixed source alias cycles" {
     path := "/tmp/alias-cycle.nl"
-    first := new TypeAliasDeclaration("A", new SimpleTypeReference("B"))
-    second := new TypeAliasDeclaration("B", new SimpleTypeReference("A"))
+    first := StubAlias("A", new SimpleTypeReference("B"))
+    second := StubAlias("B", new SimpleTypeReference("A"))
     context := AnalyzerContextFor(
         path,
         AnalyzerContextDeclarationPair(first, second))
@@ -411,17 +386,17 @@ test "source aliases do not steal declaration context from their targets" {
         sourceDependencyPath,
         "SourceDeps",
         new List<object>(),
-        AnalyzerContextDeclarations(new ClassDeclaration("Dependency")))
+        AnalyzerContextDeclarations(StubClass("Dependency")))
     AnalyzerContextAddUnit(
         context,
         aliasDependencyPath,
         "AliasDeps",
         new List<object>(),
-        AnalyzerContextDeclarations(new ClassDeclaration("Dependency")))
+        AnalyzerContextDeclarations(StubClass("Dependency")))
 
     sourceImports := new List<object>()
     sourceImports.Add(new AnalyzerContextTestImport("SourceDeps"))
-    sourceType := new ClassDeclaration(
+    sourceType := StubClassWithBase(
         "SourceType",
         new SimpleTypeReference("Dependency"))
     AnalyzerContextAddUnit(
@@ -434,7 +409,7 @@ test "source aliases do not steal declaration context from their targets" {
     aliasImports := new List<object>()
     aliasImports.Add(new AnalyzerContextTestImport("Source"))
     aliasImports.Add(new AnalyzerContextTestImport("AliasDeps"))
-    alias := new TypeAliasDeclaration(
+    alias := StubAlias(
         "Alias",
         new SimpleTypeReference("SourceType"))
     AnalyzerContextAddUnit(
@@ -550,22 +525,22 @@ test "nested owners see own nested types and ancestor parameters and siblings" {
 
 test "readonly member eligibility follows closed generic bases and terminal shadows" {
     path := "/tmp/readonly-closed-generic-base.nl"
-    baseDeclaration := new ClassDeclaration("Base")
+    baseDeclaration := StubClass("Base")
     baseDeclaration.TypeParameters.Add(new TypeParameter("T"))
-    baseDeclaration.Members.Add(new FieldDeclaration(
+    baseDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("T"),
         512))
 
     baseArguments := AnalyzerContextTypeReferences(
         new SimpleTypeReference("int"))
-    derivedDeclaration := new ClassDeclaration(
+    derivedDeclaration := StubClassWithBase(
         "Derived",
         new GenericTypeReference("Base", baseArguments))
-    shadowDeclaration := new ClassDeclaration(
+    shadowDeclaration := StubClassWithBase(
         "Shadow",
         new GenericTypeReference("Base", baseArguments))
-    shadowDeclaration.Members.Add(new FieldDeclaration(
+    shadowDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("int"),
         0))
@@ -625,12 +600,12 @@ test "readonly member eligibility follows closed generic bases and terminal shad
 
 test "source aliases preserve the target member declaration identity" {
     path := "/tmp/alias-member-identity.nl"
-    person := new ClassDeclaration("Person")
-    person.Members.Add(new FieldDeclaration(
+    person := StubClass("Person")
+    person.Members.Add(StubField(
         "Name",
         new SimpleTypeReference("string"),
         0))
-    alias := new TypeAliasDeclaration(
+    alias := StubAlias(
         "PersonAlias",
         new SimpleTypeReference("Person"))
     context := AnalyzerContextFor(
@@ -662,15 +637,15 @@ test "readonly selection crosses imported closed generic bases without reflectio
     providerPath := "/tmp/readonly-models.nl"
     consumerPath := "/tmp/readonly-consumer.nl"
 
-    baseDeclaration := new ClassDeclaration("Base")
+    baseDeclaration := StubClass("Base")
     baseDeclaration.TypeParameters.Add(new TypeParameter("T"))
-    baseDeclaration.Members.Add(new FieldDeclaration(
+    baseDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("T"),
         512))
     derivedArguments := AnalyzerContextTypeReferences(
         new SimpleTypeReference("T"))
-    derivedDeclaration := new ClassDeclaration(
+    derivedDeclaration := StubClassWithBase(
         "Derived",
         new GenericTypeReference("Base", derivedArguments))
     derivedDeclaration.TypeParameters.Add(new TypeParameter("T"))
