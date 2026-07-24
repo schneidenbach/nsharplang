@@ -248,6 +248,43 @@ public class AstEq {
         if typeName == "NewtypeDeclaration" {
             return Names("Name UnderlyingType Line Column")
         }
+        // N+1c tranche 7 (BEGIN EXPRESSION MATERIALIZATION): the LEAF/PRIMARY expression tier. Each literal
+        // carries its Value scalar (int/float/char/string = string; bool = bool) + the AstNode base Line/Column;
+        // null/default/this/base carry only Line/Column; IdentifierExpression carries Name; ParenthesizedExpression
+        // recurses into Inner. These land in EnumMember.Value (the tranche-7 value-bearing-member unlock).
+        if typeName == "IntLiteralExpression" {
+            return Names("Value Line Column")
+        }
+        if typeName == "FloatLiteralExpression" {
+            return Names("Value Line Column")
+        }
+        if typeName == "CharLiteralExpression" {
+            return Names("Value Line Column")
+        }
+        if typeName == "StringLiteralExpression" {
+            return Names("Value Line Column")
+        }
+        if typeName == "BoolLiteralExpression" {
+            return Names("Value Line Column")
+        }
+        if typeName == "NullLiteralExpression" {
+            return Names("Line Column")
+        }
+        if typeName == "IdentifierExpression" {
+            return Names("Name Line Column")
+        }
+        if typeName == "DefaultExpression" {
+            return Names("Line Column")
+        }
+        if typeName == "ThisExpression" {
+            return Names("Line Column")
+        }
+        if typeName == "BaseExpression" {
+            return Names("Line Column")
+        }
+        if typeName == "ParenthesizedExpression" {
+            return Names("Inner Line Column")
+        }
         return null
     }
 
@@ -579,6 +616,59 @@ public class Golden {
 
     public static func AddNewtype(decls: List<Declaration>, name: string, underlyingType: TypeReference, line: int, column: int) {
         decls.Add(new NewtypeDeclaration(name, underlyingType, line, column))
+    }
+
+    // ---- N+1c tranche 7: leaf/primary expression builders ----
+    // Each mirrors a Parser.cs ParsePrimaryExpression construction site; the returned node is nested directly
+    // into an EnumMember.Value argument (the tranche-7 value-bearing-member unlock), never bound to a local in
+    // a contract. A value-returning builder is the same idiom as Golden.SimpleT (tranche 5).
+    public static func IntLit(value: string, line: int, column: int): Expression {
+        return new IntLiteralExpression(value, line, column)
+    }
+
+    public static func FloatLit(value: string, line: int, column: int): Expression {
+        return new FloatLiteralExpression(value, line, column)
+    }
+
+    public static func CharLit(value: string, line: int, column: int): Expression {
+        return new CharLiteralExpression(value, line, column)
+    }
+
+    public static func StrLit(value: string, line: int, column: int): Expression {
+        return new StringLiteralExpression(value, line, column)
+    }
+
+    public static func BoolLit(value: bool, line: int, column: int): Expression {
+        return new BoolLiteralExpression(value, line, column)
+    }
+
+    public static func NullLit(line: int, column: int): Expression {
+        return new NullLiteralExpression(line, column)
+    }
+
+    public static func Ident(name: string, line: int, column: int): Expression {
+        return new IdentifierExpression(name, line, column)
+    }
+
+    public static func DefaultE(line: int, column: int): Expression {
+        return new DefaultExpression(line, column)
+    }
+
+    public static func ThisE(line: int, column: int): Expression {
+        return new ThisExpression(line, column)
+    }
+
+    public static func BaseE(line: int, column: int): Expression {
+        return new BaseExpression(line, column)
+    }
+
+    public static func Paren(inner: Expression, line: int, column: int): Expression {
+        return new ParenthesizedExpression(inner, line, column)
+    }
+
+    // A value-bearing enum member — Value is the materialized expression (Parser.cs :1310).
+    public static func AddEMemV(members: List<EnumMember>, name: string, value: Expression, line: int, column: int) {
+        members.Add(new EnumMember(name, value, line, column))
     }
 }
 
@@ -1526,13 +1616,263 @@ test "016 N+1c tranche 6: AstEq.Diff catches a mismatched base-class node agains
     assert diff == "unit.Declarations[0].BaseClass.Name: String(WRONG) != String(Base)"
 }
 
-// ---- RETAINED-GATE DECLINES (tranche 6 leaves these body-shaped / expression families deferred) ----
-// A value-bearing enum member declines (Value is an Expression, a later tranche); the owner's Declarations
-// stays empty rather than emitting a wrong node. (Parser.cs DOES materialize it; the empty result is the
-// owner's intentional no-stub deferral.)
+// ---- N+1c tranche 7: BEGIN EXPRESSION MATERIALIZATION — the LEAF/PRIMARY tier ----
+// ParseExprValue now RETURNS the Expression node it parses for the leaf atoms (int/float/char/string/bool/
+// null/identifier/default/this/base) and the single-expression parenthesized form; a composed operator tier
+// or a non-leaf primary leaves the node null. The value-bearing ENUM MEMBER (`A = <expr>`) is the tranche-7
+// consumer: EnumMember.Value is the materialized node when the value is a leaf/paren atom. Each value node's
+// Line/Column is byte-exact to Parser.cs (`line`/`column` captured at ParsePrimaryExpression entry = the value
+// token) and TRIANGULATED against LIVE Parser.cs via the AstToJson oracle. The tranche-6 "value-bearing enum
+// member DECLINES" test is CONVERTED to the positive int-literal materialization below.
 
-test "016 N+1c tranche 6: a value-bearing enum member DECLINES enum materialization (no-stub)" {
+test "016 N+1c tranche 7: a value-bearing enum member materializes an IntLiteralExpression Value (Parser.cs :1301/:4649)" {
     actual := RunAst("enum E {\n    A = 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.IntLit("1", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a mixed valued/valueless member list materializes per-member (Parser.cs :1296/:1310)" {
+    actual := RunAst("enum E {\n    A = 1,\n    B\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.IntLit("1", 2, 9), 2, 5)
+    Golden.AddEMem(members, "B", 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a float-literal value materializes FloatLiteralExpression (Parser.cs :4652)" {
+    actual := RunAst("enum E {\n    A = 1.5\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.FloatLit("1.5", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a char-literal value materializes CharLiteralExpression with quotes (Parser.cs :4658)" {
+    actual := RunAst("enum E {\n    A = 'x'\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.CharLit("'x'", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a first string-literal value materializes StringLiteralExpression AND infers EnumType.String (Parser.cs :4669/:1304)" {
+    actual := RunAst("enum E {\n    A = \"x\"\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.StrLit("\"x\"", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.String, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: an explicit int backing type is NOT overridden by a string first-value (Parser.cs :1272/:1304 !hasExplicitType)" {
+    actual := RunAst("enum E: int {\n    A = \"x\"\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.StrLit("\"x\"", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'true' value materializes BoolLiteralExpression(true) (Parser.cs :4675)" {
+    actual := RunAst("enum E {\n    A = true\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.BoolLit(true, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'false' value materializes BoolLiteralExpression(false) (Parser.cs :4681)" {
+    actual := RunAst("enum E {\n    A = false\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.BoolLit(false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'null' value materializes NullLiteralExpression (Parser.cs :4687)" {
+    actual := RunAst("enum E {\n    A = null\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NullLit(2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: an identifier value materializes IdentifierExpression (Parser.cs :4821)" {
+    actual := RunAst("enum E {\n    A = B\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Ident("B", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'default' value materializes DefaultExpression (Parser.cs :4694)" {
+    actual := RunAst("enum E {\n    A = default\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.DefaultE(2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'this' value materializes ThisExpression (Parser.cs :4701; enum is the reachable syntactic vehicle)" {
+    actual := RunAst("enum E {\n    A = this\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.ThisE(2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a 'base' value materializes BaseExpression (Parser.cs :4707; enum is the reachable syntactic vehicle)" {
+    actual := RunAst("enum E {\n    A = base\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.BaseE(2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a parenthesized leaf value materializes ParenthesizedExpression wrapping the inner node (Parser.cs :5502)" {
+    actual := RunAst("enum E {\n    A = (1)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Paren(Golden.IntLit("1", 2, 10), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NEGATIVE SELF-CHECKS (guard the new tranche-7 value-materialization paths against a vacuous pass) ----
+
+test "016 N+1c tranche 7: AstEq.Diff catches a wrong literal Value rather than passing vacuously" {
+    actual := RunAst("enum E {\n    A = 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.IntLit("2", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Value.Value: String(2) != String(1)"
+}
+
+test "016 N+1c tranche 7: AstEq.Diff catches a wrong value NODE TYPE (Int golden vs Identifier actual)" {
+    actual := RunAst("enum E {\n    A = B\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.IntLit("B", 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    diff := AstEq.Diff(expected, actual, "unit")
+    assert diff != ""
+    assert diff == "unit.Declarations[0].Members[0].Value: node type IntLiteralExpression != IdentifierExpression"
+}
+
+// ---- RETAINED-GATE DECLINES (tranche 7 leaves the composed/operator tiers + non-leaf primaries deferred) ----
+// A value that COMPOSES any operator (binary/unary/ternary/coalescing/assignment/postfix) or opens a non-leaf
+// primary sub-grammar (new/match/cast/array/tuple/typeof/…) leaves ParseExprValue().Node null, so the enum
+// declines rather than emitting a partial node. These materialize in tranche 8.
+
+test "016 N+1c tranche 7: a binary-composed enum value (1 + 2) still DECLINES (operator tier deferred, no-stub)" {
+    actual := RunAst("enum E {\n    A = 1 + 2\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a unary-composed enum value (-1) still DECLINES (unary tier deferred, no-stub)" {
+    actual := RunAst("enum E {\n    A = -1\n}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 7: a call-composed enum value (F()) still DECLINES (postfix tier deferred, no-stub)" {
+    actual := RunAst("enum E {\n    A = F()\n}\n")
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- WHOLE-FILE REAL-CORPUS EQUALITY (the DIRECT tranche-7 unlock: value-bearing int-literal enums) ----
+// EXACT byte content of the in-repo pure-enum file DeclarationEnums.nl (5 public enums; ParameterModifier +
+// EnumType valueless, SpecialConstraintKind + PropertyModifier + Modifiers int-literal-valued — 26 valued
+// members total). Every EnumMember.Value is an IntLiteralExpression whose Line/Column + Value were transcribed
+// from the LIVE Parser.cs AstToJson oracle; owner == golden == Parser.cs whole-tree (the whole-file MATCH was
+// also confirmed against the file on disk via the throwaway AstToJson probe).
+
+test "016 N+1c tranche 7: WHOLE-FILE equality on DeclarationEnums.nl (5 public enums, 26 int-literal-valued members)" {
+    actual := RunAst("namespace NSharpLang.Compiler.Ast\n\npublic enum ParameterModifier {\n    None,\n    Ref,\n    Out,\n    Params\n}\n\npublic enum EnumType {\n    Int,\n    String\n}\n\npublic enum SpecialConstraintKind {\n    None = 0,\n    Class = 1,\n    Struct = 2,\n    New = 4\n}\n\npublic enum PropertyModifier {\n    None = 0,\n    Required = 1,\n    Init = 2,\n    Readonly = 4\n}\n\npublic enum Modifiers {\n    None = 0,\n    Public = 1,\n    Private = 2,\n    Internal = 4,\n    Protected = 8,\n    Static = 16,\n    Virtual = 32,\n    Abstract = 64,\n    Sealed = 128,\n    Partial = 256,\n    Readonly = 512,\n    Const = 1024,\n    Async = 2048,\n    Generator = 4096,\n    Required = 8192,\n    Init = 16384,\n    File = 32768,\n    Override = 65536\n}\n")
+
+    paramMods := new List<EnumMember>()
+    Golden.AddEMem(paramMods, "None", 4, 5)
+    Golden.AddEMem(paramMods, "Ref", 5, 5)
+    Golden.AddEMem(paramMods, "Out", 6, 5)
+    Golden.AddEMem(paramMods, "Params", 7, 5)
+
+    enumTypeMembers := new List<EnumMember>()
+    Golden.AddEMem(enumTypeMembers, "Int", 11, 5)
+    Golden.AddEMem(enumTypeMembers, "String", 12, 5)
+
+    constraintMembers := new List<EnumMember>()
+    Golden.AddEMemV(constraintMembers, "None", Golden.IntLit("0", 16, 12), 16, 5)
+    Golden.AddEMemV(constraintMembers, "Class", Golden.IntLit("1", 17, 13), 17, 5)
+    Golden.AddEMemV(constraintMembers, "Struct", Golden.IntLit("2", 18, 14), 18, 5)
+    Golden.AddEMemV(constraintMembers, "New", Golden.IntLit("4", 19, 11), 19, 5)
+
+    propMods := new List<EnumMember>()
+    Golden.AddEMemV(propMods, "None", Golden.IntLit("0", 23, 12), 23, 5)
+    Golden.AddEMemV(propMods, "Required", Golden.IntLit("1", 24, 16), 24, 5)
+    Golden.AddEMemV(propMods, "Init", Golden.IntLit("2", 25, 12), 25, 5)
+    Golden.AddEMemV(propMods, "Readonly", Golden.IntLit("4", 26, 16), 26, 5)
+
+    modifiers := new List<EnumMember>()
+    Golden.AddEMemV(modifiers, "None", Golden.IntLit("0", 30, 12), 30, 5)
+    Golden.AddEMemV(modifiers, "Public", Golden.IntLit("1", 31, 14), 31, 5)
+    Golden.AddEMemV(modifiers, "Private", Golden.IntLit("2", 32, 15), 32, 5)
+    Golden.AddEMemV(modifiers, "Internal", Golden.IntLit("4", 33, 16), 33, 5)
+    Golden.AddEMemV(modifiers, "Protected", Golden.IntLit("8", 34, 17), 34, 5)
+    Golden.AddEMemV(modifiers, "Static", Golden.IntLit("16", 35, 14), 35, 5)
+    Golden.AddEMemV(modifiers, "Virtual", Golden.IntLit("32", 36, 15), 36, 5)
+    Golden.AddEMemV(modifiers, "Abstract", Golden.IntLit("64", 37, 16), 37, 5)
+    Golden.AddEMemV(modifiers, "Sealed", Golden.IntLit("128", 38, 14), 38, 5)
+    Golden.AddEMemV(modifiers, "Partial", Golden.IntLit("256", 39, 15), 39, 5)
+    Golden.AddEMemV(modifiers, "Readonly", Golden.IntLit("512", 40, 16), 40, 5)
+    Golden.AddEMemV(modifiers, "Const", Golden.IntLit("1024", 41, 13), 41, 5)
+    Golden.AddEMemV(modifiers, "Async", Golden.IntLit("2048", 42, 13), 42, 5)
+    Golden.AddEMemV(modifiers, "Generator", Golden.IntLit("4096", 43, 17), 43, 5)
+    Golden.AddEMemV(modifiers, "Required", Golden.IntLit("8192", 44, 16), 44, 5)
+    Golden.AddEMemV(modifiers, "Init", Golden.IntLit("16384", 45, 12), 45, 5)
+    Golden.AddEMemV(modifiers, "File", Golden.IntLit("32768", 46, 12), 46, 5)
+    Golden.AddEMemV(modifiers, "Override", Golden.IntLit("65536", 47, 16), 47, 5)
+
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "ParameterModifier", paramMods, EnumType.Int, Modifiers.Public, 3, 8)
+    Golden.AddEnumM(decls, "EnumType", enumTypeMembers, EnumType.Int, Modifiers.Public, 10, 8)
+    Golden.AddEnumM(decls, "SpecialConstraintKind", constraintMembers, EnumType.Int, Modifiers.Public, 15, 8)
+    Golden.AddEnumM(decls, "PropertyModifier", propMods, EnumType.Int, Modifiers.Public, 22, 8)
+    Golden.AddEnumM(decls, "Modifiers", modifiers, EnumType.Int, Modifiers.Public, 29, 8)
+    expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.Ast", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

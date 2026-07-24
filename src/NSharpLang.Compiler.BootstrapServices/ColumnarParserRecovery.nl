@@ -29,10 +29,19 @@ public class RecoverySpan {
 public class ExprResult {
     Span: RecoverySpan
     IsBareIdentifier: bool
+    // Stage N+1c tranche 7 (BEGIN EXPRESSION MATERIALIZATION): the byte-exact Expression node this tier
+    // parsed, or null when the value is not yet materializable (a composed operator tier, or a non-leaf
+    // primary whose sub-grammar is a later tranche). The ladder's non-operator tiers `return result`/
+    // `return expr` UNCHANGED, so a leaf node set by the primary tier propagates up automatically; every
+    // operator-composing tier reconstructs `new ExprResult(...)` (Node null by default), so a value that
+    // composes any operator declines. A mutable field defaulting to null keeps the ~30 existing
+    // constructor call sites untouched — materialization sites set `.Node` explicitly after construction.
+    Node: Expression?
 
     constructor(span: RecoverySpan, isBareIdentifier: bool) {
         Span = span
         IsBareIdentifier = isBareIdentifier
+        Node = null
     }
 }
 
@@ -200,12 +209,18 @@ public class ColumnarParserRecovery {
     // Stage N+1c tranche 6 (type bodies): the shared no-stub gate for the union / enum / soa body loops, set
     // by ParseUnionBody / ParseEnumBody / ParseSoaRecordBody and captured by the caller into a local
     // IMMEDIATELY. Cleared when the body carries a shape not yet byte-exactly representable (an `<error>` case
-    // / member / column name, a value-bearing enum member — the Value is an Expression, a later tranche — a
-    // structurally-unbuildable / multi-line payload or column type, or the generic-soa error shape). These
-    // bodies never nest another body-materialization within themselves (a case payload / soa column type
-    // routes through ParseMaterializedTypeReference, which does NOT touch this field; an enum value routes
-    // through the diagnostic-only ParseExprValue), so one shared field is safe.
+    // / member / column name, a structurally-unbuildable / multi-line payload or column type, or the
+    // generic-soa error shape). Tranche 7: a value-bearing enum member whose value MATERIALIZES (a leaf/paren
+    // atom) NO LONGER clears this — only a value that fails to materialize (a composed / deferred expression
+    // form) does. These bodies never nest another body-materialization within themselves (a case payload /
+    // soa column type routes through ParseMaterializedTypeReference, which does NOT touch this field; an enum
+    // value routes through ParseExprValue), so one shared field is safe.
     TypeBodyMaterializable: bool
+    // Stage N+1c tranche 7 (enum string-value inference): Parser.cs :1304 infers EnumType.String when the
+    // enum has no explicit `: int|string` backing type AND its FIRST member's value is a StringLiteralExpression.
+    // ParseEnumBody sets this from the materialized first-member value; ParseEnumName applies it only when the
+    // backing type was not explicit, keeping the owner byte-exact for string-valued enums.
+    EnumBodyInferredString: bool
 
     constructor(source: string, fileName: string?) {
         Source = source
@@ -231,6 +246,7 @@ public class ColumnarParserRecovery {
         TypeParamsMaterializable = true
         BaseListMaterializable = true
         TypeBodyMaterializable = true
+        EnumBodyInferredString = false
 
         lexer := new Lexer(source, fileName)
         rawTokens := lexer.Tokenize()
@@ -2433,8 +2449,10 @@ public class ColumnarParserRecovery {
         // Optional `: int|string` backing type (Parser.cs :1255). The default is Int; a `string` backing
         // type selects String (Parser.cs :1114/:1125).
         enumType := EnumType.Int
+        hasExplicitType := false
         if Check(TokenType.Colon) {
             Advance()
+            hasExplicitType = true
             typeTokenLine := Current().Line
             typeTokenColumn := Current().Column
             typeName := ConsumeIdentifier("Expected enum backing type ('int' or 'string')")
@@ -2447,6 +2465,10 @@ public class ColumnarParserRecovery {
         }
         members := ParseEnumBody(enumDiagnosticSpan, enumLine)
         bodyOk := TypeBodyMaterializable
+        // Parser.cs :1304: with no explicit backing type, a first string-literal member value infers String.
+        if !hasExplicitType && EnumBodyInferredString {
+            enumType = EnumType.String
+        }
         // N+1c tranche 1/3/4/6: materialize the EnumDeclaration (Parser.cs :1339). Members is now the tranche-6
         // materialized EnumMember list — VALUELESS members `{ A, B }` materialize byte-exact (Value null); a
         // VALUE-bearing member `A = 1` clears TypeBodyMaterializable (the Value is an Expression, a later
@@ -2594,6 +2616,7 @@ public class ColumnarParserRecovery {
     // unchanged (ParseExprValue still consumes the value for the diagnostic stream).
     func ParseEnumBody(enumDiagnosticSpan: RecoverySpan, openingLine: int): List<EnumMember> {
         TypeBodyMaterializable = true
+        EnumBodyInferredString = false
         members := new List<EnumMember>()
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         if !Check(TokenType.RightBrace) {
@@ -2606,12 +2629,25 @@ public class ColumnarParserRecovery {
                 if memberName == "<error>" {
                     TypeBodyMaterializable = false
                 }
+                // Tranche 7: a value-bearing member `A = <expr>` (Parser.cs :1290) now materializes its Value
+                // when the expression is a leaf/paren atom (ParseExprValue().Node non-null); a composed /
+                // deferred value leaves Node null → the enum declines (no-stub). A valueless member keeps null.
                 if Check(TokenType.Assign) {
                     Advance()
-                    ParseExprValue()            // the member value (Parser.cs :1290)
-                    TypeBodyMaterializable = false   // Value is an Expression — a later tranche
+                    valueResult := ParseExprValue()            // the member value (Parser.cs :1290)
+                    if valueResult.Node == null {
+                        TypeBodyMaterializable = false
+                    }
+                    // Parser.cs :1304: the FIRST member's string-literal value infers EnumType.String (applied
+                    // by ParseEnumName only when the backing type was not explicit). members.Count is the count
+                    // BEFORE this member is added, so this fires only for the very first member.
+                    if members.Count == 0 && valueResult.Node is StringLiteralExpression {
+                        EnumBodyInferredString = true
+                    }
+                    members.Add(new EnumMember(memberName, valueResult.Node, memberLine, memberColumn))
+                } else {
+                    members.Add(new EnumMember(memberName, null, memberLine, memberColumn))
                 }
-                members.Add(new EnumMember(memberName, null, memberLine, memberColumn))
                 if Check(TokenType.Comma) {
                     Advance()
                 } else {
@@ -6040,10 +6076,18 @@ public class ColumnarParserRecovery {
             return ParseLeadingMemberAccessWithoutReceiver()
         }
 
-        // Int / float literals carry no malformed check (Parser.cs :4637/:4640).
+        // Int / float literals carry no malformed check (Parser.cs :4637/:4640). Tranche 7: materialize the
+        // byte-exact node — `new IntLiteralExpression(Advance().Value, line, column)` (:4649) / FloatLiteral
+        // (:4652). line/column were captured before the advance, so they equal token.Line/token.Column.
         if Check(TokenType.IntLiteral) || Check(TokenType.FloatLiteral) {
             token := Advance()
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            literalResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            if token.Type == TokenType.FloatLiteral {
+                literalResult.Node = new FloatLiteralExpression(token.Value, line, column)
+            } else {
+                literalResult.Node = new IntLiteralExpression(token.Value, line, column)
+            }
+            return literalResult
         }
 
         // Char / string literals run the malformed-literal check (Parser.cs :4643/:4650). The malformed check
@@ -6054,7 +6098,11 @@ public class ColumnarParserRecovery {
         if Check(TokenType.CharLiteral) {
             token := Advance()
             ReportMalformedCharLiteralIfNeeded(token)
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            // Tranche 7: `new CharLiteralExpression(token.Value, line, column)` (Parser.cs :4658) — the node
+            // is built regardless of the malformed diagnostic, byte-exact.
+            charResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            charResult.Node = new CharLiteralExpression(token.Value, line, column)
+            return charResult
         }
         if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
             token := Advance()
@@ -6065,32 +6113,50 @@ public class ColumnarParserRecovery {
             if token.Type == TokenType.InterpolatedRawStringLiteral {
                 return ParseInterpolatedString(token, line, column, true)
             }
-            return new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            // Tranche 7: a plain StringLiteral (not `$"`) or a TripleQuoteStringLiteral materializes
+            // `new StringLiteralExpression(token.Value, line, column)` (Parser.cs :4669).
+            stringResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            stringResult.Node = new StringLiteralExpression(token.Value, line, column)
+            return stringResult
         }
 
+        // Tranche 7: the keyword leaf atoms materialize their byte-exact nodes (Parser.cs :4675/:4681/:4687/
+        // :4694/:4701/:4707). Each keyword token sits at (line, column), so the node's anchor is byte-exact.
         if Check(TokenType.True) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 4), false)
+            trueResult := new ExprResult(new RecoverySpan(line, column, 4), false)
+            trueResult.Node = new BoolLiteralExpression(true, line, column)
+            return trueResult
         }
         if Check(TokenType.False) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 5), false)
+            falseResult := new ExprResult(new RecoverySpan(line, column, 5), false)
+            falseResult.Node = new BoolLiteralExpression(false, line, column)
+            return falseResult
         }
         if Check(TokenType.Null) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 4), false)
+            nullResult := new ExprResult(new RecoverySpan(line, column, 4), false)
+            nullResult.Node = new NullLiteralExpression(line, column)
+            return nullResult
         }
         if Check(TokenType.Default) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 7), false)
+            defaultResult := new ExprResult(new RecoverySpan(line, column, 7), false)
+            defaultResult.Node = new DefaultExpression(line, column)
+            return defaultResult
         }
         if Check(TokenType.This) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 4), false)
+            thisResult := new ExprResult(new RecoverySpan(line, column, 4), false)
+            thisResult.Node = new ThisExpression(line, column)
+            return thisResult
         }
         if Check(TokenType.Base) {
             Advance()
-            return new ExprResult(new RecoverySpan(line, column, 4), false)
+            baseResult := new ExprResult(new RecoverySpan(line, column, 4), false)
+            baseResult.Node = new BaseExpression(line, column)
+            return baseResult
         }
 
         // typeof / nameof / sizeof (Parser.cs :4700/:4709/:4718): the `( Type )` / `( expr )` shape. typeof
@@ -6218,7 +6284,11 @@ public class ColumnarParserRecovery {
 
         if Check(TokenType.Identifier) {
             name := Advance().Value
-            return new ExprResult(new RecoverySpan(line, column, MaxInt(1, name.Length)), true)
+            // Tranche 7: `new IdentifierExpression(name, line, column)` (Parser.cs :4821). IsBareIdentifier
+            // stays true (the named-tuple / shorthand-`:=` decisions read it).
+            identResult := new ExprResult(new RecoverySpan(line, column, MaxInt(1, name.Length)), true)
+            identResult.Node = new IdentifierExpression(name, line, column)
+            return identResult
         }
 
         // Terminal: an unexpected token where an expression was required (Parser.cs :4813).
@@ -6850,9 +6920,16 @@ public class ColumnarParserRecovery {
             return new ExprResult(new RecoverySpan(line, column, 1), false)
         }
 
-        // Parenthesized expression `(e)` (Parser.cs :5489). Its span is the inner expression's.
+        // Parenthesized expression `(e)` (Parser.cs :5489). Its span is the inner expression's. Tranche 7:
+        // materialize `new ParenthesizedExpression(firstExpr, line, column)` (Parser.cs :5502) — but only when
+        // the inner expression itself materialized (a leaf/paren atom); a composed/deferred inner leaves
+        // firstExpr.Node null → the paren declines too. line/column anchor the opening `(` (Parser.cs :5441).
         ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-        return new ExprResult(firstExpr.Span, false)
+        parenResult := new ExprResult(firstExpr.Span, false)
+        if firstExpr.Node != null {
+            parenResult.Node = new ParenthesizedExpression(firstExpr.Node, line, column)
+        }
+        return parenResult
     }
 
     // ---- cast-detection lookahead (Parser.cs IsCastExpression :5573) ----

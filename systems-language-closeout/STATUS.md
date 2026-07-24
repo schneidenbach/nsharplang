@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 6 LANDED — TYPE-PARAMETER LISTS + BASE/INTERFACE LISTS + the remaining TYPE BODIES [union cases + payloads, enum members, soa columns, type-alias/newtype underlying type] materialized byte-exact to Parser.cs and VERIFIED owner==live-Parser.cs whole-tree on 24 shapes; `hasTypeParams`/`hasBaseList` gates RELAXED; WHOLE-FILE equality on THREE more real-corpus files [ErrorSeverity/DiagnosticSeverity valueless enums + CodeIntelligenceCallGraphModels generic/nullable records]; +26 contracts → 1281/1281)
+Last updated: 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSION MATERIALIZATION, the LEAF/PRIMARY tier: the int/float/char/string literals, bool/null, default/this/base, identifier, and single-expression parenthesized forms now RETURN their byte-exact Expression node, carried up the ladder via a new nullable `ExprResult.Node` [every operator-composing tier leaves it null → declines]; CONSUMER unlocked = VALUE-BEARING ENUM MEMBERS [EnumMember.Value materialized; Parser.cs :1304 string→String inference replicated]; VERIFIED owner==live-Parser.cs whole-tree on 14 leaf/paren synthetic shapes + WHOLE-FILE DeclarationEnums.nl [5 enums, 26 int-literal-valued members], the 3 composed forms correctly decline; +19 contracts → 1300/1300; the whole composed ladder + non-leaf primaries + field initializers deferred to tranche 8)
 
 ## Cursor
 
@@ -79,6 +79,81 @@ Last updated: 2026-07-24 (STAGE N+1c tranche 6 LANDED — TYPE-PARAMETER LISTS +
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 7 = BEGIN EXPRESSION MATERIALIZATION — the LEAF/PRIMARY tier. The stage-6/7 expression ladder (which
+  already parses the full 14-tier precedence grammar for diagnostics) now RETURNS the byte-exact Expression
+  node for the LEAF ATOMS + the single-expression PARENTHESIZED form, as a PURE side-effect: the
+  Advance/Report/Consume sequence is UNCHANGED, so the diagnostic stream is unperturbed. MECHANISM: `ExprResult`
+  gains a mutable nullable `Node: Expression?` (default null); the ladder's non-operator tiers `return result`/
+  `return expr` UNCHANGED, so a leaf node set by the primary tier PROPAGATES UP automatically, while every
+  operator-composing tier reconstructs `new ExprResult(...)` (Node null) → a value that composes ANY operator
+  declines. No touch to the ~30 existing `new ExprResult` call sites (the field defaults null; materialization
+  sites set `.Node`). CONSTRUCTION-SITE INVENTORY (owner, each byte-exact to Parser.cs, VERIFIED owner==LIVE-
+  Parser.cs whole-tree via the AstToJson serializer): (1) INT/FLOAT `new IntLiteralExpression(token.Value, line,
+  column)` / FloatLiteral (Parser.cs :4649/:4652 — line/column captured at ParsePrimaryExpression entry = the
+  value token); (2) CHAR `new CharLiteralExpression(token.Value, line, column)` (:4658 — built regardless of the
+  malformed diagnostic, quotes included in Value); (3) STRING `new StringLiteralExpression(token.Value, line,
+  column)` for a plain StringLiteral or TripleQuoteStringLiteral (:4669, quotes included) — the `$"`-interpolated
+  + raw-interpolated forms route to ParseInterpolatedString and DECLINE (Node null, later tranche); (4) BOOL
+  `new BoolLiteralExpression(true/false, line, column)` (:4675/:4681); (5) NULL `new NullLiteralExpression(line,
+  column)` (:4687); (6) DEFAULT/THIS/BASE `new DefaultExpression/ThisExpression/BaseExpression(line, column)`
+  (:4694/:4701/:4707); (7) IDENTIFIER `new IdentifierExpression(name, line, column)` (:4821, IsBareIdentifier
+  retained); (8) PARENTHESIZED `new ParenthesizedExpression(firstExpr, line, column)` for the single-expression
+  `(e)` form (:5502, line/column on the `(`) — materialized ONLY when the inner expr itself materialized (a
+  composed/deferred inner leaves firstExpr.Node null → the paren declines too); the empty/recovered/tuple
+  paren forms decline. CONSUMER UNLOCKED: VALUE-BEARING ENUM MEMBERS — `ParseEnumBody` now captures
+  `ParseExprValue().Node` into `EnumMember.Value` (Parser.cs :1301/:1310); a value that MATERIALIZES no longer
+  clears `TypeBodyMaterializable`, a value that FAILS to materialize (a composed/deferred form) still does →
+  the enum declines. STRING-VALUE INFERENCE REPLICATED (Parser.cs :1304): a new `EnumBodyInferredString` gate,
+  set by ParseEnumBody when the FIRST member's value is a StringLiteralExpression, is applied by ParseEnumName
+  only when there is NO explicit `: int|string` backing type (`hasExplicitType` tracked) → `enum E { A = "x" }`
+  infers EnumType.String byte-exact, while `enum E: int { A = "x" }` stays Int. TIERS MATERIALIZED: the leaf/
+  primary atoms + single-expr parenthesized. TIERS DECLINING (recorded, per-tier no-stub, deferred to tranche
+  8): the whole composed ladder (binary/unary/ternary/coalescing/assignment/postfix — call/index/member/`with`/
+  `++`/`--`) and the non-leaf primaries (typeof/nameof/sizeof/checked/unchecked/alloc/stackalloc/new/match/
+  array/immutable-array/cast/tuple/spread/interpolated-string/lambda) — each leaves Node null so its enum/field
+  consumer declines. FIELD INITIALIZERS deferred to tranche 8 (the field `= <expr>` site still declines). NO
+  EMITTER GAP hit — the packaged SDK self-emitted every new construct (the mutable nullable field, the `is
+  StringLiteralExpression` type-test, the value-returning leaf golden builders); no reused workaround needed.
+  DELIVERABLES: `ColumnarParserRecovery.nl` 7,654 → 7,731: `ExprResult.Node` field + init; the 8 leaf/paren
+  materialization sites in ParsePrimaryExprValue / ParseTupleOrParenthesizedExpression; ParseEnumBody value
+  capture + string-inference set; ParseEnumName `hasExplicitType` + inference apply; the `EnumBodyInferredString`
+  field. `ColumnarParserAst.tests.nl` 1,538 → 1,878: 11 new AstEq FieldNames registrations (Int/Float/Char/
+  String/Bool/Null/Identifier/Default/This/Base/Parenthesized LiteralExpression) + 11 value-returning leaf
+  golden builders (IntLit/FloatLit/CharLit/StrLit/BoolLit/NullLit/Ident/DefaultE/ThisE/BaseE/Paren) + the
+  AddEMemV value-bearing enum-member builder + 20 new contracts (the tranche-6 "value-bearing enum member
+  DECLINES" test CONVERTED to the positive int materialization → +19 net). CONTRACTS (all AstEq owner==golden,
+  every golden position/Value TRIANGULATED against LIVE Parser.cs via the AstToJson oracle): 14 leaf/paren
+  positive shapes (int, mixed valued/valueless, float, char, string+inference, explicit-int-not-overridden,
+  true, false, null, identifier, default, this, base, parenthesized-wrapping-inner), 2 negative self-checks (a
+  wrong literal Value; a wrong value NODE TYPE — Int golden vs Identifier actual), 3 retained-gate declines (a
+  binary `1 + 2` / unary `-1` / call `F()` composed value declines the enum, no-stub), and 1 WHOLE-FILE real-
+  corpus equality on DeclarationEnums.nl (5 public enums — ParameterModifier/EnumType valueless,
+  SpecialConstraintKind/PropertyModifier/Modifiers with 26 int-literal-valued members total, every
+  EnumMember.Value an IntLiteralExpression). TRIANGULATION MECHANISM: a THROWAWAY (deleted) fresh-Compiler
+  ProjectReference probe ran BOTH live Parser.cs (Lexer→Parser→ParseCompilationUnit) AND the owner's
+  ParseFileAst through the identical `OutputFormatter.AstToJson` serializer and diffed — 14/14 leaf/paren
+  synthetic sources whole-tree MATCH + WHOLE-FILE DeclarationEnums.nl MATCH; the 3 composed forms show LIVE
+  Parser.cs materializing (Binary/Unary/CallExpression) vs OWNER declining (empty declarations) — exactly the
+  intended no-stub deferral, the strongest owner==Parser.cs proof. EVIDENCE: BootstrapServices contracts
+  1300/1300 (1281 tranche-6 baseline + 19; fresh CLEAN `rm -rf obj bin` + `dotnet build
+  -p:NSharpExcludeTests=false` [0 warnings/0 errors — no emit gap]). NOTE: this environment's vstest testhost
+  fails to load `Microsoft.TestPlatform.CoreUtilities` (a stale SDK-copied testhost DLL, an ENV issue
+  independent of the change), and `nlc test` trips on PRE-EXISTING NL011/NL012 lint errors in CodeFix.nl /
+  ColumnarTypeOfPlanner.nl (not this slice's files); so the 1300/1300 count was gathered by a THROWAWAY
+  reflection runner that loads the emitted test assembly and invokes every `[Fact]` in-process (matched 1300,
+  PASS 1300, FAIL 0 — the 19 tranche-7 `Test_016N1cTranche7*` methods all confirmed present + green). The
+  diagnostic-stream tests (ColumnarParserRecovery.tests.nl) UNCHANGED-green prove the Node-returning refactor
+  does NOT perturb the diagnostic stream; dev.sh Parser slice 384/384 (0 failures — the C# Parser.cs path is
+  untouched); ownership audit: only `.nl`/`.tests.nl`/`.md` changed (2 .nl + 1 .md, zero .cs → OWN003 cannot
+  trip, no C# growth → no repin). Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers
+  outside its `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. No
+  LSP/VS Code change → no reload. NO two-stage bootstrap wall (the packaged SDK self-emitted every new
+  construct — no planner/kernel/OpCode change). Next: TRANCHE 8 — the BINARY + UNARY tiers (the TokenType→
+  BinaryOperator / UnaryOperator mappings, byte-exact to Parser.cs), then ternary/coalescing/assignment/range,
+  then the postfix + non-leaf-primary sub-grammars, then FIELD INITIALIZERS + expression-bodied members, until
+  a whole valid-or-malformed file parses into (CompilationUnit, Errors) provably equal to Parser.cs (the N+2
+  cutover prerequisite).
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 6 = TYPE-PARAMETER LISTS + BASE/INTERFACE LISTS + the remaining TYPE BODIES (union cases + payloads,
   enum members, soa columns, type-alias/newtype underlying type). The `hasTypeParams` and `hasBaseList` gates
   are now RELAXED; a generic and/or based/interfaced declaration NO LONGER declines. CONSTRUCTION-SITE
