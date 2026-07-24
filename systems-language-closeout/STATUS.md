@@ -16,15 +16,15 @@ Last updated: 2026-07-23
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 14 landed — the MEMBER grammars: methods [incl. func*
-  generators / async / operator overloads / implicit-explicit conversions] / constructors / indexers / properties
-  [arrow + get/set block] / nested types / record-class-struct positional param lists + base lists / union-case
-  declarations [incl. payload shapes] / interface members, and the record / interface / union / enum / soa type
-  BODIES [member-list loops + own body loops, boundary resets, closing braces + special diagnostics — soa's "not
-  supported yet", enum backing type] — carried through the SAME shared-panic model over the already-owned expression /
-  statement / type / delimiter / block grammars, retiring the stage-2 deferred non-`{` braced found-other cases for
-  record/interface/union/enum/soa; 352 native parity contracts total [316 through Stage 13 + 36],
-  `ColumnarParserRecovery.nl` now 6,520 lines; residual map items [1] and [2] are now DONE) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 15 landed — the richer TYPE-REFERENCE forms: the UNION layer
+  [`|`-separated arms + the NL103 trailing-`|` report], the POSTFIX layer [array `[]` / nullable-array `?[]` /
+  nullable `?` suffixes — lookahead-guarded, no reachable diagnostic], and the BASE dispatch [byref `&T`, tuple
+  `( … )` incl. named elements + the closing-`)` closing-delimiter recovery, and `Func<…>` incl. its
+  ConsumeIdentifier-on-`>` divergence from generic `<>`], restructuring `ParseTypeReferenceRecovery` into the full
+  Parser.cs `ParseTypeReference` union→postfix→base grammar and RETIRING the narrower `ParseSimpleTypeReference` so
+  the PARAMETER / FIELD / `let`-declaration consumers route through the full grammar too [matching Parser.cs's
+  `ParseTypeReference` threading]; 385 native parity contracts total [352 through Stage 14 + 33],
+  `ColumnarParserRecovery.nl` now 6,640 lines; residual map items [1], [2], and [3] are now DONE) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -65,7 +65,89 @@ Last updated: 2026-07-23
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 14 of the parser-front-end arc — the MEMBER
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 15 of the parser-front-end arc — the richer
+  TYPE-REFERENCE forms (residual map item [3]), carried through the SAME shared owner over the already-owned
+  simple / qualified / generic type subset, PROVEN byte-exact against the freshly built Release CLI oracle
+  (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the SEMANTIC diagnostics — not-all-paths-
+  return NL305, type-not-found NL201, undefined-name NL301, etc. — which are analyzer, not parser, diagnostics).
+  SITE INVENTORY (grep of `ParseTypeReference` + its helpers in Parser.cs :1774-2021): the entry `ParseTypeReference`
+  (:1774) → `ParseUnionTypeReference` (:1779) → `ParsePostfixTypeReference` (:1814) → `ParseBaseTypeReference`
+  (:1884). The COMPLETE reachable error-site surface: (a) the UNION layer's ONE new report — the NL103
+  "Expected a type after '|' in anonymous union type" (:1793, InvalidSyntax, anchored on Current, length
+  Max(1, Current.Value.Length), humanExplanation + hint, NO suggestions) fired when a `|` is IMMEDIATELY followed by
+  a type terminator (`IsTypeTerminator`: Comma/RightParen/RightBracket/RightBrace/Newline/Eof/Assign/Semicolon/Arrow/
+  Colon — NOTE `{` / `|` / an identifier are NOT terminators, so `A | {` / `A | | B` reach the ConsumeIdentifier NL102
+  on the arm, and the shared lexer's newline-suppression-after-`|` means the arm greedily crosses a suppressed newline
+  and consumes the next line's leading identifier), then BREAK (only the first trailing `|` reports; panic suppresses
+  any later one regardless); (b) the POSTFIX layer's `[]` / `?[]` / `?` suffixes (:1821/:1832/:1854) — the array /
+  nullable-array closes are LOOKAHEAD-GUARDED (`[` only when `]` immediately follows), so their `Consume(RightBracket)`
+  NEVER fails — NO reachable diagnostic; they only shape the consumed extent so a following error anchors byte-exact;
+  (c) the BASE dispatch — byref `&T` (:1886, inner is a POSTFIX type, no own report), the tuple / parenthesized type
+  `( … )` (`ParseParenthesizedOrTupleTypeReference` :1965 — its closing `)` routes through the shared ConsumeToken so a
+  missing `)` reaches the Stage-9 closing-delimiter recovery [NL107 at a line / same-line boundary, else the plain
+  NL102], and its element types + the empty-tuple / bad-named-element cases reach the shared ConsumeIdentifier NL102),
+  the `Func<…>` function type (`ParseFunctionTypeReference` :2000 — `Consume(Less)` [NL102 "Expected '<'", expected
+  "less", or the ConsumeToken EOF NL104] + a comma-separated ParseTypeReference list + the split-`>>`-aware
+  ConsumeGreater; unlike the generic identifier arm, `Func` does NOT call ReportMissingGenericTypeArgument, so
+  `Func<>` / `Func<int,>` reach the ConsumeIdentifier NL102 on the `>` — verified divergent from `List<>` /
+  `List<int,>`), and the simple / qualified / generic identifier arm owned since Stage 5. So the ONLY genuinely new
+  report Stage 15 adds is the union NL103; every other reachable site reduces to an already-owned primitive
+  (ConsumeIdentifier NL102/NL104, ConsumeToken NL102/NL107/NL108, ConsumeGreater NL102, ReportMissingGenericTypeArgument).
+  IMPLEMENTATION: restructured `ParseTypeReferenceRecovery` into the union entry (the `|`-arm loop + `ReportUnionMissingTypeArm`)
+  → `ParsePostfixTypeReferenceRecovery` (the `[]` / `?[]` / `?` loop) → `ParseBaseTypeReferenceRecovery` (byref / tuple /
+  Func dispatch + the moved simple/generic body) + `ParseParenthesizedOrTupleTypeReferenceRecovery` +
+  `ParseFunctionTypeReferenceRecovery`, all delegating construction to the shared `Report` / `ConsumeIdentifier` /
+  `ConsumeToken` / `ConsumeGreater` / `ReportMissingGenericTypeArgument` and reusing the live shared `IsTypeTerminator`
+  / `ParserErrorDiagnostics.Create`, so codes / messages / spans / snippets / hints / suggestions match Parser.cs
+  automatically. RETIRED the narrower `ParseSimpleTypeReference` (the Stage-4 minimal single-identifier vehicle):
+  Parser.cs threads PARAMETER (`ParseParameterTypeReference` :6507), FIELD (`ParseFieldTypeReference` :6543), and
+  `let`-declaration (`ParseVariableDeclaration` :2553) types through the FULL `ParseTypeReference` — so its three
+  callers now route through `ParseTypeReferenceRecovery`, closing a latent parity gap (a generic / union / tuple /
+  byref param or field type would previously have diverged) and giving the mandate's parameter/field consumers the
+  full grammar; the speculative expression-statement typed-decl (`ParseExpressionStatement` :4244) already used it.
+  SHARED-CONSUMER PROOF SITES (chosen representative, not exhaustive cross-products): the union NL103 pinned at the
+  RETURN-type (`func f(): A |`), FIELD (`struct S { x: A | }`), CATCH (`catch (e: A |)`), IS-EXPRESSION
+  (`x is A |`), and TYPED-DECLARATION (`x: A | = y`) sites — proving all five owned consumers thread the SAME grammar;
+  the postfix / byref / tuple forms proven CONSUMED via the "form-then-trailing-`|`" shape (`A[] |` / `A? |` / `&A |` /
+  `(int, string) |` each report the union NL103 AFTER the form, which only fires if the form was consumed to exactly
+  the byte-position Parser.cs reaches); the generic-arg / tuple-element / Func-param recursion proven via the nested
+  negatives (`List<A | B>`, `Func<Func<int, string>, bool>`); the base-list via the valid `class C : A | B`; the
+  parameter consumer via `func f(x: &)`. +33 native parity contracts in `ColumnarParserRecovery.tests.nl` (19
+  positive-diagnostic: union NL103 at return / field / typed-decl / catch / is-expr; array-then-`|` / nullable-then-`|`
+  / byref-then-`|` / tuple-then-`|` NL103; byref-missing-inner NL104 [return] + NL102 [param `&)`]; tuple unclosed-`)`
+  NL107 / empty-`()` NL102 / bad-named-element NL102; Func missing-`<` NL104 / unclosed-`>` NL102 / empty-`<>` NL102
+  [divergent from generic] / trailing-comma NL102; the union arm greedily consuming across the `|`-suppressed newline
+  [one NL102 field-name, not two]; 14 negatives: valid union / array / nullable / nullable-array / byref-param / tuple /
+  named-tuple / single-unwrap / Func / multi-Func / union-in-generic-arg / nested-Func-`>>` / is-union / base-list-union).
+  DEFERRED / RECORDED (NOT corpus-pinned — with reasons): the TYPE-ALIAS underlying type (`type T = A | B`) is NOT an
+  arc-owned consumer — the owner's declaration preamble parses only the alias NAME (`ParseTypeAliasName`), not the
+  `= <type>` body (Parser.cs `ParseTypeAliasDeclaration` :1344/:1348 does, via `ParseTypeReference`) — so the type-alias
+  vehicle is out of Stage-15 scope; adding it is a separate consumer slice. The CAST site `(A | )x` does NOT reach the
+  type-union grammar: the `IsCastExpression` lookahead requires a well-formed cast type, so a malformed `A |` fails the
+  scan and the whole `(A | )` is parsed as a PARENTHESIZED bitwise-OR EXPRESSION (the Stage-7 "Expected expression
+  after '|'" NL102), not a cast type — an expression diagnostic, already owned. The `new`-expression type
+  (`ParseNewTypeReference`) routes through the same upgraded `ParseTypeReferenceRecovery`, so it inherits the full
+  grammar for free (no separate pin — the new corpus is expression-side). NO production wiring; NO wall tripped
+  (self-contained edit to one owner + its tests; the packaged SDK 0.1.0 self-emitted the edited owner — incl. the
+  ParseTypeReferenceRecovery restructure + ParseSimpleTypeReference retirement + all new parsers + all 1147 contracts
+  cleanly — no repin). Evidence: BootstrapServices contracts 1147/1147 (1114 baseline + 33; full-suite fresh no-build
+  run, `-p:NSharpExcludeTests=false`; `FullyQualifiedName~016TypeRef` filter 33/33); dev.sh Parser 381/381; ownership
+  audit 18/18 (`Cli.dll test --project tests/native/ownership-audit`); git status shows ONLY the two `.nl` files +
+  STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` / `ParseFilePreamble`
+  are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests: zero references
+  outside the owner + its tests), so nothing in the production compile path changed. No LSP/VS Code change → no
+  extension reload. `ColumnarParserRecovery.nl` 6,520 → 6,640 lines (+120); `.tests.nl` 4,731 → 5,069 (+338).
+  RESIDUAL-TO-PARITY MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 15):
+  [1 — DONE Stage 13] the remaining statement kinds; [2 — DONE Stage 14] the MEMBER grammars + the record / interface /
+  union / enum / soa type BODIES; [3 — DONE] the richer type-reference forms (union / postfix array-nullable / byref /
+  tuple / `Func<>`) shared across is/as/typeof/sizeof/cast/stackalloc/catch/typed-decl/local-func-return/base-lists/
+  member-return-types/parameter/field/new/generic-args/tuple-elements/Func-params (this stage); [4] the TEST DSL
+  (test / setup / teardown + the test-case rows) and ATTRIBUTES (member + declaration); [5] the garbage-type cascade
+  shapes (non-identifier parameter name, named-tuple bad-name) needing `ParseTypeReference`-on-garbage + the stable
+  position-sorted emit (unblocked since Stage 12); and the TYPE-ALIAS underlying-type consumer (recorded above). THEN
+  the AST/node-table-facts stage (N+1), the CUTOVER (N+2, IDE-affecting), and the DELETION arc (N+3). Next: STAGE 16 =
+  the TEST DSL + ATTRIBUTES (map residual [4]), per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 14 of the parser-front-end arc — the MEMBER
   grammars + the remaining type BODIES (residual map item [2]), carried through the SAME shared-panic model over the
   already-owned expression / statement / type / delimiter / block grammars, PROVEN byte-exact against the freshly
   built Release CLI oracle (`nlc check --json`, filtered to the parser codes NL101-NL109, excluding the SEMANTIC

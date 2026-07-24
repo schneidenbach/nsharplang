@@ -4729,3 +4729,341 @@ test "016 type-body: an enum whose name is a '{' reports the found-other name NL
     assert e.Column == 1
     assert e.Length == 4
 }
+
+// ============================================================================
+// Stage 15: the richer TYPE-REFERENCE forms (residual map item [3]) — the UNION / POSTFIX
+// (array / nullable) / byref / tuple / Func<> layers of the full Parser.cs type grammar
+// (ParseTypeReference :1774 → ParseUnionTypeReference / ParsePostfixTypeReference /
+// ParseBaseTypeReference / ParseParenthesizedOrTupleTypeReference / ParseFunctionTypeReference),
+// carried through the SAME shared owner. Because the whole grammar is the SHARED
+// ParseTypeReferenceRecovery entry, these contracts prove the forms fire identically at every
+// consumption site (return type / field / type-alias / catch / is-expr / generic-arg /
+// tuple-element / Func-param / base-list). Golden values captured from the freshly built Release
+// CLI oracle (`nlc check --json`, filtered to parser codes NL101-NL109).
+// ============================================================================
+
+// ---- UNION missing-arm (NL103) across representative shared consumers ----
+
+test "016 type-ref union: a trailing '|' in a return type reports the anonymous-union NL103 at the terminator" {
+    errors := RunPreamble("func f(): A |")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 1
+    assert e.Column == 14
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): A |"
+    assert e.HumanExplanation == "Anonymous union types use the form `A | B`, so every `|` must be followed by another type."
+    assert e.ContextualHint == "Add the missing type arm, or remove the trailing `|`."
+    assert e.Suggestion == null
+}
+
+test "016 type-ref union: a trailing '|' in a field type reports the NL103 at the closing-brace terminator" {
+    errors := RunPreamble("struct S {\n  x: A |\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+    assert e.HumanExplanation == "Anonymous union types use the form `A | B`, so every `|` must be followed by another type."
+    assert e.ContextualHint == "Add the missing type arm, or remove the trailing `|`."
+}
+
+test "016 type-ref union: a trailing '|' in a typed declaration reports the NL103 at the '=' terminator" {
+    // The `name: T = value` typed declaration (no `let`) routes its type through the shared grammar too.
+    errors := RunPreamble("func f() {\n  x: A | = y\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 2
+    assert e.Column == 10
+    assert e.Length == 1
+    assert e.SourceSnippet == "  x: A | = y"
+}
+
+test "016 type-ref union: a trailing '|' in a catch type reports the NL103 at the ')' terminator" {
+    errors := RunPreamble("func f() {\n  try {\n  } catch (e: A |) {\n  }\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 3
+    assert e.Column == 18
+    assert e.Length == 1
+    assert e.SourceSnippet == "  } catch (e: A |) {"
+}
+
+test "016 type-ref union: a trailing '|' in an is-expression type reports the NL103 (is/as share the grammar)" {
+    errors := RunPreamble("func f(x: object) {\n  y := x is A |\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 3
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.SourceSnippet == "}"
+}
+
+// ---- POSTFIX / byref forms are CONSUMED, so a following union '|' anchors past them ----
+
+test "016 type-ref postfix: an array type A[] is consumed, so a trailing '|' reports the union NL103 after it" {
+    errors := RunPreamble("func f(): A[] |")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 1
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): A[] |"
+}
+
+test "016 type-ref postfix: a nullable type A? is consumed, so a trailing '|' reports the union NL103 after it" {
+    errors := RunPreamble("func f(): A? |")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 1
+    assert e.Column == 15
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): A? |"
+}
+
+test "016 type-ref byref: a byref type &A is consumed, so a trailing '|' reports the union NL103 after it" {
+    errors := RunPreamble("func f(): &A |")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 1
+    assert e.Column == 15
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): &A |"
+}
+
+test "016 type-ref byref: a byref '&' with no inner type at end of file reports the ConsumeIdentifier NL104" {
+    errors := RunPreamble("func f(): &")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected type name, but reached the end of the file"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): &"
+    assert e.HumanExplanation == "I was expecting an identifier here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+test "016 type-ref byref: a parameter type '&' with no inner type reaches the ConsumeIdentifier NL102 on the ')'" {
+    // Proves the PARAMETER-type consumer now routes through the full grammar (Parser.cs threads params
+    // through ParseTypeReference): the byref inner type reports on the ')' that follows the '&'.
+    errors := RunPreamble("func f(x: &)")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 12
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(x: &)"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found ')' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+// ---- TUPLE forms ----
+
+test "016 type-ref tuple: an unclosed tuple type crossing onto the next line reports the NL107 on the '('" {
+    errors := RunPreamble("func f(): (int, string")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.MissingClosingParen
+    assert e.Message == "Missing closing ')'"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): (int, string"
+    assert e.HumanExplanation == "I reached the next line while looking for the closing ')' that matches an earlier '('."
+    assert e.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+    assert e.Suggestion == "Add ')' before starting the next line"
+}
+
+test "016 type-ref tuple: an empty tuple type () reports the ConsumeIdentifier NL102 on the ')'" {
+    errors := RunPreamble("func f(): ()")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 12
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): ()"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found ')' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 type-ref tuple: a named element with a missing type reaches the ConsumeIdentifier NL102 on the ')'" {
+    errors := RunPreamble("func f(): (a: int, b: )")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 23
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): (a: int, b: )"
+}
+
+test "016 type-ref tuple: a tuple type is consumed, so a trailing '|' reports the union NL103 after it" {
+    errors := RunPreamble("func f(): (int, string) |")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 1
+    assert e.Column == 26
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): (int, string) |"
+}
+
+// ---- Func<> forms (the Func dispatch does NOT report ReportMissingGenericTypeArgument) ----
+
+test "016 type-ref Func: a bare 'Func' with no '<' at end of file reports the Consume(Less) NL104" {
+    errors := RunPreamble("func f(): Func")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected 'less' but reached the end of the file"
+    assert e.Line == 1
+    assert e.Column == 11
+    assert e.Length == 4
+    assert e.SourceSnippet == "func f(): Func"
+    assert e.HumanExplanation == "I was expecting 'less' here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+test "016 type-ref Func: an unclosed Func<int reports the ConsumeGreater NL102 at the offender" {
+    errors := RunPreamble("func f(): Func<int {\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '>'. Got '{'"
+    assert e.Line == 1
+    assert e.Column == 20
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): Func<int {"
+    assert e.HumanExplanation == "I was parsing generic type parameters and expected to see a closing '>' here."
+    assert e.ContextualHint == null
+    assert e.Suggestion == "Check if you have matching '<' and '>' in your generic type declaration"
+}
+
+test "016 type-ref Func: an empty Func<> reaches the ConsumeIdentifier NL102 on the '>' (not the generic-arg report)" {
+    errors := RunPreamble("func f(): Func<>")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): Func<>"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '>' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e.Suggestion == null
+}
+
+test "016 type-ref Func: a trailing comma Func<int,> reaches the ConsumeIdentifier NL102 on the '>'" {
+    errors := RunPreamble("func f(): Func<int,>")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 20
+    assert e.Length == 1
+    assert e.SourceSnippet == "func f(): Func<int,>"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '>' instead."
+}
+
+// ---- consumption parity: the union arm greedily consumes across the '|'-suppressed newline ----
+
+test "016 type-ref union: the arm after '|' greedily consumes the next line's field name, so its ':' reports one NL102" {
+    // `x: A |` <newline-suppressed-after-'|'> `y` — the union arm consumes `y` as the second type name,
+    // then the field member sees the following ':' with no name (byte-exact with Parser.cs's greedy
+    // ParsePostfixTypeReference across the suppressed newline). A single diagnostic, not two.
+    errors := RunPreamble("struct S {\n  x: A |\n  y: B |\n}")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected field name. Got ':'"
+    assert e.Line == 3
+    assert e.Column == 4
+    assert e.Length == 1
+    assert e.SourceSnippet == "  y: B |"
+}
+
+// ---- NEGATIVES: every valid richer form parses clean (zero parser diagnostics) ----
+
+test "016 type-ref negative: a valid union return type A | B reports nothing" {
+    assert RunPreamble("func f(): A | B").Count == 0
+}
+
+test "016 type-ref negative: a valid array return type A[] reports nothing" {
+    assert RunPreamble("func f(): A[]").Count == 0
+}
+
+test "016 type-ref negative: a valid nullable return type A? reports nothing" {
+    assert RunPreamble("func f(): A?").Count == 0
+}
+
+test "016 type-ref negative: a valid nullable-array return type A?[] reports nothing" {
+    assert RunPreamble("func f(): A?[]").Count == 0
+}
+
+test "016 type-ref negative: a valid byref parameter type &int reports nothing" {
+    assert RunPreamble("func f(x: &int)").Count == 0
+}
+
+test "016 type-ref negative: a valid tuple return type (int, string) reports nothing" {
+    assert RunPreamble("func f(): (int, string)").Count == 0
+}
+
+test "016 type-ref negative: a valid named tuple type (a: int, b: string) reports nothing" {
+    assert RunPreamble("func f(): (a: int, b: string)").Count == 0
+}
+
+test "016 type-ref negative: a valid single-element parenthesized type (int) reports nothing" {
+    assert RunPreamble("func f(): (int)").Count == 0
+}
+
+test "016 type-ref negative: a valid Func<int, string> return type reports nothing" {
+    assert RunPreamble("func f(): Func<int, string>").Count == 0
+}
+
+test "016 type-ref negative: a valid multi-parameter Func<int, string, bool> reports nothing" {
+    assert RunPreamble("func f(): Func<int, string, bool>").Count == 0
+}
+
+test "016 type-ref negative: a union nested inside a generic argument List<A | B> reports nothing" {
+    assert RunPreamble("func f(): List<A | B>").Count == 0
+}
+
+test "016 type-ref negative: a nested Func<Func<int, string>, bool> closes both angles via the >> split" {
+    assert RunPreamble("func f(): Func<Func<int, string>, bool>").Count == 0
+}
+
+test "016 type-ref negative: a valid is-expression union type A | B is consumed with no diagnostic" {
+    assert RunPreamble("func f(x: object) {\n  y := x is A | B\n}").Count == 0
+}
+
+test "016 type-ref negative: a valid base-list union A | B routes through the full grammar with no diagnostic" {
+    assert RunPreamble("class C : A | B {\n}").Count == 0
+}

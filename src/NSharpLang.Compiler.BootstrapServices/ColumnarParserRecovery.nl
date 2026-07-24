@@ -1155,12 +1155,13 @@ public class ColumnarParserRecovery {
             nameLength)
     }
 
-    // Parser.cs ParseParameterTypeReference (:6504). Consumes a simple type name, or reports the
-    // missing-type diagnostic anchored on the parameter name when a type terminator sits where the
+    // Parser.cs ParseParameterTypeReference (:6504). Consumes a full type reference (Parser.cs :6507
+    // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
+    // the missing-type diagnostic anchored on the parameter name when a type terminator sits where the
     // type should be.
     func ParseParameterTypeReference(parameterName: string, parameterLine: int, parameterColumn: int) {
         if !IsTypeTerminator(Current().Type) {
-            ParseSimpleTypeReference()
+            ParseTypeReferenceRecovery()
             return
         }
         visible := IsVisibleName(parameterName)
@@ -1737,12 +1738,13 @@ public class ColumnarParserRecovery {
         return new Token(TokenType.Colon, ":", fieldLine, fieldColumn + nameLength, FileName)
     }
 
-    // Parser.cs ParseFieldTypeReference (:6536). Consumes a simple type name, or reports the
-    // missing-type diagnostic anchored on the field name when a type terminator (and not the start
+    // Parser.cs ParseFieldTypeReference (:6536). Consumes a full type reference (Parser.cs :6543
+    // `ParseTypeReference()` — the Stage-15 union / postfix / byref / tuple / Func grammar), or reports
+    // the missing-type diagnostic anchored on the field name when a type terminator (and not the start
     // of the NEXT field) sits where the type should be.
     func ParseFieldTypeReference(fieldName: string, fieldLine: int, fieldColumn: int, fieldColonToken: Token) {
         if !IsTypeTerminator(Current().Type) && !LooksLikeNextFieldAfterMissingType(fieldColonToken) {
-            ParseSimpleTypeReference()
+            ParseTypeReferenceRecovery()
             return
         }
         visible := IsVisibleName(fieldName)
@@ -1778,15 +1780,6 @@ public class ColumnarParserRecovery {
     }
 
     // ---- shared Stage-4 helpers ----
-
-    func ParseSimpleTypeReference() {
-        // Minimal type-reference vehicle: consume a simple identifier type name (e.g. `int`).
-        // Generic / array / tuple / qualified type references are a LATER arc stage; the member /
-        // parameter corpus uses only simple identifier types.
-        if Check(TokenType.Identifier) {
-            Advance()
-        }
-    }
 
     // The parameter/field type-error anchor (Parser.cs :6509/:6545): the NAME span when the name is
     // visible and positioned, otherwise the current token.
@@ -2240,12 +2233,97 @@ public class ColumnarParserRecovery {
             span.Length)
     }
 
-    // ---- generic-aware type reference (Parser.cs ParseTypeReference simple/generic subset :1910-1962) ----
-    // Consumes a simple or qualified type name plus an optional `<typeargs>` list, reporting the
-    // generic-type-argument and ConsumeGreater diagnostics. The byref `&` / tuple `(` / Func<> / array /
-    // nullable forms are a later arc stage; the Stage-5 corpus's return and constraint types are all
-    // simple names or generic references over simple names.
+    // ---- full type reference grammar (Parser.cs ParseTypeReference :1774) ----
+    // Stage 15: the entry is the UNION layer (Parser.cs `ParseTypeReference` → `ParseUnionTypeReference`
+    // :1776) — a `|`-separated list of POSTFIX type references. Every consumer already threaded through
+    // ParseTypeReferenceRecovery (is/as / typeof / sizeof / cast / stackalloc / catch / typed-decl /
+    // local-func-return / base-lists / member-return-types / parameter / field / new / generic-args /
+    // tuple-elements / Func-params) now gets the full grammar, exactly as Parser.cs threads them all
+    // through ParseTypeReference. The Stage 5-11 simple / qualified / generic corpus flows straight
+    // through union → postfix → base → the identifier arm unchanged (no `|` / `[]` / `?` / `&` / `(` /
+    // `Func` ⇒ byte-exact identical output), so no prior contract moves.
     func ParseTypeReferenceRecovery() {
+        ParsePostfixTypeReferenceRecovery()                 // first arm (Parser.cs :1781)
+        if !Check(TokenType.BitwiseOr) {                    // Parser.cs :1782 early return
+            return
+        }
+        scanningUnion := true
+        while scanningUnion {
+            if Check(TokenType.BitwiseOr) {                 // Parser.cs :1788
+                Advance()                                   // consume '|' (Parser.cs :1790)
+                if IsTypeTerminator(Current().Type) {       // trailing `|` (Parser.cs :1791)
+                    ReportUnionMissingTypeArm()             // NL103 (Parser.cs :1793), then break
+                    scanningUnion = false
+                } else {
+                    ParsePostfixTypeReferenceRecovery()     // next arm (Parser.cs :1804)
+                }
+            } else {
+                scanningUnion = false
+            }
+        }
+    }
+
+    // Parser.cs ParseUnionTypeReference's missing-arm report (:1793): a `|` immediately followed by a type
+    // terminator. Anchored on the terminator token (Current), length Max(1, its value length), no
+    // suggestions (Parser.cs's ReportError omits them). After it the loop breaks — only the FIRST trailing
+    // `|` reports (and, being in panic after the report, any later `|` would be suppressed regardless).
+    func ReportUnionMissingTypeArm() {
+        Report(
+            ErrorCode.InvalidSyntax,
+            "Expected a type after '|' in anonymous union type",
+            Current().Line,
+            Current().Column,
+            "Anonymous union types use the form `A | B`, so every `|` must be followed by another type.",
+            "Add the missing type arm, or remove the trailing `|`.",
+            null,
+            MaxInt(1, Current().Value.Length))
+    }
+
+    // Parser.cs ParsePostfixTypeReference (:1814): a base type plus a loop of `[]` / `?[]` / `?` suffixes.
+    // The `[` / `?[` array/nullable-array forms are lookahead-guarded (`[` only when `]` immediately
+    // follows), so their `Consume(RightBracket)` (:1824/:1846) NEVER fails — no reachable diagnostic. The
+    // suffixes only shape the consumed extent so a FOLLOWING error (a trailing union `|`, or the next
+    // declaration) anchors byte-exact.
+    func ParsePostfixTypeReferenceRecovery() {
+        ParseBaseTypeReferenceRecovery()
+        suffixLooping := true
+        while suffixLooping {
+            if Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket {
+                Advance()                                   // '[' (Parser.cs :1823)
+                Advance()                                   // guaranteed ']' (Consume never fails, :1824)
+            } else {
+                if Check(TokenType.QuestionBracket) && LookAhead(1).Type == TokenType.RightBracket {
+                    Advance()                               // '?[' (Parser.cs :1834)
+                    Advance()                               // guaranteed ']' (:1846)
+                } else {
+                    if Check(TokenType.Question) {
+                        Advance()                           // '?' nullable (Parser.cs :1856)
+                    } else {
+                        suffixLooping = false               // Parser.cs :1864 break
+                    }
+                }
+            }
+        }
+    }
+
+    // Parser.cs ParseBaseTypeReference (:1884): a byref `&T`, a parenthesized / tuple type `( … )`, a
+    // `Func<…>` function type, or the simple / qualified / generic identifier arm (owned since Stage 5).
+    func ParseBaseTypeReferenceRecovery() {
+        if Check(TokenType.BitwiseAnd) {                    // byref &T (Parser.cs :1886)
+            Advance()
+            ParsePostfixTypeReferenceRecovery()             // inner is a POSTFIX type (Parser.cs :1889)
+            return
+        }
+        if Check(TokenType.LeftParen) {                     // tuple / parenthesized (Parser.cs :1899)
+            ParseParenthesizedOrTupleTypeReferenceRecovery()
+            return
+        }
+        if Check(TokenType.Identifier) && Current().Value == "Func" {   // Func<…> (Parser.cs :1905)
+            ParseFunctionTypeReferenceRecovery()
+            return
+        }
+
+        // simple / qualified / generic (Parser.cs :1910-1962)
         typeNameToken := Current()
         ConsumeIdentifier("Expected type name")             // Parser.cs :1914
         while Check(TokenType.Dot) {                         // qualified name A.B (Parser.cs :1918)
@@ -2258,7 +2336,7 @@ public class ColumnarParserRecovery {
             if Check(TokenType.Greater) {
                 ReportMissingGenericTypeArgument(typeNameToken, lessToken)  // `Name<>` (Parser.cs :1930)
             } else {
-                ParseTypeReferenceRecovery()                // first type argument
+                ParseTypeReferenceRecovery()                // first type argument (full grammar, Parser.cs :1936)
                 scanning := true
                 while scanning {
                     if Check(TokenType.Comma) {
@@ -2277,6 +2355,49 @@ public class ColumnarParserRecovery {
             }
             ConsumeGreater("Expected '>'")                  // Parser.cs :1950
         }
+    }
+
+    // Parser.cs ParseParenthesizedOrTupleTypeReference (:1965): a `( … )` list of comma-separated element
+    // types, each optionally `name:`-prefixed. The opening `(` is guarded by the caller's Check (:1899), so
+    // its `Consume(LeftParen)` (:1967) never fails; the closing `)` routes through ConsumeToken — a missing
+    // `)` reaches the Stage-9 closing-delimiter recovery (NL107 at a line / same-line boundary, else the
+    // plain NL102). Each element type descends the full ParseTypeReferenceRecovery (:1981). The
+    // single-unnamed-element unwrap and the named-element detection shape the (unbuilt) AST only — no
+    // diagnostic — so the recovery model just consumes them.
+    func ParseParenthesizedOrTupleTypeReferenceRecovery() {
+        Advance()                                           // '(' (Consume guarded, Parser.cs :1967)
+        tupleLooping := true
+        while tupleLooping {
+            if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
+                Advance()                                   // element name (Parser.cs :1977)
+                Advance()                                   // ':' (Parser.cs :1978)
+            }
+            ParseTypeReferenceRecovery()                    // element type (Parser.cs :1981)
+            if Check(TokenType.Comma) {                     // Parser.cs :1984 `while Match(Comma)`
+                Advance()
+            } else {
+                tupleLooping = false
+            }
+        }
+        ConsumeToken(TokenType.RightParen, "Expected ')'", ")")   // Parser.cs :1986
+    }
+
+    // Parser.cs ParseFunctionTypeReference (:2000): `Func< T, … >`. The leading `Func` identifier is
+    // guarded by the caller's Check (:1905), so its `Consume(Identifier)` (:2002) never fails; then
+    // `Consume(Less)` (:2003, NL102 "Expected '<'" — expected "less" — when absent, or the ConsumeToken
+    // EOF NL104), a comma-separated ParseTypeReference list (:2006/:2011), and the split-`>>`-aware
+    // ConsumeGreater (:2014). Unlike the generic identifier arm, `Func` does NOT call
+    // ReportMissingGenericTypeArgument — it routes each argument straight through ParseTypeReference, so
+    // `Func<>` / `Func<int,>` reach the ConsumeIdentifier NL102 on the `>` (verified against the oracle).
+    func ParseFunctionTypeReferenceRecovery() {
+        Advance()                                           // 'Func' (Consume guarded, Parser.cs :2002)
+        ConsumeToken(TokenType.Less, "Expected '<'", "less")   // Parser.cs :2003
+        ParseTypeReferenceRecovery()                        // first type = return (Parser.cs :2006)
+        while Check(TokenType.Comma) {                      // Parser.cs :2008 `while Match(Comma)`
+            Advance()
+            ParseTypeReferenceRecovery()                    // Parser.cs :2011
+        }
+        ConsumeGreater("Expected '>'")                      // Parser.cs :2014
     }
 
     // Parser.cs ReportMissingGenericTypeArgument (:6457). The span runs from the type name to the
@@ -3231,7 +3352,7 @@ public class ColumnarParserRecovery {
         // Optional type annotation `: T` (Parser.cs :2550).
         if Check(TokenType.Colon) {
             Advance()
-            ParseSimpleTypeReference()
+            ParseTypeReferenceRecovery()
         }
 
         if Check(TokenType.Assign) || Check(TokenType.ColonAssign) {
@@ -4494,14 +4615,13 @@ public class ColumnarParserRecovery {
     }
 
     // Parser.cs ParseRelationalExpression (:4132). Carries the four comparison operators plus the `is` / `as`
-    // TYPE sub-grammar arms (Stage 11): each parses a type reference through the already-owned
-    // ParseTypeReferenceRecovery (the simple / qualified / generic subset — identical to the typeof / sizeof /
-    // cast type-reference vehicle), reporting the type-reference errors it reports (missing type name NL102,
-    // qualified `.` NL102, generic-argument NL102, unclosed `>` NL102). The richer type forms (union `A | B`,
-    // postfix array `[]` / nullable `?`, byref `&`, tuple `( … )`, `Func<>`) are a shared deferral with
-    // typeof / sizeof / cast (the whole type sub-grammar routes through ParseTypeReferenceRecovery). The
-    // invalid-relational default (:4177) is an unreachable dead arm (the switch handles every token the guard
-    // admits, and the is/as arms are peeled off before it).
+    // TYPE sub-grammar arms (Stage 11): each parses a type reference through the shared ParseTypeReferenceRecovery
+    // (the SAME type-reference vehicle as typeof / sizeof / cast), reporting the type-reference errors it reports
+    // (missing type name NL102, qualified `.` NL102, generic-argument NL102, unclosed `>` NL102). Since Stage 15
+    // ParseTypeReferenceRecovery is the full grammar, the richer forms (union `A | B`, postfix array `[]` /
+    // nullable `?`, byref `&`, tuple `( … )`, `Func<>`) fire here identically. The invalid-relational default
+    // (:4177) is an unreachable dead arm (the switch handles every token the guard admits, and the is/as arms are
+    // peeled off before it).
     func ParseRelational(): ExprResult {
         result := ParseShift()
         while Check(TokenType.Less) || Check(TokenType.LessEqual) || Check(TokenType.Greater) || Check(TokenType.GreaterEqual) || Check(TokenType.Is) || Check(TokenType.As) {
