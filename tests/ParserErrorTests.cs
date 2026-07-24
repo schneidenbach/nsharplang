@@ -1920,4 +1920,25 @@ func Bar() int => 42
     }
 
     #endregion
+
+    #region Malformed Table-Driven Test Recovery
+
+    // Regression: the table-case loops in ParseTestDeclaration had no no-progress
+    // guard, so a token that can't start an expression sitting in row position
+    // (e.g. the body '{') spun the parser forever. Bound the parse so a regression
+    // fails fast instead of hanging the test host.
+    [Theory]
+    [InlineData("test \"d\" with (a) 9 { }")]
+    [InlineData("test \"d\" with (a) [ 9 ] { }")]
+    [InlineData("test \"d\" with (a) [ (9 } ] { }")]
+    public void Parser_MalformedTableDrivenTest_TerminatesWithErrors(string source)
+    {
+        var parse = System.Threading.Tasks.Task.Run(() => Parse(source));
+
+        Assert.True(parse.Wait(TimeSpan.FromSeconds(10)), $"Parser hung on: {source}");
+        Assert.False(parse.Result.Success);
+        Assert.NotEmpty(parse.Result.Errors);
+    }
+
+    #endregion
 }

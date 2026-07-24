@@ -589,18 +589,29 @@ public class Parser
 
             while (!Check(TokenType.RightBracket) && !IsAtEnd())
             {
+                var rowStartPosition = _position;
                 Consume(TokenType.LeftParen, "Expected '(' to start test case row");
                 var row = new List<Expression>();
                 while (!Check(TokenType.RightParen) && !IsAtEnd())
                 {
+                    var itemStartPosition = _position;
                     row.Add(ParseExpression());
                     if (!Check(TokenType.RightParen))
                         Match(TokenType.Comma);
+
+                    // If we didn't make progress (a token no expression can start,
+                    // e.g. the body '{'), bail out so Consume(')') reports it
+                    if (_position == itemStartPosition)
+                        break;
                 }
                 Consume(TokenType.RightParen, "Expected ')' to end test case row");
                 tableCases.Add(row);
                 if (!Check(TokenType.RightBracket))
                     Match(TokenType.Comma);
+
+                // If the whole row made no progress, bail out so Consume(']') reports it
+                if (_position == rowStartPosition)
+                    break;
             }
 
             Consume(TokenType.RightBracket, "Expected ']' to end test cases");
