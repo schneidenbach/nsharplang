@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1b — AST-hierarchy migration)
+Last updated: 2026-07-24 (STAGE N+1c tranche 1 — CompilationUnit container + FileImports + struct/interface/enum/record skeleton)
 
 ## Cursor
 
@@ -17,11 +17,13 @@ Last updated: 2026-07-24 (STAGE N+1b — AST-hierarchy migration)
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
 - Task 016 status: UNCHECKED, ARC IN PROGRESS. The diagnostic-CAPABILITY arc (Stages 0-17) is COMPLETE and the
-  parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction) and N+1b
+  parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction), N+1b
   (the full AST-hierarchy MIGRATION from C# records to N# classes — the C# `Ast/` directory DELETED, CompilationUnit now
-  owner-constructable, the Except site made reference-based) have BOTH landed, N+1b THIS turn with the full
-  production-touching bar green (unit 3190/3190, contracts 1202/1202, ownership 18/18, an EMPTY byte-exact corpus IL diff
-  over 159 assemblies; see the THIS-TURN Active sub-slice + the "## 016 AST/facts bridge (N+1) design record" section). Capability-arc
+  owner-constructable, the Except site made reference-based), and N+1c TRANCHE 1 (the owner's `ParseFileAst` now returns a
+  real `CompilationUnit` for the container + preamble + FileImports + empty-body struct/interface/enum/record top-level
+  declarations, proven node-by-node equal to Parser.cs by the reflection deep-equal harness `AstEq`; contracts 1215/1215;
+  ClassDeclaration deferred on a columnar constructor-planner gap) have ALL landed — see the THIS-TURN Active sub-slice +
+  the "## 016 AST/facts bridge (N+1) design record" section. Capability-arc
   summary follows (STAGE 17 landed — the CAPABILITY SURFACE IS NOW COMPLETE: residual map
   item [5], the LAST capability family — the garbage-type cascade shapes [`class 5` / `struct 5` non-`{` braced
   found-other via the unconditional `ParseTypeBody`; `func f(5)` non-identifier parameter name; `(x: 1, 5: 2)`
@@ -73,7 +75,47 @@ Last updated: 2026-07-24 (STAGE N+1b — AST-hierarchy migration)
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1b (the AST-HIERARCHY MIGRATION — the
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 1 = the CompilationUnit CONTAINER + FileImports + the top-level TYPE-declaration skeleton (struct/interface/
+  enum/record). The owner's (already full-diagnostic-parity) recovery grammar now CONSTRUCTS the production
+  `CompilationUnit` as it parses, materialized as a PURE side-effect into recovery fields (the N+1a pattern, so the
+  diagnostic-only `ParseFilePreamble` path is unperturbed — proven by the 1202 baseline contracts staying green).
+  WHAT LANDED in `ColumnarParserRecovery.nl` (6,937 → ~7,000; `.nl`, ratchet-ignored): (a) new fields FileImportNodes/
+  DeclarationNodes/UnitLine/UnitColumn + a test-only `ParseFileAst(source, fileName): CompilationUnit` entry
+  paralleling `ParseFilePreambleAst`, assembling `new CompilationUnit(Namespace, Imports, FileImports, Package,
+  Declarations, UnitLine, UnitColumn)` (Line/Column = first token, Parser.cs :33-34); (b) `ParseImport` materializes
+  the FileImport statement for `import "path" [as X]` (path = quote-trimmed literal, PathColumn/PathLength on the raw
+  token, Line/Column on the `import` keyword — Parser.cs :159-163) into FileImportNodes; (c) the struct/interface/enum/
+  record name parsers append their empty-body declaration node (Members=[], no type-params/base/primary-ctor,
+  Modifiers.None, Attributes=[], IsRefStruct/IsStruct/IsDuckInterface/EnumType tracked from the parse) — byte-exact to
+  Parser.cs's ParseStruct/Interface/Enum/Record for the empty-body/modifier-free corpus. HARNESS (new
+  `ColumnarParserAst.tests.nl`, `.tests.nl` ratchet-free): a native reflection-based RECURSIVE deep-structural-equality
+  comparator `AstEq.Diff` (compares runtime type NAME + every stored field via GetProperty/GetField reflection + child
+  ORDER, recursing nodes+lists, driven by a per-node field registry so it needs no enumerable reflection), comparing
+  the owner's `ParseFileAst` output against hand-built GOLDEN trees inventoried from Parser.cs construction sites (the
+  same golden-value methodology the 432 diagnostic contracts use — a live Parser.cs call from this host is infeasible:
+  Compiler.dll is absent from the BootstrapServices test host and MetadataLoadContext cannot execute). HARNESS CHOICE
+  RATIONALE: C# tests/*.cs is RATCHET-BLOCKED (near-zero headroom; a new .cs trips OWN003, growth trips OWN004), so the
+  native `.nl` route is the pragmatic choice. 13 contracts (struct, interface, duck-interface, int-enum, string-enum,
+  record, record-struct, namespace, package+import, file-import, two-structs order, whole-file container, + a NEGATIVE
+  self-check proving the comparator flags a divergence — not a vacuous pass). CLASSDECLARATION DEFERRED — EMITTER GAP
+  FOUND: `new ClassDeclaration(...)` DECLINES in the columnar constructor planner whenever a nullable-generic-list arg
+  (TypeParameters/PrimaryConstructorParameters) is `null` AND the node also has the extra `BaseClass: TypeReference?`
+  param; struct/record/interface/enum (which lack `BaseClass`) emit fine with the SAME null args, and a zero-null
+  ClassDeclaration construction emits but is not byte-exact to Parser.cs's null. Class materialization is the first task
+  of the next tranche (needs a columnar-planner fix or a byte-exact null-typing idiom). NOTE for future tranches: a
+  nullable-generic-list TYPED LOCAL (`x: List<T>? = null`) also declines — pass such nulls as bare inline literals.
+  DEFERRED to later N+1c tranches: ClassDeclaration, functions (bodies), members (fields/methods/ctors/props), type-
+  references/parameters, type-params/base-types, modifiers/attributes, union/soa/type-alias/test-DSL bodies, statements,
+  expressions/patterns, and error-node materialization. EVIDENCE: BootstrapServices contracts 1215/1215 (1202 baseline
+  + 13, fresh clean `dotnet test -p:NSharpExcludeTests=false`); the 1202 baseline unchanged proves the AST side-effect
+  does not perturb diagnostics. Production compile path UNTOUCHED — grep confirms `ParseFileAst` has ZERO callers
+  outside its own `.tests.nl`; Parser.cs stays the sole production authority. Only `.nl`/`.tests.nl`/`.md` files changed
+  (all ratchet-ignored) → no ownership repin. No LSP/VS Code change → no extension reload. No two-stage bootstrap wall
+  (self-contained owner edit + new test file; the packaged SDK self-emits it, no new kernel/OpCode surface). Next:
+  TRANCHE 2 — resolve the ClassDeclaration emitter gap, then materialize members (fields/methods) + type-references +
+  parameters + modifiers, extending the same harness.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1b (the AST-HIERARCHY MIGRATION — the
   CompilationUnit-container unblock). The ENTIRE `AstNode` hierarchy is migrated from C# records to N# classes and
   the C# definitions DELETED, making `CompilationUnit` (and every Declaration/Statement/Expression/Pattern node)
   constructable from the upstream `BootstrapServices` owner. This is the production-touching native motion of the arc.
@@ -1767,6 +1809,15 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 - N+1c: extend the owner's recovery grammar (already at full diagnostic parity) to also MATERIALIZE the full node tree
   (declarations/statements/expressions) it currently parses for diagnostics only, returning a real `CompilationUnit`;
   prove node-by-node structural equality against Parser.cs on the parity corpus (comparison in `.tests.nl` only).
+  - TRANCHE 1 LANDED (this turn): `ParseFileAst` returns a real `CompilationUnit` for the container + preamble +
+    FileImports + empty-body struct/interface/enum/record top-level declarations, proven node-by-node equal to
+    Parser.cs by the reflection deep-equal harness `AstEq` in `ColumnarParserAst.tests.nl` (13 contracts; 1215/1215
+    BootstrapServices). ClassDeclaration deferred — columnar constructor-planner gap on `new ClassDeclaration(...)`
+    with null nullable-generic-list args + the `BaseClass: TypeReference?` param (see the THIS-TURN Active sub-slice).
+  - TRANCHE 2+ (next): fix/route the ClassDeclaration construction, then materialize members (fields/methods/ctors/
+    props), type-references, parameters, type-params/base-types, modifiers/attributes, then statement bodies, then
+    expressions/patterns — extending the same `AstEq` harness per family until a whole valid-or-malformed file parses
+    into (CompilationUnit, Errors) provably equal to Parser.cs.
 - N+2 (CUTOVER, IDE-AFFECTING): at full AST + diagnostic parity, route every consumer (MultiFileCompiler.ParseAllFiles,
   DocumentManager, Analyzer's 4 sites, Formatter, CLI format/lint, CodeIntelligence, Playground) to the N# owner. VS
   Code-enabled gate + extension reinstall + computer-use visual check. No shadow route.

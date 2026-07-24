@@ -162,6 +162,16 @@ public class ColumnarParserRecovery {
     NamespaceNode: NamespaceDeclaration?
     ImportNodes: List<ImportDirective>
     PackageNode: PackageDeclaration?
+    // Stage N+1c (full-tree AST materialization, tranche 1): the remaining CompilationUnit surface the
+    // owner now constructs — the file-import statements (Parser.cs :73-76 routes each FileImport to the
+    // downstream FileImports list) and the top-level declaration nodes (Parser.cs :80-90). Populated as a
+    // pure side-effect of the existing grammar exactly like the preamble nodes, so the diagnostic-only path
+    // is unperturbed. UnitLine/UnitColumn capture the first token's position (Parser.cs :33-34), the
+    // CompilationUnit's Line/Column.
+    FileImportNodes: List<Statement>
+    DeclarationNodes: List<Declaration>
+    UnitLine: int
+    UnitColumn: int
 
     constructor(source: string, fileName: string?) {
         Source = source
@@ -177,6 +187,10 @@ public class ColumnarParserRecovery {
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
         PackageNode = null
+        FileImportNodes = new List<Statement>()
+        DeclarationNodes = new List<Declaration>()
+        UnitLine = 0
+        UnitColumn = 0
 
         lexer := new Lexer(source, fileName)
         rawTokens := lexer.Tokenize()
@@ -227,6 +241,28 @@ public class ColumnarParserRecovery {
             recovery.ImportNodes,
             recovery.PackageNode,
             recovery.SortErrorsByPosition(recovery.Errors))
+    }
+
+    // Stage N+1c (full-tree AST materialization): parse a WHOLE file and return the production
+    // `CompilationUnit` the owner constructs — the same container Parser.cs's ParseCompilationUnit
+    // hangs on ParseResult.CompilationUnit (:111), assembled from the preamble nodes, the file-import
+    // statements, and the top-level declaration nodes materialized as a side-effect of the recovery
+    // grammar. Line/Column are the first-token position (Parser.cs :33-34). This is a TEST-ONLY entry
+    // (consumed only by the AST-bridge parity contracts); Parser.cs remains the sole production authority
+    // until the N+2 cutover. Tranche 1 materializes the container + FileImports + the empty-body top-level
+    // type declarations; the remaining families (functions/members/statements/expressions) are later
+    // tranches, so a whole-file CompilationUnit is byte-stable to Parser.cs only over the tranche corpus.
+    public static func ParseFileAst(source: string, fileName: string?): CompilationUnit {
+        recovery := new ColumnarParserRecovery(source, fileName)
+        recovery.Run()
+        return new CompilationUnit(
+            recovery.NamespaceNode,
+            recovery.ImportNodes,
+            recovery.FileImportNodes,
+            recovery.PackageNode,
+            recovery.DeclarationNodes,
+            recovery.UnitLine,
+            recovery.UnitColumn)
     }
 
     // Stable insertion sort by (Line, Column), mirroring the CLI's DiagnosticIndexComesAfter (the File
@@ -598,14 +634,21 @@ public class ColumnarParserRecovery {
         Advance()
 
         // File-based import: import "path/to/file" [as Alias]. Parser.cs builds a FileImport here
-        // (:159) and routes it to the downstream FileImports list, NOT the ImportDirective list, so
-        // the AST bridge parses it for diagnostics but builds no node (FileImport is downstream C#).
+        // (:159-163) and routes it to the FileImports list (:75). N+1c materializes it: the path is the
+        // string-literal value with its surrounding quotes trimmed, PathColumn/PathLength anchor the raw
+        // literal token, and Line/Column anchor the `import` keyword (captured above).
         if Check(TokenType.StringLiteral) {
-            Advance()
+            pathToken := Advance()
+            path := TrimQuotes(pathToken.Value)
+            alias: string? = null
             if Check(TokenType.As) {
                 Advance()
-                ConsumeIdentifier("Expected alias name after 'as'")
+                alias = ConsumeIdentifier("Expected alias name after 'as'")
             }
+            fileImport := new FileImport(path, alias, line, column)
+            fileImport.PathColumn = pathToken.Column
+            fileImport.PathLength = MaxInt(1, pathToken.Value.Length)
+            FileImportNodes.Add(fileImport)
             return
         }
 
@@ -622,6 +665,11 @@ public class ColumnarParserRecovery {
     }
 
     func Run() {
+        // The CompilationUnit's Line/Column are the first token's position, captured BEFORE any parsing
+        // (Parser.cs ParseCompilationUnit :33-34).
+        UnitLine = Current().Line
+        UnitColumn = Current().Column
+
         // Namespace (optional, file-scoped)
         if Check(TokenType.Namespace) {
             ParseNamespace()
@@ -1995,13 +2043,22 @@ public class ColumnarParserRecovery {
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :998)
         ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1: materialize the StructDeclaration for the empty-body / modifier-free corpus
+        // (Parser.cs :1010). isRefStruct is false for the `struct S {}` corpus (`ref struct` is a
+        // deferred modifier-bearing shape). Deferred families take Parser.cs's empty-shape defaults.
+        DeclarationNodes.Add(new StructDeclaration(
+            name, null, new List<TypeReference>(), new List<Declaration>(),
+            null, Modifiers.None, new List<AttributeNode>(),
+            structToken.Line, structToken.Column, false))
     }
 
     func ParseRecordName() {
         recordToken := Current()
         Advance()
         // `record struct` consumes the contextual `struct` before the name (Parser.cs :1021).
+        isStruct := false
         if Check(TokenType.Struct) {
+            isStruct = true
             Advance()
         }
         nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :1027)
@@ -2017,6 +2074,13 @@ public class ColumnarParserRecovery {
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :1043)
         ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1: materialize the RecordDeclaration for the empty-body / positional-free corpus
+        // (Parser.cs :1052-ish). IsStruct reflects the consumed `record struct` contextual keyword.
+        // Positional parameters + interfaces + members are deferred families → empty-shape defaults.
+        DeclarationNodes.Add(new RecordDeclaration(
+            name, null, new List<TypeReference>(), new List<Declaration>(),
+            null, isStruct, Modifiers.None, new List<AttributeNode>(),
+            recordToken.Line, recordToken.Column))
     }
 
     func ParseSoaRecordName() {
@@ -2070,6 +2134,14 @@ public class ColumnarParserRecovery {
         ParseTypeParameters()                   // Parser.cs :1147
         ParseBaseTypeList()                     // base interface list (Parser.cs :1150)
         ParseTypeBody(name, typeBodyDiagnosticSpan)
+        // N+1c tranche 1: materialize the InterfaceDeclaration for the empty-body / modifier-free corpus
+        // (Parser.cs :1150-return). Line/Column = the first-token position (`duck` if present, else
+        // `interface`) — the interfaceLine/interfaceColumn captured above match Parser.cs :1130-1131.
+        // TypeParameters/BaseInterfaces/Members/Modifiers/Attributes are deferred → empty-shape defaults.
+        DeclarationNodes.Add(new InterfaceDeclaration(
+            name, null, new List<TypeReference>(), new List<Declaration>(),
+            Modifiers.None, isDuck, new List<AttributeNode>(),
+            interfaceLine, interfaceColumn))
     }
 
     func ParseUnionName() {
@@ -2100,17 +2172,28 @@ public class ColumnarParserRecovery {
         if name == "<error>" {
             enumDiagnosticSpan = new RecoverySpan(enumLine, enumColumn, MaxInt(1, 4))
         }
-        // Optional `: int|string` backing type (Parser.cs :1255).
+        // Optional `: int|string` backing type (Parser.cs :1255). The default is Int; a `string` backing
+        // type selects String (Parser.cs :1114/:1125).
+        enumType := EnumType.Int
         if Check(TokenType.Colon) {
             Advance()
             typeTokenLine := Current().Line
             typeTokenColumn := Current().Column
             typeName := ConsumeIdentifier("Expected enum backing type ('int' or 'string')")
+            if typeName == "string" {
+                enumType = EnumType.String
+            }
             if typeName != "string" && typeName != "int" {
                 ReportEnumBackingTypeUnsupported(typeName, typeTokenLine, typeTokenColumn)
             }
         }
         ParseEnumBody(enumDiagnosticSpan, enumLine)
+        // N+1c tranche 1: materialize the EnumDeclaration for the empty-body / modifier-free corpus
+        // (Parser.cs :1189). Members are the deferred family (member values are expressions) → empty list;
+        // the corpus uses valueless empty enums so this is byte-exact.
+        DeclarationNodes.Add(new EnumDeclaration(
+            name, new List<EnumMember>(), enumType, Modifiers.None, new List<AttributeNode>(),
+            enumLine, enumColumn))
     }
 
     // Parser.cs ParseSoaRecordDeclaration's generic-soa report (:1074).
@@ -6746,6 +6829,20 @@ public class ColumnarParserRecovery {
 
     func IntToString(value: int): string {
         return value.ToString()
+    }
+
+    // Mirror Parser.cs's `pathToken.Value.Trim('"')` (:150): strip every leading and trailing
+    // double-quote character from the raw string-literal token value.
+    func TrimQuotes(value: string): string {
+        start := 0
+        stop := value.Length
+        while start < stop && value[start] == '"' {
+            start = start + 1
+        }
+        while stop > start && value[stop - 1] == '"' {
+            stop = stop - 1
+        }
+        return value.Substring(start, stop - start)
     }
 
     func MaxInt(a: int, b: int): int {
