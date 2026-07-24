@@ -132,19 +132,18 @@ public static class OutputFormatter
             return array;
         }
 
-        // An AST record / node object: emit the concrete node type then its declared properties.
+        // An AST node object: N# classes emit data as fields (older records used properties); read
+        // both, ordered by metadata token for a stable shape.
         var obj = new JsonObject { ["node"] = type.Name };
-        foreach (var property in type
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(static p => p.GetIndexParameters().Length == 0 && p.Name != "EqualityContract")
-            .OrderBy(static p => p.MetadataToken))
+        var members = type.GetFields(BindingFlags.Public | BindingFlags.Instance)
+            .Select(f => (f.MetadataToken, f.Name, Value: f.GetValue(value)))
+            .Concat(type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(static p => p.GetIndexParameters().Length == 0 && p.Name != "EqualityContract")
+                .Select(p => (p.MetadataToken, p.Name, Value: p.GetValue(value))))
+            .OrderBy(static m => m.MetadataToken);
+        foreach (var member in members)
         {
-            object? propertyValue;
-            {
-                propertyValue = property.GetValue(value);
-            }
-
-            obj[JsonNamingPolicy.CamelCase.ConvertName(property.Name)] = AstValueToJson(propertyValue);
+            obj[JsonNamingPolicy.CamelCase.ConvertName(member.Name)] = AstValueToJson(member.Value);
         }
 
         return obj;

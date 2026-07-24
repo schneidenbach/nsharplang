@@ -18166,7 +18166,7 @@ public class Analyzer : IDisposable
                 continue;
 
             var constrainedProperty = constrainedProperties[0];
-            if (!pattern.Properties.Except(constrainedProperties).All(IsTotalPropertyPattern))
+            if (!pattern.Properties.Where(p => !ReferenceEquals(p, constrainedProperty)).All(IsTotalPropertyPattern))
                 continue;
 
             var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == constrainedProperty.Name);

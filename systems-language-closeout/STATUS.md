@@ -1,6 +1,6 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24
+Last updated: 2026-07-24 (STAGE N+1b — AST-hierarchy migration)
 
 ## Cursor
 
@@ -17,9 +17,11 @@ Last updated: 2026-07-24
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
 - Task 016 status: UNCHECKED, ARC IN PROGRESS. The diagnostic-CAPABILITY arc (Stages 0-17) is COMPLETE and the
-  parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1), whose FIRST INCREMENT landed this
-  turn (the owner now constructs the production preamble AST nodes — Namespace/Imports/Package — beside its diagnostics;
-  see the THIS-TURN Active sub-slice + the new "## 016 AST/facts bridge (N+1) design record" section). Capability-arc
+  parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction) and N+1b
+  (the full AST-hierarchy MIGRATION from C# records to N# classes — the C# `Ast/` directory DELETED, CompilationUnit now
+  owner-constructable, the Except site made reference-based) have BOTH landed, N+1b THIS turn with the full
+  production-touching bar green (unit 3190/3190, contracts 1202/1202, ownership 18/18, an EMPTY byte-exact corpus IL diff
+  over 159 assemblies; see the THIS-TURN Active sub-slice + the "## 016 AST/facts bridge (N+1) design record" section). Capability-arc
   summary follows (STAGE 17 landed — the CAPABILITY SURFACE IS NOW COMPLETE: residual map
   item [5], the LAST capability family — the garbage-type cascade shapes [`class 5` / `struct 5` non-`{` braced
   found-other via the unconditional `ParseTypeBody`; `func f(5)` non-identifier parameter name; `(x: 1, 5: 2)`
@@ -71,7 +73,64 @@ Last updated: 2026-07-24
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1 (the AST/facts BRIDGE, FIRST INCREMENT) —
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1b (the AST-HIERARCHY MIGRATION — the
+  CompilationUnit-container unblock). The ENTIRE `AstNode` hierarchy is migrated from C# records to N# classes and
+  the C# definitions DELETED, making `CompilationUnit` (and every Declaration/Statement/Expression/Pattern node)
+  constructable from the upstream `BootstrapServices` owner. This is the production-touching native motion of the arc.
+  TYPE INVENTORY + TRANCHE: the migration is ALL-OR-NOTHING at the base (C# records cannot derive from N# classes, so
+  moving `AstNode` forces every derived node; and the moved nodes reference the standalone helpers — Parameter/Argument/
+  AttributeNode/EnumMember/CatchClause/SwitchCase/TupleElement/PropertyInitializer/MatchCase/PropertyPattern/the Pattern
+  hierarchy — which in turn reference nodes, one mutually-recursive cluster). All SUPPORTING types were ALREADY N#
+  (TypeReference, the Declaration/Statement/Expression enums, TypeParameter/GenericConstraint, UnionCase/
+  SoaColumnDeclaration, SourceSpan) and the three preamble leaves (Namespace/Imports/Package) landed N+1a — so the only
+  remaining C# was the node hierarchy itself. MOVED THIS SLICE (~110 types across 3 new N# files): `Expressions.nl`
+  (AstNode/Expression/InterpolatedStringPart/Pattern bases + all 41 expression leaves + 12 pattern leaves + Argument/
+  TupleElement/PropertyInitializer/MatchCase/PropertyPattern), `Statements.nl` (Statement base + 30 statement leaves +
+  CatchClause/SwitchCase), `Declarations.nl` (Declaration base + CompilationUnit + 18 declaration leaves + Parameter/
+  EnumMember/AttributeNode). C# DELETIONS (whole files, byte accounting): `Ast/Declarations.cs` (238 lines),
+  `Ast/Statements.cs` (225), `Ast/Expressions.cs` (381) = 844 lines removed from compiler-core; the C# `Ast/` directory
+  is gone. THE EXCEPT FIX: `Analyzer.cs:18169` `pattern.Properties.Except(constrainedProperties).All(...)` (the ONE
+  parser-AST value-equality dependency per the N+1a audit) rewritten to
+  `pattern.Properties.Where(p => !ReferenceEquals(p, constrainedProperty)).All(...)` — reference-based, byte-equivalent
+  (constrainedProperties is a single-element reference subset; no two PropertyPatterns are value-equal). MECHANICAL
+  CONSUMER ADJUSTMENTS (field-vs-property reflection fallbacks — N# emits data members as public FIELDS, C# records
+  exposed properties; every reflector already had the GetProperty→GetField pattern EXCEPT four spots the full suite
+  surfaced): `CompilationUnitFacts.nl` GetRequiredListProperty (SoA-emission check), `CodeFix.nl` GetLastImportLine
+  (import-position, "Imports"+"Line"), and `CodeIntelligence/OutputFormatter.cs` AstValueToJson (the `nlc query ast`
+  serializer now enumerates fields+properties). One TEST adjustment: `AstChildrenTests.cs` excludes the base `Expression`
+  from its concrete-leaf enumeration (N# emits classes WITHOUT the CLR abstract flag, so `abstract`-record bases now
+  report non-abstract; single-line in-place change, no line-count growth). EMITTER GAPS DISCOVERED + WORKED AROUND
+  (probed EARLY, before committing to the tranche): (1) field initializers to a non-default RHS (`X: SourceSpan =
+  SourceSpan.None`) CRASH ColumnarFieldInitPlanner — resolved by relying on zero-defaults (SourceSpan.None ≡
+  default(SourceSpan); null; both byte-identical to the record initializer defaults, since FileImport/FunctionDeclaration
+  either always set them or the omitted default equals the zero value); (2) a parameterless ctor with all-unassigned
+  fields declines NL103 (no real AST type needs it); (3) `List<List<Expression>>` nested-generic field trips the `>>`
+  tokenizer — resolved with the standard `List<List<Expression> >` space (emits the identical closed type, verified by
+  reflection); (4) `IsAsyncIterator` (the only `.HasFlag`-bearing computed prop) OMITTED — proven dead (zero consumers),
+  avoiding the untested emitter path. Every other shape emits: `: base(...)` chaining + inherited readable Line/Column,
+  non-readonly settable fields (C# object-initializers for OperatorKeywordSpan/OperatorSymbolSpan/ReturnLifetime/
+  PathColumn/PathLength), nullable/List/struct/enum fields, enum-typed default params, computed expression-bodied props
+  (DiagnosticColumn/DiagnosticLength/IsIndexerInitializer), post-construction get/set fields (IsResultFactory/
+  IsExhaustive). PascalCase ctor params (this.X=X) so BOTH positional and named-arg (`new Parameter(...,Line:l,Column:c)`)
+  call sites compile unchanged. FULL-BAR EVIDENCE: full unit suite 3190/3190 (Debug); BootstrapServices contracts
+  1202/1202; dev.sh Parser 381/381; LanguageServer slice 273/273; ownership audit 18/18 after repin; **byte-exact corpus
+  IL diff — 159 assemblies (all example/fixture project targets + all native `.tests.nl` projects) fingerprinted with
+  fresh Release CLIs (baseline e50953baf worktree vs the migrated tree) via an MVID/timestamp-independent IL fingerprint
+  (System.Reflection.Metadata over every method body + member shape), diff EMPTY** — the migration changes ZERO emitted
+  user IL (the columnar emit path consumes ColumnarNodeTable, never the C# AST); Web API template (`templates/nsharp-webapi`)
+  builds clean. RATCHET ACCOUNTING (repin via scratchpad math, mirrored constant): the 3 deleted files → state `removed`,
+  current metrics 0, fingerprint `text-v1:removed` (epoch facts preserved, immutable); `Analyzer.cs` (23068 lines
+  unchanged, fingerprint updated), `AstChildrenTests.cs` (147 lines unchanged, fingerprint updated), and
+  `OutputFormatter.cs` (compacted 379→378 lines — the field+property serializer LINQ-Concat kept it UNDER the immutable
+  379 epoch ceiling — fingerprint updated); reviewedHeadFingerprint recomputed d7f043fb…→1be7f7cb4c07e417 in BOTH the
+  manifest and `OwnershipPolicy.ReviewedHeadFingerprint`. Net non-N# change is −846 lines (844 deletions + the −1
+  OutputFormatter reduction + 0-net Analyzer/AstChildren); the 3 new N# files are `.nl` (ignored by the non-nsharp
+  ratchet — the whole point). NO WALL TRIPPED: the AST classes are self-contained leaf definitions; the packaged SDK
+  0.1.0 self-emitted them (incl. all 1202 contracts) with no repin/no new kernel surface. No LSP/VS Code BEHAVIOR change
+  (type identity moved assemblies but the server builds + its slice passes) → no extension reload needed. Next: STAGE
+  N+1c — extend the owner's recovery grammar to MATERIALIZE the full node tree (declarations/statements/expressions) into
+  a real `CompilationUnit`, proving node-by-node structural equality against Parser.cs on the parity corpus.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1 (the AST/facts BRIDGE, FIRST INCREMENT) —
   the recovery owner now constructs the PRODUCTION `NSharpLang.Compiler.Ast` node instances for the file preamble
   (Namespace / Imports / Package) alongside its owned diagnostics, the first fact surface it produces beyond
   `List<CompilerError>`. Full design record + the bridge-shape decision + the precise CompilationUnit-container block +
@@ -1696,12 +1755,15 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 ### Refined N+1..N+3 staging
 - N+1a (LANDED this turn): the owner constructs the preamble leaf subtree (Namespace/Imports/Package) + the Errors list,
   field-exact to Parser.cs, via `ParseFilePreambleAst`. Proves the direct-construction mechanism on the upstream types.
-- N+1b: migrate the AST type hierarchy (AstNode + Statement/Declaration/Expression bases + all subtypes + CompilationUnit
-  + FileImport/NamespaceImport) from C# records to N# classes in an upstream assembly the owner references; delete the C#
-  record definitions as they move; reproduce the `PropertyPattern` value-equality site (Analyzer.cs:18169) with reference
-  equality. This makes the CompilationUnit container constructable from the owner. Multi-slice, mechanical, no emitter
-  unlock; may trip the two-stage bootstrap wall if a moved type becomes a kernel-compiled dependency surface — call it
-  out at slice start.
+- N+1b (LANDED — no commit): migrated the ENTIRE AST type hierarchy (AstNode + Statement/Declaration/Expression/
+  InterpolatedStringPart/Pattern bases + all ~110 subtypes + CompilationUnit + FileImport/NamespaceImport + the standalone
+  helpers) from C# records to N# classes in BootstrapServices (`Expressions.nl`/`Statements.nl`/`Declarations.nl`); DELETED
+  the C# `Ast/` directory (844 lines); reproduced the `PropertyPattern` value-equality site (Analyzer.cs:18169) with a
+  reference-based `Where(!ReferenceEquals)`. The tranche was ALL-OR-NOTHING at the base (records can't derive from N#
+  classes + mutual recursion with the helpers) — no smaller safe partition exists, so the whole cluster moved in one slice.
+  CompilationUnit is now constructable from the owner. NO emitter unlock; NO two-stage bootstrap wall (self-contained leaf
+  classes, packaged SDK self-emitted them). Full-bar evidence green incl. an EMPTY byte-exact corpus IL diff (159
+  assemblies) — see the THIS-TURN Active sub-slice.
 - N+1c: extend the owner's recovery grammar (already at full diagnostic parity) to also MATERIALIZE the full node tree
   (declarations/statements/expressions) it currently parses for diagnostics only, returning a real `CompilationUnit`;
   prove node-by-node structural equality against Parser.cs on the parity corpus (comparison in `.tests.nl` only).
@@ -1718,11 +1780,15 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE N+1b (the CompilationUnit-container unblock — migrate the AstNode/
-  Statement/Declaration/Expression hierarchy + CompilationUnit + FileImport/NamespaceImport from C# records to N#
-  classes upstream, per the "## 016 AST/facts bridge (N+1) design record"). The diagnostic-capability arc (Stages
-  0-17) is COMPLETE and N+1a (the preamble-leaf construction increment) LANDED this turn. The historical STAGE-14
-  pointer below is retained for reference only.
+- Task 016 next parser sub-slice: STAGE N+1c (materialize the full node tree in the owner). N+1b (the AST-hierarchy
+  migration — the whole AstNode hierarchy moved from C# records to N# classes in BootstrapServices, the C# `Ast/`
+  directory DELETED, the Except site made reference-based) LANDED this turn with the full production-touching bar green
+  (unit 3190/3190, contracts 1202/1202, ownership 18/18, an EMPTY byte-exact corpus IL diff over 159 assemblies). N+1c:
+  extend the owner's recovery grammar (already at full diagnostic parity) to MATERIALIZE the full node tree
+  (declarations/statements/expressions) it currently parses for diagnostics only, returning a real `CompilationUnit`, and
+  prove node-by-node structural equality against Parser.cs on the parity corpus (comparison in `.tests.nl` only). Then
+  N+2 (CUTOVER, IDE-affecting) and N+3 (Parser.cs deletion), per the "## 016 AST/facts bridge (N+1) design record". The
+  historical STAGE-14 pointer below is retained for reference only.
   (HISTORICAL) STAGE 14 of the parser-front-end arc (see the "Staged parser-front-end
   ARC PLAN" + the Stage-13 RESIDUAL-TO-PARITY MAP in the Active sub-slice above). STAGES 1-13 have LANDED
   (recovery model + import/namespace/package; declaration-NAME; malformed-literal; member/parameter/field;

@@ -63,13 +63,12 @@ public class CompilationUnitFacts {
     }
 
     static func GetRequiredListProperty(owner: object, propertyName: string): IList {
-        property := owner.GetType().GetProperty(propertyName)
-        if property == null {
+        value := GetMemberValue(owner, propertyName)
+        if value == null {
             throw new InvalidOperationException(
                 "CompilationUnitFacts expected '" + owner.GetType().Name + "." + propertyName + "' to exist.")
         }
 
-        value := property.GetValue(owner)
         list := value as IList
         if list == null {
             throw new InvalidOperationException(
@@ -77,5 +76,21 @@ public class CompilationUnitFacts {
         }
 
         return list
+    }
+
+    // AST nodes are authored as N# classes, which emit their members as fields; older C# records
+    // exposed them as properties. Read either shape so the reflection facts survive both.
+    static func GetMemberValue(owner: object, propertyName: string): object? {
+        property := owner.GetType().GetProperty(propertyName)
+        if property != null {
+            return property.GetValue(owner)
+        }
+
+        field := owner.GetType().GetField(propertyName)
+        if field != null {
+            return field.GetValue(owner)
+        }
+
+        return null
     }
 }

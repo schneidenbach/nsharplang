@@ -24,7 +24,7 @@ public class AstChildrenTests
     public void EveryExpressionTypedSlot_OfEveryExpressionNode_IsEnumerated()
     {
         var expressionTypes = typeof(Expression).Assembly.GetTypes()
-            .Where(type => !type.IsAbstract && typeof(Expression).IsAssignableFrom(type))
+            .Where(type => !type.IsAbstract && type != typeof(Expression) && typeof(Expression).IsAssignableFrom(type))
             .OrderBy(type => type.Name)
             .ToList();
 

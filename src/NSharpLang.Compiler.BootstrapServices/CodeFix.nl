@@ -237,12 +237,13 @@ class CodeFixActionHelpers {
             return 0
         }
 
-        property := ast.GetType().GetProperty("Imports")
-        if property == null {
+        // CompilationUnit is authored as an N# class, so Imports emits as a field; older C# records
+        // exposed it as a property. Read either shape.
+        importsObject := GetMemberValue(ast, "Imports")
+        if importsObject == null {
             return 0
         }
 
-        importsObject := property.GetValue(ast)
         imports := importsObject as IList
         if imports == null || imports.Count == 0 {
             return 0
@@ -253,25 +254,28 @@ class CodeFixActionHelpers {
             return 0
         }
 
-        lineProperty := lastImport.GetType().GetProperty("Line")
-        if lineProperty != null {
-            lineValue := lineProperty.GetValue(lastImport)
-            if lineValue != null {
-                return Convert.ToInt32(lineValue)
-            }
-        }
-
-        lineField := lastImport.GetType().GetField("Line")
-        if lineField == null {
+        lineValue := GetMemberValue(lastImport, "Line")
+        if lineValue == null {
             return 0
         }
 
-        fieldValue := lineField.GetValue(lastImport)
-        if fieldValue == null {
-            return 0
+        return Convert.ToInt32(lineValue)
+    }
+
+    // AST nodes are authored as N# classes, whose members emit as fields; older C# records exposed
+    // them as properties. Read either shape so import positioning survives both.
+    static func GetMemberValue(owner: object, memberName: string): object? {
+        property := owner.GetType().GetProperty(memberName)
+        if property != null {
+            return property.GetValue(owner)
         }
 
-        return Convert.ToInt32(fieldValue)
+        field := owner.GetType().GetField(memberName)
+        if field != null {
+            return field.GetValue(owner)
+        }
+
+        return null
     }
 
     public static func TryGetMissingImportEdit(
