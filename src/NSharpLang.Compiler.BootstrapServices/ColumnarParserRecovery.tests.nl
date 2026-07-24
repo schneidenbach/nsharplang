@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 // Task-016 parser-front-end arc, Stage 1: parity contracts for the N# shared-panic
 // recovery model carrying the import / namespace / package diagnostic family.
@@ -5708,4 +5709,128 @@ test "016 returns-lifetime: a missing lifetime label after 'returns' on a LOCAL 
 
 test "016 raw-string negative: a well-formed multi-line interpolated raw string in the block vehicle reports nothing (Stage-12 corpus-light raw edge, now pinned)" {
     assert RunPreamble("func f() {\n  print $\"\"\"\n{x}\n\"\"\"\n}\n").Count == 0
+}
+
+// Task-016 parser-front-end arc, Stage N+1 (the AST/facts BRIDGE, first increment): parity
+// contracts for the PRODUCTION Ast node instances the recovery owner now constructs for the file
+// preamble (Namespace / Imports / Package), alongside the owned diagnostics. Each expected node
+// field is the value Parser.cs's ParseCompilationUnit hangs on ParseResult.CompilationUnit for the
+// same source — NamespaceDeclaration(name, keywordLine, keywordColumn) (Parser.cs :127),
+// PackageDeclaration(name, keywordLine, keywordColumn) (:136), and, for a NAMESPACE import,
+// ImportDirective(namespace, alias, importKeywordLine, importKeywordColumn) (:71). The owner and
+// Parser.cs construct the identical NSharpLang.Compiler.Ast types (both N#, owned in this assembly),
+// through the identical preamble grammar, so matching these fields proves the bridge builds the same
+// preamble subtree as the production parser. The corpus pins WELL-FORMED preambles: node identity on
+// the recovery path is out of scope for this first increment (the diagnostics are pinned by the
+// Stage-1 corpus above). FileImports / the CompilationUnit container / Declarations are downstream C#
+// and are the recorded N+1 block — not built here.
+
+func RunPreambleAst(source: string): PreambleAst {
+    return ColumnarParserRecovery.ParseFilePreambleAst(source, "a.nl")
+}
+
+test "016 bridge: a lone file-scoped namespace materializes NamespaceDeclaration anchored on the keyword" {
+    ast := RunPreambleAst("namespace Foo.Bar")
+    assert ast.Errors.Count == 0
+    assert ast.Namespace != null
+    assert ast.Namespace.Name == "Foo.Bar"
+    assert ast.Namespace.Line == 1
+    assert ast.Namespace.Column == 1
+    assert ast.Imports.Count == 0
+    assert ast.Package == null
+}
+
+test "016 bridge: a package declaration materializes PackageDeclaration anchored on the keyword" {
+    ast := RunPreambleAst("package Acme.Widgets")
+    assert ast.Errors.Count == 0
+    assert ast.Package != null
+    assert ast.Package.Name == "Acme.Widgets"
+    assert ast.Package.Line == 1
+    assert ast.Package.Column == 1
+    assert ast.Namespace == null
+    assert ast.Imports.Count == 0
+}
+
+test "016 bridge: a bare namespace import materializes one ImportDirective with a null alias" {
+    ast := RunPreambleAst("import System")
+    assert ast.Errors.Count == 0
+    assert ast.Imports.Count == 1
+    imp := ast.Imports[0]
+    assert imp.Namespace == "System"
+    assert imp.Alias == null
+    assert imp.Line == 1
+    assert imp.Column == 1
+    assert ast.Namespace == null
+    assert ast.Package == null
+}
+
+test "016 bridge: a qualified aliased import carries the joined name and the alias" {
+    ast := RunPreambleAst("import System.Collections.Generic as Gen")
+    assert ast.Errors.Count == 0
+    assert ast.Imports.Count == 1
+    imp := ast.Imports[0]
+    assert imp.Namespace == "System.Collections.Generic"
+    assert imp.Alias == "Gen"
+    assert imp.Line == 1
+    assert imp.Column == 1
+}
+
+test "016 bridge: a full multi-line preamble materializes namespace + package + both imports with per-line anchoring" {
+    ast := RunPreambleAst("namespace App\npackage app.core\nimport A\nimport B.C as BC")
+    assert ast.Errors.Count == 0
+
+    assert ast.Namespace != null
+    assert ast.Namespace.Name == "App"
+    assert ast.Namespace.Line == 1
+    assert ast.Namespace.Column == 1
+
+    assert ast.Package != null
+    assert ast.Package.Name == "app.core"
+    assert ast.Package.Line == 2
+    assert ast.Package.Column == 1
+
+    assert ast.Imports.Count == 2
+    first := ast.Imports[0]
+    assert first.Namespace == "A"
+    assert first.Alias == null
+    assert first.Line == 3
+    assert first.Column == 1
+    second := ast.Imports[1]
+    assert second.Namespace == "B.C"
+    assert second.Alias == "BC"
+    assert second.Line == 4
+    assert second.Column == 1
+}
+
+test "016 bridge: a file import builds no ImportDirective (downstream FileImport is not part of the bridge)" {
+    ast := RunPreambleAst("import \"./helpers.nl\"\nimport RealNamespace")
+    assert ast.Errors.Count == 0
+    // Only the namespace import becomes an ImportDirective; the file import is parsed for
+    // diagnostics but routed (in Parser.cs) to the downstream FileImports list, not built here.
+    assert ast.Imports.Count == 1
+    assert ast.Imports[0].Namespace == "RealNamespace"
+    assert ast.Imports[0].Line == 2
+}
+
+test "016 bridge: empty source yields an all-absent preamble with no diagnostics" {
+    ast := RunPreambleAst("")
+    assert ast.Errors.Count == 0
+    assert ast.Namespace == null
+    assert ast.Package == null
+    assert ast.Imports.Count == 0
+}
+
+test "016 bridge: the AST entry preserves the owned diagnostics byte-for-byte with the diagnostic-only entry" {
+    // Same malformed source as the Stage-1 "import of a non-identifier" contract: the AST entry runs
+    // the identical Run() grammar, so its Errors must match ParseFilePreamble's exactly (Count 2, the
+    // found-other NL102 then the boundary-reset NL101), proving node construction is a pure side-effect
+    // that does not perturb the shared-panic diagnostic stream.
+    ast := RunPreambleAst("import 5\n")
+    diagnosticsOnly := RunPreamble("import 5\n")
+    assert ast.Errors.Count == diagnosticsOnly.Count
+    assert ast.Errors.Count == 2
+    assert ast.Errors[0].Code == ErrorCode.ExpectedToken
+    assert ast.Errors[0].Message == "Expected identifier. Got '5'"
+    assert ast.Errors[1].Code == ErrorCode.UnexpectedToken
+    assert ast.Errors[1].Message == "Unexpected token '5'"
 }

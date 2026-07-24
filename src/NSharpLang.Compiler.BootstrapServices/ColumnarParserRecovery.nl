@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
+import NSharpLang.Compiler.Ast
 
 // A diagnostic span (line / column / length) used to anchor recovery diagnostics.
 // A local reference type rather than the C#-owned DiagnosticSpan value struct.
@@ -76,6 +77,38 @@ public class OwnerSpanResult {
     }
 }
 
+// Stage N+1 (the AST/facts BRIDGE, first increment): the recovery owner's file-preamble output
+// as PRODUCTION Ast node instances plus the owned diagnostics — the shape a consumer reads from
+// Parser.cs's ParseResult.CompilationUnit for the preamble portion (Namespace / Imports / Package)
+// alongside ParseResult.Errors.
+//
+// These three node fields are the production Ast types NSharpLang.Compiler.Ast.NamespaceDeclaration
+// / ImportDirective / PackageDeclaration — already N# and owned in THIS assembly (FileHeaderDeclarations.nl,
+// ImportDirective.nl), so the recovery owner constructs the SAME instances Parser.cs constructs
+// (Parser.cs :71/:127/:136). The remaining CompilationUnit surface — the CompilationUnit container
+// itself, the FileImports list (FileImport/NamespaceImport), and the Declarations list — is C# in the
+// downstream NSharpLang.Compiler assembly (Ast/Declarations.cs, Ast/Statements.cs), which this
+// upstream assembly cannot name (the dependency runs Compiler → BootstrapServices, never the reverse),
+// so it is NOT constructed here; see the STATUS N+1 block record. Errors mirror ParseFilePreamble's
+// position-sorted diagnostics exactly.
+public class PreambleAst {
+    Namespace: NamespaceDeclaration?
+    Imports: List<ImportDirective>
+    Package: PackageDeclaration?
+    Errors: List<CompilerError>
+
+    constructor(
+        namespaceDecl: NamespaceDeclaration?,
+        imports: List<ImportDirective>,
+        packageDecl: PackageDeclaration?,
+        errors: List<CompilerError>) {
+        Namespace = namespaceDecl
+        Imports = imports
+        Package = packageDecl
+        Errors = errors
+    }
+}
+
 // Stage 1 of the task-016 parser-front-end arc: a faithful N# reproduction of the
 // Parser.cs shared-panic recovery model, carrying the import / namespace / package
 // diagnostic family end-to-end.
@@ -121,6 +154,14 @@ public class ColumnarParserRecovery {
     ScanPosition: int
     ScanSplit: int
     Errors: List<CompilerError>
+    // Stage N+1 (AST bridge): the preamble AST nodes materialized during Run(), mirroring the
+    // instances Parser.cs's ParseCompilationUnit accumulates (:37/:45/:47). Populated as a pure
+    // side-effect of the existing preamble grammar, so the diagnostic-only ParseFilePreamble path is
+    // unaffected. NamespaceNode/PackageNode default absent; ImportNodes only the NAMESPACE imports
+    // (Parser.cs :69-72 — file imports go to the downstream FileImports list, not built here).
+    NamespaceNode: NamespaceDeclaration?
+    ImportNodes: List<ImportDirective>
+    PackageNode: PackageDeclaration?
 
     constructor(source: string, fileName: string?) {
         Source = source
@@ -133,6 +174,9 @@ public class ColumnarParserRecovery {
         ScanPosition = 0
         ScanSplit = 0
         Errors = new List<CompilerError>()
+        NamespaceNode = null
+        ImportNodes = new List<ImportDirective>()
+        PackageNode = null
 
         lexer := new Lexer(source, fileName)
         rawTokens := lexer.Tokenize()
@@ -166,6 +210,23 @@ public class ColumnarParserRecovery {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
         return recovery.SortErrorsByPosition(recovery.Errors)
+    }
+
+    // Stage N+1 (AST bridge, first increment): parse the file preamble and return the PRODUCTION
+    // Ast node instances (Namespace / Imports / Package) the recovery owner can construct in this
+    // assembly, alongside the position-sorted owned diagnostics. This is the first consumer-shaped
+    // fact surface the owner produces beyond diagnostics — the same Namespace / Imports / Package
+    // subtree Parser.cs hangs on ParseResult.CompilationUnit, built through the identical grammar and
+    // node constructors. The CompilationUnit container + FileImports + Declarations remain downstream
+    // C# (see PreambleAst) and are the recorded N+1 block.
+    public static func ParseFilePreambleAst(source: string, fileName: string?): PreambleAst {
+        recovery := new ColumnarParserRecovery(source, fileName)
+        recovery.Run()
+        return new PreambleAst(
+            recovery.NamespaceNode,
+            recovery.ImportNodes,
+            recovery.PackageNode,
+            recovery.SortErrorsByPosition(recovery.Errors))
     }
 
     // Stable insertion sort by (Line, Column), mirroring the CLI's DiagnosticIndexComesAfter (the File
@@ -498,30 +559,47 @@ public class ColumnarParserRecovery {
 
     // ---- preamble grammar (mirrors Parser.cs ParseCompilationUnit prefix) ----
 
-    func ParseQualifiedName() {
-        ConsumeIdentifier("Expected identifier")
+    // Mirrors Parser.cs ParseQualifiedName (:179): the dot-joined identifier chain. Returns the
+    // joined name so the AST-bridge preamble nodes carry the same string Parser.cs's
+    // `string.Join(".", parts)` produces (identical on the well-formed path the AST corpus pins;
+    // the diagnostic sequence is bit-identical to the previous void form — same ConsumeIdentifier
+    // calls in the same order).
+    func ParseQualifiedName(): string {
+        name := ConsumeIdentifier("Expected identifier")
         while Check(TokenType.Dot) {
             Advance()
-            ConsumeIdentifier("Expected identifier after '.'")
+            name = name + "." + ConsumeIdentifier("Expected identifier after '.'")
         }
+        return name
     }
 
     func ParseNamespace() {
         // The `namespace` keyword presence is guaranteed by the Check at the call site,
-        // exactly as Parser.cs's guarded Consume(Namespace).
+        // exactly as Parser.cs's guarded Consume(Namespace). Capture the keyword position BEFORE
+        // consuming it, matching Parser.cs's line/column anchoring (:123-127).
+        line := Current().Line
+        column := Current().Column
         Advance()
-        ParseQualifiedName()
+        name := ParseQualifiedName()
+        NamespaceNode = new NamespaceDeclaration(name, line, column)
     }
 
     func ParsePackage() {
+        line := Current().Line
+        column := Current().Column
         Advance()
-        ParseQualifiedName()
+        name := ParseQualifiedName()
+        PackageNode = new PackageDeclaration(name, line, column)
     }
 
     func ParseImport() {
+        line := Current().Line
+        column := Current().Column
         Advance()
 
-        // File-based import: import "path/to/file" [as Alias]
+        // File-based import: import "path/to/file" [as Alias]. Parser.cs builds a FileImport here
+        // (:159) and routes it to the downstream FileImports list, NOT the ImportDirective list, so
+        // the AST bridge parses it for diagnostics but builds no node (FileImport is downstream C#).
         if Check(TokenType.StringLiteral) {
             Advance()
             if Check(TokenType.As) {
@@ -531,12 +609,16 @@ public class ColumnarParserRecovery {
             return
         }
 
-        // Namespace import: import System.Collections.Generic [as Alias]
-        ParseQualifiedName()
+        // Namespace import: import System.Collections.Generic [as Alias]. Parser.cs materializes this
+        // as an ImportDirective anchored on the `import` keyword (:71 — nsImport.Line/Column = the
+        // import-keyword position captured above).
+        name := ParseQualifiedName()
+        alias: string? = null
         if Check(TokenType.As) {
             Advance()
-            ConsumeIdentifier("Expected alias name after 'as'")
+            alias = ConsumeIdentifier("Expected alias name after 'as'")
         }
+        ImportNodes.Add(new ImportDirective(name, alias, line, column))
     }
 
     func Run() {
