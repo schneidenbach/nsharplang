@@ -1211,18 +1211,19 @@ public class ColumnarParserRecovery {
 
     // ---- braced type body → member list → field family (Parser.cs :1359/:1412/:1637) ----
 
-    // Parse a braced type body far enough to reach the FIELD family. Type parameters, primary-
-    // constructor parameters, and base-type lists are LATER arc stages; the member/field corpus
-    // types have none, so a valid-named type is immediately followed by '{'. A '<error>'-named type
-    // enters the body ONLY when the offending token is '{' — the Stage-2-deferred braced-kind
-    // found-other case (`class {` / `struct {`) that the member-list parse now makes reachable;
-    // every other '<error>'-name shape keeps the Stage-2 return-early behavior unchanged (the
-    // missing-'{' diagnostic for a valid name without a body is the closing-delimiter stage's).
-    func ParseTypeBodyIfPresent(name: string, typeBodyDiagnosticSpan: RecoverySpan) {
-        if !Check(TokenType.LeftBrace) {
-            return
-        }
-        Advance()                               // consume '{'
+    // Parse a class/struct/record/interface type body (Parser.cs :970-971): the body is ALWAYS
+    // parsed — Consume the '{' (present → advance; absent mid-line → the standard ExpectedToken
+    // NL102; absent at EOF → the ExpectedEndOfFile NL104; suppressed when a prior name error already
+    // set panic) then ParseMemberList. A '<error>'-named type whose offending token is '{'
+    // (`class {` / `struct {`, Stage 4) consumes that '{' as the opening brace; a '<error>'-named
+    // type whose offender is NON-'{' (`class 5` / `struct 5`, Stage-17 residual [5]) leaves the
+    // offender for ParseMemberList, which reports the in-body field-name error(s) plus the type-body
+    // missing-'}' NL106 (its shared-panic reset in ParseMemberList lets both record). The
+    // ParseFilePreamble position-sort (Stage 12) orders the emitted diagnostics to the CLI's display
+    // order: for `class 5` the class-name NL102 and the missing-'}' NL106 both anchor at the class
+    // keyword (column-tie, stable by emission order) and precede the in-body field-name NL102.
+    func ParseTypeBody(name: string, typeBodyDiagnosticSpan: RecoverySpan) {
+        ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         ParseMemberList(typeBodyDiagnosticSpan)
     }
 
@@ -1893,7 +1894,7 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()
         }
         ParseBaseTypeList()
-        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
+        ParseTypeBody(name, typeBodyDiagnosticSpan)
     }
 
     func ParseStructName() {
@@ -1911,7 +1912,7 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :998)
-        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
+        ParseTypeBody(name, typeBodyDiagnosticSpan)
     }
 
     func ParseRecordName() {
@@ -1933,7 +1934,7 @@ public class ColumnarParserRecovery {
             ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1037)
         }
         ParseBaseTypeList()                     // interface list (Parser.cs :1043)
-        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
+        ParseTypeBody(name, typeBodyDiagnosticSpan)
     }
 
     func ParseSoaRecordName() {
@@ -1986,7 +1987,7 @@ public class ColumnarParserRecovery {
         }
         ParseTypeParameters()                   // Parser.cs :1147
         ParseBaseTypeList()                     // base interface list (Parser.cs :1150)
-        ParseTypeBodyIfPresent(name, typeBodyDiagnosticSpan)
+        ParseTypeBody(name, typeBodyDiagnosticSpan)
     }
 
     func ParseUnionName() {
@@ -2189,6 +2190,19 @@ public class ColumnarParserRecovery {
         // Parser.cs anchors with new DiagnosticSpan(line, column, Math.Max(1, "type".Length))
         // (:1337); with the keyword value "type" that equals SpanFromToken(typeToken).
         ConsumeDeclarationName("Expected type alias name", new RecoverySpan(typeToken.Line, typeToken.Column, MaxInt(1, 4)))
+
+        // Stage 17: the `= <type>` underlying-type body (Parser.cs :1338-1350). The '=' Consume
+        // (present → advance; absent mid-line → the standard ExpectedToken NL102 "Expected '='.
+        // Expected 'assign', got 'X'"; absent at EOF → the ExpectedEndOfFile NL104 "Expected 'assign'
+        // but reached the end of the file"; suppressed when a prior alias-name error set panic), the
+        // optional `newtype` keyword (`type X = newtype Y`, a bare advance :1341-1345), and the
+        // underlying type via the Stage-15 full ParseTypeReferenceRecovery grammar (union `A | B` /
+        // postfix array-nullable / byref / tuple / Func / generic — every error site already owned).
+        ConsumeToken(TokenType.Assign, "Expected '='", "assign")
+        if Check(TokenType.Newtype) {
+            Advance()
+        }
+        ParseTypeReferenceRecovery()
     }
 
     // ============================================================================

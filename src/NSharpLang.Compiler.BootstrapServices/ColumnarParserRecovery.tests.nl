@@ -5345,3 +5345,367 @@ test "016 attributes negative: a valid attribute on a class member reports nothi
 test "016 attributes negative: a valid attribute on a parameter reports nothing" {
     assert RunPreamble("func f([Foo] x: int) {\n}\n").Count == 0
 }
+
+// ============================================================================
+// Task-016 parser-front-end arc, Stage 17: residual map item [5] — the LAST capability family.
+// (a) the GARBAGE-TYPE cascade shapes deferred since stages 4/9 — the non-'{' braced found-other
+//     for class/struct (`class 5` / `struct 5`), the non-identifier parameter name (`func f(5)`),
+//     and the named-tuple bad-name (`(x: 1, 5: 2)`); the Stage-12 position-sort orders their
+//     emitted diagnostics to the CLI's display order. (b) the TYPE-ALIAS underlying-type consumer
+//     (`type T = A | B` — the `= <type>` body via the Stage-15 full type grammar) + its error shapes.
+// Every expected value is GOLDEN Parser.cs output captured from the freshly built Release CLI
+// (`nlc check --json`, parser codes NL101-NL109, excluding the line-0 columnar-backend emit-decline).
+// ============================================================================
+
+// ---- garbage-type cascade: the non-'{' braced found-other for class / struct (stage-2 probe shape) ----
+
+test "016 garbage: a non-'{' class name (`class 5`) cascades the name error, the type-body missing-'}', and the in-body field-name error" {
+    // Parser.cs ALWAYS parses the class body (Consume '{' + ParseMemberList, :970). A '<error>'-named
+    // class whose offender is a non-'{' token leaves the offender for ParseMemberList: the class-name
+    // NL102 and the type-body missing-'}' NL106 both anchor at the class keyword (col 1), and the
+    // in-body field-name NL102 anchors at the offender (col 7). The position-sort orders them
+    // (class NL102, then NL106 at the same column by emission order, then the field NL102).
+    errors := RunPreamble("class 5\n")
+    assert errors.Count == 3
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected class name. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 1
+    assert e0.Length == 5
+    assert e0.SourceSnippet == "class 5"
+    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.MissingClosingBrace
+    assert e1.Message == "Missing closing '}'"
+    assert e1.Line == 1
+    assert e1.Column == 1
+    assert e1.Length == 5
+    assert e1.SourceSnippet == "class 5"
+    assert e1.HumanExplanation == "The type body that started on line 1 is missing its closing brace. I reached the end of the file without finding it."
+    assert e1.ContextualHint == "Add a '}' to close this type declaration."
+
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.ExpectedToken
+    assert e2.Message == "Expected field name. Got '5'"
+    assert e2.Line == 1
+    assert e2.Column == 7
+    assert e2.Length == 1
+    assert e2.SourceSnippet == "class 5"
+    assert e2.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e2.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 garbage: a non-'{' struct name (`struct 5`) cascades identically with the struct-keyword anchor" {
+    errors := RunPreamble("struct 5\n")
+    assert errors.Count == 3
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected struct name. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 1
+    assert e0.Length == 6
+    assert e0.SourceSnippet == "struct 5"
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.MissingClosingBrace
+    assert e1.Message == "Missing closing '}'"
+    assert e1.Line == 1
+    assert e1.Column == 1
+    assert e1.Length == 6
+    assert e1.SourceSnippet == "struct 5"
+
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.ExpectedToken
+    assert e2.Message == "Expected field name. Got '5'"
+    assert e2.Line == 1
+    assert e2.Column == 8
+    assert e2.Length == 1
+    assert e2.SourceSnippet == "struct 5"
+}
+
+test "016 garbage: a non-'{' class name WITH a braced body (`class 5 { }`) closes the body so the field-name errors report but no missing-'}' fires" {
+    // With an explicit `{ }`, ParseMemberList consumes past the offending `5` (field-name NL102 @ 7),
+    // then reaches `{` inside the body (field-name NL102 @ 9), then the `}` closes the body — no NL106.
+    errors := RunPreamble("class 5 { }\n")
+    assert errors.Count == 3
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected class name. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 1
+    assert e0.Length == 5
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.ExpectedToken
+    assert e1.Message == "Expected field name. Got '5'"
+    assert e1.Line == 1
+    assert e1.Column == 7
+    assert e1.Length == 1
+
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.ExpectedToken
+    assert e2.Message == "Expected field name. Got '{'"
+    assert e2.Line == 1
+    assert e2.Column == 9
+    assert e2.Length == 1
+    assert e2.SourceSnippet == "class 5 { }"
+}
+
+// ---- garbage-type cascade: the non-identifier parameter name (`func f(5)`) ----
+
+test "016 garbage: a non-identifier parameter name (`func f(5)`) reports the param-name error then the leftover tokens cascade through the top-level unexpected-token arm" {
+    // The parameter-name ConsumeIdentifier reports NL102 @ the offender; ParseParameterTypeReference
+    // routes the garbage through ParseTypeReference (which does not consume it), the ')' Consume is
+    // suppressed under panic, and the function returns without a body — so `5 ) { }` each surface as
+    // a top-level "Unexpected token" NL101 after the per-declaration panic reset.
+    errors := RunPreamble("func f(5) { }\n")
+    assert errors.Count == 5
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected parameter name. Got '5'"
+    assert e0.Line == 1
+    assert e0.Column == 8
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "func f(5) { }"
+    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token '5'"
+    assert e1.Line == 1
+    assert e1.Column == 8
+    assert e1.Length == 1
+    assert e1.HumanExplanation == "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '5' instead."
+
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.UnexpectedToken
+    assert e2.Message == "Unexpected token ')'"
+    assert e2.Line == 1
+    assert e2.Column == 9
+    assert e2.Length == 1
+
+    e3 := errors[3]
+    assert e3.Code == ErrorCode.UnexpectedToken
+    assert e3.Message == "Unexpected token '{'"
+    assert e3.Line == 1
+    assert e3.Column == 11
+    assert e3.Length == 1
+
+    e4 := errors[4]
+    assert e4.Code == ErrorCode.UnexpectedToken
+    assert e4.Message == "Unexpected token '}'"
+    assert e4.Line == 1
+    assert e4.Column == 13
+    assert e4.Length == 1
+}
+
+// ---- garbage-type cascade: the named-tuple bad-name (`(x: 1, 5: 2)`) ----
+
+test "016 garbage: a named-tuple bad-name (`(x: 1, 5: 2)`) reports the element-name error then the leftover ':' and ')' cascade through the expression-terminal arm" {
+    // The named-element loop's ConsumeIdentifier reports NL102 @ the offender; the value ParseExpression
+    // consumes the offending `5`, the ')' Consume is suppressed under panic, and the leftover `:` and `)`
+    // surface as "Unexpected token '…' in expression" NL101 through the per-statement panic reset.
+    errors := RunPreamble("func f() {\n    y := (x: 1, 5: 2)\n}\n")
+    assert errors.Count == 3
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected identifier. Got '5'"
+    assert e0.Line == 2
+    assert e0.Column == 17
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "    y := (x: 1, 5: 2)"
+    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
+    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token ':' in expression"
+    assert e1.Line == 2
+    assert e1.Column == 18
+    assert e1.Length == 1
+    assert e1.HumanExplanation == "I was parsing an expression and found ':', which I don't know how to handle here."
+    assert e1.ContextualHint == "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax."
+
+    e2 := errors[2]
+    assert e2.Code == ErrorCode.UnexpectedToken
+    assert e2.Message == "Unexpected token ')' in expression"
+    assert e2.Line == 2
+    assert e2.Column == 21
+    assert e2.Length == 1
+}
+
+// ---- the type-alias underlying-type consumer (`type T = <type>`, Parser.cs :1338-1350) ----
+
+test "016 type-alias: a missing '=' after the alias name at end of file reports the ExpectedEndOfFile NL104" {
+    errors := RunPreamble("type T")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected 'assign' but reached the end of the file"
+    assert e.Line == 1
+    assert e.Column == 6
+    assert e.Length == 1
+    assert e.SourceSnippet == "type T"
+    assert e.HumanExplanation == "I was expecting 'assign' here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+test "016 type-alias: a missing underlying type after '=' at end of file reports the ExpectedEndOfFile NL104" {
+    errors := RunPreamble("type T =")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected type name, but reached the end of the file"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 1
+    assert e.SourceSnippet == "type T ="
+    assert e.HumanExplanation == "I was expecting an identifier here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+test "016 type-alias: a mid-line missing '=' (`type T int`) reports the ExpectedToken NL102 anchored on the offender" {
+    errors := RunPreamble("type T int\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '='. Expected 'assign', got 'int'"
+    assert e.Line == 1
+    assert e.Column == 8
+    assert e.Length == 3
+    assert e.SourceSnippet == "type T int"
+    assert e.HumanExplanation == "I was expecting assign here, but I found 'int' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 type-alias: the underlying type routes through the full type grammar so a malformed generic (`type T = List<>`) reports ReportMissingGenericTypeArgument" {
+    errors := RunPreamble("type T = List<>\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type name. Got '>'"
+    assert e.Line == 1
+    assert e.Column == 10
+    assert e.Length == 6
+    assert e.SourceSnippet == "type T = List<>"
+    assert e.HumanExplanation == "Generic type 'List' needs a type argument between '<' and '>'."
+    assert e.ContextualHint == "Write this type as `List<T>` or remove the generic argument list."
+    assert e.Suggestion == "Add a type argument"
+}
+
+test "016 type-alias: a missing alias name (`type = int`) reports ONLY the name error — the '=' and underlying type are then consumed cleanly" {
+    errors := RunPreamble("type = int\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected type alias name. Got '='"
+    assert e.Line == 1
+    assert e.Column == 1
+    assert e.Length == 4
+    assert e.SourceSnippet == "type = int"
+    assert e.HumanExplanation == "I was expecting an identifier here, but I found '=' instead."
+    assert e.ContextualHint == "An identifier is a name for a variable, function, or type."
+}
+
+test "016 type-alias: the newtype variant routes its underlying type through the same grammar (`type T = newtype` at EOF reports the missing-type NL104)" {
+    errors := RunPreamble("type T = newtype")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.UnexpectedEndOfFile
+    assert e.Message == "Expected type name, but reached the end of the file"
+    assert e.Line == 1
+    assert e.Column == 10
+    assert e.Length == 7
+    assert e.SourceSnippet == "type T = newtype"
+    assert e.HumanExplanation == "I was expecting an identifier here, but the file ended first."
+    assert e.ContextualHint == "Finish this construct before the end of the file."
+}
+
+test "016 type-alias: a trailing '|' in a union underlying type (`type T = A |`) reports the anonymous-union missing-arm NL103" {
+    errors := RunPreamble("type T = A |\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Expected a type after '|' in anonymous union type"
+    assert e.Line == 2
+    assert e.Column == 1
+    assert e.Length == 1
+    assert e.HumanExplanation == "Anonymous union types use the form `A | B`, so every `|` must be followed by another type."
+    assert e.ContextualHint == "Add the missing type arm, or remove the trailing `|`."
+}
+
+// ---- type-alias negatives: valid underlying types across the full Stage-15 grammar report nothing ----
+
+test "016 type-alias negative: a valid union underlying type (`type T = A | B`) reports no parser diagnostic" {
+    assert RunPreamble("type T = A | B\n").Count == 0
+}
+
+test "016 type-alias negative: a simple underlying type (`type T = int`) reports no parser diagnostic" {
+    assert RunPreamble("type T = int\n").Count == 0
+}
+
+test "016 type-alias negative: the newtype variant (`type T = newtype int`) reports no parser diagnostic" {
+    assert RunPreamble("type T = newtype int\n").Count == 0
+}
+
+test "016 type-alias negative: a tuple underlying type (`type T = (int, string)`) reports no parser diagnostic" {
+    assert RunPreamble("type T = (int, string)\n").Count == 0
+}
+
+test "016 type-alias negative: a Func underlying type (`type Callback = Func<int, bool>`) reports no parser diagnostic" {
+    assert RunPreamble("type Callback = Func<int, bool>\n").Count == 0
+}
+
+test "016 type-alias negative: a postfix array underlying type (`type T = int[]`) reports no parser diagnostic" {
+    assert RunPreamble("type T = int[]\n").Count == 0
+}
+
+test "016 type-alias negative: a nullable underlying type (`type T = A?`) reports no parser diagnostic" {
+    assert RunPreamble("type T = A?\n").Count == 0
+}
+
+// ---- deferral-ledger closeout: the NOW-PINNABLE corpus-light shapes previously left un-pinned ----
+
+test "016 operator: an invalid operator-overload symbol (`func operator @`) reports the InvalidSyntax NL103 (Stage-14 corpus-light shape, now pinned)" {
+    errors := RunPreamble("class C {\n  func operator @(a: C): C => a\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.InvalidSyntax
+    assert e.Message == "Invalid operator symbol '@' for operator overloading"
+    assert e.Line == 2
+    assert e.Column == 17
+    assert e.Length == 1
+    assert e.SourceSnippet == "  func operator @(a: C): C => a"
+    assert e.HumanExplanation == "This operator cannot be overloaded, or is not a valid operator symbol."
+    assert e.ContextualHint == "Only certain operators can be overloaded in operator declarations."
+    assert e.Suggestion == "Arithmetic: +, -, *, /, %"
+}
+
+test "016 returns-lifetime: a missing lifetime label after 'returns' on a LOCAL function reports the ExpectedToken NL102 (Stage-13 corpus-light shape, now pinned via the local-function vehicle that wires ParseReturnLifetimeAnnotation)" {
+    // Stage 13 wired ParseReturnLifetimeAnnotation into ParseLocalFunction (not the top-level
+    // ParseFunctionHeadAndBody), so the `returns` grammar is reached through a local function `g`.
+    errors := RunPreamble("func f() {\n  func g(): int returns {\n    return 1\n  }\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected lifetime label after 'returns'. Got '{'"
+    assert e.Line == 2
+    assert e.Column == 25
+    assert e.Length == 1
+    assert e.SourceSnippet == "  func g(): int returns {"
+    assert e.HumanExplanation == "Systems lifetime annotations use `returns 'a`, `returns param(name)`, or `returns heap(owner)` to describe a ref-like return."
+    assert e.ContextualHint == "Write a lifetime such as `returns 'a`, `returns heap(owner)`, or remove the `returns` annotation."
+}
+
+test "016 raw-string negative: a well-formed multi-line interpolated raw string in the block vehicle reports nothing (Stage-12 corpus-light raw edge, now pinned)" {
+    assert RunPreamble("func f() {\n  print $\"\"\"\n{x}\n\"\"\"\n}\n").Count == 0
+}

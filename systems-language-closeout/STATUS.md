@@ -16,14 +16,17 @@ Last updated: 2026-07-24
   IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
   landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
   NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 16 landed — the TEST DSL [`test "desc" { … }` incl. the
-  description-not-a-string + `skip "reason"` ExpectedToken reports and the table-driven `with (params) [ (row), … ]`
-  grammar, `setup { … }`, `teardown { … }` — all dispatched from `ParseDeclaration` before attributes/modifiers so each
-  resets panic at the declaration boundary] and ATTRIBUTES [`[Name(.Name)* (args)?]` on top-level declarations,
-  members, and parameters — the `ConsumeAttributeIdentifier` name, the qualified `.` continuation, the `(args)` via the
-  owned `ParseArgumentList`, and the closing `]` via the owned Stage-9 recovery], plus the top-level PreprocessorDirective
-  declaration for dispatch fidelity; 410 native parity contracts total [385 through Stage 15 + 25],
-  `ColumnarParserRecovery.nl` now 6,841 lines; residual map items [1], [2], [3], and [4] are now DONE) — the prior
+- Task 016 status: UNCHECKED, ARC IN PROGRESS (STAGE 17 landed — the CAPABILITY SURFACE IS NOW COMPLETE: residual map
+  item [5], the LAST capability family — the garbage-type cascade shapes [`class 5` / `struct 5` non-`{` braced
+  found-other via the unconditional `ParseTypeBody`; `func f(5)` non-identifier parameter name; `(x: 1, 5: 2)`
+  named-tuple bad-name], the TYPE-ALIAS underlying-type consumer [`type T = <type>` — the `= <type>` body via
+  ConsumeToken(Assign) + the newtype variant + the Stage-15 full type grammar], plus the deferral-ledger closeout
+  [the corpus-light operator-`@` / `returns`-lifetime / multi-line-raw shapes now PINNED; the EOF-length-clamp class
+  recorded PERMANENTLY-UNMATCHABLE; the Stage-16 table-row HANG recorded PRODUCTION-BUG-GATED with a chip filed]; the
+  arc's parity ledger CLOSES — EVERY residual-map item [1]-[5] is DONE and EVERY recorded deferral is resolved or
+  definitively classified. STAGE 16 [PRIOR] landed the TEST DSL + ATTRIBUTES [residual [4]]. 432 native parity
+  contracts total [410 through Stage 16 + 22], `ColumnarParserRecovery.nl` now 6,855 lines; residual map items [1],
+  [2], [3], [4], and [5] are ALL DONE) — the prior
   PROVEN-BLOCKED-WITH-RECORD finding
   (below) is the STAGE-0 prerequisite record for a staged parser-front-end arc (arc plan recorded in the "016
   parser/diagnostic ownership finding" section). STAGE 1 (shared-panic RECOVERY MODEL + import/namespace/package
@@ -64,7 +67,100 @@ Last updated: 2026-07-24
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 16 of the parser-front-end arc — the TEST DSL +
+- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE 17 of the parser-front-end arc — residual map
+  item [5], the LAST capability family; the arc's parity ledger now CLOSES. Carried through the SAME shared-panic
+  owner over the already-owned expression / statement / member / type / delimiter grammars, PROVEN byte-exact against
+  the freshly built Release CLI oracle (`nlc check --json`, parser codes NL101-NL109, excluding the line-0 columnar-
+  backend emit-decline NL103). SITE INVENTORY: (a) the GARBAGE-TYPE cascade shapes deferred since stages 4/9. The
+  non-`{` braced found-other for class/struct: Parser.cs `ParseClassDeclaration`/`ParseStructDeclaration` (:970-971)
+  ALWAYS parse the body (`Consume('{')` + `ParseMemberList`), so a `<error>`-named type whose offender is a non-`{`
+  token (`class 5` / `struct 5`) leaves the offender for `ParseMemberList`, which — via its per-member panic reset +
+  the SynchronizeToNextStatement panic reset before the type-body missing-`}` NL106 — reports the class-name NL102,
+  the in-body field-name NL102(s), and the missing-`}` NL106; the Stage-12 position-sort orders them to the CLI
+  display order (`class 5` → NL102@col1 [class], NL106@col1 [missing-`}`, emission-order tie], NL102@col7 [field]).
+  The non-identifier parameter name (`func f(5)`): the param-name `ConsumeIdentifier` NL102 fires @ the offender,
+  `ParseParameterTypeReference` routes the garbage through `ParseTypeReference` (which does NOT consume it), the `)`
+  Consume is suppressed under panic, and the function returns bodiless — so `5 ) { }` each surface as a top-level
+  "Unexpected token" NL101 through Run's per-declaration panic reset (the ALREADY-OWNED terminal arm). The named-tuple
+  bad-name (`(x: 1, 5: 2)`): the named-element loop's `ConsumeIdentifier("Expected identifier")` NL102 fires @ the
+  offender, the value `ParseExpression` consumes the offending `5`, the `)` Consume is suppressed under panic, and the
+  leftover `:` and `)` surface as "Unexpected token '…' in expression" NL101 through the block-statement per-statement
+  panic reset (ALREADY-OWNED). (b) the TYPE-ALIAS underlying-type consumer: Parser.cs `ParseTypeAliasDeclaration`
+  (:1338-1350) `Consume(Assign)` + the optional `newtype` keyword (a bare advance) + `ParseTypeReference` (the full
+  Stage-15 grammar) — the owner's `ParseTypeAliasName` previously parsed ONLY the alias NAME (a latent divergence: any
+  aliased body `type T = int` would have leaked its `= int` to the top-level unexpected-token arm), now closed.
+  IMPLEMENTATION: (1) renamed `ParseTypeBodyIfPresent` → `ParseTypeBody` and made it UNCONDITIONAL (`ConsumeToken(
+  LeftBrace)` + `ParseMemberList`, mirroring Parser.cs :970-971 exactly, replacing the `if !Check('{') return`
+  simplification that diverged for the non-`{` offender) — the 4 callers (class/struct/record/interface) route through
+  it, so all four inherit the faithful body-always-parsed behavior; the `class {`/`struct {` `{`-offender case and every
+  valid-name-with-body case are unchanged (the `{` is consumed as the opening brace), and every name-error-at-EOF case
+  stays a single diagnostic (the missing-`}` NL106 is panic-suppressed). (2) extended `ParseTypeAliasName` with the
+  `= <type>` body: `ConsumeToken(TokenType.Assign, "Expected '='", "assign")` [expected="assign" = TokenTypeToString(
+  Assign)] + the `if Check(Newtype) { Advance() }` variant + `ParseTypeReferenceRecovery()`. All construction delegates
+  to the shared `Report` / `ConsumeToken` / `ParseTypeReferenceRecovery` / `ParseMemberList`, so codes / messages /
+  spans / snippets / hints / suggestions match Parser.cs automatically. VERIFIED PANIC INTERACTIONS (each pinned or
+  re-proven): `class 5` reports THREE diagnostics (the member reset lets the field NL102 record, the sync reset before
+  the NL106 lets it record); `class 5 { }` reports THREE NL102 with NO NL106 (the explicit `}` closes the body);
+  `class struct\nfunc class` STILL reports exactly two NL109 (the func-name error now routes through the member-method
+  `ParseMethodMember` path since the body is now parsed, but its `ConsumeDeclarationName("Expected function name",
+  SpanFromToken(funcToken))` is byte-identical to the top-level `ParseFunctionName` path — same anchor @2:1 len4, same
+  message; the outer missing-`}` NL106 is panic-suppressed) — the existing contract passes UNCHANGED. +22 native
+  parity contracts in `ColumnarParserRecovery.tests.nl` (garbage cascade: `class 5` [3-diag], `struct 5` [3-diag],
+  `class 5 { }` [3-diag], `func f(5) { }` [5-diag: param NL102 + 4 top-level NL101], `(x: 1, 5: 2)` [3-diag: element
+  NL102 + 2 expr-terminal NL101]; type-alias positives: missing-`=` at EOF NL104 / missing-type at EOF NL104 /
+  mid-line missing-`=` NL102 / `type T = List<>` generic-arg NL102 [proves the full type grammar] / `type = int`
+  name-error-only NL102 [proves the body is cleanly consumed AFTER a name error] / `type T = newtype` at EOF NL104
+  [newtype variant] / `type T = A |` union-missing-arm NL103; type-alias negatives: `A | B` / `int` / `newtype int` /
+  `(int, string)` / `Func<int, bool>` / `int[]` / `A?` [all Count 0 — the underlying type routes through the full
+  Stage-15 union/tuple/Func/postfix grammar]; ledger closeout: `func operator @` invalid-operator-symbol NL103 /
+  `func g(): int returns {` missing-lifetime NL102 [via the local-function vehicle that wires ParseReturnLifetimeAnnotation] /
+  a well-formed multi-line interpolated-raw `$"""…"""` in the block vehicle [Count 0]).
+  COMPLETE DEFERRAL-LEDGER CLASSIFICATION (every recorded deferral across stages 1-16, resolved or definitively
+  recorded): [NOW PINNED this stage] the garbage-type cascade (stages 4/9: `class 5`/`struct 5`/`func f(5)`/
+  `(x: 1, 5: 2)`); the type-alias underlying-type (stage 15); the operator-symbol INVALID `func operator @` (stage 14,
+  corpus-light); the `returns`-lifetime label error (stages 13/14, corpus-light — pinned via the local-function
+  vehicle, the only owned `returns` consumer); the multi-line interpolated-raw negative (stage 12, corpus-light — a
+  well-formed `$"""…"""` in the block vehicle is Count 0, the swallow concern does not materialize). [PERMANENTLY
+  UNMATCHABLE at the CompilerError level] the EOF-length-clamp class (stages 5/12/16: the EOF-anchored `ConsumeGreater`
+  `func f(): List<int`, the empty hole `$"{}"`, the bare `test`-at-EOF description, the EOF-anchored `returns`) —
+  Parser.cs derives these lengths from `Current.Value.Length` = 0 at EOF, and the CLI's `DiagnosticSpanResolver.Resolve`
+  clamps the JSON length 0→1 for display; the model faithfully emits the RAW length 0 (= Parser.cs), so a contract
+  asserting length 1 would diverge from the model and a contract asserting length 0 cannot be oracle-CONFIRMED
+  (BootstrapServices cannot reference Parser.cs, and the CLI — the only golden source — never exposes the raw 0). The
+  diagnostic CAPABILITY (code/message/position at EOF) is present and is exercised by each family's NON-EOF variant
+  already pinned; at cutover the model routes through the SAME clamp, so the DISPLAYED diagnostic converges. Definitively
+  not a byte-exact CompilerError pin. [NOT A GAP — site-covered-elsewhere] the `allow` missing-`)` cascade-to-EOF (stage
+  13): its `ConsumeSystemsIdentifier` / `Consume(Comma)` / `Consume(LeftParen)` / `Consume(RightParen)` sites are all
+  exercised by the pinned allow-missing-`(` / allow-bad-effect + the Stage-9 closing-delimiter recovery; the corpus
+  keeps the clean shapes to avoid asserting the fragile whole-file token consumption, which adds no new site.
+  [PRODUCTION-BUG-GATED] the Stage-16 table-driven malformed-ROW HANG (`test "d" with (a) 9 { }`, `test "d" with (a)
+  [ 9 ] { }`) — CONFIRMED this stage: production `nlc check` on `test "d" with (a) 9 { }` spins >12s (killed, no
+  completion). Root cause: Parser.cs `ParseTestDeclaration` :590-604 — the outer table-case loop and the inner row loop
+  (`while (!Check(RightParen) && !IsAtEnd()) { row.Add(ParseExpression()); … }`) have NO no-progress guard, so when
+  `ParseExpression` cannot consume a `}`/`]` expression-terminator sitting in the row-expression position (and
+  `ShouldSkipUnexpectedExpressionToken` returns false), the cursor never advances and the loop spins. The model
+  reproduces the loop faithfully, so pinning the full malformed-row shape would hang the contract suite; the table `[`
+  / row `(` / cases `]` Consume sites stay pinned at EOF (where the loop terminates). Chip filed (task_1f371371) with
+  the precise site + the fix (a no-progress guard mirroring `ParseMemberList` :1379-1388) + a regression-test note; the
+  older duplicate chip (task_9babb6f4) was dismissed as superseded. NO production wiring; NO wall tripped (self-contained
+  edit to one owner + its tests; the packaged SDK 0.1.0 self-emitted the edited owner — incl. the `ParseTypeBody`
+  restructure + the type-alias body + all 1194 contracts cleanly — no repin). Evidence: BootstrapServices contracts
+  1194/1194 (1172 baseline + 22; full-suite fresh no-build run, `-p:NSharpExcludeTests=false`); dev.sh Parser 381/381;
+  ownership audit 18/18 (`Cli.dll test --project tests/native/ownership-audit`); git status shows ONLY the two `.nl`
+  files + STATUS (no non-N# file moved). Full unit suite / corpus IL sweeps N/A — `ColumnarParserRecovery` /
+  `ParseFilePreamble` are referenced ONLY by this owner's own `.tests.nl` (verified by grep across src+editors+tests:
+  zero references outside the owner + its tests), so nothing in the production compile path changed. No LSP/VS Code
+  change → no extension reload. `ColumnarParserRecovery.nl` 6,841 → 6,855 lines (+14); `.tests.nl` 5,347 → 5,711 (+364).
+  RESIDUAL-TO-PARITY MAP (what remains for full Parser.cs syntax-diagnostic parity, after Stage 17 — the CAPABILITY
+  SURFACE IS NOW COMPLETE): [1 — DONE Stage 13] the remaining statement kinds; [2 — DONE Stage 14] the MEMBER grammars +
+  the record/interface/union/enum/soa type BODIES; [3 — DONE Stage 15] the richer type-reference forms; [4 — DONE Stage
+  16] the TEST DSL + ATTRIBUTES; [5 — DONE] the garbage-type cascade shapes + the TYPE-ALIAS underlying-type consumer
+  (this stage). EVERY residual-map item is DONE and EVERY recorded deferral is resolved or definitively classified.
+  What remains before the arc completes: the AST/node-table-facts stage (N+1 — expose a `CompilationUnit`-equivalent /
+  node-table surface the Analyzer/Linter/Formatter/LSP consume in place of Parser.cs's C# `CompilationUnit`), the
+  CUTOVER (N+2, IDE-affecting — route every consumer to the N# owner at full diagnostic + AST parity), and the DELETION
+  arc (N+3 — retire Parser.cs). Next: STAGE N+1 = the AST/node-table facts, per the arc plan.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE 16 of the parser-front-end arc — the TEST DSL +
   ATTRIBUTES (residual map item [4]), carried through the SAME shared-panic owner over the already-owned expression /
   statement / member / block / argument / closing-delimiter grammars, PROVEN byte-exact against the freshly built
   Release CLI oracle (`nlc check --json`, parser codes NL101-NL109, excluding the columnar-backend emit-decline NL103 —
