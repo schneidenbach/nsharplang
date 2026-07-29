@@ -451,6 +451,137 @@ public class AstEq {
         if typeName == "InterpolatedStringHole" {
             return Names("Expression FormatClause Line Column")
         }
+        // N+1c tranche 10 (STATEMENT BODIES): the whole Statement node family plus the two non-Statement
+        // list ELEMENTS (CatchClause carries NO Line/Column at all; SwitchCase carries its own two fields
+        // rather than an AstNode base). Scalars (Kind / VariableName / Directive / Effects / Reason /
+        // Owner / Names) compare by value; every node/list field recurses. OnSubscriptionExpression is an
+        // EXPRESSION but lands here — it is only reachable once a block-bodied lambda materializes.
+        if typeName == "BlockStatement" {
+            return Names("Statements Line Column")
+        }
+        if typeName == "ExpressionStatement" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "VariableDeclarationStatement" {
+            return Names("Name Type Initializer Kind Line Column")
+        }
+        if typeName == "TupleDeconstructionStatement" {
+            return Names("Names Initializer Kind Line Column")
+        }
+        if typeName == "EmptyStatement" {
+            return Names("Line Column")
+        }
+        if typeName == "IfStatement" {
+            return Names("Condition ThenStatement ElseStatement Line Column")
+        }
+        if typeName == "WhileStatement" {
+            return Names("Condition Body Line Column")
+        }
+        if typeName == "ForStatement" {
+            return Names("Initializer Condition Iterator Body Line Column")
+        }
+        if typeName == "ForeachStatement" {
+            return Names("VariableName Collection Body Line Column")
+        }
+        if typeName == "AwaitForEachStatement" {
+            return Names("VariableName Collection Body Line Column")
+        }
+        if typeName == "ReturnStatement" {
+            return Names("Value Line Column")
+        }
+        if typeName == "YieldStatement" {
+            return Names("Value Line Column")
+        }
+        if typeName == "BreakStatement" {
+            return Names("Line Column")
+        }
+        if typeName == "ContinueStatement" {
+            return Names("Line Column")
+        }
+        if typeName == "ThrowStatement" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "PrintStatement" {
+            return Names("Value Line Column")
+        }
+        if typeName == "PreprocessorDirective" {
+            return Names("Directive Line Column")
+        }
+        if typeName == "OffStatement" {
+            return Names("Handle Line Column")
+        }
+        if typeName == "TryStatement" {
+            return Names("TryBlock CatchClauses FinallyBlock Line Column")
+        }
+        if typeName == "CatchClause" {
+            return Names("ExceptionType VariableName Block")
+        }
+        if typeName == "UsingStatement" {
+            return Names("Declaration Expression Body Line Column")
+        }
+        if typeName == "LockStatement" {
+            return Names("LockObject Body Line Column")
+        }
+        if typeName == "SwitchStatement" {
+            return Names("Value Cases Line Column")
+        }
+        if typeName == "SwitchCase" {
+            return Names("Pattern Statements Line Column")
+        }
+        if typeName == "UnsafeBlockStatement" {
+            return Names("Body Line Column")
+        }
+        if typeName == "AllocBlockStatement" {
+            return Names("Body Line Column")
+        }
+        if typeName == "AllowStatement" {
+            return Names("Effects Reason Owner Body Line Column")
+        }
+        if typeName == "AssertStatement" {
+            return Names("Condition Message Line Column")
+        }
+        if typeName == "AssertThrowsStatement" {
+            return Names("ExceptionType Body Line Column")
+        }
+        if typeName == "OnSubscriptionExpression" {
+            return Names("Target Handler Line Column")
+        }
+        // N+1c tranche 10b (the member-BODY CONSUMERS): the declaration nodes the statement family unlocks.
+        // FunctionDeclaration registers its two SourceSpan fields (compared by value) and ReturnLifetime,
+        // which Parser.cs sets through an object initializer AFTER construction. GenericConstraint carries no
+        // Line/Column. TestDeclaration's TableCases is a list-of-lists — DiffValue recurses through both
+        // levels. PreprocessorDeclaration is the top-level/member DECLARATION form (distinct from the
+        // PreprocessorDirective STATEMENT above).
+        if typeName == "FunctionDeclaration" {
+            return Names("Name Parameters ReturnType Body ExpressionBody TypeParameters Constraints Modifiers Attributes IsOperatorOverload OperatorSymbol IsConversionOperator IsImplicitConversion OperatorKeywordSpan OperatorSymbolSpan ReturnLifetime Line Column")
+        }
+        if typeName == "GenericConstraint" {
+            return Names("TypeParameter Constraints SpecialConstraints")
+        }
+        if typeName == "ConstructorDeclaration" {
+            return Names("Parameters Body Initializer Modifiers Attributes Line Column")
+        }
+        if typeName == "PropertyDeclaration" {
+            return Names("Name Type GetBody SetBody ExpressionBody Modifiers PropertyModifier Attributes Line Column")
+        }
+        if typeName == "IndexerDeclaration" {
+            return Names("Parameters Type GetBody SetBody Modifiers Attributes Line Column")
+        }
+        if typeName == "LocalFunctionStatement" {
+            return Names("Function Line Column")
+        }
+        if typeName == "TestDeclaration" {
+            return Names("Description Body TableParameters TableCases SkipReason Line Column")
+        }
+        if typeName == "SetupDeclaration" {
+            return Names("Body Line Column")
+        }
+        if typeName == "TeardownDeclaration" {
+            return Names("Body Line Column")
+        }
+        if typeName == "PreprocessorDeclaration" {
+            return Names("Directive Line Column")
+        }
         return null
     }
 
@@ -1122,6 +1253,255 @@ public class Golden {
     public static func Interp(parts: List<InterpolatedStringPart>, isRaw: bool, line: int, column: int): Expression {
         return new InterpolatedStringExpression(parts, line, column, isRaw)
     }
+
+    // ---- N+1c tranche 10: the STATEMENT node family ----
+    // Every position below is transcribed from the LIVE Parser.cs AstToJson oracle over the identical
+    // source, so `owner == golden` proves `owner == Parser.cs`.
+
+    public static func NoStmts(): List<Statement> {
+        return new List<Statement>()
+    }
+
+    public static func Add(statements: List<Statement>, statement: Statement) {
+        statements.Add(statement)
+    }
+
+    public static func Block(statements: List<Statement>, line: int, column: int): BlockStatement {
+        return new BlockStatement(statements, line, column)
+    }
+
+    // The single-statement block shorthand (the common shape in these contracts).
+    public static func Block1(statement: Statement, line: int, column: int): BlockStatement {
+        statements := new List<Statement>()
+        statements.Add(statement)
+        return new BlockStatement(statements, line, column)
+    }
+
+    public static func ExprStmt(expression: Expression, line: int, column: int): Statement {
+        return new ExpressionStatement(expression, line, column)
+    }
+
+    public static func VarDecl(name: string, declaredType: TypeReference?, initializer: Expression?, kind: VariableKind, line: int, column: int): VariableDeclarationStatement {
+        return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column)
+    }
+
+    public static func NoNames(): List<string> {
+        return new List<string>()
+    }
+
+    public static func AddName(names: List<string>, name: string) {
+        names.Add(name)
+    }
+
+    public static func TupleDecl(names: List<string>, initializer: Expression, kind: VariableKind, line: int, column: int): Statement {
+        return new TupleDeconstructionStatement(names, initializer, kind, line, column)
+    }
+
+    public static func Empty(line: int, column: int): Statement {
+        return new EmptyStatement(line, column)
+    }
+
+    public static func If(condition: Expression, thenStatement: Statement, elseStatement: Statement?, line: int, column: int): Statement {
+        return new IfStatement(condition, thenStatement, elseStatement, line, column)
+    }
+
+    public static func While(condition: Expression, body: Statement, line: int, column: int): Statement {
+        return new WhileStatement(condition, body, line, column)
+    }
+
+    public static func For(initializer: Statement?, condition: Expression?, iterator: Expression?, body: Statement, line: int, column: int): Statement {
+        return new ForStatement(initializer, condition, iterator, body, line, column)
+    }
+
+    public static func Foreach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
+        return new ForeachStatement(variableName, collection, body, line, column)
+    }
+
+    public static func AwaitForeach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
+        return new AwaitForEachStatement(variableName, collection, body, line, column)
+    }
+
+    public static func Return(value: Expression?, line: int, column: int): Statement {
+        return new ReturnStatement(value, line, column)
+    }
+
+    public static func Yield(value: Expression?, line: int, column: int): Statement {
+        return new YieldStatement(value, line, column)
+    }
+
+    public static func Break(line: int, column: int): Statement {
+        return new BreakStatement(line, column)
+    }
+
+    public static func Continue(line: int, column: int): Statement {
+        return new ContinueStatement(line, column)
+    }
+
+    public static func ThrowStmt(expression: Expression, line: int, column: int): Statement {
+        return new ThrowStatement(expression, line, column)
+    }
+
+    public static func Print(value: Expression, line: int, column: int): Statement {
+        return new PrintStatement(value, line, column)
+    }
+
+    public static func Preproc(directive: string, line: int, column: int): Statement {
+        return new PreprocessorDirective(directive, line, column)
+    }
+
+    public static func Off(handle: Expression, line: int, column: int): Statement {
+        return new OffStatement(handle, line, column)
+    }
+
+    public static func NoCatches(): List<CatchClause> {
+        return new List<CatchClause>()
+    }
+
+    public static func AddCatch(catches: List<CatchClause>, exceptionType: TypeReference?, variableName: string?, block: BlockStatement) {
+        catches.Add(new CatchClause(exceptionType, variableName, block))
+    }
+
+    public static func Try(tryBlock: BlockStatement, catches: List<CatchClause>, finallyBlock: BlockStatement?, line: int, column: int): Statement {
+        return new TryStatement(tryBlock, catches, finallyBlock, line, column)
+    }
+
+    public static func Using(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
+        return new UsingStatement(declaration, expression, body, line, column)
+    }
+
+    public static func Lock(lockObject: Expression, body: BlockStatement, line: int, column: int): Statement {
+        return new LockStatement(lockObject, body, line, column)
+    }
+
+    public static func NoSwitchCases(): List<SwitchCase> {
+        return new List<SwitchCase>()
+    }
+
+    public static func AddSwitchCase(cases: List<SwitchCase>, pattern: Pattern?, statements: List<Statement>, line: int, column: int) {
+        cases.Add(new SwitchCase(pattern, statements, line, column))
+    }
+
+    public static func Switch(value: Expression, cases: List<SwitchCase>, line: int, column: int): Statement {
+        return new SwitchStatement(value, cases, line, column)
+    }
+
+    public static func UnsafeBlock(body: BlockStatement, line: int, column: int): Statement {
+        return new UnsafeBlockStatement(body, line, column)
+    }
+
+    public static func AllocBlock(body: BlockStatement, line: int, column: int): Statement {
+        return new AllocBlockStatement(body, line, column)
+    }
+
+    public static func Allow(effects: List<string>, reason: string?, owner: string?, body: BlockStatement, line: int, column: int): Statement {
+        return new AllowStatement(effects, reason, owner, body, line, column)
+    }
+
+    public static func Assert(condition: Expression, message: Expression?, line: int, column: int): Statement {
+        return new AssertStatement(condition, message, line, column)
+    }
+
+    public static func AssertThrows(exceptionType: TypeReference, body: BlockStatement, line: int, column: int): Statement {
+        return new AssertThrowsStatement(exceptionType, body, line, column)
+    }
+
+    public static func BlockLambda(parameters: List<Parameter>, body: BlockStatement, line: int, column: int): LambdaExpression {
+        return new LambdaExpression(parameters, null, body, line, column)
+    }
+
+    public static func OnSub(target: Expression, handler: LambdaExpression, line: int, column: int): Expression {
+        return new OnSubscriptionExpression(target, handler, line, column)
+    }
+
+    // ---- N+1c tranche 10b: the member-BODY declaration builders ----
+    // FunctionDeclaration is FULLY QUALIFIED (a local test-helper `class FunctionDeclaration` collides on
+    // the simple name under the tests-enabled build, the established tranche-2 idiom).
+
+    public static func Func(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+        return new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, modifiers, new List<AttributeNode>(), false, null, false, false, line, column)
+    }
+
+    // The operator-overload / conversion-operator variant, whose two SourceSpan fields Parser.cs sets
+    // through an object initializer after construction (:505-506).
+    public static func OperatorFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, operatorSymbol: string?, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+        node := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, null, null, null, Modifiers.None, new List<AttributeNode>(), true, operatorSymbol, false, false, line, column)
+        node.OperatorKeywordSpan = keywordSpan
+        node.OperatorSymbolSpan = symbolSpan
+        return node
+    }
+
+    public static func AddFunc(target: List<Declaration>, node: NSharpLang.Compiler.Ast.FunctionDeclaration) {
+        target.Add(node)
+    }
+
+    public static func NoConstraints(): List<GenericConstraint>? {
+        return null
+    }
+
+    public static func Constraints1(typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind): List<GenericConstraint> {
+        list := new List<GenericConstraint>()
+        list.Add(new GenericConstraint(typeParameter, constraintTypes, special))
+        return list
+    }
+
+    public static func NoTypeRefs(): List<TypeReference> {
+        return new List<TypeReference>()
+    }
+
+    public static func AddCtor(members: List<Declaration>, parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, line: int, column: int) {
+        members.Add(new ConstructorDeclaration(parameters, body, initializer, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddProp(members: List<Declaration>, name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int) {
+        members.Add(new PropertyDeclaration(name, propertyType, getBody, setBody, expressionBody, modifiers, propertyModifier, new List<AttributeNode>(), line, column))
+    }
+
+    public static func AddIndexer(members: List<Declaration>, parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, line: int, column: int) {
+        members.Add(new IndexerDeclaration(parameters, indexerType, getBody, setBody, Modifiers.None, new List<AttributeNode>(), line, column))
+    }
+
+    public static func LocalFunc(node: NSharpLang.Compiler.Ast.FunctionDeclaration, line: int, column: int): Statement {
+        return new LocalFunctionStatement(node, line, column)
+    }
+
+    public static func AddTest(decls: List<Declaration>, description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression> >?, skipReason: string?, line: int, column: int) {
+        decls.Add(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column))
+    }
+
+    public static func NoTableParams(): List<Parameter>? {
+        return null
+    }
+
+    public static func NoTable(): List<List<Expression> >? {
+        return null
+    }
+
+    public static func Rows1(first: Expression, second: Expression): List<List<Expression> > {
+        rows := new List<List<Expression> >()
+        firstRow := new List<Expression>()
+        firstRow.Add(first)
+        rows.Add(firstRow)
+        secondRow := new List<Expression>()
+        secondRow.Add(second)
+        rows.Add(secondRow)
+        return rows
+    }
+
+    public static func AddSetup(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
+        decls.Add(new SetupDeclaration(body, line, column))
+    }
+
+    public static func AddTeardown(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
+        decls.Add(new TeardownDeclaration(body, line, column))
+    }
+
+    public static func AddPreproc(decls: List<Declaration>, directive: string, line: int, column: int) {
+        decls.Add(new PreprocessorDeclaration(directive, line, column))
+    }
+
+    public static func Param(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, line: int, column: int): Parameter {
+        return new Parameter(name, paramType, defaultValue, isThis, modifier, null, line, column, false, null)
+    }
 }
 
 // ---- contracts ----
@@ -1669,9 +2049,17 @@ test "016 N+1c tranche 5: WHOLE-FILE equality on CodeIntelligenceImplementorMode
 // deferral, not a Parser.cs-parity claim.) The tranche-4 "richer parameter TYPE declines" gate is now RELAXED
 // (see the tranche-5 positive contract above) — richer field/parameter types materialize.
 
-test "016 N+1c tranche 4: a parameter with a default value DECLINES record materialization (no-stub)" {
+// tranche 10b RETIRES the tranche-4 "default value DECLINES" gate: ParseParameterListRecovery now models
+// Parser.cs's FULL parameter grammar (params/ref/out modifier, `this`, scoped/lifetime, DEFAULT value) and
+// materializes `new Parameter(name, type, defaultValue, isThis, modifier, attributes, line, column,
+// isScoped, lifetime)` (Parser.cs :822).
+test "016 N+1c tranche 10: a parameter with a DEFAULT value now materializes Parameter.DefaultValue (Parser.cs :822)" {
     actual := RunAst("record R(x: int = 5) {}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    paramList := Golden.NoParams()
+    paramList.Add(new Parameter("x", Golden.SimpleT("int", 1, 13, 16), Golden.IntLit("5", 1, 19), false, ParameterModifier.None, null, 1, 10, false, null))
+    decls := new List<Declaration>()
+    Golden.AddRecordParams(decls, "R", paramList, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -2628,9 +3016,18 @@ test "016 N+1c tranche 8: WHOLE-FILE equality on a field-only struct with litera
 // A value whose sub-part is a still-deferred form leaves ParseExprValue().Node null → decline, no-stub.
 // (The tranche-9b match / lambda / interpolated-string declines are now POSITIVE materializations below.)
 
-test "016 N+1c tranche 9c: a BLOCK-bodied lambda still DECLINES (BlockStatement deferred to the statement tranche, no-stub)" {
+// N+1c tranche 10 RETIRES the tranche-9c block-bodied-lambda decline: the enum-member vehicle now
+// materializes `new LambdaExpression(parameters, null, blockBody, line, column)` (Parser.cs :3675) over a
+// real BlockStatement, so the LAST expression-side decline is gone.
+test "016 N+1c tranche 10: a BLOCK-bodied lambda materializes LambdaExpression.BlockBody (retires the tranche-9c decline)" {
     actual := RunAst("enum E {\n    A = x => { }\n}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 9)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.BlockLambda(parameters, Golden.Block(Golden.NoStmts(), 2, 14), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -4001,4 +4398,773 @@ test "016 N+1c tranche 9c: AstEq surfaces a wrong lambda parameter name (guards 
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+// ---- N+1c tranche 10a: STATEMENT BODIES — BlockStatement + the Statement node family ----
+// VEHICLE: the block-bodied LAMBDA in a `:=` field initializer —
+//     class C {
+//         f := x => { <statement> }
+//     }
+// which the tranche-9c field-initializer consumer already materializes, so a BlockStatement is
+// observable from `ParseFileAst` before the member-BODY consumers land (tranche 10b). The vehicle
+// itself is the tranche-10 unlock: a block-bodied lambda used to DECLINE (the last expression-side
+// decline recorded at the end of tranche 9c) and now materializes
+// `new LambdaExpression(parameters, null, blockBody, line, column)` (Parser.cs :3675).
+// Every position below is transcribed from the LIVE Parser.cs AstToJson oracle over the identical
+// source (owner == golden by these contracts; golden == Parser.cs by the oracle), and every shape was
+// additionally diffed owner-vs-live whole-tree through the same serializer.
+
+// The vehicle's fixed anchors: `f` at 2:5, the lambda + its `x` parameter at 2:10, the block's `{` at
+// 2:15, and the contained statement starting at 2:17.
+func RunBody(inner: string): CompilationUnit {
+    return RunAst("class C {\n    f := x => { " + inner + " }\n}\n")
+}
+
+func BodyUnit(statements: List<Statement>): CompilationUnit {
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 10)
+    members := new List<Declaration>()
+    Golden.AddFieldInfer(members, "f", Golden.BlockLambda(parameters, Golden.Block(statements, 2, 15), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    return Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+}
+
+func BodyUnit1(statement: Statement): CompilationUnit {
+    statements := Golden.NoStmts()
+    Golden.Add(statements, statement)
+    return BodyUnit(statements)
+}
+
+// A `name()` call-expression statement, the filler used inside nested blocks below.
+func CallStmt(name: string, line: int, column: int): Statement {
+    return Golden.ExprStmt(Golden.Call(Golden.Ident(name, line, column), Golden.NoArgs(), Golden.NoTypeArgs(), line, column + 1), line, column)
+}
+
+test "016 N+1c tranche 10: an empty block-bodied lambda materializes an empty BlockStatement (Parser.cs :2227/:3675)" {
+    actual := RunAst("class C {\n    f := x => { }\n}\n")
+    expected := BodyUnit(Golden.NoStmts())
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `return 1` materializes ReturnStatement with its value (Parser.cs :2844)" {
+    actual := RunBody("return 1")
+    expected := BodyUnit1(Golden.Return(Golden.IntLit("1", 2, 24), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a bare `return` materializes a NULL ReturnStatement value" {
+    actual := RunBody("return")
+    expected := BodyUnit1(Golden.Return(null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `let a := 1` materializes VariableDeclarationStatement Kind=Let anchored on the NAME (Parser.cs :2578)" {
+    actual := RunBody("let a := 1")
+    expected := BodyUnit1(Golden.VarDecl("a", null, Golden.IntLit("1", 2, 26), VariableKind.Let, 2, 21))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `let a: int = 1` materializes the declared TYPE with a byte-exact span (Parser.cs :2564)" {
+    actual := RunBody("let a: int = 1")
+    expected := BodyUnit1(Golden.VarDecl("a", Golden.SimpleT("int", 2, 24, 27), Golden.IntLit("1", 2, 30), VariableKind.Let, 2, 21))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `const a := 1` carries VariableKind.Const (Parser.cs :2250)" {
+    actual := RunBody("const a := 1")
+    expected := BodyUnit1(Golden.VarDecl("a", null, Golden.IntLit("1", 2, 28), VariableKind.Const, 2, 23))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `readonly a := 1` carries VariableKind.Readonly (Parser.cs :2252)" {
+    actual := RunBody("readonly a := 1")
+    expected := BodyUnit1(Golden.VarDecl("a", null, Golden.IntLit("1", 2, 31), VariableKind.Readonly, 2, 26))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: the `a := 1` shorthand anchors on the IDENTIFIER expression (Parser.cs :3640)" {
+    actual := RunBody("a := 1")
+    expected := BodyUnit1(Golden.VarDecl("a", null, Golden.IntLit("1", 2, 22), VariableKind.Let, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: the let-less typed declaration `a: int = 1` materializes (Parser.cs :3535)" {
+    actual := RunBody("a: int = 1")
+    expected := BodyUnit1(Golden.VarDecl("a", Golden.SimpleT("int", 2, 20, 23), Golden.IntLit("1", 2, 26), VariableKind.Let, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a call becomes an ExpressionStatement anchored on the STATEMENT start (Parser.cs :3643)" {
+    actual := RunBody("g()")
+    expected := BodyUnit1(CallStmt("g", 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an assignment statement wraps the AssignmentExpression (Parser.cs :3643)" {
+    actual := RunBody("a = 1")
+    expected := BodyUnit1(Golden.ExprStmt(Golden.Assign(Golden.Ident("a", 2, 17), AssignmentOperator.Assign, Golden.IntLit("1", 2, 21), 2, 19), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a bare `;` materializes EmptyStatement (Parser.cs :2244)" {
+    actual := RunBody(";")
+    expected := BodyUnit1(Golden.Empty(2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `if a { b() }` materializes IfStatement with a NULL else (Parser.cs :2659)" {
+    actual := RunBody("if a { b() }")
+    expected := BodyUnit1(Golden.If(Golden.Ident("a", 2, 20), Golden.Block1(CallStmt("b", 2, 24), 2, 22), null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an if/else materializes both branches as nested BlockStatements" {
+    actual := RunBody("if a { b() } else { c() }")
+    expected := BodyUnit1(Golden.If(
+        Golden.Ident("a", 2, 20),
+        Golden.Block1(CallStmt("b", 2, 24), 2, 22),
+        Golden.Block1(CallStmt("c", 2, 37), 2, 35),
+        2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `while a { b() }` materializes WhileStatement (Parser.cs :2829)" {
+    actual := RunBody("while a { b() }")
+    expected := BodyUnit1(Golden.While(Golden.Ident("a", 2, 23), Golden.Block1(CallStmt("b", 2, 27), 2, 25), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `for i in items` wraps a ForeachStatement in a NULL-parts ForStatement (Parser.cs :2678)" {
+    actual := RunBody("for i in items { b() }")
+    inner := Golden.Foreach("i", Golden.Ident("items", 2, 26), Golden.Block1(CallStmt("b", 2, 34), 2, 32), 2, 17)
+    expected := BodyUnit1(Golden.For(null, null, null, inner, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: the C-style for materializes initializer/condition/iterator (Parser.cs :2755)" {
+    actual := RunBody("for i := 0; i < 3; i = i + 1 { b() }")
+    initializer := Golden.VarDecl("i", null, Golden.IntLit("0", 2, 26), VariableKind.Let, 2, 21)
+    condition := Golden.Bin(Golden.Ident("i", 2, 29), BinaryOperator.Less, Golden.IntLit("3", 2, 33), 2, 31)
+    iterator := Golden.Assign(Golden.Ident("i", 2, 36), AssignmentOperator.Assign, Golden.Bin(Golden.Ident("i", 2, 40), BinaryOperator.Add, Golden.IntLit("1", 2, 44), 2, 42), 2, 38)
+    expected := BodyUnit1(Golden.For(initializer, condition, iterator, Golden.Block1(CallStmt("b", 2, 48), 2, 46), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a `let`-initialized C-style for anchors the declaration on its name (Parser.cs :2708)" {
+    actual := RunBody("for let i := 0; i < 3; i = i + 1 { b() }")
+    initializer := Golden.VarDecl("i", null, Golden.IntLit("0", 2, 30), VariableKind.Let, 2, 25)
+    condition := Golden.Bin(Golden.Ident("i", 2, 33), BinaryOperator.Less, Golden.IntLit("3", 2, 37), 2, 35)
+    iterator := Golden.Assign(Golden.Ident("i", 2, 40), AssignmentOperator.Assign, Golden.Bin(Golden.Ident("i", 2, 44), BinaryOperator.Add, Golden.IntLit("1", 2, 48), 2, 46), 2, 42)
+    expected := BodyUnit1(Golden.For(initializer, condition, iterator, Golden.Block1(CallStmt("b", 2, 52), 2, 50), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `foreach i in items` materializes a bare ForeachStatement (Parser.cs :2784)" {
+    actual := RunBody("foreach i in items { b() }")
+    expected := BodyUnit1(Golden.Foreach("i", Golden.Ident("items", 2, 30), Golden.Block1(CallStmt("b", 2, 38), 2, 36), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `await foreach` materializes AwaitForEachStatement anchored on `await` (Parser.cs :2814)" {
+    actual := RunBody("await foreach i in items { b() }")
+    expected := BodyUnit1(Golden.AwaitForeach("i", Golden.Ident("items", 2, 36), Golden.Block1(CallStmt("b", 2, 44), 2, 42), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `yield 1` materializes YieldStatement with its value (Parser.cs :2870)" {
+    actual := RunBody("yield 1")
+    expected := BodyUnit1(Golden.Yield(Golden.IntLit("1", 2, 23), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `yield break` materializes a NULL YieldStatement value" {
+    actual := RunBody("yield break")
+    expected := BodyUnit1(Golden.Yield(null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `break` inside a loop materializes BreakStatement (Parser.cs :2901)" {
+    actual := RunBody("while a { break }")
+    expected := BodyUnit1(Golden.While(Golden.Ident("a", 2, 23), Golden.Block1(Golden.Break(2, 27), 2, 25), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `continue` inside a loop materializes ContinueStatement (Parser.cs :2983)" {
+    actual := RunBody("while a { continue }")
+    expected := BodyUnit1(Golden.While(Golden.Ident("a", 2, 23), Golden.Block1(Golden.Continue(2, 27), 2, 25), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `throw e` materializes ThrowStatement (Parser.cs :2996)" {
+    actual := RunBody("throw e")
+    expected := BodyUnit1(Golden.ThrowStmt(Golden.Ident("e", 2, 23), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `print a` materializes PrintStatement (Parser.cs :2883)" {
+    actual := RunBody("print a")
+    expected := BodyUnit1(Golden.Print(Golden.Ident("a", 2, 23), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `(a, b) := t` materializes TupleDeconstructionStatement (Parser.cs :3625/:2637)" {
+    actual := RunBody("(a, b) := t")
+    names := Golden.NoNames()
+    Golden.AddName(names, "a")
+    Golden.AddName(names, "b")
+    expected := BodyUnit1(Golden.TupleDecl(names, Golden.Ident("t", 2, 27), VariableKind.Let, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `let (a, b) := t` anchors the deconstruction on the `(` (Parser.cs :2552)" {
+    actual := RunBody("let (a, b) := t")
+    names := Golden.NoNames()
+    Golden.AddName(names, "a")
+    Golden.AddName(names, "b")
+    expected := BodyUnit1(Golden.TupleDecl(names, Golden.Ident("t", 2, 31), VariableKind.Let, 2, 21))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: the paren-free `a, b := t` deconstruction materializes (Parser.cs :3583)" {
+    actual := RunBody("a, b := t")
+    names := Golden.NoNames()
+    Golden.AddName(names, "a")
+    Golden.AddName(names, "b")
+    expected := BodyUnit1(Golden.TupleDecl(names, Golden.Ident("t", 2, 25), VariableKind.Let, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a nested bare block materializes a nested BlockStatement (Parser.cs :2295)" {
+    actual := RunBody("{ a() }")
+    expected := BodyUnit1(Golden.Block1(CallStmt("a", 2, 19), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: two statements keep source order in the block's Statements list" {
+    actual := RunBody("a() b()")
+    statements := Golden.NoStmts()
+    Golden.Add(statements, CallStmt("a", 2, 17))
+    Golden.Add(statements, CallStmt("b", 2, 21))
+    expected := BodyUnit(statements)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- tranche 10a: the STRUCTURED statements ----
+
+test "016 N+1c tranche 10: try/catch materializes TryStatement + a typed CatchClause (Parser.cs :3046/:3056)" {
+    actual := RunBody("try { a() } catch (e: Exception) { b() }")
+    catches := Golden.NoCatches()
+    Golden.AddCatch(catches, Golden.SimpleT("Exception", 2, 39, 48), "e", Golden.Block1(CallStmt("b", 2, 52), 2, 50))
+    expected := BodyUnit1(Golden.Try(Golden.Block1(CallStmt("a", 2, 23), 2, 21), catches, null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a bare `catch { }` carries a NULL exception type and variable name" {
+    actual := RunBody("try { a() } catch { b() }")
+    catches := Golden.NoCatches()
+    Golden.AddCatch(catches, null, null, Golden.Block1(CallStmt("b", 2, 37), 2, 35))
+    expected := BodyUnit1(Golden.Try(Golden.Block1(CallStmt("a", 2, 23), 2, 21), catches, null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: try/finally materializes an empty CatchClauses list + the finally block (Parser.cs :3053)" {
+    actual := RunBody("try { a() } finally { b() }")
+    expected := BodyUnit1(Golden.Try(Golden.Block1(CallStmt("a", 2, 23), 2, 21), Golden.NoCatches(), Golden.Block1(CallStmt("b", 2, 39), 2, 37), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `using let r := open() { }` materializes UsingStatement.Declaration (Parser.cs :3121)" {
+    actual := RunBody("using let r := open() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 32), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 36), VariableKind.Let, 2, 27)
+    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 41), 2, 39), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `using r := open()` synthesizes the declaration on the USING keyword (Parser.cs :3109)" {
+    actual := RunBody("using r := open() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 28), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 32), VariableKind.Let, 2, 17)
+    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 37), 2, 35), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `lock m { }` materializes LockStatement (Parser.cs :3178)" {
+    actual := RunBody("lock m { a() }")
+    expected := BodyUnit1(Golden.Lock(Golden.Ident("m", 2, 22), Golden.Block1(CallStmt("a", 2, 26), 2, 24), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a single-case switch materializes SwitchStatement + SwitchCase (Parser.cs :3250/:3271)" {
+    actual := RunBody("switch v { case 1 => a() }")
+    cases := Golden.NoSwitchCases()
+    caseStatements := Golden.NoStmts()
+    Golden.Add(caseStatements, CallStmt("a", 2, 38))
+    Golden.AddSwitchCase(cases, Golden.PLit(Golden.IntLit("1", 2, 33), 2, 33), caseStatements, 2, 28)
+    expected := BodyUnit1(Golden.Switch(Golden.Ident("v", 2, 24), cases, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a BRACED case FLATTENS its block into the case statements and `default` keeps a NULL pattern (Parser.cs :3243)" {
+    actual := RunBody("switch v { case 1 => { a() b() } default => c() }")
+    cases := Golden.NoSwitchCases()
+    bracedStatements := Golden.NoStmts()
+    Golden.Add(bracedStatements, CallStmt("a", 2, 40))
+    Golden.Add(bracedStatements, CallStmt("b", 2, 44))
+    Golden.AddSwitchCase(cases, Golden.PLit(Golden.IntLit("1", 2, 33), 2, 33), bracedStatements, 2, 28)
+    defaultStatements := Golden.NoStmts()
+    Golden.Add(defaultStatements, CallStmt("c", 2, 61))
+    Golden.AddSwitchCase(cases, null, defaultStatements, 2, 50)
+    expected := BodyUnit1(Golden.Switch(Golden.Ident("v", 2, 24), cases, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `unsafe { }` materializes UnsafeBlockStatement (Parser.cs :2396)" {
+    actual := RunBody("unsafe { a() }")
+    expected := BodyUnit1(Golden.UnsafeBlock(Golden.Block1(CallStmt("a", 2, 26), 2, 24), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `alloc { }` materializes AllocBlockStatement (Parser.cs :2318)" {
+    actual := RunBody("alloc { a() }")
+    expected := BodyUnit1(Golden.AllocBlock(Golden.Block1(CallStmt("a", 2, 25), 2, 23), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `allow(alloc, reason: \"why\")` strips the reason's quotes (Parser.cs :2370/:6834)" {
+    actual := RunBody("allow(alloc, reason: \"why\") { a() }")
+    effects := Golden.NoNames()
+    Golden.AddName(effects, "alloc")
+    expected := BodyUnit1(Golden.Allow(effects, "why", null, Golden.Block1(CallStmt("a", 2, 47), 2, 45), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `assert a` materializes AssertStatement with a NULL message (Parser.cs :2427)" {
+    actual := RunBody("assert a")
+    expected := BodyUnit1(Golden.Assert(Golden.Ident("a", 2, 24), null, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `assert a, \"m\"` materializes the optional message expression" {
+    actual := RunBody("assert a, \"m\"")
+    expected := BodyUnit1(Golden.Assert(Golden.Ident("a", 2, 24), Golden.StrLit("\"m\"", 2, 27), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `assert throws T { }` materializes AssertThrowsStatement (Parser.cs :2411)" {
+    actual := RunBody("assert throws Exception { a() }")
+    expected := BodyUnit1(Golden.AssertThrows(Golden.SimpleT("Exception", 2, 31, 40), Golden.Block1(CallStmt("a", 2, 43), 2, 41), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `off handle` materializes OffStatement (Parser.cs :2975)" {
+    actual := RunBody("off handle")
+    expected := BodyUnit1(Golden.Off(Golden.Ident("handle", 2, 21), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an `on` subscription with a BLOCK handler materializes OnSubscriptionExpression (Parser.cs :2917)" {
+    actual := RunBody("s := on t.E (a, b) => { g() }")
+    handlerParams := Golden.NoParams()
+    Golden.AddLambdaParam(handlerParams, "a", 2, 30)
+    Golden.AddLambdaParam(handlerParams, "b", 2, 33)
+    handler := Golden.BlockLambda(handlerParams, Golden.Block1(CallStmt("g", 2, 41), 2, 39), 2, 29)
+    target := Golden.Member(Golden.Ident("t", 2, 25), "E", false, 2, 26)
+    expected := BodyUnit1(Golden.VarDecl("s", null, Golden.OnSub(target, handler, 2, 22), VariableKind.Let, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a deeply nested loop/branch/try body nests byte-exact" {
+    actual := RunBody("while a { for b in c { if d { try { e() } catch { g() } } } }")
+    innerTry := Golden.NoCatches()
+    Golden.AddCatch(innerTry, null, null, Golden.Block1(CallStmt("g", 2, 67), 2, 65))
+    tryStatement := Golden.Try(Golden.Block1(CallStmt("e", 2, 53), 2, 51), innerTry, null, 2, 47)
+    ifStatement := Golden.If(Golden.Ident("d", 2, 43), Golden.Block1(tryStatement, 2, 45), null, 2, 40)
+    foreachStatement := Golden.Foreach("b", Golden.Ident("c", 2, 36), Golden.Block1(ifStatement, 2, 38), 2, 27)
+    forStatement := Golden.For(null, null, null, foreachStatement, 2, 27)
+    expected := BodyUnit1(Golden.While(Golden.Ident("a", 2, 23), Golden.Block1(forStatement, 2, 25), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- tranche 10a: negative self-checks (guard vacuous passes) ----
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong VariableKind (Let golden vs Const actual)" {
+    actual := RunBody("const a := 1")
+    expected := BodyUnit1(Golden.VarDecl("a", null, Golden.IntLit("1", 2, 28), VariableKind.Let, 2, 23))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong statement COUNT in a block (guards vacuous list pass)" {
+    actual := RunBody("a() b()")
+    expected := BodyUnit1(CallStmt("a", 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a swapped then/else branch" {
+    actual := RunBody("if a { b() } else { c() }")
+    expected := BodyUnit1(Golden.If(
+        Golden.Ident("a", 2, 20),
+        Golden.Block1(CallStmt("c", 2, 37), 2, 35),
+        Golden.Block1(CallStmt("b", 2, 24), 2, 22),
+        2, 17))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong ForeachStatement variable name" {
+    actual := RunBody("foreach i in items { b() }")
+    expected := BodyUnit1(Golden.Foreach("WRONG", Golden.Ident("items", 2, 30), Golden.Block1(CallStmt("b", 2, 38), 2, 36), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong allow REASON string" {
+    actual := RunBody("allow(alloc, reason: \"why\") { a() }")
+    effects := Golden.NoNames()
+    Golden.AddName(effects, "alloc")
+    expected := BodyUnit1(Golden.Allow(effects, "WRONG", null, Golden.Block1(CallStmt("a", 2, 47), 2, 45), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+// ---- tranche 10a: RETAINED principled declines (Parser.cs builds SYNTHETIC `<error>` content) ----
+// Both shapes are malformed sources where Parser.cs materializes a node carrying a synthetic
+// `IdentifierExpression("<error>")`; the owner declines no-stub exactly as it does at every other
+// synthetic-error site (the ParseRequiredExpressionAfter / ConsumeSystemsIdentifier discipline), so the
+// enclosing class materializes with an EMPTY Members list.
+
+test "016 N+1c tranche 10: `using r { }` (missing ':=') DECLINES — Parser.cs builds a synthetic <error> initializer" {
+    actual := RunBody("using r { a() }")
+    members := new List<Declaration>()
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a non-effect allow value (`dispatch: virtual`) DECLINES — Parser.cs records `dispatch:<error>`" {
+    actual := RunBody("allow(dispatch: virtual) { a() }")
+    members := new List<Declaration>()
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- N+1c tranche 10b: the member-BODY CONSUMERS the statement family unlocks ----
+// FUNCTION / METHOD / CONSTRUCTOR / PROPERTY / INDEXER bodies (expression-bodied via the tranche-7..9
+// expression nodes, block-bodied via the tranche-10a BlockStatement), LOCAL FUNCTIONS, and the whole
+// TEST-DSL declaration family (test / setup / teardown), plus the top-level PreprocessorDeclaration.
+// The top-level `func` declaration now routes through the SAME full ParseFunctionDeclaration reproduction
+// as the member path (retiring the Stage-3 reduced "literal-reaching vehicle"), and the parameter list
+// models Parser.cs's FULL grammar (params/ref/out, `this`, scoped/lifetime, default values).
+// Every position/span below is transcribed from the LIVE Parser.cs AstToJson oracle over the identical
+// source, and every shape was additionally diffed owner-vs-live whole-tree through the same serializer.
+
+test "016 N+1c tranche 10: a top-level expression-bodied func materializes FunctionDeclaration (Parser.cs :503)" {
+    actual := RunAst("func add(x: int, y: int): int => x + y\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("x", Golden.SimpleT("int", 1, 13, 16), null, false, ParameterModifier.None, 1, 10))
+    parameters.Add(Golden.Param("y", Golden.SimpleT("int", 1, 21, 24), null, false, ParameterModifier.None, 1, 18))
+    body := Golden.Bin(Golden.Ident("x", 1, 34), BinaryOperator.Add, Golden.Ident("y", 1, 38), 1, 36)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("add", parameters, Golden.SimpleT("int", 1, 27, 30), null, body, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a top-level block-bodied func hangs a BlockStatement on FunctionDeclaration.Body" {
+    actual := RunAst("func main() {\n    print 1\n}\n")
+    body := Golden.Block1(Golden.Print(Golden.IntLit("1", 2, 11), 2, 5), 1, 13)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("main", Golden.NoParams(), null, body, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a class METHOD materializes into Members with its block body (Parser.cs :1475/:503)" {
+    actual := RunAst("class C {\n    func run(): int {\n        return 1\n    }\n}\n")
+    body := Golden.Block1(Golden.Return(Golden.IntLit("1", 3, 16), 3, 9), 2, 21)
+    members := new List<Declaration>()
+    Golden.AddFunc(members, Golden.Func("run", Golden.NoParams(), Golden.SimpleT("int", 2, 17, 20), body, null, null, Golden.NoConstraints(), Modifiers.None, 2, 5))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a BODY-LESS method (abstract / interface) keeps both bodies null" {
+    actual := RunAst("class C {\n    func run(): int\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFunc(members, Golden.Func("run", Golden.NoParams(), Golden.SimpleT("int", 2, 17, 20), null, null, null, Golden.NoConstraints(), Modifiers.None, 2, 5))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a generic method materializes TypeParameters + a `where T: class` GenericConstraint (Parser.cs :928)" {
+    actual := RunAst("class C {\n    func id<T>(v: T): T where T: class {\n        return v\n    }\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("v", Golden.SimpleT("T", 2, 19, 20), null, false, ParameterModifier.None, 2, 16))
+    body := Golden.Block1(Golden.Return(Golden.Ident("v", 3, 16), 3, 9), 2, 40)
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    members := new List<Declaration>()
+    Golden.AddFunc(members, Golden.Func("id", parameters, Golden.SimpleT("T", 2, 23, 24), body, null, typeParams, constraints, Modifiers.None, 2, 5))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a constructor materializes ConstructorDeclaration with a NULL initializer (Parser.cs :1572)" {
+    actual := RunAst("class C {\n    constructor(x: int) {\n        print x\n    }\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("x", Golden.SimpleT("int", 2, 20, 23), null, false, ParameterModifier.None, 2, 17))
+    members := new List<Declaration>()
+    Golden.AddCtor(members, parameters, Golden.Block1(Golden.Print(Golden.Ident("x", 3, 15), 3, 9), 2, 25), null, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `: base(x)` materializes a CallExpression over BaseExpression anchored on `base` (Parser.cs :1536)" {
+    actual := RunAst("class C {\n    constructor(x: int) : base(x) {\n    }\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("x", Golden.SimpleT("int", 2, 20, 23), null, false, ParameterModifier.None, 2, 17))
+    args := Golden.NoArgs()
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 32), ArgumentModifier.None)
+    initializer := Golden.Call(Golden.BaseE(2, 27), args, Golden.NoTypeArgs(), 2, 27)
+    members := new List<Declaration>()
+    Golden.AddCtor(members, parameters, Golden.Block(Golden.NoStmts(), 2, 35), initializer, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an expression-bodied property materializes PropertyDeclaration.ExpressionBody (Parser.cs :1698)" {
+    actual := RunAst("class C {\n    Name: string => \"n\"\n}\n")
+    members := new List<Declaration>()
+    Golden.AddProp(members, "Name", Golden.SimpleT("string", 2, 11, 17), null, null, Golden.StrLit("\"n\"", 2, 21), Modifiers.None, PropertyModifier.None, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a get/set property materializes both accessor BlockStatements (Parser.cs :1768)" {
+    actual := RunAst("class C {\n    Name: string {\n        get { return v }\n        set { v = 1 }\n    }\n}\n")
+    getBody := Golden.Block1(Golden.Return(Golden.Ident("v", 3, 22), 3, 15), 3, 13)
+    setBody := Golden.Block1(Golden.ExprStmt(Golden.Assign(Golden.Ident("v", 4, 15), AssignmentOperator.Assign, Golden.IntLit("1", 4, 19), 4, 17), 4, 15), 4, 13)
+    members := new List<Declaration>()
+    Golden.AddProp(members, "Name", Golden.SimpleT("string", 2, 11, 17), getBody, setBody, null, Modifiers.None, PropertyModifier.None, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an indexer materializes IndexerDeclaration with its parameter + get body (Parser.cs :1642)" {
+    actual := RunAst("class C {\n    func this[i: int]: int {\n        get { return i }\n    }\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("i", Golden.SimpleT("int", 2, 18, 21), null, false, ParameterModifier.None, 2, 15))
+    getBody := Golden.Block1(Golden.Return(Golden.Ident("i", 3, 22), 3, 15), 3, 13)
+    members := new List<Declaration>()
+    Golden.AddIndexer(members, parameters, Golden.SimpleT("int", 2, 24, 27), getBody, null, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a LOCAL function materializes LocalFunctionStatement over its own FunctionDeclaration (Parser.cs :2539)" {
+    actual := RunAst("func outer() {\n    func inner(): int {\n        return 1\n    }\n}\n")
+    innerBody := Golden.Block1(Golden.Return(Golden.IntLit("1", 3, 16), 3, 9), 2, 23)
+    inner := Golden.Func("inner", Golden.NoParams(), Golden.SimpleT("int", 2, 19, 22), innerBody, null, null, Golden.NoConstraints(), Modifiers.None, 2, 5)
+    outerBody := Golden.Block1(Golden.LocalFunc(inner, 2, 5), 1, 14)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("outer", Golden.NoParams(), null, outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `params` / default-valued parameters materialize their modifier + DefaultValue (Parser.cs :822)" {
+    actual := RunAst("func f(params xs: int[], y: int = 2) {\n    print y\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("xs", Golden.ArrayT(Golden.SimpleT("int", 1, 19, 22), 1, 19, 24), null, false, ParameterModifier.Params, 1, 15))
+    parameters.Add(Golden.Param("y", Golden.SimpleT("int", 1, 29, 32), Golden.IntLit("2", 1, 35), false, ParameterModifier.None, 1, 26))
+    body := Golden.Block1(Golden.Print(Golden.Ident("y", 2, 11), 2, 5), 1, 38)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", parameters, null, body, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `ref` / `out` parameter modifiers materialize (Parser.cs :789-798)" {
+    actual := RunAst("func f(ref a: int, out b: int) {\n    print a\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("a", Golden.SimpleT("int", 1, 15, 18), null, false, ParameterModifier.Ref, 1, 12))
+    parameters.Add(Golden.Param("b", Golden.SimpleT("int", 1, 27, 30), null, false, ParameterModifier.Out, 1, 24))
+    body := Golden.Block1(Golden.Print(Golden.Ident("a", 2, 11), 2, 5), 1, 32)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", parameters, null, body, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a `this` extension parameter sets IsThis (Parser.cs :801)" {
+    actual := RunAst("func ext(this a: int): int => a\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("a", Golden.SimpleT("int", 1, 18, 21), null, true, ParameterModifier.None, 1, 15))
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("ext", parameters, Golden.SimpleT("int", 1, 24, 27), null, Golden.Ident("a", 1, 31), null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The declaration node is anchored on the `func` KEYWORD (Parser.cs :375 captures Current AFTER
+// ParseModifiers has consumed the leading modifiers), not on the first modifier.
+test "016 N+1c tranche 10: `public static async func` accumulates the Modifiers bitmask (Parser.cs :215)" {
+    actual := RunAst("class C {\n    public static async func go(): int {\n        return 1\n    }\n}\n")
+    body := Golden.Block1(Golden.Return(Golden.IntLit("1", 3, 16), 3, 9), 2, 40)
+    modifiers := Golden.Mods2(Golden.Mods2(Modifiers.Public, Modifiers.Static), Modifiers.Async)
+    members := new List<Declaration>()
+    Golden.AddFunc(members, Golden.Func("go", Golden.NoParams(), Golden.SimpleT("int", 2, 36, 39), body, null, null, Golden.NoConstraints(), modifiers, 2, 25))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `func*` sets Modifiers.Generator (Parser.cs :411)" {
+    actual := RunAst("func* gen(): int {\n    yield 1\n}\n")
+    body := Golden.Block1(Golden.Yield(Golden.IntLit("1", 2, 11), 2, 5), 1, 18)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("gen", Golden.NoParams(), Golden.SimpleT("int", 1, 14, 17), body, null, null, Golden.NoConstraints(), Modifiers.Generator, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: an operator overload materializes its symbol + the two operator SPANS (Parser.cs :505-506)" {
+    actual := RunAst("class C {\n    func operator +(a: C, b: C): C {\n        return a\n    }\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("a", Golden.SimpleT("C", 2, 24, 25), null, false, ParameterModifier.None, 2, 21))
+    parameters.Add(Golden.Param("b", Golden.SimpleT("C", 2, 30, 31), null, false, ParameterModifier.None, 2, 27))
+    body := Golden.Block1(Golden.Return(Golden.Ident("a", 3, 16), 3, 9), 2, 36)
+    members := new List<Declaration>()
+    Golden.AddFunc(members, Golden.OperatorFunc("operator +", parameters, Golden.SimpleT("C", 2, 34, 35), body, "+", Golden.SpanOf(2, 10, 18), Golden.SpanOf(2, 19, 20), 2, 5))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a `readonly` field carries BOTH Modifiers.Readonly and PropertyModifier.Readonly (Parser.cs :1671)" {
+    actual := RunAst("class C {\n    readonly Name: string\n}\n")
+    members := new List<Declaration>()
+    members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration("Name", Golden.SimpleT("string", 2, 20, 26), null, Modifiers.Readonly, PropertyModifier.Readonly, new List<AttributeNode>(), 2, 5))
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a `test` declaration materializes TestDeclaration with its unquoted description (Parser.cs :650)" {
+    actual := RunAst("test \"adds\" {\n    assert a\n}\n")
+    body := Golden.Block1(Golden.Assert(Golden.Ident("a", 2, 12), null, 2, 5), 1, 13)
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "adds", body, Golden.NoTableParams(), Golden.NoTable(), null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: `skip \"reason\"` lands unquoted in TestDeclaration.SkipReason (Parser.cs :642)" {
+    actual := RunAst("test \"adds\" skip \"later\" {\n    assert a\n}\n")
+    body := Golden.Block1(Golden.Assert(Golden.Ident("a", 2, 12), null, 2, 5), 1, 26)
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "adds", body, Golden.NoTableParams(), Golden.NoTable(), "later", 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a table-driven test materializes TableParameters + the row lists (Parser.cs :585/:608)" {
+    actual := RunAst("test \"adds\" with (a: int) [ (1), (2) ] {\n    assert a\n}\n")
+    body := Golden.Block1(Golden.Assert(Golden.Ident("a", 2, 12), null, 2, 5), 1, 40)
+    tableParams := Golden.NoParams()
+    tableParams.Add(Golden.Param("a", Golden.SimpleT("int", 1, 22, 25), null, false, ParameterModifier.None, 1, 19))
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "adds", body, tableParams, Golden.Rows1(Golden.IntLit("1", 1, 30), Golden.IntLit("2", 1, 35)), null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: setup + teardown blocks materialize their declarations (Parser.cs :700/:715)" {
+    actual := RunAst("setup {\n    print 1\n}\n\nteardown {\n    print 2\n}\n")
+    decls := new List<Declaration>()
+    Golden.AddSetup(decls, Golden.Block1(Golden.Print(Golden.IntLit("1", 2, 11), 2, 5), 1, 7), 1, 1)
+    Golden.AddTeardown(decls, Golden.Block1(Golden.Print(Golden.IntLit("2", 6, 11), 6, 5), 5, 10), 5, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 10: a top-level preprocessor directive materializes PreprocessorDeclaration (Parser.cs :211)" {
+    actual := RunAst("#if DEBUG\nclass C {}\n")
+    decls := new List<Declaration>()
+    Golden.AddPreproc(decls, "#if DEBUG", 1, 1)
+    Golden.AddClass(decls, "C", 2, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- tranche 10b: negative self-checks ----
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong ParameterModifier (Ref golden vs Out actual)" {
+    actual := RunAst("func f(out b: int) {\n    print b\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("b", Golden.SimpleT("int", 1, 15, 18), null, false, ParameterModifier.Ref, 1, 12))
+    body := Golden.Block1(Golden.Print(Golden.Ident("b", 2, 11), 2, 5), 1, 20)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", parameters, null, body, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a swapped get/set property body" {
+    actual := RunAst("class C {\n    Name: string {\n        get { return v }\n        set { v = 1 }\n    }\n}\n")
+    getBody := Golden.Block1(Golden.Return(Golden.Ident("v", 3, 22), 3, 15), 3, 13)
+    setBody := Golden.Block1(Golden.ExprStmt(Golden.Assign(Golden.Ident("v", 4, 15), AssignmentOperator.Assign, Golden.IntLit("1", 4, 19), 4, 17), 4, 15), 4, 13)
+    members := new List<Declaration>()
+    Golden.AddProp(members, "Name", Golden.SimpleT("string", 2, 11, 17), setBody, getBody, null, Modifiers.None, PropertyModifier.None, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 10: AstEq surfaces a wrong test table ROW value (guards vacuous row-list pass)" {
+    actual := RunAst("test \"adds\" with (a: int) [ (1), (2) ] {\n    assert a\n}\n")
+    body := Golden.Block1(Golden.Assert(Golden.Ident("a", 2, 12), null, 2, 5), 1, 40)
+    tableParams := Golden.NoParams()
+    tableParams.Add(Golden.Param("a", Golden.SimpleT("int", 1, 22, 25), null, false, ParameterModifier.None, 1, 19))
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "adds", body, tableParams, Golden.Rows1(Golden.IntLit("1", 1, 30), Golden.IntLit("9", 1, 35)), null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+// ---- tranche 10b: RETAINED principled declines (Parser.cs recovery artifacts) ----
+// The conversion-operator shape below makes Parser.cs emit an EXTRA `<error>`-named PropertyDeclaration
+// (its `: int => 1` tail is re-parsed as a bogus property member); the owner declines that synthetic
+// member and materializes the conversion FunctionDeclaration alone, so the Members lists differ by one.
+test "016 N+1c tranche 10: a conversion operator DECLINES — Parser.cs adds a synthetic `<error>` property member" {
+    actual := RunAst("class C {\n    implicit operator int(c: C): int => 1\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("c", Golden.SimpleT("C", 2, 30, 31), null, false, ParameterModifier.None, 2, 27))
+    conversion := new NSharpLang.Compiler.Ast.FunctionDeclaration("implicit operator", parameters, Golden.SimpleT("int", 2, 23, 26), null, null, null, Golden.NoConstraints(), Modifiers.None, new List<AttributeNode>(), false, null, true, true, 2, 5)
+    members := new List<Declaration>()
+    members.Add(conversion)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
 }

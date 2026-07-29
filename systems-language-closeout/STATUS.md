@@ -1,6 +1,27 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (RATCHET + PARITY REMEDIATION of `170244a5f` "Fix infinite loop in ParseTestDeclaration
+Last updated: 2026-07-29 (STAGE N+1c TRANCHE 10 LANDED — **STATEMENT BODIES: `BlockStatement` + the WHOLE Statement
+node family, and the member-BODY consumers**. Recut into two halves, both landed: 10a = BlockStatement, every
+statement kind (let/const/readonly + typed + tuple deconstruction, expression/empty statements, if/else, while,
+C-style + for-in for, foreach / await-foreach, return, print, yield, break, continue, throw, preprocessor, off,
+try/catch/finally, using, lock, switch + SwitchCase, unsafe, alloc, assert + assert-throws, allow) and the
+BLOCK-BODIED LAMBDA — retiring the LAST expression-side decline; 10b = the consumers — function / method /
+constructor / property / indexer BODIES, local functions, the test/setup/teardown DSL declarations, and the
+top-level + member PreprocessorDeclaration. FOUR recorded owner-vs-Parser.cs divergences were retired en route:
+the top-level `func` now routes through the SAME full ParseFunctionDeclaration reproduction as the member path
+(the Stage-3 reduced vehicle + 5 dead helpers DELETED), the parameter list models Parser.cs's FULL grammar
+(params/ref/out, `this`, scoped/lifetime, defaults, the recovery boundary), `ParseModifiers` no longer eats
+`readonly` (which was swallowing the flag on every readonly field), and `foreach (x in y)` parens are modelled.
+**WHOLE-FILE SWEEP: 404 of 407 in-repo `.nl` files now parse byte-exact owner==Parser.cs — up from 26.** The 3
+residuals are principled no-stub declines of Parser.cs RECOVERY ARTIFACTS (an `is` pattern-variable capture with
+no same-line guard; a `>>`-split nested generic whose type node gets a multi-line span), not parity gaps.
+Contracts +82 net → 1,524 / 1,524 PASS. dev.sh Parser slice 384/384. NEW CONSTRAINT RECORDED: the owner class has
+reached the columnar front-end's per-class MEMBER CEILING — adding ANY member function trips
+`NL103 … parse.struct`; the tranche's helper was inlined instead (raising it means a kernel change = the
+two-stage bootstrap wall). Production untouched [ParseFileAst still test-only, zero callers], no LSP change, no
+repin, no wall)
+
+Last updated (prior): 2026-07-29 (RATCHET + PARITY REMEDIATION of `170244a5f` "Fix infinite loop in ParseTestDeclaration
 table-case recovery" — a CORRECT fix landed by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on
 BOTH files it touched and (b) skipped the N# parity mirror, so the ownership audit failed with 6 violations
 [OWN004+OWN005 on each file] and broke the integration gate. BOTH debts are now PAID, no behavior change:
@@ -167,6 +188,130 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 10 = **STATEMENT BODIES — `BlockStatement` and the whole Statement node family** — the last node
+  family before whole-file equivalence. TARGET was recorded before editing and the permitted RECUT was
+  taken as TWO halves, BOTH landed this turn: **10a = BlockStatement + the ENTIRE Statement family + the
+  block-bodied LAMBDA**; **10b = the member-BODY CONSUMERS** (function / method / constructor / property /
+  indexer bodies, local functions, the test-DSL declarations).
+  MECHANISM (unchanged discipline): every `ParseXStatement` now RETURNS `Statement?`; `ParseBlock` /
+  `ParseBlockBody` return `BlockStatement?`; `ParseBlockStatementsLoop` ACCUMULATES `List<Statement>` and
+  returns null when ANY contained statement declined (no-stub — a block never carries a partial list). The
+  Advance / Report / Consume / synchronize sequence is UNTOUCHED at every site, so the ~440
+  ColumnarParserRecovery diagnostic-stream contracts stay green.
+  CONSTRUCTION-SITE INVENTORY — TRANCHE 10a (owner, each byte-exact to Parser.cs, VERIFIED owner==LIVE via
+  the AstToJson probe): (1) BLOCK — `new BlockStatement(statements, line, column)` (Parser.cs :2227),
+  line/column = the OPENING BRACE; the found-declaration `break` (:2180) still returns the statements
+  accumulated so far; (2) EMPTY — `new EmptyStatement(ownerSpan.Line, ownerSpan.Column)` (:2235, the
+  missing-body arm) / `(line, column)` (:2244, a bare `;`); (3) VARIABLE DECLARATION —
+  `new VariableDeclarationStatement(name, type, initializer, kind, line, column)` (:2578), anchored on the
+  NAME, `kind` read off the let/const/readonly token (:2248-2252); (4) TUPLE DECONSTRUCTION —
+  `new TupleDeconstructionStatement(names, initializer, kind, line, column)` (:2637 paren form / :3583
+  paren-free / :3625 statement-level); (5) EXPRESSION STATEMENT —
+  `new ExpressionStatement(expr, line, column)` (:3643, anchored on the STATEMENT start) plus the typed
+  let-less declaration (:3535) and the `identifier :=` shorthand (:3640, anchored on the IDENTIFIER node);
+  (6) IF / WHILE — (:2659 / :2829), an ABSENT else is a materialized null; (7) FOR — the two for-in arms
+  wrap `new ForeachStatement(...)` in `new ForStatement(null, null, null, <foreach>, line, column)` (:2678/
+  :2691, BOTH nodes on the `for` keyword) and the C-style arm builds (:2755) over the `:=`-shorthand
+  initializer (:2723) or `new ExpressionStatement(expr, expr.Line, expr.Column)` (:2727 — anchored on the
+  EXPRESSION, unlike :3643); (8) FOREACH / AWAIT-FOREACH — (:2784 / :2814, the latter on the `await`
+  keyword); the previously-unmodelled OPTIONAL PARENTHESES `foreach (x in y)` (:2765/:2779) are now
+  modelled; (9) RETURN / YIELD (:2844 / :2870, both with a materialized-null bare form), PRINT (:2883),
+  BREAK / CONTINUE (:2901 / :2983), THROW (:2996), PREPROCESSOR (:2893), OFF (:2975); (10) TRY —
+  (:3056) over `new CatchClause(exceptionType, varName, catchBlock)` (:3046, both parts optional);
+  (11) USING — the declaration form (:3121), the rejected-tuple form whose Expression is the TUPLE's
+  Initializer (:3119), and the bare-resource form (:3136); Parser.cs's `stmt as VariableDeclarationStatement`
+  decision is reproduced through a transient `VariableDeclarationWasTuple` field so it stays correct even
+  when the node declines; (12) LOCK (:3178); (13) SWITCH — (:3271) over `new SwitchCase(pattern, statements,
+  caseLine, caseColumn)` (:3250); a BRACED case FLATTENS its block's statements into the case list (:3243),
+  so no BlockStatement wrapper appears; `default` keeps a materialized-null Pattern; (14) UNSAFE / ALLOC
+  BLOCK (:2396 / :2318); (15) ASSERT + ASSERT THROWS (:2427 / :2411); (16) ALLOW — (:2370) with
+  `reason`/`owner` unquoted through a new `TryGetStringLiteralValue` (:6834) and named effects formatted
+  through `FormatAllowValue` (:6846); (17) the BLOCK-BODIED LAMBDA — `new LambdaExpression(parameters, null,
+  blockBody, line, column)` (:3675 single-param / :5533 multi-param), **retiring the LAST expression-side
+  decline recorded at the end of tranche 9c**; (18) BONUS: `on` subscriptions now materialize
+  `new OnSubscriptionExpression(target, handler, line, column)` (:2917), reachable only now that a block
+  handler builds, over a node-returning `ParseEventTarget` (:2949/:2957).
+  CONSTRUCTION-SITE INVENTORY — TRANCHE 10b: (19) FUNCTION / METHOD —
+  `new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints,
+  modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion,
+  line, column) { OperatorKeywordSpan, OperatorSymbolSpan, ReturnLifetime }` (:503-508), including the
+  operator-overload and conversion-operator forms; (20) `ParseGenericConstraints` now RETURNS
+  `List<GenericConstraint>?` (:928, null when the `where` clause is absent) and `ParseReturnLifetimeAnnotation`
+  records its string (:511); (21) CONSTRUCTOR — (:1572) with the `: this(args)` / `: base(args)` initializer
+  as a `new CallExpression(new ThisExpression/BaseExpression(...), arguments, null, ...)` (:1518/:1536);
+  (22) PROPERTY — the expression-bodied (:1698) and get/set-accessor (:1768) forms; (23) INDEXER — (:1642);
+  (24) LOCAL FUNCTION — `new LocalFunctionStatement(functionDecl, line, column)` (:2539) over the local
+  function's own FunctionDeclaration (:2533); (25) the TEST-DSL family — `new TestDeclaration(description,
+  body, tableParameters, tableCases, skipReason, line, column)` (:650, description/skip unquoted, an absent
+  `with` leaving BOTH lists null), `new SetupDeclaration(body, …)` (:700), `new TeardownDeclaration(body, …)`
+  (:715); (26) `new PreprocessorDeclaration(directive, line, column)` at BOTH the top level (:211) and the
+  member level (:1432).
+  FOUR RECORDED OWNER DIVERGENCES FROM Parser.cs RETIRED en route (each a real parity fix, all 440
+  diagnostic contracts still green): (a) the top-level `func` declaration now routes through the SAME full
+  ParseFunctionDeclaration reproduction as the member path (Parser.cs :217 and :1475 call the same
+  function), replacing the Stage-3 reduced "literal-reaching vehicle" — this retires the `<error>`-name
+  early return, the missing `-> T` / missing-return-type-marker arms, and the shallow
+  `ParseLiteralBearing*` expression body (the malformed-literal checks still run inside
+  ParsePrimaryExprValue); the five now-dead Stage-3 helpers were DELETED; (b) `ParseParameterListRecovery`
+  models Parser.cs's FULL parameter grammar — the params/ref/out modifier prefix (:784-798), the `this`
+  extension marker (:801), the scoped/lifetime annotation (:813), the DEFAULT value (:816) and the
+  `IsParameterListRecoveryBoundary` early break (:778); (c) `ParseModifiers` no longer consumes `readonly`
+  (Parser.cs's ParseModifiers has NO readonly arm and BREAKS there, leaving the token for
+  ParseFieldDeclaration's property-modifier loop, which sets BOTH PropertyModifier.Readonly and
+  Modifiers.Readonly, :1671) — the extra consumption was swallowing the flag on every `readonly` field in
+  the corpus; (d) `ParseForeachStatement` models the optional parentheses.
+  EMITTER GAPS HIT (all worked around, no kernel change): (i) `GetType()` on a typed receiver still
+  declines — the receiver is cast to `object` first in `FormatAllowValue`; (ii) an explicitly-typed
+  nullable NESTED-generic local (`List<List<Expression> >?`) declines — the test-table lists are bound as
+  non-nullable `:=` locals with a `hasTable` branch, and the null argument goes through typed
+  `NoTableParameters()` / `NoTableCases()` helpers (the established `NoTypeArguments()` idiom); (iii) NEW
+  AND IMPORTANT — **`ColumnarParserRecovery` has reached the columnar front-end's per-class MEMBER
+  CEILING**: adding ANY additional member function to the class makes `ParseColumnarStructInfoInto` (the
+  dogfood kernel behind ColumnarProgramInputBuilder) decline the whole class with
+  `NL103 … Declined at parse.struct`, regardless of that member's name, signature, or body (proven by
+  bisecting to a one-line `func F(s: string): string { return s }`). Raising the ceiling means changing
+  the KERNEL, which would trip the two-stage bootstrap wall, so the quote-trimming helper this tranche
+  needed was INLINED at its two call sites instead. **Any future tranche that wants a new helper on this
+  class must inline it or delete an existing member first.**
+  DELIVERABLES: `ColumnarParserRecovery.nl` 8,614 → 9,358; `ColumnarParserAst.tests.nl` 4,004 → 5,170
+  (40 new AstEq FieldNames registrations — 30 for the Statement family incl. CatchClause / SwitchCase /
+  OnSubscriptionExpression, 10 for the tranche-10b declaration nodes incl. GenericConstraint — plus ~50 golden
+  builders and a `RunBody`/`BodyUnit` vehicle). CONTRACTS: +82 net → **1,524 total / 1,524 PASS** (55
+  tranche-10a + 27 tranche-10b, minus the 2 declines they convert: the tranche-9c block-bodied lambda and
+  the tranche-4 default-valued parameter). Coverage includes 8 negative self-checks (wrong VariableKind,
+  wrong block statement COUNT, swapped then/else, wrong foreach variable, wrong allow reason, wrong
+  ParameterModifier, swapped get/set body, wrong test-table row) and 4 RETAINED principled declines.
+  TRIANGULATION: a THROWAWAY (scratchpad) fresh-Compiler ProjectReference probe ran BOTH live Parser.cs
+  (Lexer→Parser→ParseCompilationUnit) AND the owner's ParseFileAst through the identical
+  `OutputFormatter.AstToJson` serializer and diffed — 99/102 synthetic statement/member shapes MATCH
+  owner==Parser.cs (the 3 non-matches are the recorded synthetic-`<error>` declines pinned as contracts). **WHOLE-FILE SWEEP: 404 of the 407 in-repo `.nl` files now parse byte-exact
+  owner==Parser.cs (was 26).** All THREE residuals are PRINCIPLED no-stub declines of Parser.cs RECOVERY
+  ARTIFACTS, not parity gaps: (1) `ColumnarParserRecovery.nl` — an `is` pattern-variable capture with no
+  same-line guard (Parser.cs :4157) swallows the NEXT line's identifier, so Parser.cs emits a synthetic
+  `IdentifierExpression("<error>")` statement; (2) `TypeInfoModels.nl` and (3) `OutputFormatterJsonKernels.nl`
+  — a `>>`-split nested generic (`Dictionary<string, List<TypeInfo>>?`) whose Parser.cs type node ends up
+  with a MULTI-LINE span, which the recorded single-line materialization gate declines. Two further
+  synthetic-`<error>` declines are pinned as contracts (`using r { }` with a missing `:=`, an `allow`
+  effect value that is not an effect name) plus the conversion-operator shape where Parser.cs adds a
+  spurious `<error>`-named PropertyDeclaration member.
+  EVIDENCE: BootstrapServices contracts **1,524 / 1,524 PASS** via the canonical
+  `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+  (baseline re-measured at 1,442/1,442 on the same command before editing; the 3 ExternalAssemblyScan
+  Debug-layout tests did NOT trip this turn — the documented `dotnet build src/NSharpLang.Cli -c Debug`
+  remains the remedy after a clean `rm -rf obj bin`). dev.sh Parser slice run by this agent. Ownership
+  audit: only `.nl`/`.tests.nl`/`.md` changed (2 .nl + 1 .md, **zero .cs** → OWN003 cannot trip, no C#
+  growth → NO REPIN). Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers outside
+  its `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. No
+  LSP / VS Code / extension file touched → no reload, no VS Code gate. NO two-stage bootstrap wall
+  tripped (no kernel or OpCodes change).
+  NEXT: ERROR-NODE MATERIALIZATION — decide, per site, whether the owner should reproduce Parser.cs's
+  SYNTHETIC `<error>` nodes (`IdentifierExpression("<error>")`, the `<error>`-named class/property
+  placeholders, the empty-BlockStatement body substitutes) or keep declining them; that is the last
+  systematic difference between owner and Parser.cs on malformed input, and it plus the two recorded
+  Parser.cs recovery artifacts above are all that stand between 404/407 and 407/407. After that, the N+2
+  CUTOVER (routing production + the LSP at Parser.cs's call sites), which IS IDE-affecting: VS Code-enabled
+  gate + extension reinstall + computer-use verification.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHES 9b + 9c = the ARGUMENT/ELEMENT-LIST expression forms and then the LAST expression families. The
   mandate's permitted RECUT was taken and BOTH halves landed in this turn: 9b = call / with / new / tuple /
   array / immutable-array / alloc / stackalloc; 9c = match+patterns / interpolated strings / lambda literals.
