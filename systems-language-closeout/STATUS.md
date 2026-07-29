@@ -173,7 +173,11 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: `tasks/016-parser-and-syntax-diagnostics.md`
+- Current task: `tasks/017-semantic-analyzer-ownership.md` (016 ACCEPTED at `53e272711` — Parser.cs
+  DELETED, the checkbox's stronger arm; N# is the sole production parser and ordered
+  syntax-diagnostic authority. The 016 arc: 17 capability stages + 11 materialization tranches +
+  cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
+  single toolset repin.)
 - Current iteration: one terminal slice
 - Task 015 status: UNCHECKED, iteration PAUSED at `e0f987bba` — the movable decision surface is
   EXHAUSTED per the 015 completion roadmap (recorded below): every remaining emitter policy is

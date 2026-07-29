@@ -36,7 +36,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [013 — Synchronous iterators](013-synchronous-iterators.md)
 - [x] [014 — Async iterators](014-async-iterators.md)
 - [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
-- [ ] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
+- [x] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
 - [ ] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
 - [ ] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
 - [ ] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
