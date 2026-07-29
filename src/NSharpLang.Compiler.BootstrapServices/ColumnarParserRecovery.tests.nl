@@ -5209,6 +5209,72 @@ test "016 test-dsl: an unclosed test-cases ']' routes through the Stage-9 closin
     assert e.Suggestion == "Add ']' before starting the next line"
 }
 
+// Parity for the table-case no-progress guard (Parser.cs 170244a5f). Before the guard, a token that cannot start
+// an expression sitting in row position (the body '{', or the ']' that closes an unparenthesised row) spun the
+// row-item loop forever — ParseExpression returns without advancing and Match(Comma)/ConsumeToken do not advance
+// on mismatch either — and the outer row loop spun for the same reason once the item loop consumed nothing. All
+// four shapes below HUNG; they now terminate with exactly the diagnostics the live Parser.cs reports (golden
+// values from the freshly built Release CLI `nlc check --json`, filtered to the parser codes NL101-NL109).
+// The earlier EOF-pinned row contracts above are unaffected — the loops there end on IsAtEnd(), not the guard.
+
+test "016 test-dsl: an untyped table header before a bare row value terminates on the parameter-':' NL102" {
+    errors := RunPreamble("test \"d\" with (a) 9 { }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' after parameter name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"d\" with (a) 9 { }"
+    assert e.HumanExplanation == "Parameter 'a' needs a ':' before its type."
+    assert e.ContextualHint == "Write this parameter as `a: Type`."
+    assert e.Suggestion == "Add ':' after 'a'"
+}
+
+test "016 test-dsl: an untyped table header before a bracketed row value terminates on the parameter-':' NL102" {
+    errors := RunPreamble("test \"d\" with (a) [ 9 ] { }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected ':' after parameter name. Got ')'"
+    assert e.Line == 1
+    assert e.Column == 16
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"d\" with (a) [ 9 ] { }"
+    assert e.HumanExplanation == "Parameter 'a' needs a ':' before its type."
+    assert e.ContextualHint == "Write this parameter as `a: Type`."
+    assert e.Suggestion == "Add ':' after 'a'"
+}
+
+test "016 test-dsl: a bare row value after a typed table header terminates on the table '[' NL102" {
+    errors := RunPreamble("test \"d\" with (a: int) 9 { }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '[' to start test cases. Expected '[', got '9'"
+    assert e.Line == 1
+    assert e.Column == 24
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"d\" with (a: int) 9 { }"
+    assert e.HumanExplanation == "I was expecting [ here, but I found '9' instead."
+    assert e.ContextualHint == null
+}
+
+test "016 test-dsl: a non-'(' row between the brackets terminates on the row '(' NL102" {
+    errors := RunPreamble("test \"d\" with (a: int) [ 9 ] { }")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '(' to start test case row. Expected '(', got '9'"
+    assert e.Line == 1
+    assert e.Column == 26
+    assert e.Length == 1
+    assert e.SourceSnippet == "test \"d\" with (a: int) [ 9 ] { }"
+    assert e.HumanExplanation == "I was expecting ( here, but I found '9' instead."
+    assert e.ContextualHint == null
+}
+
 test "016 test-dsl negative: a valid empty test reports nothing" {
     assert RunPreamble("test \"adds\" {\n}\n").Count == 0
 }

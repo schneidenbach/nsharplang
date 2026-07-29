@@ -1,6 +1,44 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (STAGE N+1c tranches 9b + 9c LANDED — THE EXPRESSION SURFACE IS COMPLETE. 9b = the
+Last updated: 2026-07-29 (RATCHET + PARITY REMEDIATION of `170244a5f` "Fix infinite loop in ParseTestDeclaration
+table-case recovery" — a CORRECT fix landed by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on
+BOTH files it touched and (b) skipped the N# parity mirror, so the ownership audit failed with 6 violations
+[OWN004+OWN005 on each file] and broke the integration gate. BOTH debts are now PAID, no behavior change:
+(1) LOSSLESS COMMENT COMPRESSION back under the ceilings. `Parser.cs` 7,128/6,192 → 7,116/6,180 vs epoch 7,117/6,183
+(six XML-doc `<summary>` collapses; PROVEN zero functional change — strip every whole-line comment + blank from HEAD and
+from the compressed file and the remaining 5,872 code lines are BYTE-IDENTICAL). `ParserErrorTests.cs`
+1,944/1,609/568 → 1,923/1,588/563 vs epoch 1,923/1,592/563 — paid as 10 comment lines (2 XML `<summary>` collapses +
+the 10-line tuple-double-failure block reflowed to 7 + 3 one-line reflows), 6 standalone comments merged to trailing
+comments on the single statement each annotates (the file's own existing idiom), and 5 GENUINELY-SUBSUMED assertions
+deleted for the marker budget, each in a LinterTests-precedent class: `Assert.Contains(c, pred)` immediately followed
+by `c.First(pred)` [x3 — First(predicate) throws when nothing matches, so Contains adds no coverage],
+`Assert.NotEmpty(c)` immediately followed by `Assert.Contains(c, pred)` [Contains-with-predicate cannot pass on an
+empty collection], and `Assert.NotNull(error.Message)` immediately followed by `Assert.NotEmpty(error.Message)`
+[NotEmpty strictly implies non-null, and `CompilerError.Message` is NON-nullable so no nullable-flow warning appears].
+A code-only diff (whole-line comments + blanks stripped) shows EXACTLY those 5 deletions plus 6 lines that differ only
+by an appended trailing comment — nothing else. (2) THE N# PARITY MIRROR the original fix skipped:
+`ColumnarParserRecovery.nl`'s `ParseTestDeclaration` table-case loops now carry the SAME no-progress guards
+(`rowStartPosition`/`itemStartPosition` captured from `Position`, `break` when an iteration consumed nothing) — the
+owner's `ConsumeToken` does NOT advance on mismatch either, so it reproduced the hang faithfully. +4 parity contracts
+for the shapes that PREVIOUSLY HUNG, golden values from the freshly built Release CLI oracle (`nlc check --json`,
+filtered to parser codes NL101-NL109): `test "d" with (a) 9 { }` and `test "d" with (a) [ 9 ] { }` both terminate on
+the single parameter-`:` NL102 @(1,16,1) (the table-case Consume reports are panic-suppressed behind it), and the
+typed-header variants `test "d" with (a: int) 9 { }` / `test "d" with (a: int) [ 9 ] { }` — added so the guard's OWN
+reported diagnostics are pinned, not just termination — terminate on the table-`[` NL102 @(1,24,1) and the row-`(`
+NL102 @(1,26,1). The Stage-16 EOF-pinned row contracts are UNCHANGED and still green (their loops end on `IsAtEnd()`,
+never on the guard). EVIDENCE: ownership audit 18/18 (`Cli.dll test --project tests/native/ownership-audit`);
+BootstrapServices contracts 1,442/1,442 via the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices
+-c Release -p:NSharpExcludeTests=false` (1,438 baseline + 4); full unit suite `dotnet test tests/Tests.csproj
+-c Release`; dev.sh Parser slice. RATCHET REPIN (current* + fingerprints ONLY; every epoch* value and
+epochPath/epochFact fingerprint untouched, re-validated after the write): Parser.cs currentLines 7117→7116,
+currentNonBlankLines 6183→6180, fingerprint `text-v1:895641da1f9de8a6`→`text-v1:a22d50fc70a12d42`;
+ParserErrorTests.cs currentLines 1923→1923, currentNonBlankLines 1592→1588, currentAssertionMarkers 563→563,
+fingerprint `text-v1:5a291d0279aea87f`→`text-v1:5e650e2c1d8ae677`; reviewedHeadFingerprint
+`head-v1:1be7f7cb4c07e417`→`head-v1:682bbdb2c76e50c8` in BOTH the manifest and the mirrored
+`OwnershipPolicy.ReviewedHeadFingerprint` constant. NET non-N# change is −33 lines across the two C# files; all new
+code is N#. No production/LSP wiring change → no VS Code gate, no extension reload)
+
+Last updated (prior): 2026-07-29 (STAGE N+1c tranches 9b + 9c LANDED — THE EXPRESSION SURFACE IS COMPLETE. 9b = the
 ARGUMENT/ELEMENT-LIST forms: postfix CALL (CallExpression over an owned `ParseArgumentList` that now RETURNS the
 byte-exact `List<Argument>` — named / spread / ref / out / inline-out / bare-alloc argument shapes — plus the
 split-`>>`-aware generic-call `List<TypeReference>`), `with` (WithExpression + PropertyInitializer), `new`

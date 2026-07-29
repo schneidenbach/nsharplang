@@ -8483,13 +8483,21 @@ public class ColumnarParserRecovery {
 
             ConsumeToken(TokenType.LeftBracket, "Expected '[' to start test cases", "[")
             while !Check(TokenType.RightBracket) && !IsAtEnd() {
+                rowStartPosition := Position
                 ConsumeToken(TokenType.LeftParen, "Expected '(' to start test case row", "(")
                 while !Check(TokenType.RightParen) && !IsAtEnd() {
+                    itemStartPosition := Position
                     ParseExprValue()                    // Parser.cs ParseExpression (:596)
                     if !Check(TokenType.RightParen) {
                         if Check(TokenType.Comma) {     // Parser.cs Match(Comma) (:598)
                             Advance()
                         }
+                    }
+
+                    // If we didn't make progress (a token no expression can start, e.g. the body '{'),
+                    // bail out so ConsumeToken(')') reports it (Parser.cs :600).
+                    if Position == itemStartPosition {
+                        break
                     }
                 }
                 ConsumeToken(TokenType.RightParen, "Expected ')' to end test case row", ")")
@@ -8497,6 +8505,11 @@ public class ColumnarParserRecovery {
                     if Check(TokenType.Comma) {         // Parser.cs Match(Comma) (:603)
                         Advance()
                     }
+                }
+
+                // If the whole row made no progress, bail out so ConsumeToken(']') reports it (Parser.cs :613).
+                if Position == rowStartPosition {
+                    break
                 }
             }
             ConsumeToken(TokenType.RightBracket, "Expected ']' to end test cases", "]")

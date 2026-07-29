@@ -6850,9 +6850,7 @@ public class Parser
         _ => expression.GetType().Name.Replace("Expression", "", StringComparison.Ordinal)
     };
 
-    /// <summary>
-    /// Report a parse error with rich context
-    /// </summary>
+    /// <summary>Report a parse error with rich context</summary>
     private void ReportError(
         ErrorCode code,
         string message,
@@ -6886,30 +6884,22 @@ public class Parser
         _panicMode = true;
     }
 
-    /// <summary>
-    /// Check if a token type is a keyword that starts a top-level declaration.
+    /// <summary>Check if a token type is a keyword that starts a top-level declaration.
     /// These tokens cannot appear as statements inside a function body (unlike 'func'
-    /// which can start a local function).
-    /// </summary>
+    /// which can start a local function).</summary>
     private static bool IsTypeDeclarationKeyword(TokenType type)
         => ParserTokenFacts.IsTypeDeclarationKeyword(type);
 
-    /// <summary>
-    /// Check if current token starts a declaration keyword (includes func, modifiers, attributes).
-    /// Used for synchronization when recovering from errors.
-    /// </summary>
+    /// <summary>Check if current token starts a declaration keyword (includes func, modifiers, attributes).
+    /// Used for synchronization when recovering from errors.</summary>
     private static bool IsDeclarationKeyword(TokenType type)
         => ParserTokenFacts.IsDeclarationKeyword(type);
 
-    /// <summary>
-    /// Check if a token type is a modifier keyword that can precede declarations.
-    /// </summary>
+    /// <summary>Check if a token type is a modifier keyword that can precede declarations.</summary>
     private static bool IsModifierKeyword(TokenType type)
         => ParserTokenFacts.IsModifierKeyword(type);
 
-    /// <summary>
-    /// Check if a token type starts a statement (used for statement-level synchronization).
-    /// </summary>
+    /// <summary>Check if a token type starts a statement (used for statement-level synchronization).</summary>
     private static bool IsStatementStartKeyword(TokenType type)
         => ParserTokenFacts.IsStatementStartKeyword(type);
 
@@ -7115,9 +7105,7 @@ public class Parser
         }
     }
 
-    /// <summary>
-    /// Get source code snippet for a given line
-    /// </summary>
+    /// <summary>Get source code snippet for a given line</summary>
     private string? GetSourceSnippet(int line)
     {
         if (_sourceCode == null || line < 1)

@@ -8,10 +8,8 @@ using System.Linq;
 
 namespace NSharpLang.Tests;
 
-/// <summary>
-/// Tests for Parser error reporting with INVALID sources
-/// These tests verify that Parser correctly reports errors with proper codes and locations
-/// </summary>
+/// <summary>Tests for Parser error reporting with INVALID sources
+/// These tests verify that Parser correctly reports errors with proper codes and locations</summary>
 public class ParserErrorTests
 {
     private static List<Token> Tokenize(string source)
@@ -63,7 +61,6 @@ func test() {
         var result = Parse(source);
 
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.ReservedKeywordAsName);
         var error = result.Errors.First(e => e.Code == ErrorCode.ReservedKeywordAsName);
         Assert.NotNull(error.HumanExplanation);
         Assert.Contains("reserved keyword", error.HumanExplanation, StringComparison.OrdinalIgnoreCase);
@@ -309,7 +306,6 @@ func test() {
         var result = Parse(source);
 
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.MissingClosingParen);
 
         var error = result.Errors.First(e => e.Code == ErrorCode.MissingClosingParen);
         Assert.Equal(3, error.Line); // Line where the ) should have appeared
@@ -327,9 +323,7 @@ func test() {
         var result = Parse(source);
 
         Assert.False(result.Success);
-        Assert.NotEmpty(result.Errors);
-        // The error should be on line 3 where the invalid token is
-        Assert.Contains(result.Errors, e => e.Line == 3);
+        Assert.Contains(result.Errors, e => e.Line == 3); // The error should be on line 3 where the invalid token is
     }
 
     #endregion
@@ -383,8 +377,7 @@ func test() {
         Assert.Contains(result.Errors, e => e.Line == 4);
         Assert.Contains(result.Errors, e => e.Line == 5);
 
-        // All should have proper error codes
-        Assert.All(result.Errors, e => Assert.Equal(ErrorCode.ExpectedToken, e.Code));
+        Assert.All(result.Errors, e => Assert.Equal(ErrorCode.ExpectedToken, e.Code)); // All should have proper error codes
     }
 
     [Fact]
@@ -543,8 +536,7 @@ class User {
         Assert.NotNull(error);
         Assert.NotNull(error.Suggestions);
         Assert.NotEmpty(error.Suggestions);
-        // Suggestions should be actionable
-        Assert.All(error.Suggestions, s => Assert.NotEmpty(s));
+        Assert.All(error.Suggestions, s => Assert.NotEmpty(s)); // Suggestions should be actionable
     }
 
     [Fact]
@@ -639,7 +631,6 @@ func test3() {
         {
             Assert.True(error.Line > 0, "Error line should be positive");
             Assert.True(error.Column > 0, "Error column should be positive");
-            Assert.NotNull(error.Message);
             Assert.NotEmpty(error.Message);
         });
     }
@@ -704,8 +695,7 @@ func test() {
         var source = "";
         var result = Parse(source);
 
-        // Empty input should parse successfully (empty compilation unit)
-        // OR report an appropriate error if required
+        // Empty input should parse successfully (empty compilation unit) OR report an appropriate error if required
         Assert.NotNull(result);
     }
 
@@ -764,7 +754,6 @@ func valid() {
             .OfType<FunctionDeclaration>()
             .Where(f => f.Name != "<error>")
             .ToList();
-        Assert.Contains(functions, f => f.Name == "valid");
 
         // The valid function should have a body with statements
         var validFunc = functions.First(f => f.Name == "valid");
@@ -826,14 +815,12 @@ func valid() {
     [Fact]
     public void Parser_EmptyMalformedFile_NoException()
     {
-        // Completely malformed content
-        var source = "@@ ## !! %%";
+        var source = "@@ ## !! %%"; // Completely malformed content
 
         var result = Parse(source);
 
         Assert.NotNull(result);
-        Assert.NotEmpty(result.Errors);
-        // Should not throw, should produce some AST or null
+        Assert.NotEmpty(result.Errors); // Should not throw, should produce some AST or null
     }
 
     [Fact]
@@ -1589,15 +1576,12 @@ func test() {
     [Fact]
     public void Parser_TupleDeconstruction_DoubleSeparatorFailure_AnchorsInitializerPlaceholderAtCurrentToken()
     {
-        // Double failure: the ':='/'=' is still missing after the parser skips the
-        // first offending token ('err' on line 2), leaving the current token at the
-        // '}' on line 3. The primary "requires ':=' or '='" diagnostic trips panic
-        // mode, which suppresses the follow-on "expected an initializer expression"
-        // diagnostic, so only one error surfaces. The observable artifact of the
-        // recovery is the '<error>' placeholder the parser substitutes for the
-        // missing initializer: it must anchor at the CURRENT token (line 3, where the
-        // initializer is actually expected), NOT the just-skipped 'err' token on
-        // line 2. Regression test for the error-recovery anchoring bug in
+        // Double failure: the ':='/'=' is still missing after the parser skips the first offending token ('err' on line 2),
+        // leaving the current token at the '}' on line 3. The primary "requires ':=' or '='" diagnostic trips panic mode,
+        // which suppresses the follow-on "expected an initializer expression" diagnostic, so only one error surfaces. The
+        // observable artifact of the recovery is the '<error>' placeholder the parser substitutes for the missing
+        // initializer: it must anchor at the CURRENT token (line 3, where the initializer is actually expected), NOT the
+        // just-skipped 'err' token on line 2. Regression test for the error-recovery anchoring bug in
         // ParseTupleDeconstruction.
         var source = """
 func test() {
@@ -1736,8 +1720,7 @@ func test() {
     x := (1+2)
 }";
         var result = Parse(source);
-        // Should parse without crashing — the expression is just parenthesized
-        Assert.NotNull(result.CompilationUnit);
+        Assert.NotNull(result.CompilationUnit); // Should parse without crashing — the expression is just parenthesized
     }
 
     [Fact]
@@ -1794,9 +1777,8 @@ func Bar() int => 42
 
     #region Syntax Diagnostic Spans (NL101-NL108)
 
-    // Exact start/end span coverage for every parser/syntax diagnostic code.
-    // The asserted (line, column, length) is the same data that maps to the VS Code
-    // squiggle Range via LspDiagnosticConverter: Range(line-1, col-1, line-1, col-1+length).
+    // Exact start/end span coverage for every parser/syntax diagnostic code. The asserted (line, column, length) is the same
+    // data that maps to the VS Code squiggle Range via LspDiagnosticConverter: Range(line-1, col-1, line-1, col-1+length).
 
     [Fact]
     public void Span_NL101_UnexpectedToken_UnderlinesOffendingToken()
@@ -1892,10 +1874,8 @@ func Bar() int => 42
         return Assert.Single(result.Errors, error => error.Code == code && (predicate?.Invoke(error) ?? true));
     }
 
-    /// <summary>
-    /// Asserts the 1-based compiler span AND the 0-based, end-exclusive LSP range derived from it,
-    /// and that the underlined characters of the source line match the expected visible token.
-    /// </summary>
+    /// <summary>Asserts the 1-based compiler span AND the 0-based, end-exclusive LSP range derived from it,
+    /// and that the underlined characters of the source line match the expected visible token.</summary>
     private static void AssertSpan(CompilerError error, int line, int column, int length, string expectedToken)
     {
         Assert.Equal(line, error.Line);
@@ -1923,10 +1903,9 @@ func Bar() int => 42
 
     #region Malformed Table-Driven Test Recovery
 
-    // Regression: the table-case loops in ParseTestDeclaration had no no-progress
-    // guard, so a token that can't start an expression sitting in row position
-    // (e.g. the body '{') spun the parser forever. Bound the parse so a regression
-    // fails fast instead of hanging the test host.
+    // Regression: the table-case loops in ParseTestDeclaration had no no-progress guard, so a token that can't start an
+    // expression sitting in row position (e.g. the body '{') spun the parser forever. Bound the parse so a regression fails
+    // fast instead of hanging the test host.
     [Theory]
     [InlineData("test \"d\" with (a) 9 { }")]
     [InlineData("test \"d\" with (a) [ 9 ] { }")]
