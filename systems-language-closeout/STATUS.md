@@ -1,6 +1,26 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 9a LANDED — the SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-
+Last updated: 2026-07-29 (STAGE N+1c tranches 9b + 9c LANDED — THE EXPRESSION SURFACE IS COMPLETE. 9b = the
+ARGUMENT/ELEMENT-LIST forms: postfix CALL (CallExpression over an owned `ParseArgumentList` that now RETURNS the
+byte-exact `List<Argument>` — named / spread / ref / out / inline-out / bare-alloc argument shapes — plus the
+split-`>>`-aware generic-call `List<TypeReference>`), `with` (WithExpression + PropertyInitializer), `new`
+(NewExpression: target-typed / traditional / sized-array-length / object-vs-COLLECTION initializer), tuples
+(named + unnamed TupleElement), array + immutable-array literals, and alloc / stackalloc. 9c = the LAST
+expression families: match (MatchExpression + MatchCase + the FULL 12-node Pattern grammar), interpolated
+strings (InterpolatedStringExpression + text/hole parts incl. format clauses and brace escapes), and lambda
+literals (implicit `var` parameter lists + expression bodies). BONUS PARITY FIX: the owner's recorded "does not
+know the receiver's array-ness" approximation is RETIRED — `new T[] { a, b }` now takes Parser.cs's collection-
+initializer branch (it previously emitted two spurious missing-colon NL102s). BONUS CONSUMER: argument-bearing
+ATTRIBUTES (`[Attr(1)]`) now materialize, retiring the tranche-4 decline. VERIFIED owner==LIVE-Parser.cs whole-
+tree via a throwaway fresh-Compiler AstToJson probe: 79/80 synthetic + field-init + attribute + whole-file
+shapes MATCH (0 unexplained mismatches; the sole non-match is the BLOCK-bodied lambda, whose body is a
+BlockStatement — the intended statement-tranche no-stub deferral), and a WHOLE-FILE sweep of all 407 in-repo
+`.nl` files shows 26 parsing byte-exact owner==Parser.cs. +79 net contracts → 1,438 total / 1,438 PASS via the
+canonical `dotnet test -c Release`. dev.sh Parser slice 384/384. Production untouched [ParseFileAst test-only],
+no LSP change, no repin, no wall. REMAINING before the N+2 cutover: expression-bodied members + STATEMENT BODIES
+[BlockStatement + the whole Statement node family])
+
+Last updated (prior): 2026-07-24 (STAGE N+1c tranche 9a LANDED — the SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-
 primary expression forms: postfix MEMBER `.`/`?.` (MemberAccessExpression) + INDEX `[…]`/`?[…]`
 (IndexAccessExpression), is/as (IsExpression + optional pattern variable / CastExpression Safe), await/must/throw
 (AwaitExpression/MustExpression/ThrowExpression via ParseUnaryOperandOrMissing → Expression?), and the keyword
@@ -109,6 +129,97 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHES 9b + 9c = the ARGUMENT/ELEMENT-LIST expression forms and then the LAST expression families. The
+  mandate's permitted RECUT was taken and BOTH halves landed in this turn: 9b = call / with / new / tuple /
+  array / immutable-array / alloc / stackalloc; 9c = match+patterns / interpolated strings / lambda literals.
+  With these, the EXPRESSION SURFACE IS COMPLETE — the only expression-side decline left is the BLOCK-bodied
+  lambda, which needs `BlockStatement` (the statement tranche). MECHANISM (unchanged discipline): each form
+  captures its sub-part nodes BEFORE reconstructing `new ExprResult(span)` (Node null by default) and sets
+  `.Node` ONLY when every present sub-part materialized; the LIST-bearing forms accumulate into a real
+  `List<T>` and return `null` from the list producer when ANY element declined (the whole form then declines —
+  no-stub). The Advance/Report/Consume sequence is UNTOUCHED at every site, so the 440 ColumnarParserRecovery
+  stream contracts stay green.
+  CONSTRUCTION-SITE INVENTORY — TRANCHE 9b (owner, each byte-exact to Parser.cs, VERIFIED owner==LIVE via the
+  AstToJson probe): (1) ParseArgumentList → `List<Argument>?` (Parser.cs :4544): the recovery-boundary `break`
+  is NOT a decline (Parser.cs returns the partial list there too); (2) ParseArgument → `Argument?`
+  (`new Argument(argName, argValue, modifier)` :4617) covering ref (:4560) / out (:4565) / the INLINE-OUT arm
+  (:4582 — a REAL `IdentifierExpression` over the second identifier alongside the NL103, so it MATERIALIZES),
+  the named `name:` prefix (:4592), spread (`new SpreadExpression(spreadExpr, spreadLine, spreadColumn)` :4604),
+  and the bare alloc/allow/stackalloc identifier (:4610); (3) ParseCallTypeArguments → `List<TypeReference>?`
+  (:2100/:2104) through the shared ParseMaterializedTypeReference gate, split-`>>` aware; (4) CALL — `new
+  CallExpression(expr, args, typeArgs, parenToken.Line, parenToken.Column)` (:4492) / `(…, null, …)` for the
+  non-generic arm (:4499) / the empty-argument generic fallback (:4486); the node is anchored on the `(` while
+  the ExprResult SPAN stays the CALLEE's; (5) WITH — `new PropertyInitializer(propName, null, propValue,
+  propNameToken.Line, propNameToken.Column)` (:4524) + `new WithExpression(expr, props, withToken.Line,
+  withToken.Column)` (:4533); ParseWithExpression now takes the receiver ExprResult; (6) NEW — `new
+  NewExpression(type, args, initializer, line, column)` (:5353) and the sized-array `(…, arrayLengthExpression)`
+  (:5286), with `new ArrayTypeReference(type) { Span = type.Span }` (:5253 — the wrapper KEEPS the element
+  span, unlike the postfix `[]` wrapper) via a new `WrapNewArrayType`; (7) OBJECT/COLLECTION INITIALIZER — `new
+  ObjectInitializerExpression(props, line, column)` (:5283/:5350) over bare-value (:5276/:5307), indexer
+  (:5317) and named (:5339) PropertyInitializers; (8) TUPLE — `new TupleExpression(elements, line, column)`
+  (:5449/:5483/:5497) + `new TupleElement(name, value)` (:5471/:5489), the named form reading the name off the
+  first element's IdentifierExpression; (9) ARRAY — `new ArrayLiteralExpression(elements, isImmutable, line,
+  column)` (:5436), `ParseArrayLiteral` gaining the `isImmutable` parameter (the `immutable` arm passes true and
+  the node still anchors on the `[`); (10) ALLOC/STACKALLOC — `new AllocExpression(inner, line, column)`
+  (:5196/:5199/:5202/:5205) and `new StackAllocExpression(elementType, length, line, column)` (:5217).
+  CONSTRUCTION-SITE INVENTORY — TRANCHE 9c: (11) LAMBDA — `new LambdaExpression(parameters, exprBody, null,
+  line, column)` (:3686 single-param / :5542 multi-param) over the implicit `new Parameter(name, new
+  SimpleTypeReference("var"), null, false, Line:…, Column:…)` (:3676/:5520 — the type is POSITION-FREE, Line/
+  Column 0 and an invalid Span); a BLOCK body builds a BlockStatement → declines; (12) MATCH — `new MatchCase(
+  pattern, guard, caseExpr)` (:5404) + `new MatchExpression(value, cases, line, column)` (:5415); (13) the FULL
+  PATTERN grammar, every tier now returning `Pattern?`: Or (:3290) / And (:3306) / Not (:3320) / Relational
+  (:3340 — Operator is the RAW token TEXT) / List (:3383) / Slice (:3373 — anchored on the enclosing `[`, NOT
+  its own `..`) / Positional (:3401) / Literal (:3409) / Object (:3416) / UnionCase (:3435) / Type (:3444 — a
+  position-free `SimpleTypeReference`) / Identifier (:3448, qualified names dot-joined), with `ParsePropertyPatterns`
+  → `List<PropertyPattern>?` (:3487 explicit / :3494 implicit-binding); the "Invalid pattern" terminal returns
+  the synthetic `IdentifierPattern("<error>")` in Parser.cs → the owner declines; (14) INTERPOLATED STRING —
+  `new InterpolatedStringExpression(parts, line, column, isRaw)` (:5183) over `new InterpolatedStringText(
+  textBuf, textStartLine, textStartCol)` (:4988/:5122) and `new InterpolatedStringHole(expr, formatClause,
+  holeLine, holeCol)` (:5163); Parser.cs's AppendText/EmitText/AdvancePosition local CLOSURES are INLINED over
+  plain locals (N# has no first-class Func) — deliberately NOT parser fields, so a nested interpolated string
+  inside a hole cannot clobber the outer text buffer; `ParseHoleExpression` now returns the sub-parsed
+  `Expression?` and the `:format` clause is captured (:5129).
+  PARITY FIX (a recorded approximation RETIRED): the owner previously "did not know the receiver's array-ness"
+  and always took the object-initializer branch. Now that the `new` type materializes, `ParseObjectInitializer`
+  takes Parser.cs's `type is ArrayTypeReference` COLLECTION branch (:5294) — `new T[] { a, b }` reports NOTHING
+  (it previously produced two spurious missing-colon NL102s) and materializes bare-value PropertyInitializers.
+  The RAW-vs-GATED type split is served by a new `ParseGatedTypeReference` + `TypeReferenceMaterialized` field
+  (the decision reads the raw node exactly as Parser.cs does; the gate still decides materialization).
+  CONSUMERS: the value-bearing ENUM MEMBER and the FIELD INITIALIZER (both unchanged mechanisms) plus the NEW
+  attribute consumer — `ParseAttributes` now stores the materialized `List<Argument>`, so `[Attr(1)]` /
+  `[Attr(x: 1)]` no longer clear `AttributesMaterializable` (the tranche-4 decline is retired).
+  NO EMITTER GAP hit (the packaged SDK self-emitted every new construct — nullable GENERIC-LIST returns
+  [`List<Argument>?` / `List<TypeReference>?` / `List<PropertyInitializer>?` / `List<PropertyPattern>?`] bound
+  to `:=` locals and assigned into non-nullable locals after a null check, the `firstExpr.Node as
+  IdentifierExpression` narrowing cast, `newType is ArrayTypeReference`, char→string concatenation, and the 20+
+  node constructors; clean build 0 warnings / 0 errors). DELIVERABLES: `ColumnarParserRecovery.nl`
+  8,037 → 8,601; `ColumnarParserAst.tests.nl` 2,673 → 4,004 (30 new AstEq FieldNames registrations — 11 for the
+  9b list nodes/elements + 19 for lambda/match/MatchCase/the 12 Pattern types/PropertyPattern/the 3
+  interpolated-string types — plus ~40 golden builders). CONTRACTS: 49 tranche-9b + 33 tranche-9c tests, minus
+  the 3 declines they convert (the tranche-9a `F()` / `new T()` and the tranche-4 argument-bearing attribute)
+  → +79 net → 1,438 total / 1,438 PASS. Coverage includes 7 negative self-checks (wrong Argument.Modifier,
+  wrong argument-list LENGTH, wrong TupleElement name, wrong IsImmutable, wrong Pattern node TYPE, wrong
+  interpolated TEXT run, wrong lambda parameter name), 2 WHOLE-FILE multi-member enums, and 1 retained decline
+  (the block-bodied lambda). TRIANGULATION: a THROWAWAY (scratchpad) fresh-Compiler ProjectReference probe ran
+  BOTH live Parser.cs (Lexer→Parser→ParseCompilationUnit) AND the owner's ParseFileAst through the identical
+  `OutputFormatter.AstToJson` serializer and diffed — 79/80 shapes MATCH owner==Parser.cs, the sole non-match
+  being the intended block-bodied-lambda decline; a WHOLE-FILE sweep over all 407 in-repo `.nl` files reports
+  26 parsing byte-exact owner==Parser.cs (the rest need statement bodies / methods / properties).
+  EVIDENCE: BootstrapServices contracts 1,438 total / 1,438 PASS via the canonical `dotnet test
+  src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false` (the 3 ExternalAssemblyScan
+  Debug-layout tests did NOT trip this turn — obj/Debug was already present; the documented fix
+  `dotnet build src/NSharpLang.Cli -c Debug` remains the remedy after a clean `rm -rf obj bin`). dev.sh Parser
+  slice 384/384 (run by this agent; the C# Parser.cs path is untouched). Ownership audit: only `.nl`/`.tests.nl`/
+  `.md` changed (2 .nl + 1 .md, zero .cs → OWN003 cannot trip, no C# growth → no repin). Production compile
+  path UNTOUCHED — `ParseFileAst` still has ZERO callers outside its `.tests.nl` (grep across src+editors+tests);
+  Parser.cs stays the sole production authority. No LSP/VS Code change → no reload. NO two-stage bootstrap wall.
+  Next: STATEMENT BODIES — `BlockStatement` and the whole Statement node family (variable declarations, if /
+  while / for / foreach, return / print / yield / break / continue / throw, try / using / lock / switch, the
+  systems statements), which unlock expression-bodied and block-bodied MEMBERS (functions, methods, properties,
+  constructors, indexers, local functions) and the block-bodied lambda — the last families before a whole
+  valid-or-malformed file parses into (CompilationUnit, Errors) provably equal to Parser.cs (the N+2 cutover
+  prerequisite).
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 9a = the SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-primary expression forms (a RECUT of the
   tranche-9 mandate: the argument/element-LIST forms — call/with/new/match/tuple/array/immutable-array/
   interpolated-string/lambda — are deferred to tranche 9b, each keeping its per-form no-stub gate). Over tranche

@@ -348,6 +348,109 @@ public class AstEq {
         if typeName == "SpreadExpression" {
             return Names("Expression Line Column")
         }
+        // N+1c tranche 9b (ARGUMENT/ELEMENT-LIST forms): the list-bearing expression nodes plus the three
+        // non-AstNode list ELEMENTS (Argument / TupleElement / PropertyInitializer carry no Line/Column base —
+        // PropertyInitializer stores its own NameLine/NameColumn instead, and its IsIndexerInitializer is a
+        // computed property, deliberately unregistered). CallExpression.TypeArguments is null for a
+        // non-generic call and a TypeReference list for `M<T>(…)`; IsResultFactory is a stored `bool?` no
+        // parser path sets (null on both sides) and is registered so a future divergence would surface.
+        if typeName == "CallExpression" {
+            return Names("Callee Arguments TypeArguments IsResultFactory Line Column")
+        }
+        if typeName == "Argument" {
+            return Names("Name Value Modifier")
+        }
+        if typeName == "WithExpression" {
+            return Names("Target Properties Line Column")
+        }
+        if typeName == "PropertyInitializer" {
+            return Names("Name IndexExpression Value NameLine NameColumn")
+        }
+        if typeName == "NewExpression" {
+            return Names("Type ConstructorArguments Initializer ArrayLengthExpression Line Column")
+        }
+        if typeName == "ObjectInitializerExpression" {
+            return Names("Properties Line Column")
+        }
+        if typeName == "TupleExpression" {
+            return Names("Elements Line Column")
+        }
+        if typeName == "TupleElement" {
+            return Names("Name Value")
+        }
+        if typeName == "ArrayLiteralExpression" {
+            return Names("Elements IsImmutable Line Column")
+        }
+        if typeName == "AllocExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "StackAllocExpression" {
+            return Names("ElementType LengthExpression Line Column")
+        }
+        // N+1c tranche 9c (MATCH/PATTERNS + INTERPOLATION + LAMBDA): the last expression families.
+        // LambdaExpression's BlockBody is always null here (a block-bodied lambda declines until the
+        // statement-body tranche); its Parameters are the implicit `var`-typed Parameter nodes. MatchExpression
+        // stores IsExhaustive (a later-phase field, false on both sides). The Pattern family has its OWN
+        // Line/Column base (Pattern is not an AstNode but carries the same two fields), and PropertyPattern is a
+        // non-Pattern element with Name/Pattern/BindingName/Line/Column. InterpolatedStringPart splits into
+        // Text (a literal run) and Hole (an Expression + optional format clause).
+        if typeName == "LambdaExpression" {
+            return Names("Parameters ExpressionBody BlockBody Line Column")
+        }
+        if typeName == "MatchExpression" {
+            return Names("Value Cases IsExhaustive Line Column")
+        }
+        if typeName == "MatchCase" {
+            return Names("Pattern Guard Expression")
+        }
+        if typeName == "IdentifierPattern" {
+            return Names("Name Line Column")
+        }
+        if typeName == "LiteralPattern" {
+            return Names("Literal Line Column")
+        }
+        if typeName == "TypePattern" {
+            return Names("Type BindingName Line Column")
+        }
+        if typeName == "UnionCasePattern" {
+            return Names("CaseName Properties Line Column")
+        }
+        if typeName == "PropertyPattern" {
+            return Names("Name Pattern BindingName Line Column")
+        }
+        if typeName == "RelationalPattern" {
+            return Names("Operator Value Line Column")
+        }
+        if typeName == "AndPattern" {
+            return Names("Left Right Line Column")
+        }
+        if typeName == "OrPattern" {
+            return Names("Left Right Line Column")
+        }
+        if typeName == "NotPattern" {
+            return Names("Pattern Line Column")
+        }
+        if typeName == "PositionalPattern" {
+            return Names("Patterns Line Column")
+        }
+        if typeName == "ObjectPattern" {
+            return Names("Properties Line Column")
+        }
+        if typeName == "ListPattern" {
+            return Names("Elements Line Column")
+        }
+        if typeName == "SlicePattern" {
+            return Names("BindingName Line Column")
+        }
+        if typeName == "InterpolatedStringExpression" {
+            return Names("Parts IsRaw Line Column")
+        }
+        if typeName == "InterpolatedStringText" {
+            return Names("Text Line Column")
+        }
+        if typeName == "InterpolatedStringHole" {
+            return Names("Expression FormatClause Line Column")
+        }
         return null
     }
 
@@ -821,6 +924,203 @@ public class Golden {
 
     public static func Spread(expr: Expression, line: int, column: int): Expression {
         return new SpreadExpression(expr, line, column)
+    }
+
+    // ---- N+1c tranche 9b: argument/element-LIST builders ----
+    // Each mirrors a Parser.cs construction site: the CALL on the `(` token (Parser.cs :4492/:4499), `with` on
+    // the `with` keyword (:4533), `new` / its ObjectInitializer on the `new` keyword (:5286/:5353/:5283/:5350),
+    // tuple + array on their opening `(` / `[` (:5449/:5483/:5497/:5436), and alloc / stackalloc on their
+    // keyword (:5196/:5217). The list ELEMENTS (Argument / TupleElement / PropertyInitializer) carry no
+    // position of their own except PropertyInitializer's NameLine/NameColumn. Every position below was
+    // transcribed from the LIVE Parser.cs AstToJson oracle.
+    public static func NoArgs(): List<Argument> {
+        return new List<Argument>()
+    }
+
+    // A typed null for a NON-generic call's TypeArguments (Parser.cs :4499).
+    public static func NoTypeArgs(): List<TypeReference>? {
+        return null
+    }
+
+    public static func AddArg(args: List<Argument>, name: string?, value: Expression, modifier: ArgumentModifier) {
+        args.Add(new Argument(name, value, modifier))
+    }
+
+    public static func Call(callee: Expression, args: List<Argument>, typeArgs: List<TypeReference>?, line: int, column: int): Expression {
+        return new CallExpression(callee, args, typeArgs, line, column)
+    }
+
+    public static func NoProps(): List<PropertyInitializer> {
+        return new List<PropertyInitializer>()
+    }
+
+    public static func AddProp(props: List<PropertyInitializer>, name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int) {
+        props.Add(new PropertyInitializer(name, indexExpression, value, nameLine, nameColumn))
+    }
+
+    public static func With(target: Expression, props: List<PropertyInitializer>, line: int, column: int): Expression {
+        return new WithExpression(target, props, line, column)
+    }
+
+    public static func ObjInit(props: List<PropertyInitializer>, line: int, column: int): ObjectInitializerExpression {
+        return new ObjectInitializerExpression(props, line, column)
+    }
+
+    public static func NewE(typeRef: TypeReference?, args: List<Argument>, initializer: ObjectInitializerExpression?, arrayLength: Expression?, line: int, column: int): Expression {
+        return new NewExpression(typeRef, args, initializer, line, column, arrayLength)
+    }
+
+    public static func NoTupleElems(): List<TupleElement> {
+        return new List<TupleElement>()
+    }
+
+    public static func AddTupleElem(elements: List<TupleElement>, name: string?, value: Expression) {
+        elements.Add(new TupleElement(name, value))
+    }
+
+    public static func Tuple(elements: List<TupleElement>, line: int, column: int): Expression {
+        return new TupleExpression(elements, line, column)
+    }
+
+    public static func NoExprs(): List<Expression> {
+        return new List<Expression>()
+    }
+
+    public static func AddExpr(elements: List<Expression>, value: Expression) {
+        elements.Add(value)
+    }
+
+    public static func ArrayLit(elements: List<Expression>, isImmutable: bool, line: int, column: int): Expression {
+        return new ArrayLiteralExpression(elements, isImmutable, line, column)
+    }
+
+    public static func AllocE(inner: Expression, line: int, column: int): Expression {
+        return new AllocExpression(inner, line, column)
+    }
+
+    public static func StackAllocE(elementType: TypeReference, length: Expression, line: int, column: int): Expression {
+        return new StackAllocExpression(elementType, length, line, column)
+    }
+
+    // A declaration whose Attributes list carries ARGUMENT-bearing attributes (the tranche-9b unlock — the
+    // tranche-4 argument-bearing decline is retired). Parser.cs :292 anchors the AttributeNode on the `[`
+    // line and the `[` column + 1.
+    public static func AddAttrArgs(attrs: List<AttributeNode>, name: string, args: List<Argument>, line: int, column: int) {
+        attrs.Add(new AttributeNode(name, args, line, column))
+    }
+
+    // ---- N+1c tranche 9c: lambda / match+pattern / interpolated-string builders ----
+    // A position-FREE SimpleTypeReference (Line/Column 0, invalid Span) — Parser.cs builds the implicit lambda
+    // parameter type (:3676/:5520) and the TypePattern type (:3444) with the ctor's defaults, so neither
+    // carries a source position.
+    public static func BareT(name: string): TypeReference {
+        return new SimpleTypeReference(name, 0, 0)
+    }
+
+    public static func NoParams(): List<Parameter> {
+        return new List<Parameter>()
+    }
+
+    public static func AddLambdaParam(parameters: List<Parameter>, name: string, line: int, column: int) {
+        parameters.Add(new Parameter(name, Golden.BareT("var"), null, false, ParameterModifier.None, null, line, column, false, null))
+    }
+
+    // An EXPRESSION-bodied lambda (a block-bodied one carries a BlockStatement and declines until the
+    // statement-body tranche).
+    public static func Lambda(parameters: List<Parameter>, body: Expression, line: int, column: int): Expression {
+        return new LambdaExpression(parameters, body, null, line, column)
+    }
+
+    public static func NoCases(): List<MatchCase> {
+        return new List<MatchCase>()
+    }
+
+    public static func AddCase(cases: List<MatchCase>, pattern: Pattern, guard: Expression?, body: Expression) {
+        cases.Add(new MatchCase(pattern, guard, body))
+    }
+
+    public static func Match(value: Expression, cases: List<MatchCase>, line: int, column: int): Expression {
+        return new MatchExpression(value, cases, line, column)
+    }
+
+    public static func NoPatterns(): List<Pattern> {
+        return new List<Pattern>()
+    }
+
+    public static func AddPattern(patterns: List<Pattern>, pattern: Pattern) {
+        patterns.Add(pattern)
+    }
+
+    public static func NoPatProps(): List<PropertyPattern> {
+        return new List<PropertyPattern>()
+    }
+
+    public static func AddPatProp(props: List<PropertyPattern>, name: string, pattern: Pattern?, bindingName: string?, line: int, column: int) {
+        props.Add(new PropertyPattern(name, pattern, bindingName, line, column))
+    }
+
+    public static func PIdent(name: string, line: int, column: int): Pattern {
+        return new IdentifierPattern(name, line, column)
+    }
+
+    public static func PLit(literal: Expression, line: int, column: int): Pattern {
+        return new LiteralPattern(literal, line, column)
+    }
+
+    public static func PType(typeRef: TypeReference, bindingName: string?, line: int, column: int): Pattern {
+        return new TypePattern(typeRef, bindingName, line, column)
+    }
+
+    public static func PUnion(caseName: string, props: List<PropertyPattern>?, line: int, column: int): Pattern {
+        return new UnionCasePattern(caseName, props, line, column)
+    }
+
+    public static func PRel(op: string, value: Expression, line: int, column: int): Pattern {
+        return new RelationalPattern(op, value, line, column)
+    }
+
+    public static func PAnd(left: Pattern, right: Pattern, line: int, column: int): Pattern {
+        return new AndPattern(left, right, line, column)
+    }
+
+    public static func POr(left: Pattern, right: Pattern, line: int, column: int): Pattern {
+        return new OrPattern(left, right, line, column)
+    }
+
+    public static func PNot(inner: Pattern, line: int, column: int): Pattern {
+        return new NotPattern(inner, line, column)
+    }
+
+    public static func PPos(patterns: List<Pattern>, line: int, column: int): Pattern {
+        return new PositionalPattern(patterns, line, column)
+    }
+
+    public static func PObj(props: List<PropertyPattern>, line: int, column: int): Pattern {
+        return new ObjectPattern(props, line, column)
+    }
+
+    public static func PList(elements: List<Pattern>, line: int, column: int): Pattern {
+        return new ListPattern(elements, line, column)
+    }
+
+    public static func PSlice(bindingName: string?, line: int, column: int): Pattern {
+        return new SlicePattern(bindingName, line, column)
+    }
+
+    public static func NoParts(): List<InterpolatedStringPart> {
+        return new List<InterpolatedStringPart>()
+    }
+
+    public static func AddText(parts: List<InterpolatedStringPart>, text: string, line: int, column: int) {
+        parts.Add(new InterpolatedStringText(text, line, column))
+    }
+
+    public static func AddHole(parts: List<InterpolatedStringPart>, expr: Expression, formatClause: string?, line: int, column: int) {
+        parts.Add(new InterpolatedStringHole(expr, formatClause, line, column))
+    }
+
+    public static func Interp(parts: List<InterpolatedStringPart>, isRaw: bool, line: int, column: int): Expression {
+        return new InterpolatedStringExpression(parts, line, column, isRaw)
     }
 }
 
@@ -1389,9 +1689,29 @@ test "016 N+1c tranche 6: a generic type-parameter list now MATERIALIZES the rec
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 4: an argument-bearing attribute DECLINES declaration materialization (no-stub)" {
+// tranche 9b CONVERTED the tranche-4 "argument-bearing attribute DECLINES" gate to a positive
+// materialization: ParseArgumentList now returns the byte-exact List<Argument> Parser.cs stores (:284/:288).
+test "016 N+1c tranche 9b: an argument-bearing attribute materializes its Argument list (Parser.cs :288/:292)" {
     actual := RunAst("[Attr(1)] struct S {}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    attrArgs := new List<Argument>()
+    Golden.AddArg(attrArgs, null, Golden.IntLit("1", 1, 7), ArgumentModifier.None)
+    attrs := new List<AttributeNode>()
+    Golden.AddAttrArgs(attrs, "Attr", attrArgs, 1, 2)
+    decls := new List<Declaration>()
+    Golden.AddStructFull(decls, "S", Modifiers.None, attrs, 1, 11)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a NAMED attribute argument materializes Argument.Name (Parser.cs :4592/:4617)" {
+    actual := RunAst("[Attr(x: 1)] struct S {}\n")
+    attrArgs := new List<Argument>()
+    Golden.AddArg(attrArgs, "x", Golden.IntLit("1", 1, 10), ArgumentModifier.None)
+    attrs := new List<AttributeNode>()
+    Golden.AddAttrArgs(attrs, "Attr", attrArgs, 1, 2)
+    decls := new List<Declaration>()
+    Golden.AddStructFull(decls, "S", Modifiers.None, attrs, 1, 14)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -2303,19 +2623,13 @@ test "016 N+1c tranche 8: WHOLE-FILE equality on a field-only struct with litera
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-// ---- RETAINED-GATE DECLINES (tranche 9a leaves the ARGUMENT/ELEMENT-LIST forms — call/with/new/match/
-//      tuple/array/immutable-array/interpolated-string/lambda — deferred to the following sub-family) ----
-// A value that opens one of the STILL-deferred sub-grammars leaves ParseExprValue().Node null → decline, no-stub.
-// (The tranche-8 `a is int` / `a.b` declines are now POSITIVE materializations — see the tranche-9a block.)
+// ---- RETAINED-GATE DECLINES (with tranche 9c landed, the LAST expression-side decline is the BLOCK-bodied
+//      lambda, whose body is a BlockStatement — the statement-body tranche) ----
+// A value whose sub-part is a still-deferred form leaves ParseExprValue().Node null → decline, no-stub.
+// (The tranche-9b match / lambda / interpolated-string declines are now POSITIVE materializations below.)
 
-test "016 N+1c tranche 9a: a call-composed enum value (F()) still DECLINES (postfix call deferred to tranche 9b, no-stub)" {
-    actual := RunAst("enum E {\n    A = F()\n}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
-    assert AstEq.Diff(expected, actual, "unit") == ""
-}
-
-test "016 N+1c tranche 9a: a new-object enum value (new T()) still DECLINES (new deferred to tranche 9b, no-stub)" {
-    actual := RunAst("enum E {\n    A = new T()\n}\n")
+test "016 N+1c tranche 9c: a BLOCK-bodied lambda still DECLINES (BlockStatement deferred to the statement tranche, no-stub)" {
+    actual := RunAst("enum E {\n    A = x => { }\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
@@ -2670,4 +2984,1021 @@ test "016 N+1c tranche 7: WHOLE-FILE equality on DeclarationEnums.nl (5 public e
     Golden.AddEnumM(decls, "Modifiers", modifiers, EnumType.Int, Modifiers.Public, 29, 8)
     expected := Golden.Unit(Golden.Ns("NSharpLang.Compiler.Ast", 1, 1), NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- N+1c tranche 9b: the ARGUMENT/ELEMENT-LIST expression forms materialize ----
+// Postfix CALL (incl. the generic-call type arguments and every argument shape), `with`, `new` (target-typed /
+// traditional / sized-array / object-vs-collection initializer), tuples, array + immutable-array literals, and
+// the alloc / stackalloc primaries now RETURN their byte-exact Expression node. Consumer = the value-bearing
+// enum member (`A = <expr>`) except the field-init / attribute cases. Every Line/Column + Span was transcribed
+// from the LIVE Parser.cs AstToJson oracle (a throwaway fresh-Compiler probe ran BOTH live Parser.cs and the
+// owner's ParseFileAst through the identical OutputFormatter.AstToJson serializer and diffed — 48/48 whole-tree
+// MATCH; the 3 tranche-9c forms correctly show live-materializes-vs-owner-declines).
+
+test "016 N+1c tranche 9b: an argument-free call (F()) materializes CallExpression anchored on '(' (Parser.cs :4499)" {
+    actual := RunAst("enum E {\n    A = F()\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a one-argument call materializes a single Argument (Parser.cs :4617)" {
+    actual := RunAst("enum E {\n    A = F(1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 11), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a two-argument call materializes both Arguments in source order (Parser.cs :4619)" {
+    actual := RunAst("enum E {\n    A = F(1, x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 11), ArgumentModifier.None)
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 14), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a named argument (F(n: 1)) materializes Argument.Name (Parser.cs :4592)" {
+    actual := RunAst("enum E {\n    A = F(n: 1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, "n", Golden.IntLit("1", 2, 14), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a spread argument (F(...x)) wraps the value in SpreadExpression (Parser.cs :4604)" {
+    actual := RunAst("enum E {\n    A = F(...x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Spread(Golden.Ident("x", 2, 14), 2, 11), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a ref argument materializes ArgumentModifier.Ref (Parser.cs :4560)" {
+    actual := RunAst("enum E {\n    A = F(ref x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 15), ArgumentModifier.Ref)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an out argument materializes ArgumentModifier.Out (Parser.cs :4565)" {
+    actual := RunAst("enum E {\n    A = F(out x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 15), ArgumentModifier.Out)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The inline-out NL103 arm still builds a REAL Argument in Parser.cs (:4582) — an IdentifierExpression over the
+// SECOND identifier — so the owner materializes it byte-exact alongside the diagnostic (not synthetic content).
+test "016 N+1c tranche 9b: an inline-out argument (F(out T x)) materializes the second identifier (Parser.cs :4582)" {
+    actual := RunAst("enum E {\n    A = F(out T x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 17), ArgumentModifier.Out)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a bare alloc keyword argument becomes an IdentifierExpression (Parser.cs :4610)" {
+    actual := RunAst("enum E {\n    A = F(alloc)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Ident("alloc", 2, 11), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a method call (a.b(1)) nests the MemberAccess callee (Parser.cs :4453/:4499)" {
+    actual := RunAst("enum E {\n    A = a.b(1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 13), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Member(Golden.Ident("a", 2, 9), "b", false, 2, 10), args, Golden.NoTypeArgs(), 2, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a chained call (f()(2)) nests CallExpression as its own callee (Parser.cs :4499)" {
+    actual := RunAst("enum E {\n    A = f()(2)\n}\n")
+    outerArgs := new List<Argument>()
+    Golden.AddArg(outerArgs, null, Golden.IntLit("2", 2, 13), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Call(Golden.Ident("f", 2, 9), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 10), outerArgs, Golden.NoTypeArgs(), 2, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a nested call argument (f(g(1))) recurses through the Argument value" {
+    actual := RunAst("enum E {\n    A = f(g(1))\n}\n")
+    innerArgs := new List<Argument>()
+    Golden.AddArg(innerArgs, null, Golden.IntLit("1", 2, 13), ArgumentModifier.None)
+    outerArgs := new List<Argument>()
+    Golden.AddArg(outerArgs, null, Golden.Call(Golden.Ident("g", 2, 11), innerArgs, Golden.NoTypeArgs(), 2, 12), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("f", 2, 9), outerArgs, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a generic call (M<int>(1)) materializes TypeArguments anchored on '(' (Parser.cs :4492)" {
+    actual := RunAst("enum E {\n    A = M<int>(1)\n}\n")
+    typeArgs := new List<TypeReference>()
+    typeArgs.Add(Golden.SimpleT("int", 2, 11, 14))
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 16), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("M", 2, 9), args, typeArgs, 2, 15), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a two-type-argument generic call keeps both TypeArguments (Parser.cs :2104)" {
+    actual := RunAst("enum E {\n    A = M<int, string>()\n}\n")
+    typeArgs := new List<TypeReference>()
+    typeArgs.Add(Golden.SimpleT("int", 2, 11, 14))
+    typeArgs.Add(Golden.SimpleT("string", 2, 16, 22))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("M", 2, 9), Golden.NoArgs(), typeArgs, 2, 23), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The split-`>>` discipline: `M<List<int>>()` closes TWO generic scopes on one RightShift token.
+test "016 N+1c tranche 9b: a nested generic call (M<List<int>>()) materializes through the split-'>>' close" {
+    actual := RunAst("enum E {\n    A = M<List<int>>()\n}\n")
+    innerArgs := new List<TypeReference>()
+    innerArgs.Add(Golden.SimpleT("int", 2, 16, 19))
+    typeArgs := new List<TypeReference>()
+    typeArgs.Add(Golden.GenericT("List", innerArgs, 2, 11, 20))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("M", 2, 9), Golden.NoArgs(), typeArgs, 2, 21), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a with-expression materializes WithExpression + PropertyInitializer (Parser.cs :4524/:4533)" {
+    actual := RunAst("enum E {\n    A = r with { X: 1 }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 21), 2, 18)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.With(Golden.Ident("r", 2, 9), props, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a two-property with-expression keeps both PropertyInitializers in order" {
+    actual := RunAst("enum E {\n    A = r with { X: 1, Y: 2 }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 21), 2, 18)
+    Golden.AddProp(props, "Y", null, Golden.IntLit("2", 2, 27), 2, 24)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.With(Golden.Ident("r", 2, 9), props, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a target-typed new() materializes a null Type with empty arguments (Parser.cs :5353)" {
+    actual := RunAst("enum E {\n    A = new()\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(null, Golden.NoArgs(), null, null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a target-typed new(1) materializes its constructor arguments (Parser.cs :5235)" {
+    actual := RunAst("enum E {\n    A = new(1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 13), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(null, args, null, null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a typed new T() materializes NewExpression anchored on 'new' (Parser.cs :5353)" {
+    actual := RunAst("enum E {\n    A = new T()\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), null, null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a typed new T(1, 2) materializes both constructor arguments (Parser.cs :5262)" {
+    actual := RunAst("enum E {\n    A = new T(1, 2)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 15), ArgumentModifier.None)
+    Golden.AddArg(args, null, Golden.IntLit("2", 2, 18), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), args, null, null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a typed object initializer materializes ObjectInitializerExpression on 'new' (Parser.cs :5350)" {
+    actual := RunAst("enum E {\n    A = new T { X: 1 }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 20), 2, 17)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a target-typed object initializer (new { X: 1 }) keeps Type null (Parser.cs :5237)" {
+    actual := RunAst("enum E {\n    A = new { X: 1 }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 18), 2, 15)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an indexer initializer (new T { [0] = 1 }) materializes IndexExpression (Parser.cs :5317)" {
+    actual := RunAst("enum E {\n    A = new T { [0] = 1 }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, null, Golden.IntLit("0", 2, 18), Golden.IntLit("1", 2, 23), 0, 0)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The sized-array `new T[2]` wraps the element type in an ArrayTypeReference whose Span is the ELEMENT's span
+// (Parser.cs :5253 — `{ Span = type.Span }`), and carries the length in ArrayLengthExpression (:5286).
+test "016 N+1c tranche 9b: a sized array (new T[2]) materializes ArrayLengthExpression + the span-preserving array type" {
+    actual := RunAst("enum E {\n    A = new T[2]\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 14), Golden.NoArgs(), null, Golden.IntLit("2", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a sized-array initializer (new T[2] { a, b }) materializes bare-value PropertyInitializers (Parser.cs :5276)" {
+    actual := RunAst("enum E {\n    A = new T[2] { a, b }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, null, null, Golden.Ident("a", 2, 20), 0, 0)
+    Golden.AddProp(props, null, null, Golden.Ident("b", 2, 23), 0, 0)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), Golden.IntLit("2", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// `new T[] { a, b }` parses `T[]` as the TYPE (span through the `]`), so Parser.cs takes the COLLECTION
+// initializer branch (`type is ArrayTypeReference`, :5294) — bare values, no property names. The owner now
+// makes the same decision from the materialized type (the previous "does not know array-ness" approximation
+// reported two spurious missing-colon NL102s here).
+test "016 N+1c tranche 9b: an array-typed collection initializer (new T[] { a, b }) takes the bare-value branch (Parser.cs :5306)" {
+    actual := RunAst("enum E {\n    A = new T[] { a, b }\n}\n")
+    props := new List<PropertyInitializer>()
+    Golden.AddProp(props, null, null, Golden.Ident("a", 2, 19), 0, 0)
+    Golden.AddProp(props, null, null, Golden.Ident("b", 2, 22), 0, 0)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 16), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a generic new (new List<int>()) materializes GenericTypeReference as the new type" {
+    actual := RunAst("enum E {\n    A = new List<int>()\n}\n")
+    typeArgs := new List<TypeReference>()
+    typeArgs.Add(Golden.SimpleT("int", 2, 18, 21))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.GenericT("List", typeArgs, 2, 13, 22), Golden.NoArgs(), null, null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an empty tuple (()) materializes TupleExpression with no elements (Parser.cs :5449)" {
+    actual := RunAst("enum E {\n    A = ()\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Tuple(Golden.NoTupleElems(), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an unnamed tuple ((1, 2)) materializes null-named TupleElements (Parser.cs :5497)" {
+    actual := RunAst("enum E {\n    A = (1, 2)\n}\n")
+    elements := new List<TupleElement>()
+    Golden.AddTupleElem(elements, null, Golden.IntLit("1", 2, 10))
+    Golden.AddTupleElem(elements, null, Golden.IntLit("2", 2, 13))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Tuple(elements, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a named tuple ((a: 1, b: 2)) takes each element name from the identifier (Parser.cs :5471/:5479)" {
+    actual := RunAst("enum E {\n    A = (a: 1, b: 2)\n}\n")
+    elements := new List<TupleElement>()
+    Golden.AddTupleElem(elements, "a", Golden.IntLit("1", 2, 13))
+    Golden.AddTupleElem(elements, "b", Golden.IntLit("2", 2, 19))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Tuple(elements, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an empty array literal ([]) materializes IsImmutable=false (Parser.cs :5436)" {
+    actual := RunAst("enum E {\n    A = []\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.ArrayLit(Golden.NoExprs(), false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: an array literal ([1, 2, 3]) materializes its elements in order" {
+    actual := RunAst("enum E {\n    A = [1, 2, 3]\n}\n")
+    elements := Golden.NoExprs()
+    Golden.AddExpr(elements, Golden.IntLit("1", 2, 10))
+    Golden.AddExpr(elements, Golden.IntLit("2", 2, 13))
+    Golden.AddExpr(elements, Golden.IntLit("3", 2, 16))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.ArrayLit(elements, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// `immutable [1, 2]` sets IsImmutable=true and anchors the node on the `[`, NOT the `immutable` keyword.
+test "016 N+1c tranche 9b: an immutable array literal sets IsImmutable=true anchored on '[' (Parser.cs :4784)" {
+    actual := RunAst("enum E {\n    A = immutable [1, 2]\n}\n")
+    elements := Golden.NoExprs()
+    Golden.AddExpr(elements, Golden.IntLit("1", 2, 20))
+    Golden.AddExpr(elements, Golden.IntLit("2", 2, 23))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.ArrayLit(elements, true, 2, 19), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: alloc new T() wraps the NewExpression in AllocExpression (Parser.cs :5196)" {
+    actual := RunAst("enum E {\n    A = alloc new T()\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AllocE(Golden.NewE(Golden.SimpleT("T", 2, 19, 20), Golden.NoArgs(), null, null, 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: alloc [1, 2] wraps the ArrayLiteralExpression in AllocExpression (Parser.cs :5199)" {
+    actual := RunAst("enum E {\n    A = alloc [1, 2]\n}\n")
+    elements := Golden.NoExprs()
+    Golden.AddExpr(elements, Golden.IntLit("1", 2, 16))
+    Golden.AddExpr(elements, Golden.IntLit("2", 2, 19))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AllocE(Golden.ArrayLit(elements, false, 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: alloc x wraps the general unary operand in AllocExpression (Parser.cs :5205)" {
+    actual := RunAst("enum E {\n    A = alloc x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AllocE(Golden.Ident("x", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: stackalloc byte[64] materializes ElementType + LengthExpression (Parser.cs :5217)" {
+    actual := RunAst("enum E {\n    A = stackalloc byte[64]\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.StackAllocE(Golden.SimpleT("byte", 2, 20, 24), Golden.IntLit("64", 2, 25), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Field-init consumer (the OTHER Expression-capturing site).
+
+test "016 N+1c tranche 9b: a `:=` field materializes a call initializer (Parser.cs :1686/:4499)" {
+    actual := RunAst("struct S {\n    X := F(1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 12), ArgumentModifier.None)
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.Call(Golden.Ident("F", 2, 10), args, Golden.NoTypeArgs(), 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a typed field materializes a new-expression initializer (Parser.cs :1782/:5353)" {
+    actual := RunAst("struct S {\n    X: T = new T(1)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 18), ArgumentModifier.None)
+    fields := new List<Declaration>()
+    Golden.AddFieldInit(fields, "X", Golden.SimpleT("T", 2, 8, 9), Golden.NewE(Golden.SimpleT("T", 2, 16, 17), args, null, null, 2, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a `:=` field materializes an array-literal initializer (Parser.cs :1686/:5436)" {
+    actual := RunAst("struct S {\n    X := [1, 2]\n}\n")
+    elements := Golden.NoExprs()
+    Golden.AddExpr(elements, Golden.IntLit("1", 2, 11))
+    Golden.AddExpr(elements, Golden.IntLit("2", 2, 14))
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.ArrayLit(elements, false, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9b: a `:=` field materializes a tuple initializer (Parser.cs :1686/:5497)" {
+    actual := RunAst("struct S {\n    X := (1, 2)\n}\n")
+    elements := new List<TupleElement>()
+    Golden.AddTupleElem(elements, null, Golden.IntLit("1", 2, 11))
+    Golden.AddTupleElem(elements, null, Golden.IntLit("2", 2, 14))
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.Tuple(elements, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A WHOLE-FILE multi-member enum mixing three tranche-9b list forms (call / new-with-object-initializer /
+// array literal), comma-separated, every member materializing a distinct node type.
+test "016 N+1c tranche 9b: WHOLE-FILE enum mixing call, new-object-initializer, and array-literal values" {
+    actual := RunAst("enum E {\n    A = F(1),\n    B = new T { X: 2 },\n    C = [1, 2]\n}\n")
+    callArgs := new List<Argument>()
+    Golden.AddArg(callArgs, null, Golden.IntLit("1", 2, 11), ArgumentModifier.None)
+    initProps := new List<PropertyInitializer>()
+    Golden.AddProp(initProps, "X", null, Golden.IntLit("2", 3, 20), 3, 17)
+    arrayElements := Golden.NoExprs()
+    Golden.AddExpr(arrayElements, Golden.IntLit("1", 4, 10))
+    Golden.AddExpr(arrayElements, Golden.IntLit("2", 4, 13))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), callArgs, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    Golden.AddEMemV(members, "B", Golden.NewE(Golden.SimpleT("T", 3, 13, 14), Golden.NoArgs(), Golden.ObjInit(initProps, 3, 9), null, 3, 9), 3, 5)
+    Golden.AddEMemV(members, "C", Golden.ArrayLit(arrayElements, false, 4, 9), 4, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Negative self-checks — guard the new list-recursion paths against a vacuous pass (a wrong scalar, a wrong
+// list LENGTH, or a wrong element name in the golden MUST surface as a non-empty Diff).
+test "016 N+1c tranche 9b: AstEq surfaces a wrong Argument.Modifier (guards vacuous argument-list pass)" {
+    actual := RunAst("enum E {\n    A = F(x)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.Ident("x", 2, 11), ArgumentModifier.Ref)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9b: AstEq surfaces a wrong argument-list LENGTH (guards vacuous list-count pass)" {
+    actual := RunAst("enum E {\n    A = F(1, 2)\n}\n")
+    args := new List<Argument>()
+    Golden.AddArg(args, null, Golden.IntLit("1", 2, 11), ArgumentModifier.None)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), args, Golden.NoTypeArgs(), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9b: AstEq surfaces a wrong TupleElement name (guards vacuous named-tuple pass)" {
+    actual := RunAst("enum E {\n    A = (a: 1, b: 2)\n}\n")
+    elements := new List<TupleElement>()
+    Golden.AddTupleElem(elements, "a", Golden.IntLit("1", 2, 13))
+    Golden.AddTupleElem(elements, "WRONG", Golden.IntLit("2", 2, 19))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Tuple(elements, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9b: AstEq surfaces a wrong IsImmutable flag (guards vacuous array-literal pass)" {
+    actual := RunAst("enum E {\n    A = [1]\n}\n")
+    elements := Golden.NoExprs()
+    Golden.AddExpr(elements, Golden.IntLit("1", 2, 10))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.ArrayLit(elements, true, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+// ---- N+1c tranche 9c: MATCH/PATTERNS, INTERPOLATED STRINGS, and LAMBDA literals materialize ----
+// The last expression families. Every Line/Column + Span was transcribed from the LIVE Parser.cs AstToJson
+// oracle (the throwaway fresh-Compiler probe diffed live Parser.cs against the owner's ParseFileAst —
+// 79/80 whole-tree MATCH; the sole non-match is the BLOCK-bodied lambda, the intended no-stub deferral).
+
+test "016 N+1c tranche 9c: a single-parameter lambda materializes LambdaExpression + the implicit `var` parameter (Parser.cs :3686)" {
+    actual := RunAst("enum E {\n    A = x => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 9)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Lambda(parameters, Golden.IntLit("1", 2, 14), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a multi-parameter lambda ((x, y) => 1) materializes both parameters (Parser.cs :5542)" {
+    actual := RunAst("enum E {\n    A = (x, y) => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 10)
+    Golden.AddLambdaParam(parameters, "y", 2, 13)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Lambda(parameters, Golden.IntLit("1", 2, 19), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an empty-parameter lambda (() => 1) materializes an empty Parameters list" {
+    actual := RunAst("enum E {\n    A = () => 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Lambda(Golden.NoParams(), Golden.IntLit("1", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a literal-pattern match materializes MatchExpression + MatchCase (Parser.cs :5404/:5415)" {
+    actual := RunAst("enum E {\n    A = match x { 1 => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PLit(Golden.IntLit("1", 2, 19), 2, 19), null, Golden.IntLit("2", 2, 24))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a two-case match keeps both MatchCases in source order" {
+    actual := RunAst("enum E {\n    A = match x { 1 => 2, 2 => 3 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PLit(Golden.IntLit("1", 2, 19), 2, 19), null, Golden.IntLit("2", 2, 24))
+    Golden.AddCase(cases, Golden.PLit(Golden.IntLit("2", 2, 27), 2, 27), null, Golden.IntLit("3", 2, 32))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an identifier pattern materializes IdentifierPattern (Parser.cs :3448)" {
+    actual := RunAst("enum E {\n    A = match x { y => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PIdent("y", 2, 19), null, Golden.IntLit("2", 2, 24))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The TypePattern's SimpleTypeReference carries NO source position (Parser.cs :3444 uses the ctor defaults).
+test "016 N+1c tranche 9c: a type pattern (int n) materializes TypePattern with a position-free type (Parser.cs :3444)" {
+    actual := RunAst("enum E {\n    A = match x { int n => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PType(Golden.BareT("int"), "n", 2, 19), null, Golden.IntLit("2", 2, 28))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a qualified-name pattern (A.B) joins the segments with dots (Parser.cs :3417)" {
+    actual := RunAst("enum E {\n    A = match x { A.B => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PIdent("A.B", 2, 19), null, Golden.IntLit("2", 2, 26))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a guarded case (when b > 1) materializes MatchCase.Guard (Parser.cs :5389)" {
+    actual := RunAst("enum E {\n    A = match x { y when b > 1 => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PIdent("y", 2, 19), Golden.Bin(Golden.Ident("b", 2, 26), BinaryOperator.Greater, Golden.IntLit("1", 2, 30), 2, 28), Golden.IntLit("2", 2, 35))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an or-pattern (1 or 2) materializes OrPattern anchored on 'or' (Parser.cs :3290)" {
+    actual := RunAst("enum E {\n    A = match x { 1 or 2 => 3 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.POr(Golden.PLit(Golden.IntLit("1", 2, 19), 2, 19), Golden.PLit(Golden.IntLit("2", 2, 24), 2, 24), 2, 21), null, Golden.IntLit("3", 2, 29))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an and-pattern (a and b) materializes AndPattern anchored on 'and' (Parser.cs :3306)" {
+    actual := RunAst("enum E {\n    A = match x { a and b => 3 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PAnd(Golden.PIdent("a", 2, 19), Golden.PIdent("b", 2, 25), 2, 21), null, Golden.IntLit("3", 2, 30))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a not-pattern (not a) materializes NotPattern anchored on 'not' (Parser.cs :3320)" {
+    actual := RunAst("enum E {\n    A = match x { not a => 3 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PNot(Golden.PIdent("a", 2, 23), 2, 19), null, Golden.IntLit("3", 2, 28))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The relational pattern's Operator is the RAW token text (`>`), not an enum (Parser.cs :3340).
+test "016 N+1c tranche 9c: a relational pattern (> 5) materializes the raw operator text (Parser.cs :3340)" {
+    actual := RunAst("enum E {\n    A = match x { > 5 => 3 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PRel(">", Golden.IntLit("5", 2, 21), 2, 19), null, Golden.IntLit("3", 2, 26))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a list pattern ([1, 2]) materializes ListPattern (Parser.cs :3383)" {
+    actual := RunAst("enum E {\n    A = match x { [1, 2] => 3 }\n}\n")
+    elements := Golden.NoPatterns()
+    Golden.AddPattern(elements, Golden.PLit(Golden.IntLit("1", 2, 20), 2, 20))
+    Golden.AddPattern(elements, Golden.PLit(Golden.IntLit("2", 2, 23), 2, 23))
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PList(elements, 2, 19), null, Golden.IntLit("3", 2, 29))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A SlicePattern is anchored on the PRIMARY-PATTERN entry position (the `[`), not on its own `..` token
+// (Parser.cs :3373 reuses the enclosing `line`/`column`).
+test "016 N+1c tranche 9c: a slice pattern ([1, .. rest]) anchors on the '[' and keeps the binding name (Parser.cs :3373)" {
+    actual := RunAst("enum E {\n    A = match x { [1, .. rest] => 3 }\n}\n")
+    elements := Golden.NoPatterns()
+    Golden.AddPattern(elements, Golden.PLit(Golden.IntLit("1", 2, 20), 2, 20))
+    Golden.AddPattern(elements, Golden.PSlice("rest", 2, 19))
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PList(elements, 2, 19), null, Golden.IntLit("3", 2, 35))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a positional pattern ((1, 2)) materializes PositionalPattern (Parser.cs :3401)" {
+    actual := RunAst("enum E {\n    A = match x { (1, 2) => 3 }\n}\n")
+    elements := Golden.NoPatterns()
+    Golden.AddPattern(elements, Golden.PLit(Golden.IntLit("1", 2, 20), 2, 20))
+    Golden.AddPattern(elements, Golden.PLit(Golden.IntLit("2", 2, 23), 2, 23))
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PPos(elements, 2, 19), null, Golden.IntLit("3", 2, 29))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an object pattern ({ N: 1 }) materializes ObjectPattern + PropertyPattern (Parser.cs :3416/:3487)" {
+    actual := RunAst("enum E {\n    A = match x { { N: 1 } => 3 }\n}\n")
+    props := Golden.NoPatProps()
+    Golden.AddPatProp(props, "N", Golden.PLit(Golden.IntLit("1", 2, 24), 2, 24), null, 2, 21)
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PObj(props, 2, 19), null, Golden.IntLit("3", 2, 31))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: an implicit-binding property pattern ({ N }) leaves Pattern null (Parser.cs :3494)" {
+    actual := RunAst("enum E {\n    A = match x { { N } => 3 }\n}\n")
+    props := Golden.NoPatProps()
+    Golden.AddPatProp(props, "N", null, null, 2, 21)
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PObj(props, 2, 19), null, Golden.IntLit("3", 2, 28))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a union-case pattern (Some { N: 1 }) materializes UnionCasePattern (Parser.cs :3435)" {
+    actual := RunAst("enum E {\n    A = match x { Some { N: 1 } => 3 }\n}\n")
+    props := Golden.NoPatProps()
+    Golden.AddPatProp(props, "N", Golden.PLit(Golden.IntLit("1", 2, 29), 2, 29), null, 2, 26)
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PUnion("Some", props, 2, 19), null, Golden.IntLit("3", 2, 36))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a single-hole interpolated string materializes InterpolatedStringHole (Parser.cs :5163/:5183)" {
+    actual := RunAst("enum E {\n    A = $\"{x}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddHole(parts, Golden.Ident("x", 2, 12), null, 2, 11)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: text around a hole ($\"ab{x}cd\") emits text/hole/text parts (Parser.cs :4988)" {
+    actual := RunAst("enum E {\n    A = $\"ab{x}cd\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddText(parts, "ab", 2, 11)
+    Golden.AddHole(parts, Golden.Ident("x", 2, 14), null, 2, 13)
+    Golden.AddText(parts, "cd", 2, 16)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a hole-free interpolated string emits a single text part (Parser.cs :5180)" {
+    actual := RunAst("enum E {\n    A = $\"abc\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddText(parts, "abc", 2, 11)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: two holes with separating text keep part order and positions" {
+    actual := RunAst("enum E {\n    A = $\"{x}-{y}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddHole(parts, Golden.Ident("x", 2, 12), null, 2, 11)
+    Golden.AddText(parts, "-", 2, 14)
+    Golden.AddHole(parts, Golden.Ident("y", 2, 16), null, 2, 15)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a format specifier ($\"{x:F2}\") lands in InterpolatedStringHole.FormatClause (Parser.cs :5129)" {
+    actual := RunAst("enum E {\n    A = $\"{x:F2}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddHole(parts, Golden.Ident("x", 2, 12), "F2", 2, 11)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// `{{` / `}}` each append ONE brace to the text run while advancing TWO source columns (Parser.cs :4997/:5007).
+test "016 N+1c tranche 9c: brace escapes ($\"{{x}}\") collapse to a single literal text part" {
+    actual := RunAst("enum E {\n    A = $\"{{x}}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddText(parts, "{x}", 2, 11)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a composed hole expression ($\"{a + b}\") sub-parses into a BinaryExpression" {
+    actual := RunAst("enum E {\n    A = $\"{a + b}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddHole(parts, Golden.Bin(Golden.Ident("a", 2, 12), BinaryOperator.Add, Golden.Ident("b", 2, 16), 2, 14), null, 2, 11)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Field-init consumer.
+
+test "016 N+1c tranche 9c: a `:=` field materializes a lambda initializer (Parser.cs :1686/:3686)" {
+    actual := RunAst("struct S {\n    X := x => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 10)
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.Lambda(parameters, Golden.IntLit("1", 2, 15), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a `:=` field materializes a match initializer (Parser.cs :1686/:5415)" {
+    actual := RunAst("struct S {\n    X := match a { 1 => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PLit(Golden.IntLit("1", 2, 20), 2, 20), null, Golden.IntLit("2", 2, 25))
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.Match(Golden.Ident("a", 2, 16), cases, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9c: a `:=` field materializes an interpolated-string initializer (Parser.cs :1686/:5183)" {
+    actual := RunAst("struct S {\n    X := $\"v{a}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddText(parts, "v", 2, 12)
+    Golden.AddHole(parts, Golden.Ident("a", 2, 14), null, 2, 13)
+    fields := new List<Declaration>()
+    Golden.AddFieldInfer(fields, "X", Golden.Interp(parts, false, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", fields, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Negative self-checks for the tranche-9c recursion paths.
+test "016 N+1c tranche 9c: AstEq surfaces a wrong Pattern node TYPE (Identifier golden vs Literal actual)" {
+    actual := RunAst("enum E {\n    A = match x { 1 => 2 }\n}\n")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PIdent("1", 2, 19), null, Golden.IntLit("2", 2, 24))
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9c: AstEq surfaces a wrong interpolated TEXT run (guards vacuous part-list pass)" {
+    actual := RunAst("enum E {\n    A = $\"ab{x}\"\n}\n")
+    parts := Golden.NoParts()
+    Golden.AddText(parts, "WRONG", 2, 11)
+    Golden.AddHole(parts, Golden.Ident("x", 2, 14), null, 2, 13)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Interp(parts, false, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9c: AstEq surfaces a wrong lambda parameter name (guards vacuous parameter-list pass)" {
+    actual := RunAst("enum E {\n    A = x => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "WRONG", 2, 9)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Lambda(parameters, Golden.IntLit("1", 2, 14), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
 }
