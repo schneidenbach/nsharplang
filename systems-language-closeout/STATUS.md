@@ -1,6 +1,34 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (**STAGE N+3 LANDED — `Parser.cs` IS DELETED. THE 016 PARSER-OWNERSHIP ARC IS
+Last updated: 2026-07-29 (**TASK 017 SLICE 1 LANDED — THE SEMANTIC-ANALYZER ARC IS OPEN.** The
+conversion/assignability CLASSIFICATION TABLES — the task file's first-listed family — are out of
+`Analyzer.cs` and owned by the new N# `AnalyzerConversionFacts`. **7 C# methods / 122 lines deleted,
+ZERO C# added**: both `IsImplicitNumericConversion` overloads (the CLR implicit-numeric-widening
+table, which the analyzer carried TWICE — once keyed by N# source names, once by CLR full names),
+`GetNumericTypeFullName`, `IsReferenceType`, `IsReflectionAssignableFrom`, and the two bodyless
+`GetInterfacesSafe`/`GetBaseTypeSafe` pass-throughs (inlined, not reproduced). `Analyzer.cs`
+**23,060 → 22,938**; `git diff` +27 / −149. All **26** call sites — every one in-class, the
+predicates had no external caller — route straight to the owner; no callback, no fallback, no
+comparison route. The owner states the widening relation ONCE over a `NumericConversionKind` and
+reaches it through two DISJOINT name maps, so the two vocabularies stay separate; that is pinned by
+negative contracts. PROOF: an exhaustive throwaway reflection differential against the C# originals,
+run before the deletion — **2,400 cells, 0 mismatches** (23×23 source-name grid, 30×30 CLR grid,
+30×30 reflection-assignability grid, 71 `TypeInfo` values covering every subclass); `nlc check --json`
+**byte-identical on 40/40 project targets** plus 3 purpose-built conversion-error fixtures; and a
+corpus IL sweep of **64/64 comparable assemblies BYTE-IDENTICAL (PRODUCT_IL_DIFFS = 0)** — 26 project
+targets + 38 single-file examples, normalized with an explicit PE/CLI parser touching only the COFF
+timestamp, the PE checksum, the debug directory and the `#GUID`/`#Pdb` heaps — with the 7 native
+targets that do not build standalone proven to fail IDENTICALLY at baseline and after. GATES: unit
+**3,193 / 3,193** (zero drift), BootstrapServices contracts **1,554 → 1,561**, ownership audit
+**18 / 18** after a one-row net-negative repin, `dev.sh --since` (full-suite fail-safe), and the FULL
+VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 13m47s** in a fresh isolated
+copy, VS Code integration step included and all 67 assemblies passing IL verification; VSIX rebuilt +
+reinstalled. Interactive computer-use verification was DENIED by the permission system again and is
+recorded as an open gap. No wall. NEXT: slice 2, the callable/delegate-reference classification family
+into a SIBLING owner — and the recorded architectural prerequisite for `IsAssignable` itself, an N#
+type-resolution owner absorbing `ResolveTypeAlias` + `TryConvertTypeInfoToClrType`)
+
+Last updated (prior): 2026-07-29 (**STAGE N+3 LANDED — `Parser.cs` IS DELETED. THE 016 PARSER-OWNERSHIP ARC IS
 COMPLETE.** `src/NSharpLang.Compiler/Parser.cs` (7,116 lines) and the `ParseResult` record it was the sole
 producer of (`ErrorReporting.cs`, 14 lines) are GONE — **7,130 lines of C# parser policy deleted, zero
 replacement C# added.** The real caller inventory was **21 files**, not the 3 the N+1 records named: 20 test
@@ -179,6 +207,148 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
+- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 1 — THE
+  CONVERSION/ASSIGNABILITY CLASSIFICATION TABLES** (the task file's first-listed family,
+  "conversions/assignability"). TARGET: move the four PURE, STATIC, policy-bearing conversion
+  predicates out of `Analyzer.cs` into a new N# owner `AnalyzerConversionFacts`, route all 25
+  in-class call sites (this pre-edit count was one short — the RESULT below records the exact 26),
+  and DELETE the exact C# methods:
+  (A) `IsImplicitNumericConversion(TypeInfo, TypeInfo)` :20413 — the CLR implicit-numeric-conversion
+      table keyed by N# simple type names (`byte`/`sbyte`/…/`float`);
+  (B) `IsImplicitNumericConversion(Type, Type)` :13813 + `GetNumericTypeFullName(Type)` :13837 — the
+      SAME table keyed by CLR `System.*` FullName after `Nullable.GetUnderlyingType`;
+  (C) `IsReferenceType(TypeInfo)` :20507 — the reference-vs-value classification that decides
+      "null is assignable to T", delegate-variance eligibility, and pattern possibility;
+  (D) `IsReflectionAssignableFrom(Type, Type)` :20373 + `GetInterfacesSafe` :20399 +
+      `GetBaseTypeSafe` :20404 — the MLC-safe assignability walk (identity → IsAssignableFrom →
+      interface list → base chain).
+  WHY THIS ONE: all four are `private static` with ZERO analyzer instance state, they operate over
+  models N# ALREADY OWNS (`TypeInfo` + subclasses live in `TypeInfoModels.nl`; `System.Type`
+  reflection is already driven from `.nl` in `TypeInfoIdentityFacts.nl`), and every caller is
+  inside `Analyzer.cs`, so the routing is total and no callback survives. They are the leaf
+  policy of `IsAssignable` :19634 — the arc's eventual target — so this slice is the bottom of
+  that dependency tree, not a detour.
+  OWNER PLAN (member ceiling planned from the start, per the 016 lesson): a NEW file
+  `src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`, class
+  `AnalyzerConversionFacts` in namespace `NSharpLang.Compiler`, ~6 members. The rest of the
+  assignability closure lands in SIBLING classes/files in later slices
+  (`IsAssignable`'s composite walk, `IsSubtypeOf`, `IsCollectionType`, `HasImplicitConversion`,
+  the delegate/lambda conversion scorers) — NOT by growing this class.
+  BAR: full unit suite, BootstrapServices contracts, corpus IL byte-exact sweep, semantic-diagnostic
+  oracle proofs (`nlc check --json` goldens over conversion-error fixtures), ownership audit 18/18
+  after the ratchet repin, `dev.sh --since`. `Analyzer.cs` ships in the assembly the language server
+  builds against, but this slice changes NO diagnostic behavior (pure relocation of pure predicates)
+  — the corpus IL sweep + oracle goldens are the behavioral proof.
+  **RESULT: LANDED IN FULL (no commit — mandate). All four predicates are DELETED from `Analyzer.cs`;
+  `AnalyzerConversionFacts` is the sole authority for every one of them, with no callback, fallback,
+  shadow path, or comparison route.**
+  DELETIONS (exact, by pre-edit line range — 7 methods, 122 lines, **ZERO C# added**):
+  * `13813-13836` `IsImplicitNumericConversion(Type, Type)` — the CLR-FullName-keyed widening table;
+  * `13837-13842` `GetNumericTypeFullName(Type)` — its `Nullable.GetUnderlyingType` normalizer;
+  * `20373-20408` `IsReflectionAssignableFrom(Type, Type)` + `GetInterfacesSafe` + `GetBaseTypeSafe`
+    (the latter two were bodyless pass-throughs — the vestige of a removed try/catch — and are
+    INLINED into the owner's walk rather than reproduced as members);
+  * `20409-20433` `IsImplicitNumericConversion(TypeInfo, TypeInfo)` — the source-name-keyed table;
+  * `20503-20533` `IsReferenceType(TypeInfo)` — the reference-vs-value classification.
+  ROUTING: **26 call sites**, every one inside `Analyzer.cs` — a grep over `src/` + `tests/` +
+  `editors/` confirms the four predicates had NO external caller, so the reroute is total — plus one
+  `<see cref>` doc reference repointed at the owner. `git diff` on `Analyzer.cs` is **+27 / −149 =
+  net −122**; the file is **23,060 → 22,938** (non-blank 20,246 → 20,139).
+  N# ADDED: `AnalyzerConversionFacts.nl` (254 lines — one `NumericConversionKind` enum plus one class
+  with **9 members**: 4 public entry points and 5 file-private helpers, far under the per-class
+  ceiling) and `AnalyzerConversionFacts.tests.nl` (343 lines, 7 contracts).
+  ONE DELIBERATE CONSOLIDATION, recorded because it is the only non-mechanical decision in the slice:
+  the two C# numeric tables were the SAME policy written twice in two vocabularies. The owner states
+  the widening relation ONCE over a `NumericConversionKind` and reaches it through two DISJOINT name
+  maps (`SourceNumericCode` for `byte`/`sbyte`/…, `ClrNumericCode` for `System.Byte`/…). Neither map
+  accepts the other's spellings, so cross-vocabulary behaviour is preserved exactly — pinned by
+  explicit negative contracts (`SimpleTypeInfo("System.Int32")` → `SimpleTypeInfo("long")` is NOT a
+  conversion, and vice versa) and by the exhaustive differential below.
+  ASSERTION MIGRATION: the four predicates were `private`, so no test named them. Their behaviour was
+  pinned only INDIRECTLY, by end-to-end analyzer diagnostics — chiefly `AnalyzerTests.cs`'s
+  "Numeric Widening — Comprehensive Assignability Matrix" region (:8112-:8765, **53 facts /
+  53 assertions**). Those are diagnostics tests whose SUBJECT is the analyzer, not the table, so they
+  STAY and now execute against the N# owner — the 016 classification-(a) precedent: rerouting is a
+  strictly stronger check than hand-mapping a test to a contract. The DIRECT pinning of the tables is
+  new and native: 7 `.tests.nl` contracts that walk the full 12×12 widening grid in BOTH vocabularies,
+  every `TypeInfo` family for the reference/value split, and the identity / `Nullable` read-through /
+  interface-list / base-chain arms of the reflection walk.
+  PROOF — EXHAUSTIVE DIFFERENTIAL (throwaway probe, run BEFORE the deletion, then deleted; the 016
+  triangulation-probe precedent): a temporary xunit harness reflected into the four C# privates and
+  compared them against the N# owner cell by cell. **4/4 green, 2,400 cells, 0 mismatches**:
+  the source-name numeric grid 23×23 = 529 cells (the 12 numerics plus `bool`/`void`/`null`/`never`/
+  `string`/`object`/`Int32`/`System.Int32`/`System.Int64`/`Widget`/empty), the CLR numeric grid
+  30×30 = 900 cells (the 12 numerics plus nullable, reference, interface, array, `Enum`, `ValueType`),
+  the reflection-assignability grid 30×30 = 900 cells, and the reference/value classification over
+  71 distinct `TypeInfo` values covering every subclass incl. `Alias`/`Oblivious`/`Tuple`.
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `9f2dd9572` in a throwaway `/tmp` worktree and at the working tree, **byte-identical on 40 / 40
+  `project.yml` targets (ORACLE_DIFFS = 0)** plus 3 purpose-built conversion-error fixtures
+  (widening/narrowing chains, `null` to every reference and value family, reflection up/down-casts —
+  14 NL202 diagnostics, byte-identical including message, hint, span, `expectedType`/`actualType`).
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs): **64 / 64 comparable assemblies BYTE-IDENTICAL,
+  PRODUCT_IL_DIFFS = 0** — 26 from the `project.yml` targets and 38 single-file examples — after
+  normalizing ONLY the run-varying image fields (COFF `TimeDateStamp`, optional-header `CheckSum`,
+  the Debug Directory entries and the CodeView blobs they point at, and the `#GUID`/`#Pdb` metadata
+  heaps) via an explicit PE/CLI parser. The 7 `tests/native/*` targets that do not build standalone
+  fail at baseline AND after with an **identical return code and identical scrubbed output**
+  (`SKIPPED_TARGET_DIFFS = 0`), so they are accounted for rather than silently dropped.
+  METHOD NOTE (recorded so it is not repeated): the first sweep attempt derived the "run-varying"
+  offsets EMPIRICALLY, by building the baseline twice. That is UNSOUND — two builds in the same
+  second share a `TimeDateStamp`, and individual MVID bytes collide 1-in-256 — and it produced 10
+  false IL DIFFs, every one a single byte at a timestamp or GUID offset. The precise PE normalizer
+  above replaced it and returned 0.
+  .nl GOTCHA FOUND (new, add to the cumulative list): **`type` is RESERVED and cannot be a parameter
+  or local name.** `func F(type: TypeInfo)` makes the columnar front end decline the WHOLE enclosing
+  class with `NL103 … parse.struct`, reported at the CLASS-NAME span — not at the parameter — so the
+  message points nowhere near the offending token. Renamed to `candidate`.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m15s —
+  exactly the 016 baseline, zero drift); BootstrapServices contracts **1,561 / 1,561** via the
+  canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false` (1,554 baseline + 7 new; the 3 ExternalAssemblyScan Debug-layout tests
+  did not trip); ownership audit **18 / 18** after the repin; the oracle and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s1.py` — `current*` + fingerprints ONLY, one row:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 23,060 → **22,938**, currentNonBlankLines
+  20,246 → **20,139**, fingerprint `text-v1:8fb5356afa080c19` → `text-v1:d4234d5d68f1a2b4` (epoch
+  23,451 / 20,537 PRESERVED and comfortably clear); `reviewedHeadFingerprint
+  head-v1:d889362e0ea7e2a4` → `head-v1:3efdebb585fd02c4`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` untouched and RE-VALIDATED by recomputation after the
+  write; the script reimplements `OwnershipFacts` exactly and self-checks by reproducing all three
+  composite fingerprints over the 381 pre-edit rows before changing anything. The two new `.nl` files
+  need no row — `OwnershipPolicy.Classify` ignores `.nl`.
+  GATES (the FULL IDE bar — `Analyzer.cs` lives in the `NSharpLang.Compiler` assembly the language
+  server ships, and `NSharpLang.Compiler.BootstrapServices` gained a type, so the non-VS-Code path
+  was NOT taken even though the behavioural proof is airtight):
+  * `./scripts/dev.sh --since`: PASS. It correctly took the FULL unit-suite fail-safe — it names
+    `Analyzer.cs` a shared compiler file and the two `.nl` paths unmapped — 3,193 / 3,193 in Debug.
+  * **`./scripts/test-all.sh --commit` with NO `VSCODE_TESTS=skip`: `ALL TESTS PASSED`, 13m47s**,
+    run FRESH in the script's own isolated copy (`/private/tmp/nsharp-test-all.9f6779f2f874.NW7t3P/repo`,
+    created at run time) — not a cached whole-gate or per-step result. Zero `✗`/`FAILED` anywhere in
+    the log. Step timings: compiler build 1m30s, format-contract gate, unit tests 4m36s, native N#
+    tests 2m17s, **VS Code Integration Tests 2m15s**, SDK pack+install 2m46s, template pack/install/
+    creation, template-generated project via `nlc build`, all example projects, all single-file
+    examples, `nlc check` on examples, and the IL verification gate — **all 67 N# assemblies pass
+    ECMA-335 IL verification with no new errors vs baseline**.
+  * `./scripts/reload-vscode-extension.sh`: EXIT 0 — language server republished, `nsharp-0.6.0.vsix`
+    (289 files, 3.98 MB) repackaged, `Extension 'nsharp-0.6.0.vsix' was successfully installed`,
+    VS Code reopened on `examples/01-hello-world`. It WAS required: no LanguageServer source changed,
+    but the `NSharpLang.Compiler` assembly the server ships did.
+  * INTERACTIVE computer-use verification: **NOT PERFORMED — the permission system DENIED the VS Code
+    control grant again this session** (`request_access` → `user_denied`, exactly as in 016 N+3).
+    Recorded as a gap, not skipped by choice. The automated IDE evidence above (the VS Code
+    integration-test step over a freshly installed VSIX) stands, as does the fact that this slice's
+    diagnostics are proven byte-identical corpus-wide; a human/coordinator eyes-on pass over
+    `examples/01-hello-world`, now open in the reloaded editor, is the outstanding item.
+  DOCS: `memory/components/analyzer.md` gains `AnalyzerConversionFacts.nl` as a listed owner with a
+  precise statement of each moved rule and a "do not reintroduce in C#, do not grow this class"
+  note; `memory/architecture.md`'s Analyzer entry names its three N# owners. Two STALE 016 leftovers
+  were corrected while there: both `memory/architecture.md` and `memory/components/error-reporting.md`
+  still pointed at `src/NSharpLang.Compiler/ErrorReporting.cs`, a file task 016 DELETED — they now
+  name the N# owners (`CompilerError.nl`, `ErrorCode.nl`, `ErrorSeverity.nl`, `ErrorMessageBuilder.nl`,
+  `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl`).
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change; the packaged SDK
+  self-emits the new owner.
 - Task 015 status: UNCHECKED, iteration PAUSED at `e0f987bba` — the movable decision surface is
   EXHAUSTED per the 015 completion roadmap (recorded below): every remaining emitter policy is
   BLOCKED-WITH-RECORD on four named future owners (plan-row lambda-body emitter, N# preflight/
@@ -3258,7 +3428,33 @@ These are populated only when their task becomes current.
   expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
   ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3/4 corpus
   shapes deliberately keep those would-be errors panic-suppressed so their output is byte-exact without them.
-- Task 017 next semantic sub-slice: not selected
+- Task 017 next semantic sub-slice: **SLICE 2 — the CALLABLE / DELEGATE-REFERENCE classification
+  family**, into a SIBLING owner (`AnalyzerCallableReferenceFacts`, a new file — do NOT grow
+  `AnalyzerConversionFacts`; the arc's class layout is planned, one bounded family per class).
+  Slice 1 (the conversion/assignability classification TABLES) is DONE — full record in the 017
+  Active sub-slice above; `Analyzer.cs` is 22,938 and the four predicates are gone.
+  SLICE-2 TARGET (line numbers at `Analyzer.cs` 22,938, re-verify before editing): the remaining
+  `private static`, zero-instance-state predicates in the assignability neighbourhood —
+  `IsCallableReferenceType` :6779, `IsMethodGroupReferenceType` :6783, `HasSourceFunctionIdentity`
+  :6788, `IsRuntimeDelegateType` :6834, `IsSpanTypeName` :19940, `GetFunctionParameterModifier`
+  :20028, `NormalizeDelegateParameterModifier` :20036, and `TryCreateFunctionTypeInfoFromGenericDelegate`
+  :20196. Confirm each is genuinely state-free before committing to the set (the brace-scan that
+  produced this list over-runs on multi-line signatures), and prove it the same way slice 1 did:
+  throwaway reflection differential over an exhaustive value grid, then the oracle + IL sweeps.
+  ARCHITECTURAL PREREQUISITE FOR THE ARC'S REAL TARGET, recorded now so it is not rediscovered:
+  `IsAssignable` :19604 itself — and with it `IsSubtypeOf` :20265, `IsCollectionType` :20469,
+  `HasImplicitConversion` :20343, `ImplementsDuckInterface` :20531, `IsKnownGenericTypeAssignable`,
+  `IsArrayToSpanAssignable`, `IsAspNetActionResultGenericAssignable`, `IsFunctionTypeAssignable`,
+  `IsLambdaAssignableToDelegate` and the delegate-signature scorers — is NOT movable while
+  `ResolveTypeAlias` :20391 and `TryConvertTypeInfoToClrType` :10200 stay in C#. Those two are the
+  gateway every arm calls, and they reach the analyzer's declaration/resolution state
+  (`_declarationContext`, `ResolveType`, `ResolveTypeForSourceOwner`, `_wellKnownTypes`,
+  `_semanticModel`, `_errors`). The unlock is an **N# type-resolution owner** that absorbs
+  alias/oblivious normalization plus TypeInfo→CLR conversion on top of the existing N#
+  `AnalyzerDeclarationContext` / `ColumnarSemanticTypeRegistry` facts. Sequence it as its own
+  sub-slice BEFORE attempting `IsAssignable`; it is also the owner the 015 roadmap names as the
+  retirement path for emitter blockers #2 and #5 (the C# preflight typing engine and interpolation
+  parsed-hole resolution), so it pays twice.
 - Task 018 next systems-policy sub-slice: not selected
 - Task 019 next tooling sub-slice: not selected
 - Task 020 next native-runner sub-slice: not selected
@@ -3267,6 +3463,23 @@ These are populated only when their task becomes current.
 
 Completed slices:
 
+- Task 017 — FIRST slice (the semantic-analyzer arc opens): the CONVERSION/ASSIGNABILITY
+  CLASSIFICATION TABLES move to the new N# owner `AnalyzerConversionFacts`. **7 C# methods /
+  122 lines deleted from `Analyzer.cs` (23,060 → 22,938), 0 C# lines added**: both
+  `IsImplicitNumericConversion` overloads (the CLR implicit-numeric-widening table, written twice
+  in two vocabularies), `GetNumericTypeFullName`, `IsReferenceType`, `IsReflectionAssignableFrom`,
+  `GetInterfacesSafe` and `GetBaseTypeSafe`. All 26 call sites — every one in-class; the predicates
+  had no external caller — route directly to the owner; nothing calls back. N# added:
+  `AnalyzerConversionFacts.nl` (254 lines, 9 members) + 7 native contracts. The widening relation is
+  now stated ONCE over a `NumericConversionKind` and reached through two disjoint name maps, with the
+  cross-vocabulary disjointness pinned by negative contracts. PROOF: an exhaustive throwaway
+  reflection differential against the C# originals — **2,400 cells, 0 mismatches** (23×23 source-name
+  grid, 30×30 CLR grid, 30×30 reflection-assignability grid, 71 `TypeInfo` values) — plus
+  `nlc check --json` **byte-identical on 40/40 project targets** and 3 conversion-error fixtures, and
+  a corpus IL sweep of **64/64 comparable assemblies BYTE-IDENTICAL (PRODUCT_IL_DIFFS = 0)** with the
+  7 non-building native targets proven to fail identically. Suite 3,193/3,193 (zero drift), contracts
+  1,554 → 1,561, ownership audit 18/18 after a one-row net-negative repin. No wall. Full detail in
+  the 017 Active sub-slice.
 - Task 016 — **TERMINAL slice (STAGE N+3): `Parser.cs` DELETED. The parser-ownership arc is COMPLETE and the
   task's checkbox criterion ("Parser.cs is deleted or a reviewed zero-policy mechanical host") is MET by the
   stronger arm — the file is gone, not reduced to a host.** `src/NSharpLang.Compiler/Parser.cs` (−7,116) and

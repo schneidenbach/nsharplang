@@ -1,6 +1,9 @@
 # Error Reporting Component
 
-**File:** `src/NSharpLang.Compiler/ErrorReporting.cs`
+**Owner:** `src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`,
+`ErrorSeverity.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl` (N#).
+The former C# `src/NSharpLang.Compiler/ErrorReporting.cs` was deleted with `Parser.cs` (task 016);
+the `ParseResult` record it held retired with the C# parser.
 
 ## Responsibility
 

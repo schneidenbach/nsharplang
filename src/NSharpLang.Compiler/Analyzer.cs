@@ -5786,7 +5786,7 @@ public class Analyzer : IDisposable
 
         if (resolved is ReflectionTypeInfo reflectionType)
         {
-            return IsReflectionAssignableFrom(typeof(Exception), reflectionType.Type);
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(Exception), reflectionType.Type);
         }
 
         if (resolved is SimpleTypeInfo simple)
@@ -5803,7 +5803,7 @@ public class Analyzer : IDisposable
 
             if (TryConvertTypeInfoToClrType(resolved) is { } clrType)
             {
-                return IsReflectionAssignableFrom(typeof(Exception), clrType);
+                return AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(Exception), clrType);
             }
 
             return false;
@@ -5902,7 +5902,7 @@ public class Analyzer : IDisposable
                 return IsDisposableUsingResourceType(byRef.InnerType);
             case NullableTypeInfo nullable:
                 var innerType = ResolveTypeAlias(nullable.InnerType);
-                return IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
+                return AnalyzerConversionFacts.IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
             case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                 return IsDisposableUsingResourceType(namedType);
             case GenericTypeInfo generic when ResolveGenericDefinition(generic) is { } genericDefinition:
@@ -5964,7 +5964,7 @@ public class Analyzer : IDisposable
         type = ResolveTypeAlias(type);
         return type switch
         {
-            ReflectionTypeInfo reflectionType => IsReflectionAssignableFrom(typeof(IDisposable), reflectionType.Type),
+            ReflectionTypeInfo reflectionType => AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(IDisposable), reflectionType.Type),
             ClassTypeInfo or StructTypeInfo or RecordTypeInfo or InterfaceTypeInfo =>
                 IsSubtypeOf(type, new ReflectionTypeInfo(typeof(IDisposable))),
             _ => false
@@ -6076,7 +6076,7 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Whether the type is a KNOWN value type for the NL320 lockee check. Deliberately conservative —
-    /// the inverse of <see cref="IsReferenceType"/> would false-positive: that predicate answers
+    /// the inverse of <see cref="AnalyzerConversionFacts.IsReferenceType"/> would false-positive: that predicate answers
     /// "can this be assigned null" and returns false for Unknown/External/GenericTypeInfo, which must
     /// stay SILENT here (rejecting a type the analyzer cannot classify would break locks on external
     /// .NET reference types).
@@ -12063,7 +12063,7 @@ public class Analyzer : IDisposable
             return 8;
 
         // Implicit numeric conversion (better than generic assignable, worse than exact)
-        if (IsImplicitNumericConversion(resolvedArg, resolvedParam))
+        if (AnalyzerConversionFacts.IsImplicitNumericConversion(resolvedArg, resolvedParam))
             return 6;
 
         // Assignable but not exact
@@ -12159,7 +12159,7 @@ public class Analyzer : IDisposable
 
             if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
             {
-                if (!IsReferenceType(boundType))
+                if (!AnalyzerConversionFacts.IsReferenceType(boundType))
                 {
                     Error(ErrorCode.GenericConstraintViolation,
                         $"`{boundType}` is a value type, but type parameter `{constraint.TypeParameter}` of `{functionName}` requires a reference type (the `class` constraint)",
@@ -12171,7 +12171,7 @@ public class Analyzer : IDisposable
 
             if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
             {
-                if (IsReferenceType(boundType) || boundType is NullableTypeInfo)
+                if (AnalyzerConversionFacts.IsReferenceType(boundType) || boundType is NullableTypeInfo)
                 {
                     Error(ErrorCode.GenericConstraintViolation,
                         $"`{boundType}` is not a non-nullable value type, but type parameter `{constraint.TypeParameter}` of `{functionName}` requires one (the `struct` constraint)",
@@ -13751,7 +13751,7 @@ public class Analyzer : IDisposable
 
         var resolvedArgument = ResolveTypeAlias(argumentType);
         if (resolvedArgument is NullableTypeInfo nullableArgument
-            && IsReferenceType(ResolveTypeAlias(nullableArgument.InnerType)))
+            && AnalyzerConversionFacts.IsReferenceType(ResolveTypeAlias(nullableArgument.InnerType)))
         {
             return IsAssignable(expectedType, nullableArgument.InnerType);
         }
@@ -13801,43 +13801,13 @@ public class Analyzer : IDisposable
         if (TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameterType, argumentType))
             return 8;
 
-        if (IsImplicitNumericConversion(argumentType, parameterType))
+        if (AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(argumentType, parameterType))
             return 6;
 
-        if (IsReflectionAssignableFrom(parameterType, argumentType))
+        if (AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, argumentType))
             return 4;
 
         return 2;
-    }
-
-    private static bool IsImplicitNumericConversion(Type sourceType, Type targetType)
-    {
-        if (sourceType == targetType)
-            return true;
-
-        var sourceName = GetNumericTypeFullName(sourceType);
-        var targetName = GetNumericTypeFullName(targetType);
-
-        return (sourceName, targetName) switch
-        {
-            ("System.Byte", "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.SByte", "System.Int16" or "System.Int32" or "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.Int16", "System.Int32" or "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.UInt16", "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.Int32", "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.UInt32", "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.Int64", "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.UInt64", "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.Char", "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
-            ("System.Single", "System.Double") => true,
-            _ => false
-        };
-    }
-
-    private static string? GetNumericTypeFullName(Type type)
-    {
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-        return underlyingType.FullName;
     }
 
     private Type ApplyReflectionBindings(Type type, Dictionary<Type, Type> bindings)
@@ -13877,16 +13847,16 @@ public class Analyzer : IDisposable
         {
             if (bindings.TryGetValue(parameterType, out var existingBinding))
                 return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(existingBinding, argumentType)
-                    || IsReflectionAssignableFrom(existingBinding, argumentType)
-                    || IsImplicitNumericConversion(argumentType, existingBinding);
+                    || AnalyzerConversionFacts.IsReflectionAssignableFrom(existingBinding, argumentType)
+                    || AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(argumentType, existingBinding);
 
             bindings[parameterType] = argumentType;
             return true;
         }
 
         if (!parameterType.ContainsGenericParameters)
-            return IsReflectionAssignableFrom(parameterType, argumentType)
-                || IsImplicitNumericConversion(argumentType, parameterType);
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, argumentType)
+                || AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(argumentType, parameterType);
 
         if (parameterType.IsArray)
         {
@@ -14239,7 +14209,7 @@ public class Analyzer : IDisposable
         return BuiltInTypes.IsUnknown(resolved)
             || resolved is GenericTypeInfo
             || resolved is NullableTypeInfo
-            || IsReferenceType(resolved)
+            || AnalyzerConversionFacts.IsReferenceType(resolved)
             || (resolved is ReflectionTypeInfo reflection
                 && Nullable.GetUnderlyingType(reflection.Type) != null);
     }
@@ -16471,7 +16441,7 @@ public class Analyzer : IDisposable
 
             var parameterType = parameters[0].ParameterType;
             return IsGenericDefinition(parameterType, typeof(IEnumerable<>))
-                && IsReflectionAssignableFrom(parameterType, typeof(IEnumerable<>).MakeGenericType(elementType));
+                && AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, typeof(IEnumerable<>).MakeGenericType(elementType));
     }
 
     private static bool HasCollectionExpressionMutator(Type targetType, Type elementType)
@@ -16496,7 +16466,7 @@ public class Analyzer : IDisposable
                 return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameterType, elementType);
             }
 
-            return IsReflectionAssignableFrom(parameterType, elementType);
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, elementType);
     }
 
     private static bool IsSupportedCollectionExpressionInterfaceTarget(Type targetType)
@@ -19640,7 +19610,7 @@ public class Analyzer : IDisposable
         if (resolvedTarget == resolvedSource) return true;
         if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && resolvedTarget is NullableTypeInfo) return true;
         // null is assignable to any reference type (string, classes, interfaces, arrays, delegates)
-        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && IsReferenceType(resolvedTarget)) return true;
+        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && AnalyzerConversionFacts.IsReferenceType(resolvedTarget)) return true;
         if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Never)) return true;
 
         // Unknown type handling — distinguished by kind
@@ -19707,7 +19677,7 @@ public class Analyzer : IDisposable
 
         // Reflection-based type checking: use CLR semantics when both sides are reflection types
         if (resolvedSource is ReflectionTypeInfo srcRefl && resolvedTarget is ReflectionTypeInfo tgtRefl)
-            return IsReflectionAssignableFrom(tgtRefl.Type, srcRefl.Type);
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(tgtRefl.Type, srcRefl.Type);
         // Mixed: reflection target + built-in source — convert to MLC type for comparison
         if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo)
         {
@@ -19735,7 +19705,7 @@ public class Analyzer : IDisposable
         if (IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)) return true;
 
         // CLR implicit numeric conversions
-        if (IsImplicitNumericConversion(resolvedSource, resolvedTarget)) return true;
+        if (AnalyzerConversionFacts.IsImplicitNumericConversion(resolvedSource, resolvedTarget)) return true;
 
         // Nominal subtyping: walk base class chain and interface lists for N#-declared types
         if (IsSubtypeOf(resolvedSource, resolvedTarget)) return true;
@@ -19945,7 +19915,7 @@ public class Analyzer : IDisposable
             return false;
 
         return TryResolveExternalType("Microsoft.AspNetCore.Mvc.ActionResult") is ReflectionTypeInfo actionResult
-            && IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
+            && AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
     }
 
     private bool IsArrayToSpanAssignable(TypeInfo target, TypeInfo source)
@@ -20163,7 +20133,7 @@ public class Analyzer : IDisposable
         if (resolved is GenericTypeInfo genericType)
             return genericType.Name != "Nullable";
 
-        return IsReferenceType(resolved);
+        return AnalyzerConversionFacts.IsReferenceType(resolved);
     }
 
     /// <summary>
@@ -20364,71 +20334,10 @@ public class Analyzer : IDisposable
         if (source is ReflectionTypeInfo reflSource && target is ReflectionTypeInfo reflTarget)
         {
             return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reflSource.Type, reflTarget.Type)
-                && IsReflectionAssignableFrom(reflTarget.Type, reflSource.Type);
+                && AnalyzerConversionFacts.IsReflectionAssignableFrom(reflTarget.Type, reflSource.Type);
         }
 
         return false;
-    }
-
-    private static bool IsReflectionAssignableFrom(Type targetType, Type sourceType)
-    {
-        if (TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, sourceType))
-            return true;
-
-        if (targetType.IsAssignableFrom(sourceType))
-            return true;
-
-        foreach (var sourceInterface in GetInterfacesSafe(sourceType))
-        {
-            if (TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, sourceInterface))
-                return true;
-        }
-
-        var baseType = GetBaseTypeSafe(sourceType);
-        while (baseType != null)
-        {
-            if (TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, baseType))
-                return true;
-
-            baseType = GetBaseTypeSafe(baseType);
-        }
-
-        return false;
-    }
-
-    private static IEnumerable<Type> GetInterfacesSafe(Type type)
-    {
-            return type.GetInterfaces();
-    }
-
-    private static Type? GetBaseTypeSafe(Type type)
-    {
-            return type.BaseType;
-    }
-
-    /// <summary>
-    /// CLR implicit numeric conversion table. Returns true if source can be implicitly converted to target
-    /// without data loss (widening conversions only).
-    /// </summary>
-    private static bool IsImplicitNumericConversion(TypeInfo source, TypeInfo target)
-    {
-        if (source is not SimpleTypeInfo srcSimple || target is not SimpleTypeInfo tgtSimple)
-            return false;
-
-        return (srcSimple.Name, tgtSimple.Name) switch
-        {
-            ("byte", "short" or "ushort" or "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
-            ("sbyte", "short" or "int" or "long" or "float" or "double" or "decimal") => true,
-            ("short", "int" or "long" or "float" or "double" or "decimal") => true,
-            ("ushort", "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
-            ("int", "long" or "float" or "double" or "decimal") => true,
-            ("uint", "long" or "ulong" or "float" or "double" or "decimal") => true,
-            ("long", "float" or "double" or "decimal") => true,
-            ("ulong", "float" or "double" or "decimal") => true,
-            ("char", "ushort" or "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
-            ("float", "double") => true,
-            _ => false
-        };
     }
 
     private bool HasImplicitConversion(TypeInfo source, TypeInfo target)
@@ -20500,37 +20409,6 @@ public class Analyzer : IDisposable
         return type;
     }
 
-    /// <summary>
-    /// Returns true if the type is a reference type (can be assigned null).
-    /// Value types (numeric primitives, bool, char, structs, enums) return false.
-    /// </summary>
-    private static bool IsReferenceType(TypeInfo type)
-    {
-        if (type is SimpleTypeInfo simple)
-        {
-            return simple.Name switch
-            {
-                "int" or "long" or "float" or "double" or "decimal"
-                    or "byte" or "sbyte" or "short" or "ushort"
-                    or "uint" or "ulong" or "char" or "bool"
-                    or "void" or "null" or "never" => false,
-                _ => true
-            };
-        }
-        if (type is ClassTypeInfo or InterfaceTypeInfo or ArrayTypeInfo
-            or FunctionTypeInfo or UnionTypeInfo or AnonymousUnionTypeInfo)
-            return true;
-        if (type is RecordTypeInfo recordType)
-            return !recordType.IsStruct;
-        if (type is StructTypeInfo or EnumTypeInfo or ByRefTypeInfo)
-            return false;
-        if (type is GenericTypeInfo)
-            return false;
-        if (type is ReflectionTypeInfo refl)
-            return !refl.Type.IsValueType;
-        return false;
-    }
-
     private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
     {
         var resolvedSource = ResolveTypeAlias(sourceType);
@@ -20555,8 +20433,8 @@ public class Analyzer : IDisposable
             || resolvedTarget is UnionTypeInfo or AnonymousUnionTypeInfo)
             return true;
 
-        bool sourceIsValue = !IsReferenceType(resolvedSource);
-        bool targetIsValue = !IsReferenceType(resolvedTarget);
+        bool sourceIsValue = !AnalyzerConversionFacts.IsReferenceType(resolvedSource);
+        bool targetIsValue = !AnalyzerConversionFacts.IsReferenceType(resolvedTarget);
         if (sourceIsValue && targetIsValue)
         {
             return false;
@@ -20796,7 +20674,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        return IsReferenceType(resolvedLeft) && IsReferenceType(resolvedRight);
+        return AnalyzerConversionFacts.IsReferenceType(resolvedLeft) && AnalyzerConversionFacts.IsReferenceType(resolvedRight);
     }
 
     private bool ArePrimitiveEqualityTypesCompatible(TypeInfo left, TypeInfo right)

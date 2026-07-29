@@ -2,7 +2,8 @@
 
 **Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`
+`src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`
 
 ## Responsibility
 
@@ -20,6 +21,27 @@ bare CLR names use the same case-sensitive exported-type assembly scan as the an
 identity; nominal source types compare through the canonical declaration handles supplied by the
 declaration context. Tuple element labels are metadata rather than type identity, while dynamic
 assembly types remain reference-identity-only even after they are baked.
+
+`AnalyzerConversionFacts.nl` is the N# owner for the analyzer's conversion/assignability
+classification tables — the leaf policy the assignability decision consults:
+
+- `IsImplicitNumericConversion(TypeInfo, TypeInfo)` and `IsImplicitNumericReflectionConversion(Type, Type)`
+  are the CLR implicit numeric-widening table. The relation is stated once over
+  `NumericConversionKind` and reached through two disjoint name maps — N# source spellings
+  (`byte`, `sbyte`, …) and CLR full names (`System.Byte`, …). Neither vocabulary accepts the other's
+  spellings. Identical reflection types short-circuit to true and `Nullable<T>` is read through to
+  `T` on both sides; identical source names are NOT a conversion, because the caller answers
+  identity first.
+- `IsReferenceType(TypeInfo)` decides whether `null` is one of a type's values. Record structs,
+  enums, byref types and closed generic instantiations are value types; every simple name outside
+  the built-in value list is a reference type; reflection types defer to the CLR value-type flag.
+- `IsReflectionAssignableFrom(Type, Type)` is the MetadataLoadContext-safe assignability walk:
+  exact identity, then `Type.IsAssignableFrom`, then the source's interface list and base chain
+  compared by exact metadata identity (types loaded from different assembly identities are not
+  reference-equal inside the MLC, so `IsAssignableFrom` alone is not sufficient).
+
+Do not reintroduce any of these tables in C#, and do not grow this class with the rest of the
+assignability closure — later families land in sibling N# owners.
 
 ## Core Functions
 
