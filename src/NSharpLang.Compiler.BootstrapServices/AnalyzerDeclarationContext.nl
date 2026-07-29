@@ -289,6 +289,40 @@ public class AnalyzerDeclarationContext {
         return true
     }
 
+    // Normalize a declared type alias — and the ObliviousTypeInfo wrapper, which is the other
+    // transparent shell over a type — down to the type it actually names. This is the whole of
+    // the analyzer's former ResolveTypeAlias: an alias answers the resolution of its aliased
+    // type reference AGAINST ITS OWN DECLARING FILE, walked to a fixed point, and a cycle
+    // answers `unknown`. Every other TypeInfo is its own answer.
+    //
+    // The alias arm is a pure declaration-context fact because the analyzer registers the
+    // AliasTypeInfo instance it builds (RegisterDeclaredAlias); an alias this context does not
+    // own is transparent to it and is returned unchanged.
+    public func ResolveDeclaredAlias(candidate: TypeInfo): TypeInfo {
+        return ResolveDeclaredAliasCore(candidate, new HashSet<object>())
+    }
+
+    func ResolveDeclaredAliasCore(
+        candidate: TypeInfo,
+        activeAliases: HashSet<object>): TypeInfo {
+        alias := candidate as AliasTypeInfo
+        if alias != null {
+            if !activeAliases.Add(alias) {
+                return BuiltInTypes.Unknown
+            }
+            resolved := BuiltInTypes.Unknown as TypeInfo
+            if !TryResolveTypeForOwner(alias.AliasedType, alias, null, out resolved) {
+                return candidate
+            }
+            return ResolveDeclaredAliasCore(resolved, activeAliases)
+        }
+        oblivious := candidate as ObliviousTypeInfo
+        if oblivious != null {
+            return ResolveDeclaredAliasCore(oblivious.InnerType, activeAliases)
+        }
+        return candidate
+    }
+
     public func ResolveDeclarationType(declaration: object, filePath: string): TypeInfo {
         facts := FindFile(filePath)
         if facts == null {
@@ -400,6 +434,15 @@ public class AnalyzerDeclarationContext {
         }
         byName[name] = typeInfo
         RegisterSourceType(typeInfo, fullPath, null)
+    }
+
+    // A type alias declaration is registered by INSTANCE only: the declaring scope keeps the
+    // AliasTypeInfo it built, and this context records which file that instance came from so
+    // alias resolution is a declaration-context fact rather than a scope-stack walk. The
+    // canonical `typesByFile` entry for an alias NAME stays the RESOLVED target type that
+    // ResolveDeclarationTypeCore computes, so name lookup is unchanged.
+    public func RegisterDeclaredAlias(filePath: string, alias: AliasTypeInfo) {
+        filesByType[alias] = Path.GetFullPath(filePath)
     }
 
     public func ContainsSourceType(typeInfo: TypeInfo): bool {

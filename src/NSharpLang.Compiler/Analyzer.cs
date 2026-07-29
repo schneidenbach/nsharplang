@@ -907,7 +907,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolvedType = ResolveTypeAlias(LookupType(containerName) ?? BuiltInTypes.Unknown);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(LookupType(containerName) ?? BuiltInTypes.Unknown);
         if (resolvedType is EnumTypeInfo enumType)
         {
             if (!HasSourceEnumMember(enumType, memberAccess.MemberName))
@@ -1128,7 +1128,7 @@ public class Analyzer : IDisposable
 
             if (candidateType != null)
             {
-                candidateType = ResolveTypeAlias(candidateType);
+                candidateType = _declarationContext.ResolveDeclaredAlias(candidateType);
                 if (IsSourceDeclaredAttributeCandidate(candidateType))
                 {
                     type = candidateType;
@@ -1178,7 +1178,7 @@ public class Analyzer : IDisposable
 
     private bool SourceTypeDerivesFromAttribute(TypeInfo type, HashSet<object> seenClasses)
     {
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         if (type is ReflectionTypeInfo { Type: var reflectionType })
         {
             return IsClrAttributeType(reflectionType);
@@ -1196,7 +1196,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var baseType = ResolveTypeAlias(shape.BaseType);
+        var baseType = _declarationContext.ResolveDeclaredAlias(shape.BaseType);
         return baseType is ReflectionTypeInfo { Type: var baseReflectionType } && IsClrAttributeType(baseReflectionType)
             || SourceTypeDerivesFromAttribute(baseType, seenClasses);
     }
@@ -2061,7 +2061,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolvedReturnType = ResolveTypeAlias(GetNonNullableType(returnType));
+        var resolvedReturnType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(returnType));
         var isAsyncGenerator = func.Modifiers.HasFlag(Modifiers.Async);
         if (BuiltInTypes.IsUnknown(resolvedReturnType)
             || IsGeneratorSequenceReturnType(resolvedReturnType, isAsyncGenerator))
@@ -2483,7 +2483,7 @@ public class Analyzer : IDisposable
 
         foreach (var (column, columnType) in columnTypes)
         {
-            var resolvedColumnType = ResolveTypeAlias(columnType);
+            var resolvedColumnType = _declarationContext.ResolveDeclaredAlias(columnType);
             if (IsSupportedSoaColumnType(resolvedColumnType))
                 continue;
 
@@ -2534,12 +2534,12 @@ public class Analyzer : IDisposable
 
     private bool IsSupportedSoaColumnType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         if (BuiltInTypes.IsUnknown(resolved))
             return true;
 
         if (resolved is NullableTypeInfo nullable)
-            return BuiltInTypes.Is(ResolveTypeAlias(nullable.InnerType), BuiltInTypes.String);
+            return BuiltInTypes.Is(_declarationContext.ResolveDeclaredAlias(nullable.InnerType), BuiltInTypes.String);
 
         if (resolved is EnumTypeInfo enumType)
             return enumType.Declaration.Type == EnumType.Int;
@@ -4776,7 +4776,7 @@ public class Analyzer : IDisposable
 
     private bool TryGetTupleDeconstructionElements(TypeInfo initType, out List<TypeInfo> elements)
     {
-        var resolved = ResolveTypeAlias(initType);
+        var resolved = _declarationContext.ResolveDeclaredAlias(initType);
         switch (resolved)
         {
             case TupleTypeInfo tupleType:
@@ -5267,19 +5267,19 @@ public class Analyzer : IDisposable
 
     private TypeInfo NormalizeShapeType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(GetNonNullableType(type));
+        var resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type));
         while (true)
         {
             switch (resolved)
             {
                 case ObliviousTypeInfo oblivious:
-                    resolved = ResolveTypeAlias(GetNonNullableType(oblivious.InnerType));
+                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(oblivious.InnerType));
                     continue;
                 case ByRefTypeInfo byRef:
-                    resolved = ResolveTypeAlias(GetNonNullableType(byRef.InnerType));
+                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRef.InnerType));
                     continue;
                 case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
-                    resolved = ResolveTypeAlias(GetNonNullableType(namedType));
+                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(namedType));
                     continue;
                 default:
                     return resolved;
@@ -5762,11 +5762,11 @@ public class Analyzer : IDisposable
 
     private bool IsThrowableType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
 
         while (resolved is ObliviousTypeInfo oblivious)
         {
-            resolved = ResolveTypeAlias(oblivious.InnerType);
+            resolved = _declarationContext.ResolveDeclaredAlias(oblivious.InnerType);
         }
 
         if (BuiltInTypes.Is(resolved, BuiltInTypes.Null) || BuiltInTypes.Is(resolved, BuiltInTypes.Never))
@@ -5888,7 +5888,7 @@ public class Analyzer : IDisposable
 
     private bool IsDisposableUsingResourceType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         if (BuiltInTypes.IsUnknown(resolved))
         {
             return true;
@@ -5901,7 +5901,7 @@ public class Analyzer : IDisposable
             case ByRefTypeInfo byRef:
                 return IsDisposableUsingResourceType(byRef.InnerType);
             case NullableTypeInfo nullable:
-                var innerType = ResolveTypeAlias(nullable.InnerType);
+                var innerType = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
                 return AnalyzerConversionFacts.IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
             case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                 return IsDisposableUsingResourceType(namedType);
@@ -5914,7 +5914,7 @@ public class Analyzer : IDisposable
 
     private bool HasDisposePattern(TypeInfo type)
     {
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         return type switch
         {
             ClassTypeInfo classType => HasDisposePatternMember(classType.DeclaredMembers),
@@ -5961,7 +5961,7 @@ public class Analyzer : IDisposable
 
     private bool IsNominallyIDisposable(TypeInfo type)
     {
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         return type switch
         {
             ReflectionTypeInfo reflectionType => AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(IDisposable), reflectionType.Type),
@@ -5977,7 +5977,7 @@ public class Analyzer : IDisposable
         // IDENTITY — a value-typed lockee has none (it would be boxed into a fresh object per lock,
         // guarding nothing), and the IL emitter's `stloc` of a raw value into an object local is
         // unverifiable IL that segfaults the process inside Monitor.Enter.
-        var lockeeType = ResolveTypeAlias(AnalyzeExpression(lockStmt.LockObject));
+        var lockeeType = _declarationContext.ResolveDeclaredAlias(AnalyzeExpression(lockStmt.LockObject));
 
         if (lockeeType is SoaRowTypeInfo)
         {
@@ -6055,7 +6055,7 @@ public class Analyzer : IDisposable
 
             foreach (var constraintTypeRef in constraint.Constraints)
             {
-                var constraintType = ResolveTypeAlias(ResolveType(constraintTypeRef));
+                var constraintType = _declarationContext.ResolveDeclaredAlias(ResolveType(constraintTypeRef));
                 var isClassConstraint = constraintType switch
                 {
                     ClassTypeInfo => true,
@@ -6377,7 +6377,7 @@ public class Analyzer : IDisposable
 
     private bool TryGetListPatternElementType(TypeInfo valueType, out TypeInfo elementType)
     {
-        valueType = ResolveTypeAlias(valueType);
+        valueType = _declarationContext.ResolveDeclaredAlias(valueType);
         elementType = BuiltInTypes.Unknown;
 
         if (valueType is ArrayTypeInfo arrayType)
@@ -6407,8 +6407,8 @@ public class Analyzer : IDisposable
         TypeInfo valueType,
         TypeInfo patternValueType)
     {
-        var resolvedValueType = ResolveTypeAlias(GetNonNullableType(valueType));
-        var resolvedPatternValueType = ResolveTypeAlias(GetNonNullableType(patternValueType));
+        var resolvedValueType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(valueType));
+        var resolvedPatternValueType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(patternValueType));
         if (BuiltInTypes.IsUnknown(resolvedValueType) || BuiltInTypes.IsUnknown(resolvedPatternValueType))
         {
             return;
@@ -6430,14 +6430,14 @@ public class Analyzer : IDisposable
 
     private bool IsNullableRelationalPatternType(TypeInfo type)
     {
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         return type is NullableTypeInfo
             || type is ReflectionTypeInfo reflection && Nullable.GetUnderlyingType(reflection.Type) != null;
     }
 
     private bool IsRelationalPatternComparableType(TypeInfo type, bool allowBool)
     {
-        type = ResolveTypeAlias(GetNonNullableType(type));
+        type = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type));
         if (allowBool && IsBoolType(type))
         {
             return true;
@@ -6772,7 +6772,7 @@ public class Analyzer : IDisposable
         if (_currentExpectedType != null && CanBindCallableReferenceToExpectedType(_currentExpectedType))
             return false;
 
-        var resolvedType = ResolveTypeAlias(type);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
         return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType);
     }
 
@@ -6807,7 +6807,7 @@ public class Analyzer : IDisposable
 
     private bool CanBindCallableReferenceToExpectedType(TypeInfo expectedType)
     {
-        var resolvedExpected = ResolveTypeAlias(expectedType);
+        var resolvedExpected = _declarationContext.ResolveDeclaredAlias(expectedType);
         return resolvedExpected switch
         {
             FunctionTypeInfo => true,
@@ -6870,7 +6870,7 @@ public class Analyzer : IDisposable
 
     private string GetArgumentTypeDiagnosticName(Argument argument, TypeInfo type)
     {
-        var resolvedType = ResolveTypeAlias(type);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
         if (AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType))
         {
             var name = GetCallableReferenceName(argument.Value, resolvedType);
@@ -6882,7 +6882,7 @@ public class Analyzer : IDisposable
 
     private string FormatArgumentTypeDiagnosticPhrase(Argument argument, TypeInfo type)
     {
-        var resolvedType = ResolveTypeAlias(type);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
         var name = GetArgumentTypeDiagnosticName(argument, type);
         return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType) ? name : $"'{name}'";
     }
@@ -6929,7 +6929,7 @@ public class Analyzer : IDisposable
 
     private NullState GetDefaultNullState(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
 
         if (BuiltInTypes.Is(resolved, BuiltInTypes.Null))
             return NullState.Null;
@@ -6978,7 +6978,7 @@ public class Analyzer : IDisposable
 
     private bool ReportSoaDefaultValueIfNeeded(DefaultExpression defaultExpr, TypeInfo expectedType)
     {
-        var resolvedExpectedType = ResolveTypeAlias(GetNonNullableType(expectedType));
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(expectedType));
         if (resolvedExpectedType is not SoaRecordTypeInfo soaRecordType)
             return false;
 
@@ -7578,7 +7578,7 @@ public class Analyzer : IDisposable
         out Dictionary<string, TypeInfo>? substitution)
     {
         substitution = null;
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         if (type is GenericTypeInfo generic
             && ResolveGenericDefinition(generic) is { } definition
             && definition is not ReflectionTypeInfo)
@@ -7655,7 +7655,7 @@ public class Analyzer : IDisposable
             return direct;
         }
 
-        if (ResolveTypeAlias(operandType) is not GenericTypeInfo generic)
+        if (_declarationContext.ResolveDeclaredAlias(operandType) is not GenericTypeInfo generic)
         {
             return null;
         }
@@ -7947,7 +7947,7 @@ public class Analyzer : IDisposable
             return overloadResult;
         }
 
-        if (IsBoolType(ResolveTypeAlias(operandType)))
+        if (IsBoolType(_declarationContext.ResolveDeclaredAlias(operandType)))
         {
             return BuiltInTypes.Bool;
         }
@@ -7991,7 +7991,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        var resolved = ResolveTypeAlias(operandType);
+        var resolved = _declarationContext.ResolveDeclaredAlias(operandType);
         if (IsIntegralType(resolved) || IsBitwiseEnumType(resolved))
         {
             return operandType;
@@ -8134,9 +8134,9 @@ public class Analyzer : IDisposable
         }
 
         ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
-        var receiverType = ResolveTypeAlias(GetNonNullableType(objectType));
+        var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
         if (receiverType is ByRefTypeInfo byRefReceiver)
-            receiverType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+            receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
 
         if (receiverType is SoaRecordTypeInfo && member.IsNullConditional)
         {
@@ -8187,7 +8187,7 @@ public class Analyzer : IDisposable
         var objectType = AnalyzeExpression(index.Object);
         ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
 
-        var receiverType = ResolveTypeAlias(GetNonNullableType(objectType));
+        var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
         var previousExpectedIndexType = _currentExpectedType;
         if (ShouldUseIntExpectedTypeForIndex(receiverType))
         {
@@ -8259,7 +8259,7 @@ public class Analyzer : IDisposable
 
     private bool ShouldUseIntExpectedTypeForIndex(TypeInfo receiverType)
     {
-        var resolvedReceiverType = ResolveTypeAlias(receiverType);
+        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
         return resolvedReceiverType is SoaRecordTypeInfo
             || resolvedReceiverType is ArrayTypeInfo
             || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true }
@@ -8272,7 +8272,7 @@ public class Analyzer : IDisposable
         TypeInfo indexType,
         bool isRangeAccess)
     {
-        var resolvedReceiverType = ResolveTypeAlias(receiverType);
+        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
         var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
             || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
         var isStringReceiver = IsStringType(resolvedReceiverType);
@@ -8283,7 +8283,7 @@ public class Analyzer : IDisposable
         if (isRangeAccess)
             return true;
 
-        var resolvedIndexType = ResolveTypeAlias(indexType);
+        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
         if (BuiltInTypes.IsUnknown(resolvedIndexType)
             || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
             || IsIndexLikeType(resolvedIndexType))
@@ -8300,13 +8300,13 @@ public class Analyzer : IDisposable
         if (isRangeAccess)
             return false;
 
-        var resolvedIndexType = ResolveTypeAlias(indexType);
+        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
         return BuiltInTypes.IsUnknown(resolvedIndexType) || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int);
     }
 
     private bool ReportNegativeSoaRowIndexIfNeeded(Expression expression, TypeInfo indexType, string targetDescription)
     {
-        var resolvedIndexType = ResolveTypeAlias(indexType);
+        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
         if (BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Int)
             && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Short)
             && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.SByte))
@@ -8333,7 +8333,7 @@ public class Analyzer : IDisposable
     private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)
     {
         var (line, column, length) = GetExpressionDiagnosticSpan(expression);
-        var resolvedIndexType = ResolveTypeAlias(indexType);
+        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
         var indexDescription = isRangeAccess
             ? "a range"
             : IsIndexLikeType(resolvedIndexType)
@@ -8404,7 +8404,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)
     {
-        receiverType = ResolveTypeAlias(receiverType);
+        receiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
 
         if (receiverType is ArrayTypeInfo arrayType)
         {
@@ -8470,7 +8470,7 @@ public class Analyzer : IDisposable
 
     private bool IsRangeEndpointType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return IsIndexLikeType(resolved) || IsAssignable(BuiltInTypes.Int, resolved);
     }
 
@@ -8481,11 +8481,11 @@ public class Analyzer : IDisposable
         => LookupType("System.Index") ?? new ReflectionTypeInfo(typeof(Index));
 
     private TypeInfo GetNonNullableType(TypeInfo type)
-        => ResolveTypeAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
+        => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
 
     private TypeInfo MakeNullableResult(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         if (BuiltInTypes.Is(resolved, BuiltInTypes.Void)
             || BuiltInTypes.Is(resolved, BuiltInTypes.Never)
             || resolved is UnknownTypeInfo
@@ -8622,7 +8622,7 @@ public class Analyzer : IDisposable
             case IdentifierExpression identifier:
                 if (LookupSymbol(identifier.Name) != null)
                     return false;
-                type = ResolveTypeAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
+                type = _declarationContext.ResolveDeclaredAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
                 if (!BuiltInTypes.IsUnknown(type))
                     return true;
                 type = TryResolveBuiltInTypeKeyword(identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : TryResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
@@ -8681,7 +8681,7 @@ public class Analyzer : IDisposable
         out bool isExported,
         out string? filePath)
     {
-        objectType = ResolveTypeAlias(objectType);
+        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
         if (_declarationContext.TryFindMember(objectType, memberName, out var selection))
         {
             isExported = selection.IsExported;
@@ -8712,7 +8712,7 @@ public class Analyzer : IDisposable
         string memberName,
         out SymbolDeclaration declaration)
     {
-        objectType = ResolveTypeAlias(objectType);
+        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
         if (_declarationContext.TryFindMember(objectType, memberName, out var selection))
         {
             declaration = selection.Member != null
@@ -8825,7 +8825,7 @@ public class Analyzer : IDisposable
     private TypeInfo ResolveAliasAndMetadata(TypeInfo typeInfo)
         => typeInfo switch
         {
-            AliasTypeInfo alias => ResolveAliasAndMetadata(ResolveTypeAlias(alias)),
+            AliasTypeInfo alias => ResolveAliasAndMetadata(_declarationContext.ResolveDeclaredAlias(alias)),
             ObliviousTypeInfo oblivious => ResolveAliasAndMetadata(oblivious.InnerType),
             _ => typeInfo
         };
@@ -8946,7 +8946,7 @@ public class Analyzer : IDisposable
             objectType = byRefType.InnerType;
         }
 
-        objectType = ResolveTypeAlias(objectType);
+        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
         var extensionReceiverType = objectType;
         Dictionary<string, TypeInfo>? sourceGenericSubstitution = null;
 
@@ -9661,7 +9661,7 @@ public class Analyzer : IDisposable
 
         if (_wellKnownTypes == null) return null;
 
-        var resolvedType = ResolveTypeAlias(typeInfo);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(typeInfo);
 
         // N# user-defined types → object surrogate for CLR binding
         if (resolvedType is ClassTypeInfo or RecordTypeInfo or StructTypeInfo
@@ -10163,7 +10163,7 @@ public class Analyzer : IDisposable
 
     private Type? TryConvertTypeInfoToClrType(TypeInfo typeInfo)
     {
-        var resolvedType = ResolveTypeAlias(typeInfo);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(typeInfo);
         if (resolvedType is ReflectionTypeInfo reflectionType)
             return reflectionType.Type;
 
@@ -10570,9 +10570,9 @@ public class Analyzer : IDisposable
 
         if (expressionTypes.TryGetValue(member.Object, out var receiverType))
         {
-            var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+            var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
             if (resolvedReceiverType is ByRefTypeInfo byRefReceiver)
-                resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+                resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
 
             if (resolvedReceiverType is SoaRowTypeInfo soaRowType
                 && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null)
@@ -10614,7 +10614,7 @@ public class Analyzer : IDisposable
         if (!expressionTypes.TryGetValue(index.Object, out var receiverType))
             return true;
 
-        var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
         var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
             || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
         if (!isArrayReceiver)
@@ -10623,7 +10623,7 @@ public class Analyzer : IDisposable
         if (!expressionTypes.TryGetValue(index.Index, out var resolvedIndexType))
             return true;
 
-        resolvedIndexType = ResolveTypeAlias(resolvedIndexType);
+        resolvedIndexType = _declarationContext.ResolveDeclaredAlias(resolvedIndexType);
         return BuiltInTypes.IsUnknown(resolvedIndexType)
             || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
             || IsIndexLikeType(resolvedIndexType);
@@ -10641,7 +10641,7 @@ public class Analyzer : IDisposable
 
     private bool? ClassifyStaticFieldMember(TypeInfo owner, string memberName)
     {
-        owner = ResolveTypeAlias(owner);
+        owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (_declarationContext.TryFindMember(owner, memberName, out var selection))
         {
             return selection.Member is { } member
@@ -10732,7 +10732,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo? GetNSharpParamsElementType(TypeInfo paramsType)
     {
-        return ResolveTypeAlias(paramsType) switch
+        return _declarationContext.ResolveDeclaredAlias(paramsType) switch
         {
             ArrayTypeInfo array => array.ElementType,
             GenericTypeInfo { TypeArguments.Count: 1 } generic => generic.TypeArguments[0],
@@ -10813,14 +10813,14 @@ public class Analyzer : IDisposable
             if (parameterIndex < 0 || parameterIndex >= expectedCount)
                 continue;
 
-            var expectedType = ResolveTypeAlias(ApplySyntheticParameterModifier(
+            var expectedType = _declarationContext.ResolveDeclaredAlias(ApplySyntheticParameterModifier(
                 functionType,
                 parameterIndex,
                 ApplyNSharpGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings)));
-            var argType = ResolveTypeAlias(argTypes[argumentIndex]);
+            var argType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
             if (hasParamsParameter && parameterIndex == paramsParameterIndex)
             {
-                var paramsType = ResolveTypeAlias(ApplyNSharpGenericBindings(functionType.ParameterTypes[paramsParameterIndex], genericBindings));
+                var paramsType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(functionType.ParameterTypes[paramsParameterIndex], genericBindings));
                 if (paramsType is not ArrayTypeInfo paramsArrayType)
                     continue;
 
@@ -10837,8 +10837,8 @@ public class Analyzer : IDisposable
                     {
                         if (argType is ArrayTypeInfo spreadArrayType)
                         {
-                            expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
-                            argType = ResolveTypeAlias(spreadArrayType.ElementType);
+                            expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
+                            argType = _declarationContext.ResolveDeclaredAlias(spreadArrayType.ElementType);
                         }
                         else if (BuiltInTypes.IsUnknown(argType))
                         {
@@ -10847,7 +10847,7 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+                        expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
                     }
                 }
             }
@@ -11228,7 +11228,7 @@ public class Analyzer : IDisposable
             }
 
             var expectedType = functionType.ParameterTypes[parameterIndex];
-            if (ResolveTypeAlias(expectedType) is not ArrayTypeInfo)
+            if (_declarationContext.ResolveDeclaredAlias(expectedType) is not ArrayTypeInfo)
             {
                 continue;
             }
@@ -11326,7 +11326,7 @@ public class Analyzer : IDisposable
         if (argumentIndex >= call.Arguments.Count || argumentIndex >= argTypes.Count)
             return;
 
-        var argType = ResolveTypeAlias(argTypes[argumentIndex]);
+        var argType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
         if (BuiltInTypes.IsUnknown(argType)
             || argType is SoaRowTypeInfo
             || !IsAssignable(BuiltInTypes.Int, argType))
@@ -11900,12 +11900,12 @@ public class Analyzer : IDisposable
         if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
             return false;
 
-        expectedType = ResolveTypeAlias(ApplyNSharpGenericBindings(parameterTypes[parameterIndex], genericBindings));
-        argumentType = ResolveTypeAlias(argTypes[argumentIndex]);
+        expectedType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(parameterTypes[parameterIndex], genericBindings));
+        argumentType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
         if (paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex)
             return true;
 
-        var paramsType = ResolveTypeAlias(ApplyNSharpGenericBindings(parameterTypes[paramsParameterIndex], genericBindings));
+        var paramsType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(parameterTypes[paramsParameterIndex], genericBindings));
         if (paramsType is not ArrayTypeInfo paramsArrayType)
         {
             expectedType = null;
@@ -11927,8 +11927,8 @@ public class Analyzer : IDisposable
         {
             if (argumentType is ArrayTypeInfo spreadArrayType)
             {
-                expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
-                argumentType = ResolveTypeAlias(spreadArrayType.ElementType);
+                expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
+                argumentType = _declarationContext.ResolveDeclaredAlias(spreadArrayType.ElementType);
             }
             else if (BuiltInTypes.IsUnknown(argumentType))
             {
@@ -11938,7 +11938,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            expectedType = ResolveTypeAlias(paramsArrayType.ElementType);
+            expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
         }
 
         return true;
@@ -11950,8 +11950,8 @@ public class Analyzer : IDisposable
     /// </summary>
     private int GetNSharpMatchScore(TypeInfo parameterType, TypeInfo argumentType)
     {
-        var resolvedParam = ResolveTypeAlias(parameterType);
-        var resolvedArg = ResolveTypeAlias(argumentType);
+        var resolvedParam = _declarationContext.ResolveDeclaredAlias(parameterType);
+        var resolvedArg = _declarationContext.ResolveDeclaredAlias(argumentType);
 
         if (resolvedParam == resolvedArg)
             return 8;
@@ -12374,9 +12374,9 @@ public class Analyzer : IDisposable
         if (argument.Value is not SpreadExpression)
             return argumentType;
 
-        return ResolveTypeAlias(argumentType) switch
+        return _declarationContext.ResolveDeclaredAlias(argumentType) switch
         {
-            ArrayTypeInfo array => ResolveTypeAlias(array.ElementType),
+            ArrayTypeInfo array => _declarationContext.ResolveDeclaredAlias(array.ElementType),
             _ => argumentType
         };
     }
@@ -13649,9 +13649,9 @@ public class Analyzer : IDisposable
         if (IsAssignable(expectedType, argumentType))
             return true;
 
-        var resolvedArgument = ResolveTypeAlias(argumentType);
+        var resolvedArgument = _declarationContext.ResolveDeclaredAlias(argumentType);
         if (resolvedArgument is NullableTypeInfo nullableArgument
-            && AnalyzerConversionFacts.IsReferenceType(ResolveTypeAlias(nullableArgument.InnerType)))
+            && AnalyzerConversionFacts.IsReferenceType(_declarationContext.ResolveDeclaredAlias(nullableArgument.InnerType)))
         {
             return IsAssignable(expectedType, nullableArgument.InnerType);
         }
@@ -14069,7 +14069,7 @@ public class Analyzer : IDisposable
 
     private bool IsDelegateLikeAssignmentType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return resolved switch
         {
             FunctionTypeInfo => true,
@@ -14105,7 +14105,7 @@ public class Analyzer : IDisposable
 
     private bool CanNullCoalesceCheckForNull(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return BuiltInTypes.IsUnknown(resolved)
             || resolved is GenericTypeInfo
             || resolved is NullableTypeInfo
@@ -14449,9 +14449,9 @@ public class Analyzer : IDisposable
                     break;
                 }
 
-                receiverType = ResolveTypeAlias(receiverType);
+                receiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
                 if (receiverType is ByRefTypeInfo byRefReceiver)
-                    receiverType = ResolveTypeAlias(byRefReceiver.InnerType);
+                    receiverType = _declarationContext.ResolveDeclaredAlias(byRefReceiver.InnerType);
 
                 if (receiverType is NullableTypeInfo && memberAccess.MemberName is "HasValue" or "Value")
                 {
@@ -14495,9 +14495,9 @@ public class Analyzer : IDisposable
 
     private bool TryIsReadOnlyPropertyMember(TypeInfo owner, string memberName, bool includeStaticMembers)
     {
-        owner = ResolveTypeAlias(owner);
+        owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (owner is ByRefTypeInfo byRefOwner)
-            owner = ResolveTypeAlias(byRefOwner.InnerType);
+            owner = _declarationContext.ResolveDeclaredAlias(byRefOwner.InnerType);
 
         if (owner is NullableTypeInfo && memberName is "HasValue" or "Value")
         {
@@ -14585,7 +14585,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (ResolveTypeAlias(GetNonNullableType(receiverType)) is not SoaRecordTypeInfo soaRecordType)
+        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType)) is not SoaRecordTypeInfo soaRecordType)
             return false;
 
         var isColumn = TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null;
@@ -14880,7 +14880,7 @@ public class Analyzer : IDisposable
 
     private bool IsRuntimeArrayInstanceMethodReference(TypeInfo type)
     {
-        var resolvedType = ResolveTypeAlias(type);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
         return resolvedType switch
         {
             ReflectionMethodInfo methodInfo => IsRuntimeArrayInstanceMethod(methodInfo.Method),
@@ -14903,7 +14903,7 @@ public class Analyzer : IDisposable
                 if (LookupSymbol(identifier.Name) != null)
                     return false;
                 if (LookupType(identifier.Name) is { } localType)
-                    return IsSystemArrayTypeInfo(ResolveTypeAlias(localType));
+                    return IsSystemArrayTypeInfo(_declarationContext.ResolveDeclaredAlias(localType));
                 if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
                     && IsSystemArrayTypeInfo(identifierType))
                 {
@@ -14938,7 +14938,7 @@ public class Analyzer : IDisposable
 
     private bool IsSystemArrayTypeInfo(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return TryConvertTypeInfoToClrType(resolved) == typeof(Array)
             || resolved is ExternalTypeInfo { Name: "Array" or "System.Array" };
     }
@@ -14972,9 +14972,9 @@ public class Analyzer : IDisposable
         switch (expression)
         {
             case IdentifierExpression identifier:
-                var resolvedType = ResolveTypeAlias(GetNonNullableType(LookupSymbol(identifier.Name) ?? BuiltInTypes.Unknown));
+                var resolvedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(LookupSymbol(identifier.Name) ?? BuiltInTypes.Unknown));
                 if (resolvedType is ByRefTypeInfo byRefReceiver)
-                    resolvedType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+                    resolvedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
                 if (resolvedType is SoaRecordTypeInfo receiverSoaRecordType)
                 {
                     soaRecordType = receiverSoaRecordType;
@@ -15012,7 +15012,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
         var isRangeAccess = indexAccess.Index is RangeExpression
             || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
         if (isRangeAccess && IsSoaColumnMemberAccess(indexAccess.Object))
@@ -15096,7 +15096,7 @@ public class Analyzer : IDisposable
             MemberAccessExpression => "a property result (a copy of the value)",
             _ => "a temporary value (a copy)",
         };
-        var typeName = ResolveTypeAlias(offenderType ?? BuiltInTypes.Unknown).ToString() ?? "value";
+        var typeName = _declarationContext.ResolveDeclaredAlias(offenderType ?? BuiltInTypes.Unknown).ToString() ?? "value";
         var (line, column, length) = GetExpressionDiagnosticSpan(offender);
         var sourceSnippet = GetSourceSnippet(line);
         if (sourceSnippet != null && _currentFilePath != null)
@@ -15123,7 +15123,7 @@ public class Analyzer : IDisposable
         if (receiver is ParenthesizedExpression paren)
             return FindValueCopyReceiver(paren.Inner, expressionTypes);
         if (!expressionTypes.TryGetValue(receiver, out var receiverType)
-            || !IsProvenValueTypeReceiver(ResolveTypeAlias(receiverType)))
+            || !IsProvenValueTypeReceiver(_declarationContext.ResolveDeclaredAlias(receiverType)))
             return null;
         switch (receiver)
         {
@@ -15133,7 +15133,7 @@ public class Analyzer : IDisposable
                 return null; // a local / parameter / bare field / `this` — a real variable.
             case IndexAccessExpression arrayElement
                 when expressionTypes.TryGetValue(arrayElement.Object, out var indexedType)
-                     && ResolveTypeAlias(indexedType) is ArrayTypeInfo:
+                     && _declarationContext.ResolveDeclaredAlias(indexedType) is ArrayTypeInfo:
                 return null; // an ARRAY element is a variable (the emitter addresses it via ldelema).
             case MemberAccessExpression hop:
             {
@@ -15172,7 +15172,7 @@ public class Analyzer : IDisposable
 
     private bool? ClassifyInstanceFieldMember(TypeInfo owner, string memberName)
     {
-        owner = ResolveTypeAlias(owner);
+        owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (_declarationContext.TryFindMember(owner, memberName, out var selection))
         {
             return selection.Member is { } member
@@ -15432,7 +15432,7 @@ public class Analyzer : IDisposable
     private bool TryFindReadonlyStaticField(TypeInfo owner, string fieldName, out string resolvedFieldName)
     {
         resolvedFieldName = string.Empty;
-        owner = ResolveTypeAlias(owner);
+        owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (_declarationContext.TryFindReadonlyField(
                 owner,
                 fieldName,
@@ -15503,9 +15503,9 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var receiver = ResolveTypeAlias(GetNonNullableType(receiverType));
+        var receiver = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
         if (receiver is ByRefTypeInfo byRefReceiver)
-            receiver = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+            receiver = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
 
         if (!TryFindReadonlyInstanceField(receiver, target.MemberName, out var fieldName))
         {
@@ -15519,7 +15519,7 @@ public class Analyzer : IDisposable
     private bool TryFindReadonlyInstanceField(TypeInfo receiver, string fieldName, out string resolvedFieldName)
     {
         resolvedFieldName = string.Empty;
-        receiver = ResolveTypeAlias(receiver);
+        receiver = _declarationContext.ResolveDeclaredAlias(receiver);
         if (_declarationContext.TryFindReadonlyField(
                 receiver,
                 fieldName,
@@ -15582,7 +15582,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo NormalizeMemberOwnerType(TypeInfo owner)
     {
-        owner = ResolveTypeAlias(owner);
+        owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (owner is GenericTypeInfo generic)
             owner = ResolveGenericDefinition(generic) ?? owner;
         if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
@@ -15739,7 +15739,7 @@ public class Analyzer : IDisposable
         if (expectedType == null)
             return false;
 
-        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType)
             return IsExpressionTreeLambdaTarget(reflectionType.Type);
 
@@ -15945,7 +15945,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var resolvedType = ResolveTypeAlias(LookupType(name) ?? BuiltInTypes.Unknown);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(LookupType(name) ?? BuiltInTypes.Unknown);
         if (!BuiltInTypes.IsUnknown(resolvedType))
         {
             return true;
@@ -16020,7 +16020,7 @@ public class Analyzer : IDisposable
         if (expectedType == null)
             return null;
 
-        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
 
         if (resolvedExpectedType is FunctionTypeInfo functionType)
             return functionType;
@@ -16098,7 +16098,7 @@ public class Analyzer : IDisposable
             return null;
         }
 
-        if (ResolveTypeAlias(_currentExpectedType) is not TupleTypeInfo expectedTuple
+        if (_declarationContext.ResolveDeclaredAlias(_currentExpectedType) is not TupleTypeInfo expectedTuple
             || elementIndex >= expectedTuple.Elements.Count)
         {
             return null;
@@ -16126,7 +16126,7 @@ public class Analyzer : IDisposable
             return null;
         }
 
-        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
         if (IsCollectionType(resolvedExpectedType, out var collectionElementType))
         {
             return (collectionElementType, "collection");
@@ -16207,7 +16207,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
         if (!IsUnsupportedCollectionExpressionTarget(resolvedExpectedType, out var targetName))
         {
             return;
@@ -16509,7 +16509,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        var soaConstructionType = ResolveTypeAlias(GetNonNullableType(type)) as SoaRecordTypeInfo;
+        var soaConstructionType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type)) as SoaRecordTypeInfo;
         var constructorArgumentTypes = new List<TypeInfo>(newExpr.ConstructorArguments.Count);
         for (var i = 0; i < newExpr.ConstructorArguments.Count; i++)
         {
@@ -16612,7 +16612,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var capacityType = ResolveTypeAlias(constructorArgumentTypes[0]);
+        var capacityType = _declarationContext.ResolveDeclaredAlias(constructorArgumentTypes[0]);
         if (capacityType is SoaRowTypeInfo || BuiltInTypes.IsUnknown(capacityType))
             return;
 
@@ -16919,7 +16919,7 @@ public class Analyzer : IDisposable
         PropertyInitializer property,
         string initializerKind)
     {
-        if (ResolveTypeAlias(GetNonNullableType(targetType)) is not SoaRecordTypeInfo)
+        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(targetType)) is not SoaRecordTypeInfo)
         {
             return false;
         }
@@ -16950,7 +16950,7 @@ public class Analyzer : IDisposable
         int nameLine,
         int nameColumn)
     {
-        if (ResolveTypeAlias(GetNonNullableType(constructedType)) is not SoaRecordTypeInfo soaRecordType)
+        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(constructedType)) is not SoaRecordTypeInfo soaRecordType)
         {
             return false;
         }
@@ -17085,7 +17085,7 @@ public class Analyzer : IDisposable
     /// </summary>
     private bool IsImplicitlyIntStackAllocLength(TypeInfo type)
     {
-        type = ResolveTypeAlias(type);
+        type = _declarationContext.ResolveDeclaredAlias(type);
         return BuiltInTypes.Is(type, BuiltInTypes.Int)
                || BuiltInTypes.Is(type, BuiltInTypes.Short)
                || BuiltInTypes.Is(type, BuiltInTypes.SByte)
@@ -17149,7 +17149,7 @@ public class Analyzer : IDisposable
         if (simple.Name is "int" or "short" or "sbyte")
             return true;
 
-        var resolved = ResolveTypeAlias(LookupType(simple.Name) ?? BuiltInTypes.Unknown);
+        var resolved = _declarationContext.ResolveDeclaredAlias(LookupType(simple.Name) ?? BuiltInTypes.Unknown);
         return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
                || BuiltInTypes.Is(resolved, BuiltInTypes.Short)
                || BuiltInTypes.Is(resolved, BuiltInTypes.SByte);
@@ -18462,7 +18462,7 @@ public class Analyzer : IDisposable
         }
 
         var tableName = name[..^rowSuffix.Length];
-        if (tableName.Length == 0 || ResolveTypeAlias(LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
+        if (tableName.Length == 0 || _declarationContext.ResolveDeclaredAlias(LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
         {
             return false;
         }
@@ -19023,7 +19023,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        type = ResolveTypeAlias(LookupType(parts[0]) ?? BuiltInTypes.Unknown);
+        type = _declarationContext.ResolveDeclaredAlias(LookupType(parts[0]) ?? BuiltInTypes.Unknown);
         if (BuiltInTypes.IsUnknown(type))
         {
             return false;
@@ -19507,8 +19507,8 @@ public class Analyzer : IDisposable
     private bool IsAssignable(TypeInfo target, TypeInfo source)
     {
         // Resolve type aliases
-        var resolvedTarget = ResolveTypeAlias(target);
-        var resolvedSource = ResolveTypeAlias(source);
+        var resolvedTarget = _declarationContext.ResolveDeclaredAlias(target);
+        var resolvedSource = _declarationContext.ResolveDeclaredAlias(source);
 
         if (resolvedTarget == resolvedSource) return true;
         if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && resolvedTarget is NullableTypeInfo) return true;
@@ -19685,10 +19685,10 @@ public class Analyzer : IDisposable
 
     private bool TryGetExpectedIntegerLiteralType(TypeInfo expectedType, ulong magnitude, out TypeInfo targetType)
     {
-        var resolved = ResolveTypeAlias(expectedType);
+        var resolved = _declarationContext.ResolveDeclaredAlias(expectedType);
         if (resolved is NullableTypeInfo nullable)
         {
-            resolved = ResolveTypeAlias(nullable.InnerType);
+            resolved = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
         }
 
         if (resolved is SimpleTypeInfo simple
@@ -19734,10 +19734,10 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolved = ResolveTypeAlias(expectedType);
+        var resolved = _declarationContext.ResolveDeclaredAlias(expectedType);
         if (resolved is NullableTypeInfo nullable)
         {
-            resolved = ResolveTypeAlias(nullable.InnerType);
+            resolved = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
         }
 
         if (resolved is SimpleTypeInfo simple
@@ -19836,13 +19836,13 @@ public class Analyzer : IDisposable
             return false;
 
         return TypeInfoIdentityFacts.AreEqual(
-            ResolveTypeAlias(targetGeneric.TypeArguments[0]),
-            ResolveTypeAlias(array.ElementType));
+            _declarationContext.ResolveDeclaredAlias(targetGeneric.TypeArguments[0]),
+            _declarationContext.ResolveDeclaredAlias(array.ElementType));
     }
 
     private bool IsReferenceLikeForVariance(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return resolved switch
         {
             NullableTypeInfo nullable => IsReferenceLikeForVariance(nullable.InnerType),
@@ -19928,8 +19928,8 @@ public class Analyzer : IDisposable
     private bool TryGetDelegateSignatureConversionScore(TypeInfo target, TypeInfo source, out int score)
     {
         score = 0;
-        var resolvedTarget = ResolveTypeAlias(target);
-        var resolvedSource = ResolveTypeAlias(source);
+        var resolvedTarget = _declarationContext.ResolveDeclaredAlias(target);
+        var resolvedSource = _declarationContext.ResolveDeclaredAlias(source);
 
         var exactMatch = resolvedTarget == resolvedSource
             || TypeInfoIdentityFacts.AreEqual(resolvedTarget, resolvedSource);
@@ -20015,7 +20015,7 @@ public class Analyzer : IDisposable
 
     private bool MayUseDelegateReferenceConversion(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
 
         if (resolved is GenericTypeInfo genericType)
             return genericType.Name != "Nullable";
@@ -20243,31 +20243,10 @@ public class Analyzer : IDisposable
     private TypeInfo? ResolveGenericDefinition(GenericTypeInfo generic)
         => generic.GenericDefinition ?? LookupType(generic.Name);
 
-    private TypeInfo ResolveTypeAlias(TypeInfo type)
-        => ResolveTypeAlias(type, new HashSet<AliasTypeInfo>(ReferenceEqualityComparer.Instance));
-
-    private TypeInfo ResolveTypeAlias(TypeInfo type, HashSet<AliasTypeInfo> activeAliases)
-    {
-        if (type is AliasTypeInfo alias)
-        {
-            if (!activeAliases.Add(alias))
-                return BuiltInTypes.Unknown;
-            var resolved = _declarationContext.ContainsSourceType(alias)
-                ? ResolveTypeForSourceOwner(alias.AliasedType, alias, substitution: null)
-                : ResolveType(alias.AliasedType);
-            return ResolveTypeAlias(resolved, activeAliases);
-        }
-        if (type is ObliviousTypeInfo oblivious)
-        {
-            return ResolveTypeAlias(oblivious.InnerType, activeAliases);
-        }
-        return type;
-    }
-
     private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
     {
-        var resolvedSource = ResolveTypeAlias(sourceType);
-        var resolvedTarget = ResolveTypeAlias(targetType);
+        var resolvedSource = _declarationContext.ResolveDeclaredAlias(sourceType);
+        var resolvedTarget = _declarationContext.ResolveDeclaredAlias(targetType);
 
         if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
         if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
@@ -20459,7 +20438,7 @@ public class Analyzer : IDisposable
 
     private bool IsPrimitiveRelationalType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         if (IsNumericType(resolved) && BuiltInTypes.IsNot(resolved, BuiltInTypes.Decimal))
         {
             return true;
@@ -20506,8 +20485,8 @@ public class Analyzer : IDisposable
 
     private bool CanCompareWithEqualityOperator(TypeInfo left, TypeInfo right)
     {
-        var resolvedLeft = ResolveTypeAlias(left);
-        var resolvedRight = ResolveTypeAlias(right);
+        var resolvedLeft = _declarationContext.ResolveDeclaredAlias(left);
+        var resolvedRight = _declarationContext.ResolveDeclaredAlias(right);
 
         if (BuiltInTypes.Is(resolvedLeft, BuiltInTypes.Null) || BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null))
         {
@@ -20551,7 +20530,7 @@ public class Analyzer : IDisposable
 
     private bool IsBoolLikeType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         if (BuiltInTypes.Is(resolved, BuiltInTypes.Bool))
         {
             return true;
@@ -20583,15 +20562,15 @@ public class Analyzer : IDisposable
 
     private bool IsBitwiseEnumType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(type);
+        var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return resolved is EnumTypeInfo { Declaration.Type: EnumType.Int }
             || resolved is ReflectionTypeInfo { Type.IsEnum: true };
     }
 
     private bool IsSameBitwiseEnumType(TypeInfo left, TypeInfo right)
     {
-        var resolvedLeft = ResolveTypeAlias(left);
-        var resolvedRight = ResolveTypeAlias(right);
+        var resolvedLeft = _declarationContext.ResolveDeclaredAlias(left);
+        var resolvedRight = _declarationContext.ResolveDeclaredAlias(right);
         return (resolvedLeft, resolvedRight) switch
         {
             (EnumTypeInfo l, EnumTypeInfo r) => l.Declaration.Type == EnumType.Int
@@ -20993,8 +20972,13 @@ public class Analyzer : IDisposable
             _semanticModel.RecordType(name, type);
             if (!string.IsNullOrEmpty(_currentFilePath))
                 _typeDeclarationFiles[name] = _currentFilePath;
-            if (_declarationContextFilePath != null && type is not AliasTypeInfo)
-                _declarationContext.RegisterCanonicalType(_declarationContextFilePath, name, type);
+            if (_declarationContextFilePath != null)
+            {
+                if (type is AliasTypeInfo declaredAlias)
+                    _declarationContext.RegisterDeclaredAlias(_declarationContextFilePath, declaredAlias);
+                else
+                    _declarationContext.RegisterCanonicalType(_declarationContextFilePath, name, type);
+            }
 
             var kind = AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
             var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
@@ -21089,7 +21073,7 @@ public class Analyzer : IDisposable
         }
 
         var parameterType = ResolveDeclaredType(parameter.Type);
-        if (ResolveTypeAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo soaRecordType)
+        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo soaRecordType)
         {
             return false;
         }
@@ -21152,8 +21136,8 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var ownerType = ResolveTypeAlias(ResolveDefaultEnumTypeName(ownerName));
-        var resolvedExpectedType = ResolveTypeAlias(
+        var ownerType = _declarationContext.ResolveDeclaredAlias(ResolveDefaultEnumTypeName(ownerName));
+        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(
             expectedType is SimpleTypeReference simple
                 ? ResolveDefaultEnumTypeName(simple.Name)
                 : ResolveDeclaredType(expectedType));
@@ -21183,7 +21167,7 @@ public class Analyzer : IDisposable
         if (_declarationContext.TryResolveFileImportAliasType(
                 name, _currentFilePath, _importedSymbolsByAlias, _importedDeclarationsByAlias,
                 out var importedType, out _, out var fileAliasClaimed))
-            return ResolveTypeAlias(importedType);
+            return _declarationContext.ResolveDeclaredAlias(importedType);
         if (fileAliasClaimed)
             return BuiltInTypes.Unknown;
 
@@ -22620,3 +22604,5 @@ public class Analyzer : IDisposable
         }
     }
 }
+
+

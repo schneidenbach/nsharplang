@@ -1100,3 +1100,143 @@ test "runtime interface method resolution includes inherited IDisposable members
         scan.Dispose()
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// 017 slice 4 — the alias-resolution owner. `Analyzer.cs`'s ResolveTypeAlias moved here whole once
+// DeclareType started registering the AliasTypeInfo instance it builds, so the alias decision is a
+// declaration-context fact instead of a scope-stack walk through the C# TypeReference engine.
+// ---------------------------------------------------------------------------------------------
+
+test "017 slice 4: registering a declared alias is an instance fact and leaves the canonical name entry alone" {
+    path := "/tmp/s4-alias-register.nl"
+    context := AnalyzerContextFor(
+        path,
+        AnalyzerContextDeclarations(StubAlias("Meters", new SimpleTypeReference("int"))))
+    alias := new AliasTypeInfo(new SimpleTypeReference("int"))
+
+    assert !context.ContainsSourceType(alias)
+    assert context.GetDeclarationFile(alias) == null
+
+    context.RegisterDeclaredAlias(path, alias)
+
+    assert context.ContainsSourceType(alias)
+    assert context.GetDeclarationFile(alias) == path
+
+    // Name lookup is UNCHANGED by the registration: the alias NAME still answers the RESOLVED
+    // target the context computes for the declaration, never the AliasTypeInfo instance.
+    selection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+    assert context.TryResolveName(path, "Meters", out selection)
+    assert BuiltInTypes.Is(selection.Type, BuiltInTypes.Int)
+    assert selection.Type as AliasTypeInfo == null
+
+    canonical := BuiltInTypes.Unknown as TypeInfo
+    assert context.TryGetCanonicalType(path, "Meters", out canonical)
+    assert BuiltInTypes.Is(canonical, BuiltInTypes.Int)
+    assert canonical as AliasTypeInfo == null
+
+    // A second, distinct instance over the same aliased type is a different fact: identity is by
+    // INSTANCE, which is the whole point of the unification.
+    twin := new AliasTypeInfo(new SimpleTypeReference("int"))
+    assert !context.ContainsSourceType(twin)
+}
+
+test "017 slice 4: an owned alias resolves to its target and an unowned alias is transparent" {
+    path := "/tmp/s4-alias-resolve.nl"
+    context := AnalyzerContextFor(
+        path,
+        AnalyzerContextDeclarations(StubClass("Widget")))
+
+    unowned := new AliasTypeInfo(new SimpleTypeReference("int")) as TypeInfo
+    assert context.ResolveDeclaredAlias(unowned) == unowned
+
+    owned := new AliasTypeInfo(new SimpleTypeReference("int"))
+    context.RegisterDeclaredAlias(path, owned)
+    assert BuiltInTypes.Is(context.ResolveDeclaredAlias(owned), BuiltInTypes.Int)
+
+    // The aliased reference is resolved against the alias's OWN declaring file, so a source name
+    // declared there resolves to that file's type.
+    sourceAlias := new AliasTypeInfo(new SimpleTypeReference("Widget"))
+    context.RegisterDeclaredAlias(path, sourceAlias)
+    resolvedWidget := context.ResolveDeclaredAlias(sourceAlias) as ClassTypeInfo
+    assert resolvedWidget != null
+    assert resolvedWidget.Name == "Widget"
+
+    // Array / nullable / generic shells over the alias target are rebuilt, not flattened.
+    arrayAlias := new AliasTypeInfo(
+        new ArrayTypeReference(new SimpleTypeReference("int")))
+    context.RegisterDeclaredAlias(path, arrayAlias)
+    resolvedArray := context.ResolveDeclaredAlias(arrayAlias) as ArrayTypeInfo
+    assert resolvedArray != null
+    assert BuiltInTypes.Is(resolvedArray.ElementType, BuiltInTypes.Int)
+
+    nullableAlias := new AliasTypeInfo(
+        new NullableTypeReference(new SimpleTypeReference("string")))
+    context.RegisterDeclaredAlias(path, nullableAlias)
+    resolvedNullable := context.ResolveDeclaredAlias(nullableAlias) as NullableTypeInfo
+    assert resolvedNullable != null
+    assert BuiltInTypes.Is(resolvedNullable.InnerType, BuiltInTypes.String)
+}
+
+test "017 slice 4: an alias chain walks to a fixed point and a self-referential alias answers unknown" {
+    path := "/tmp/s4-alias-chain.nl"
+    context := AnalyzerContextFor(
+        path,
+        AnalyzerContextDeclarationPair(
+            StubAlias("Meters", new SimpleTypeReference("int")),
+            StubAlias("Distance", new SimpleTypeReference("Meters"))))
+
+    // `type Chain = Distance` where `Distance` is itself an alias declaration: the answer is the
+    // END of the chain, not the next link.
+    chain := new AliasTypeInfo(new SimpleTypeReference("Distance"))
+    context.RegisterDeclaredAlias(path, chain)
+    assert BuiltInTypes.Is(context.ResolveDeclaredAlias(chain), BuiltInTypes.Int)
+
+    // A registration that makes an alias resolve back to ITSELF terminates on the reference-identity
+    // cycle set and answers `unknown` — the rule the C# owner stated with a
+    // HashSet<AliasTypeInfo>(ReferenceEqualityComparer.Instance).
+    loopPath := "/tmp/s4-alias-loop.nl"
+    loopContext := AnalyzerContextFor(
+        loopPath,
+        AnalyzerContextDeclarations(StubAlias("Loop", new SimpleTypeReference("Loop"))))
+    loop := new AliasTypeInfo(new SimpleTypeReference("Loop"))
+    loopContext.RegisterCanonicalType(loopPath, "Loop", loop)
+    assert BuiltInTypes.IsUnknown(loopContext.ResolveDeclaredAlias(loop))
+}
+
+test "017 slice 4: the oblivious wrapper is transparent and every other TypeInfo family is its own answer" {
+    path := "/tmp/s4-alias-oblivious.nl"
+    context := AnalyzerContextFor(
+        path,
+        AnalyzerContextDeclarations(StubClass("Widget")))
+
+    alias := new AliasTypeInfo(new SimpleTypeReference("int"))
+    context.RegisterDeclaredAlias(path, alias)
+
+    assert BuiltInTypes.Is(
+        context.ResolveDeclaredAlias(new ObliviousTypeInfo(alias)),
+        BuiltInTypes.Int)
+    assert BuiltInTypes.Is(
+        context.ResolveDeclaredAlias(
+            new ObliviousTypeInfo(new ObliviousTypeInfo(alias))),
+        BuiltInTypes.Int)
+    assert BuiltInTypes.Is(
+        context.ResolveDeclaredAlias(new ObliviousTypeInfo(BuiltInTypes.String)),
+        BuiltInTypes.String)
+
+    // Non-alias, non-oblivious values are returned by IDENTITY — no re-resolution, no copy.
+    simple := new SimpleTypeInfo("int") as TypeInfo
+    assert context.ResolveDeclaredAlias(simple) == simple
+    array := new ArrayTypeInfo(BuiltInTypes.Int) as TypeInfo
+    assert context.ResolveDeclaredAlias(array) == array
+    nullable := new NullableTypeInfo(BuiltInTypes.Int) as TypeInfo
+    assert context.ResolveDeclaredAlias(nullable) == nullable
+    declaredNewtype := new NewtypeInfo("Meters", new SimpleTypeReference("int")) as TypeInfo
+    assert context.ResolveDeclaredAlias(declaredNewtype) == declaredNewtype
+    unknown := BuiltInTypes.Unknown as TypeInfo
+    assert context.ResolveDeclaredAlias(unknown) == unknown
+
+    // An alias NESTED inside another family is NOT reached — the owner normalizes the value it is
+    // handed, it does not rewrite type arguments.
+    wrapped := new ArrayTypeInfo(alias) as TypeInfo
+    assert context.ResolveDeclaredAlias(wrapped) == wrapped
+}

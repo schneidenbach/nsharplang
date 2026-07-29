@@ -14,7 +14,8 @@ Performs semantic analysis, type checking, and name resolution on the AST.
 
 `Analyzer.cs` is the diagnostic/scope shell. `AnalyzerDeclarationContext.nl` is the N# owner for
 the project declaration catalog, case-sensitive canonical source-type identity, file and namespace
-imports, alias-cycle handling, owner-open generic substitution, lexical nested-type lookup, and
+imports, declared-alias identity and alias resolution, alias-cycle handling, owner-open generic
+substitution, lexical nested-type lookup, and
 source member projection. The shell
 loads parsed project units into that owner at the start of analysis and routes declaration/member
 queries through it; do not recreate those policies as C# caches or fallback resolvers.
@@ -125,16 +126,36 @@ Three tables live there and are deliberately kept apart:
 Do not reintroduce any of this in C#, and do not put policy in `AnalyzerWellKnownTypes` — that class
 only resolves and holds.
 
-`Analyzer.cs` still owns the two type-resolution funnels the rest of the assignability closure runs
-through: `ResolveTypeAlias(TypeInfo)` (alias/oblivious normalization) and
-`TryConvertTypeInfoToClrType(TypeInfo)` (TypeInfo → CLR `Type`). They are NOT movable while
-`ResolveType(TypeReference)` is C#: the alias arm's live path resolves through that engine, which
-reports `TypeNotFound`/`InvalidTypeArgument`, records into the semantic model, and probes the MLC.
-The alias arm has two branches — a declaration-context branch and a `ResolveType` branch — and
-measurement shows the FIRST is unreachable in practice, because `Analyzer.cs` constructs a fresh
-`AliasTypeInfo` per alias declaration while the declaration context keys its catalog by TypeInfo
-reference identity. Unifying that identity, or moving `ResolveType`, is the prerequisite for taking
-the funnels.
+### Alias identity and alias resolution
+
+Alias resolution is a DECLARATION-CONTEXT fact, not a scope-stack walk. `DeclareType` registers the
+`AliasTypeInfo` instance it builds for a `type X = …` declaration with the declaration context
+(`RegisterDeclaredAlias`), so the context's catalog — which is keyed by TypeInfo REFERENCE identity
+— contains the same instance the analyzer's scope hands back. That registration is instance-only:
+the canonical `typesByFile` entry for an alias NAME stays the RESOLVED target type the context
+computes for the declaration, so name lookup is untouched. Do not "simplify" this by routing aliases
+through `RegisterCanonicalType` / `TryGetCanonicalType` — that would replace the alias with its
+target in the analyzer's scope and poison the context's own alias resolution.
+
+`AnalyzerDeclarationContext.ResolveDeclaredAlias(TypeInfo)` is the N# owner for what `Analyzer.cs`
+used to call `ResolveTypeAlias`: it normalizes a declared alias — and the `ObliviousTypeInfo`
+wrapper, the other transparent shell — down to the type it names, resolving the aliased type
+reference against the alias's OWN declaring file and walking to a fixed point. A reference-identity
+cycle answers `unknown`; an alias the context does not own is transparent to it; every other
+TypeInfo is its own answer. It normalizes the value it is handed and never rewrites type arguments
+nested inside another family.
+
+Because the aliased reference is resolved by the declaration context rather than by the scope stack,
+an alias used as a GENERIC ARGUMENT (`type Boxed = Box<IntList>` where `type IntList = List<int>`)
+now resolves through, where the scope-stack path left the argument as a bare `AliasTypeInfo` and
+produced a false `NL202` whose `expectedType` printed the internal class name
+`NSharpLang.Compiler.AliasTypeInfo`. That false positive is gone; nothing else in the corpus moves.
+
+`Analyzer.cs` still owns `TryConvertTypeInfoToClrType(TypeInfo)` (TypeInfo → CLR `Type`) and its
+binding surrogate. Those remain C# because their non-alias arms recurse into
+`ResolveType(TypeReference)` — the engine that reports `TypeNotFound`/`InvalidTypeArgument`, records
+into the semantic model, and probes the MLC. Moving `ResolveType` itself is the prerequisite for
+taking them.
 
 ## Core Functions
 
