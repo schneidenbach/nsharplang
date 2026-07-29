@@ -1,6 +1,27 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (STAGE N+1c TRANCHE 10 LANDED — **STATEMENT BODIES: `BlockStatement` + the WHOLE Statement
+Last updated: 2026-07-29 (STAGE N+1c TRANCHE 11 LANDED — **ERROR-NODE MATERIALIZATION: the MALFORMED-FILE
+surface. The owner no longer DECLINES anywhere.** Every synthetic recovery artifact Parser.cs substitutes on
+malformed input is now REPRODUCED byte-exact: the 9 `IdentifierExpression("<error>")` production sites, the
+`IdentifierPattern("<error>")` terminal, the 3 `SimpleTypeReference("<error>")` parameter/field/new
+substitutes, every `<error>`-named declaration / member / parameter / property / attribute / pattern-segment
+placeholder (incl. the top-level unexpected-token `ClassDeclaration` and the reserved-keyword member), the
+constructor's synthetic empty `this()`, the local function's synthetic empty block, the `on` recovery lambda,
+and ParseOperatorSymbol's `"+"` default. FIVE structural fixes landed with it: MULTI-LINE `SourceSpan` (the
+4-arg primary constructor emits — no new factory needed; the single-line gate is retired), the type gate no
+longer declines on panic/errors/multi-line, the TOP-LEVEL recovery-boundary column save/restore Parser.cs does
+and the owner did not, `Trim('"')` on unterminated test descriptions, `ref struct`'s `isRefStruct`, and the
+interpolation-hole span resolution. PROOF (whole tree AND the full diagnostic stream, via an extended
+throwaway triangulation probe): **407/407** recorded in-repo files (was 404) and **513/513** of every `.nl` in
+the tree; **453/453** malformed diagnostic-corpus sources (was 262); **10,560/10,560** LSP-shaped fuzz mutants
+(truncation / char-deletion / line-deletion / garbage-injection) across 3 seeds — **11,526 sources, 0
+mismatches**. Contracts +26 net → 1,550/1,550, ZERO retained declines. dev.sh Parser 384/384. Owner member
+count UNCHANGED at 280 (wall respected: reproductions inlined, one new parameter + one new FIELD; two
+now-dead gate fields deleted). Production
+untouched [ParseFileAst still test-only, zero callers], no LSP change, no repin, no wall. The owner is a
+DROP-IN for Parser.cs; the N+2 cutover is now pure WIRING)
+
+Last updated (prior): 2026-07-29 (STAGE N+1c TRANCHE 10 LANDED — **STATEMENT BODIES: `BlockStatement` + the WHOLE Statement
 node family, and the member-BODY consumers**. Recut into two halves, both landed: 10a = BlockStatement, every
 statement kind (let/const/readonly + typed + tuple deconstruction, expression/empty statements, if/else, while,
 C-style + for-in for, foreach / await-foreach, return, print, yield, break, continue, throw, preprocessor, off,
@@ -187,7 +208,126 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+- Active sub-slice (016 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): STAGE N+1c (FULL-TREE AST
+  MATERIALIZATION), TRANCHE 11 = **ERROR-NODE MATERIALIZATION — the MALFORMED-FILE surface**. TARGET:
+  (1) reproduce, byte-exact, EVERY synthetic recovery artifact Parser.cs produces on malformed input
+  (`IdentifierExpression("<error>")` at each of its production sites, the `IdentifierPattern("<error>")`
+  terminal, the `SimpleTypeReference("<error>")` parameter/field/new type substitutes, the `<error>`-named
+  declaration placeholders incl. the top-level unexpected-token ClassDeclaration and the `<error>` member
+  from the reserved-keyword arms, the `<error>` test description) INSTEAD of declining them — a declining
+  owner cannot serve the LSP on files being actively edited, which are malformed most of the time, and the
+  N+2 cutover hands consumers whatever Parser.cs produces TODAY; (2) close the two recorded STRUCTURAL gaps
+  — the MULTI-LINE type SourceSpan gate and the `is` pattern-variable next-line capture; (3) prove the
+  3 residual whole-file declines join the set (407/407) AND extend the proof to the MALFORMED corpus
+  (the arc's diagnostic parity-corpus sources are malformed by design) via the AstEq harness + the
+  triangulation probe. WALL: the owner class is AT the columnar per-class member ceiling — every new helper
+  must be INLINED or an existing member deleted/merged first.
+  **RESULT: LANDED IN FULL (no commit — mandate). ZERO irreproducible sites; nothing declines any more.**
+  SYNTHETIC-NODE SITE INVENTORY (exhaustive grep of `"<error>"` in Parser.cs + the two structural gaps),
+  every one now REPRODUCED byte-exact:
+  (A) `IdentifierExpression("<error>")` — 9 production sites: ParseRightOperandOrMissing / the shared binary
+  + assignment dangling-operator arm (:3785, column = op.Column + Max(1, op.Value.Length)),
+  ParseUnaryOperandOrMissing (:3824, await/must/throw), ParseInvalidPrefixPlusExpression (:3850, anchored ON
+  the plus), ParseRequiredExpressionAfter (:3895 — the if/while/for-in/return/print/yield/throw/assert/
+  using/lock/`:=`/`=` missing-value anchor), the ParsePrimaryExpression TERMINAL (:4838), the
+  object-initializer MISSING-`:` value (:5334, propName.Column + TokenLengthOrFallback) and MISSING-VALUE
+  value (ParseObjectInitializerMemberValue :5376, separator-anchored), the tuple recovery-boundary
+  `ParenthesizedExpression(IdentifierExpression("<error>"))` (:5456), and the leading-`.`
+  no-receiver arm (:6447).
+  (B) `IdentifierPattern("<error>")` — the ParsePrimaryPattern "Invalid pattern" terminal (:3467).
+  (C) `SimpleTypeReference("<error>") { Span = FromStartAndLength(span…) }` — ParseParameterTypeReference
+  (:6541), ParseFieldTypeReference (:6577), ParseNewTypeReference (:6610).
+  (D) `<error>`-NAMED placeholders — the top-level unexpected-token `ClassDeclaration` (:255, Line/Column
+  read AFTER the skip Advance so they name the FOLLOWING token), the ConsumeIdentifier/ConsumeSystemsIdentifier/
+  ConsumeAttributeIdentifier name placeholder (:6747/:6767/:6792/:6819) flowing into function / class /
+  struct / record / soa / interface / union / enum / type-alias / newtype names, field + property names,
+  parameter names (:822), lambda parameter names (:5520), type-parameter names (:755), `where`
+  type-parameter names (:936), union case + case-property names, enum member names, soa column names,
+  attribute names (:5292), object-initializer + `with` property names, property-pattern names, qualified
+  PATTERN segments (:3414), event-target member names (:2949), the `returns param(<error>)` lifetime
+  string (:510), the MEMBER-ACCESS `<error>` member from BOTH the reserved-keyword (:4446) and
+  missing-name (:4451) arms, and the test DESCRIPTION (:569).
+  (E) OTHER recovery artifacts — the constructor's synthetic EMPTY `this()` initializer for a
+  non-`this`/`base` target (:1559), the local function's synthetic EMPTY `BlockStatement` body (:2530), the
+  `on` subscription's synthetic empty-parameter lambda over an empty block when the handler is not a lambda
+  (:2930), ParseOperatorSymbol's `symbol = "+"` switch DEFAULT (:5854), the property/indexer accessor
+  recovery (the declaration is still built, :1768/:1642), the generic-soa report (the declaration is still
+  built, :1136), the parameter-list trailing-comma (:775) and recovery-boundary (:778) BREAKS (Parser.cs
+  returns the PARTIAL list, not a decline), and the `<>` / `<T,>` type-parameter + `Name<>` / `Name<T,>`
+  generic-argument early breaks (the partial list is the result).
+  THREE STRUCTURAL FIXES beyond the site inventory:
+  (1) **MULTI-LINE SourceSpan** — the recorded single-line gate is RETIRED. `SourceSpan`'s 4-arg PRIMARY
+  CONSTRUCTOR is public and emits fine (`new SourceSpan(startLine, startColumn, endLine, endColumn)`), so
+  `SpanFromTokensSingleLine` / `ExtendSpanFromNode` / the `?[`-nullable and `&`-byref span builders now
+  reproduce Parser.cs's `SpanFromTokens` / `ExtendSpan` EXACTLY instead of routing through the single-line
+  `FromStartAndLength` factory — no sibling factory was needed. Root cause of the `>>` residual, now
+  understood and pinned: for `Dictionary<string, List<int>>?` the owed split `>` is consumed by the FIRST
+  `?` postfix (Check/Advance honor the split for ANY token), so the arm is DOUBLY nullable, the outer
+  ConsumeGreater then fails on the NEXT LINE's token and `SpanFromTokens` produces a MULTI-LINE span.
+  (2) **the type gate** — `ParseGatedTypeReference` no longer declines on panic-before / errors-during /
+  multi-line; the type grammar itself is now byte-exact on every error path, so it always materializes.
+  (3) **the top-level RECOVERY-BOUNDARY COLUMN** — Parser.cs's top-level declaration loop also does the
+  save/set/restore of `_currentRecoveryBoundaryColumn` (:85-95) that the member and statement loops do; the
+  owner's `Run()` did not. Without it a `record R(` whose parameters start on a LATER line at or left of the
+  declaration keyword's column missed the `IsContinuationRecoveryBoundary` break (found by fuzzing).
+  (4) **`Trim('"')`** — Parser.cs unquotes the test DESCRIPTION (:574) and SKIP REASON (:642) with
+  `Trim('"')`, which strips EVERY leading/trailing quote rather than unwrapping a PAIR; on an UNTERMINATED
+  literal (the LSP-while-typing shape) the two differ. Both now route through the existing
+  `StripSurroundingQuotes` (the import-path idiom) — no new member.
+  (5) **`ref struct`** — `isRefStruct` is threaded from the two `ref struct` dispatch arms (:224/:1446);
+  the owner previously hard-coded `false` (found by the whole-file sweep, 2 real files).
+  (6) **the interpolation-HOLE span resolution** — Parser.cs builds its hole sub-parser with NO sourceCode,
+  so a hole diagnostic reported with a requested length of 0 resolves through `DiagnosticSpanResolver` on a
+  NULL line and lands on (column, 1); the owner SHARES `Source` (deliberately, so the hole diagnostic keeps
+  the CLI-shaped snippet the Stage-12 contracts pin), which let the resolver infer a token width and shift
+  the column. A new `HoleDepth` FIELD clamps a 0 length to 1 while inside a hole — provably identical, since
+  the resolver already ignores the line for every length > 0.
+  WALL STATUS: **RESPECTED — the owner's member-function count is UNCHANGED at 280.** Every reproduction
+  reused an existing member (the quote-strip reused `StripSurroundingQuotes`; the `<error>` type substitutes
+  and synthetic expression/pattern nodes were built INLINE at their existing sites); the only additions are
+  one parameter (`ParseStructName(…, isRefStruct)`) and one FIELD (`HoleDepth`). Fields do not trip the
+  per-class member ceiling; member FUNCTIONS do.
+  DEAD-GATE CLEANUP (same tranche): the two materialization gates the reproductions made permanently true —
+  `TypeParamsMaterializable` and `ReturnLifetimeMaterializable` — were DELETED (fields, initializers, setters
+  and all readers), so no always-true gate is left behind.
+  DELIVERABLES: `ColumnarParserRecovery.nl` 9,358 → 9,371; `ColumnarParserAst.tests.nl` 5,170 → 5,463.
+  CONTRACTS: **1,550 total / 1,550 PASS** (+26 net: 3 tranche-10 pinned DECLINES converted to POSITIVE
+  contracts — the `using r { }` synthetic initializer, the `dispatch:<error>` allow effect, the
+  conversion-operator `<error>` property member — plus 26 new tranche-11 contracts incl. 3 negative
+  self-checks: a wrong synthetic member NAME, a wrong synthetic-operand COLUMN, a single-line span where
+  Parser.cs builds a multi-line one). **ZERO retained declines.**
+  EVIDENCE — the triangulation probe was extended to diff the DIAGNOSTIC STREAM as well as the whole tree
+  (code / line / column / LENGTH / message / human explanation / hint / suggestion; SourceSnippet excluded
+  because Parser.cs's hole sub-parser carries none in the raw ParseResult while the CLI fills it downstream):
+  * **WHOLE-FILE: 407 / 407** of the recorded in-repo set (src 325 + examples 82) — was 404 — and
+    **513 / 513** of EVERY `.nl` in the working tree (adds tests 57, docs 21, editors 17, templates 10),
+    byte-exact owner==Parser.cs on BOTH tree and diagnostics. The malformed VS Code fixture
+    `editors/vscode/test/fixtures/errors/MultipleSyntaxErrors.nl` is in that set.
+  * **MALFORMED-CORPUS: 453 / 453.** All 453 unique `RunPreamble(…)` / `RunPreambleAst(…)` sources extracted
+    from `ColumnarParserRecovery.tests.nl` (the arc's 444-contract diagnostic parity corpus, malformed by
+    design) parse tree-equal AND diagnostic-equal. Baseline before this tranche: 262 / 453.
+  * **FUZZ: 10,560 / 10,560** across three independently seeded rounds (2,420 + 3,740 + 4,400) over
+    960 real repo files, using the four LSP-shaped mutations — mid-file TRUNCATION (the "being typed" shape),
+    single structural-character DELETION, whole-LINE deletion, and token-garbage INJECTION. Rounds 2 and 3
+    each caught one real divergence (the top-level recovery-boundary column; the hole span resolution), both
+    fixed above; the final state is 100% on all three.
+  * TOTAL PROVEN: **11,526 sources, 0 mismatches, 0 exceptions.**
+  * BootstrapServices contracts 1,550 / 1,550 via the canonical `dotnet test
+    src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false` (the 3
+    ExternalAssemblyScan Debug-layout tests did NOT trip; the documented `dotnet build src/NSharpLang.Cli
+    -c Debug` remains the remedy after a clean `rm -rf obj bin`). dev.sh Parser slice **384 / 384**.
+  * Ownership audit: only `.nl` / `.tests.nl` / `.md` changed (2 .nl + 1 .md, **zero .cs** → OWN003 cannot
+    trip, no C# growth → **NO REPIN**). Production compile path **UNTOUCHED** — `ParseFileAst` still has
+    ZERO callers outside its `.tests.nl` (grep across src + editors + tests); Parser.cs stays the sole
+    production authority. **No LSP / VS Code / extension file touched → no reload, no VS Code gate.** NO
+    two-stage bootstrap wall tripped (no kernel or OpCodes change).
+  N+2 CUTOVER READINESS: the owner is now a DROP-IN for Parser.cs's parse surface. On every source proven
+  above — well-formed and malformed alike — it produces the identical `CompilationUnit` AND the identical
+  ordered diagnostic list, including every synthetic recovery artifact an IDE consumer sees while a file is
+  mid-edit. The remaining cutover work is pure WIRING (routing `ParseResult`'s producers and the LSP at
+  Parser.cs's call sites, then deleting Parser.cs), which IS IDE-affecting: VS Code-enabled gate + extension
+  reinstall + computer-use verification.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 10 = **STATEMENT BODIES — `BlockStatement` and the whole Statement node family** — the last node
   family before whole-file equivalence. TARGET was recorded before editing and the permitted RECUT was
   taken as TWO halves, BOTH landed this turn: **10a = BlockStatement + the ENTIRE Statement family + the
@@ -304,13 +444,9 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   its `.tests.nl` (grep across src+editors+tests); Parser.cs stays the sole production authority. No
   LSP / VS Code / extension file touched → no reload, no VS Code gate. NO two-stage bootstrap wall
   tripped (no kernel or OpCodes change).
-  NEXT: ERROR-NODE MATERIALIZATION — decide, per site, whether the owner should reproduce Parser.cs's
-  SYNTHETIC `<error>` nodes (`IdentifierExpression("<error>")`, the `<error>`-named class/property
-  placeholders, the empty-BlockStatement body substitutes) or keep declining them; that is the last
-  systematic difference between owner and Parser.cs on malformed input, and it plus the two recorded
-  Parser.cs recovery artifacts above are all that stand between 404/407 and 407/407. After that, the N+2
-  CUTOVER (routing production + the LSP at Parser.cs's call sites), which IS IDE-affecting: VS Code-enabled
-  gate + extension reinstall + computer-use verification.
+  NEXT (DONE — see TRANCHE 11 above): ERROR-NODE MATERIALIZATION. The decision recorded here was resolved
+  as REPRODUCE-EVERY-SITE (a declining owner cannot serve the LSP on a file being edited); all three
+  residuals closed, 407/407 reached, and the malformed surface proven over 11,526 sources.
 - Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHES 9b + 9c = the ARGUMENT/ELEMENT-LIST expression forms and then the LAST expression families. The
   mandate's permitted RECUT was taken and BOTH halves landed in this turn: 9b = call / with / new / tuple /

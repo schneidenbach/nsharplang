@@ -4823,27 +4823,25 @@ test "016 N+1c tranche 10: AstEq surfaces a wrong allow REASON string" {
     assert AstEq.Diff(expected, actual, "unit") != ""
 }
 
-// ---- tranche 10a: RETAINED principled declines (Parser.cs builds SYNTHETIC `<error>` content) ----
+// ---- tranche 11: the two tranche-10 pinned DECLINES converted to POSITIVE contracts ----
 // Both shapes are malformed sources where Parser.cs materializes a node carrying a synthetic
-// `IdentifierExpression("<error>")`; the owner declines no-stub exactly as it does at every other
-// synthetic-error site (the ParseRequiredExpressionAfter / ConsumeSystemsIdentifier discipline), so the
-// enclosing class materializes with an EMPTY Members list.
+// `IdentifierExpression("<error>")` / an `<error>` effect string. Tranche 11 REPRODUCES those artifacts
+// byte-exact instead of declining, so a consumer (the LSP on a file being edited) sees exactly the tree
+// Parser.cs produces today. Both goldens are transcribed from the LIVE Parser.cs AstToJson oracle.
 
-test "016 N+1c tranche 10: `using r { }` (missing ':=') DECLINES — Parser.cs builds a synthetic <error> initializer" {
+test "016 N+1c tranche 11: `using r { }` (missing ':=') materializes the synthetic <error> initializer (Parser.cs :3895/:3121)" {
     actual := RunBody("using r { a() }")
-    members := new List<Declaration>()
-    decls := new List<Declaration>()
-    Golden.AddClassM(decls, "C", members, 1, 1)
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    declaration := Golden.VarDecl("r", null, Golden.Ident("<error>", 2, 26), VariableKind.Let, 2, 17)
+    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 27), 2, 25), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 10: a non-effect allow value (`dispatch: virtual`) DECLINES — Parser.cs records `dispatch:<error>`" {
+test "016 N+1c tranche 11: a non-effect allow value (`dispatch: virtual`) records `dispatch:<error>` (Parser.cs :2370/:6819)" {
     actual := RunBody("allow(dispatch: virtual) { a() }")
-    members := new List<Declaration>()
-    decls := new List<Declaration>()
-    Golden.AddClassM(decls, "C", members, 1, 1)
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    effects := Golden.NoNames()
+    Golden.AddName(effects, "dispatch:<error>")
+    Golden.AddName(effects, "<error>")
+    expected := BodyUnit1(Golden.Allow(effects, null, null, Golden.Block1(CallStmt("a", 2, 44), 2, 42), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -5152,17 +5150,312 @@ test "016 N+1c tranche 10: AstEq surfaces a wrong test table ROW value (guards v
     assert AstEq.Diff(expected, actual, "unit") != ""
 }
 
-// ---- tranche 10b: RETAINED principled declines (Parser.cs recovery artifacts) ----
-// The conversion-operator shape below makes Parser.cs emit an EXTRA `<error>`-named PropertyDeclaration
-// (its `: int => 1` tail is re-parsed as a bogus property member); the owner declines that synthetic
-// member and materializes the conversion FunctionDeclaration alone, so the Members lists differ by one.
-test "016 N+1c tranche 10: a conversion operator DECLINES — Parser.cs adds a synthetic `<error>` property member" {
+// ---- tranche 11: the tranche-10b pinned DECLINE converted to a POSITIVE contract ----
+// The conversion-operator shape makes Parser.cs emit an EXTRA `<error>`-named PropertyDeclaration (its
+// `: int => 1` tail is re-parsed as a bogus property member over the ConsumeIdentifier `<error>`
+// placeholder). Tranche 11 reproduces that synthetic member byte-exact, so the Members lists now agree.
+test "016 N+1c tranche 11: a conversion operator emits Parser.cs's synthetic `<error>` property member (:1698/:6819)" {
     actual := RunAst("class C {\n    implicit operator int(c: C): int => 1\n}\n")
     parameters := Golden.NoParams()
     parameters.Add(Golden.Param("c", Golden.SimpleT("C", 2, 30, 31), null, false, ParameterModifier.None, 2, 27))
     conversion := new NSharpLang.Compiler.Ast.FunctionDeclaration("implicit operator", parameters, Golden.SimpleT("int", 2, 23, 26), null, null, null, Golden.NoConstraints(), Modifiers.None, new List<AttributeNode>(), false, null, true, true, 2, 5)
     members := new List<Declaration>()
     members.Add(conversion)
+    Golden.AddProp(members, "<error>", Golden.SimpleT("int", 2, 34, 37), null, null, Golden.IntLit("1", 2, 41), Modifiers.None, PropertyModifier.None, 2, 32)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ============================================================================================
+// STAGE N+1c TRANCHE 11 — ERROR-NODE MATERIALIZATION (the MALFORMED-FILE surface)
+// ============================================================================================
+// Parser.cs never declines on malformed input: at every recovery site it substitutes a SYNTHETIC node —
+// `IdentifierExpression("<error>")`, `IdentifierPattern("<error>")`, `SimpleTypeReference("<error>")`, an
+// `<error>`-named declaration/member/parameter/property placeholder, or an empty BlockStatement — and keeps
+// building the tree around it. The N+2 cutover hands consumers whatever Parser.cs produces TODAY, and an LSP
+// serves files that are malformed most of the time they are being edited, so the owner REPRODUCES every one
+// of those artifacts byte-exact instead of declining them.
+//
+// Every golden below is transcribed from the LIVE Parser.cs AstToJson oracle over the identical source, and
+// each shape was additionally diffed owner-vs-live whole-tree through the same serializer.
+//
+// `RunFn` wraps a single statement in a ONE-LINE `func f() { … }` so the golden columns are direct offsets:
+// `func f() { ` is 11 characters, so the inner statement starts at column 12 and the body block at column 10.
+
+func RunFn(inner: string): CompilationUnit {
+    return RunAst("func f() { " + inner + " }")
+}
+
+func FnUnit(statements: List<Statement>): CompilationUnit {
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block(statements, 1, 10), null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    return Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+}
+
+func FnUnit1(statement: Statement): CompilationUnit {
+    statements := Golden.NoStmts()
+    Golden.Add(statements, statement)
+    return FnUnit(statements)
+}
+
+// ---- the DECLARATION-level placeholders ----
+
+test "016 N+1c tranche 11: a stray top-level token materializes Parser.cs's `<error>` ClassDeclaration (:255)" {
+    actual := RunAst("import 5\n")
+    imports := NoImports()
+    Golden.AddImport(imports, "<error>", null, 1, 1)
+    decls := new List<Declaration>()
+    // Line/Column are read AFTER the skip Advance, so they name the token FOLLOWING the offender (Eof).
+    Golden.AddClass(decls, "<error>", 2, 1)
+    expected := Golden.Unit(null, imports, NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: `func 5` builds an `<error>` function over an `<error>` parameter and type (:503/:822/:6541)" {
+    actual := RunAst("func 5\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("<error>", Golden.SimpleT("<error>", 1, 6, 7), null, false, ParameterModifier.None, 1, 6))
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("<error>", parameters, null, null, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    Golden.AddClass(decls, "<error>", 2, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a colon-less field materializes the `<error>` field TYPE (Parser.cs :6577)" {
+    actual := RunAst("class C { x }")
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "x", Golden.SimpleT("<error>", 1, 11, 12), 1, 11)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: `test 5 { }` keeps Parser.cs's synthetic `<error>` description (:569)" {
+    actual := RunAst("test 5 {\n}\n")
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "<error>", Golden.Block(Golden.NoStmts(), 1, 8), Golden.NoTableParams(), Golden.NoTable(), null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: `ref struct` threads isRefStruct through the two dispatch arms (Parser.cs :224/:1446)" {
+    actual := RunAst("ref struct S {\n}\n")
+    decls := new List<Declaration>()
+    decls.Add(new StructDeclaration("S", null, Golden.NoTypeRefs(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), 1, 5, true))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- the EXPRESSION-level placeholders ----
+
+test "016 N+1c tranche 11: a dangling binary operator materializes the `<error>` right operand (:3785)" {
+    actual := RunFn("x := 1 + ")
+    initializer := Golden.Bin(Golden.IntLit("1", 1, 17), BinaryOperator.Add, Golden.Ident("<error>", 1, 20), 1, 19)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: prefix `+` materializes `<error>` anchored on the plus (Parser.cs :3850)" {
+    actual := RunFn("x := + 3")
+    expected := FnUnit1(Golden.VarDecl("x", null, Golden.Ident("<error>", 1, 17), VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a leading `.` materializes `<error>` anchored on the dot (Parser.cs :6447)" {
+    actual := RunFn("x := .Foo")
+    expected := FnUnit1(Golden.VarDecl("x", null, Golden.Ident("<error>", 1, 17), VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: an unexpected token in expression materializes the terminal `<error>` (:4838)" {
+    actual := RunFn("x := * 3")
+    statements := Golden.NoStmts()
+    Golden.Add(statements, Golden.VarDecl("x", null, Golden.Ident("<error>", 1, 17), VariableKind.Let, 1, 12))
+    Golden.Add(statements, Golden.ExprStmt(Golden.IntLit("3", 1, 19), 1, 19))
+    expected := FnUnit(statements)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a missing member name after `.` materializes the `<error>` member (:4451)" {
+    actual := RunAst("func f() {\n    x := a.\n}\n")
+    initializer := Golden.Member(Golden.Ident("a", 2, 10), "<error>", false, 2, 11)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 2, 5), 1, 10), null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a RESERVED-KEYWORD member name materializes the `<error>` member (:4446)" {
+    actual := RunFn("x := a.class")
+    initializer := Golden.Member(Golden.Ident("a", 1, 17), "<error>", false, 1, 18)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a missing unary operand materializes `<error>` past the keyword (:3824)" {
+    actual := RunFn("x := await")
+    initializer := Golden.Await(Golden.Ident("<error>", 1, 22), 1, 17)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: an invalid pattern materializes `IdentifierPattern(\"<error>\")` (Parser.cs :3467)" {
+    actual := RunFn("x := match a { + => 1 }")
+    cases := Golden.NoCases()
+    Golden.AddCase(cases, Golden.PIdent("<error>", 1, 27), null, Golden.Ident("<error>", 1, 27))
+    Golden.AddCase(cases, Golden.PIdent("<error>", 1, 29), null, Golden.IntLit("1", 1, 32))
+    initializer := Golden.Match(Golden.Ident("a", 1, 23), cases, 1, 17)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a missing object-initializer `:` materializes the `<error>` value (Parser.cs :5334)" {
+    actual := RunFn("x := new T { A 1 }")
+    props := Golden.NoProps()
+    Golden.AddProp(props, "A", null, Golden.Ident("<error>", 1, 26), 1, 25)
+    Golden.AddProp(props, "<error>", null, Golden.Ident("<error>", 1, 28), 1, 27)
+    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 17), null, 1, 17)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- the STRUCTURAL gaps this tranche closed ----
+
+test "016 N+1c tranche 11: a `>>`-split nested generic keeps Parser.cs's MULTI-LINE type span (:1966/:5884)" {
+    actual := RunAst("class C {\n    F: Dictionary<string, List<int>>?\n    G: int\n}\n")
+    innerArgs := Golden.NoTypeRefs()
+    innerArgs.Add(Golden.SimpleT("int", 2, 32, 35))
+    inner := Golden.GenericT("List", innerArgs, 2, 27, 36)
+    // Parser.cs's `?` postfix fires TWICE here: the owed split `>` is consumed as the first `?` (the
+    // ConsumeGreater/Advance split discipline), so the arm is doubly nullable and the OUTER `>` is then
+    // missing — Parser.cs's ConsumeGreater returns the NEXT LINE's token, giving a MULTI-LINE span.
+    outerArgs := Golden.NoTypeRefs()
+    outerArgs.Add(Golden.SimpleT("string", 2, 19, 25))
+    outerArgs.Add(Golden.NullableT(Golden.NullableT(inner, 2, 27, 37), 2, 27, 38))
+    fieldType := new GenericTypeReference("Dictionary", outerArgs, 2, 8)
+    fieldType.Span = new SourceSpan(2, 8, 3, 6)
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "F", fieldType, 2, 5)
+    Golden.AddFieldT(members, "G", Golden.SimpleT("int", 3, 8, 11), 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: an `is` pattern variable swallows the NEXT LINE's identifier (Parser.cs :4157)" {
+    actual := RunAst("func f() {\n    x := a is B\n    y := 1\n}\n")
+    statements := Golden.NoStmts()
+    isExpr := Golden.Is(Golden.Ident("a", 2, 10), Golden.SimpleT("B", 2, 15, 16), "y", 2, 12)
+    Golden.Add(statements, Golden.VarDecl("x", null, isExpr, VariableKind.Let, 2, 5))
+    Golden.Add(statements, Golden.ExprStmt(Golden.Ident("<error>", 3, 7), 3, 7))
+    Golden.Add(statements, Golden.ExprStmt(Golden.IntLit("1", 3, 10), 3, 10))
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block(statements, 1, 10), null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- NEGATIVE self-checks: the harness must reject a WRONG synthetic artifact ----
+
+test "016 N+1c tranche 11 (negative): a WRONG synthetic member name is rejected" {
+    actual := RunFn("x := a.class")
+    initializer := Golden.Member(Golden.Ident("a", 1, 17), "class", false, 1, 18)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 11 (negative): a WRONG synthetic-operand COLUMN is rejected" {
+    actual := RunFn("x := 1 + ")
+    initializer := Golden.Bin(Golden.IntLit("1", 1, 17), BinaryOperator.Add, Golden.Ident("<error>", 1, 19), 1, 19)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 11 (negative): a SINGLE-LINE type span is rejected where Parser.cs builds a multi-line one" {
+    actual := RunAst("class C {\n    F: Dictionary<string, List<int>>?\n    G: int\n}\n")
+    innerArgs := Golden.NoTypeRefs()
+    innerArgs.Add(Golden.SimpleT("int", 2, 32, 35))
+    outerArgs := Golden.NoTypeRefs()
+    outerArgs.Add(Golden.SimpleT("string", 2, 19, 25))
+    outerArgs.Add(Golden.NullableT(Golden.NullableT(Golden.GenericT("List", innerArgs, 2, 27, 36), 2, 27, 37), 2, 27, 38))
+    members := new List<Declaration>()
+    Golden.AddFieldT(members, "F", Golden.GenericT("Dictionary", outerArgs, 2, 8, 39), 2, 5)
+    Golden.AddFieldT(members, "G", Golden.SimpleT("int", 3, 8, 11), 3, 5)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+// ---- the remaining tranche-11 recovery ARTIFACTS (each a Parser.cs substitution, not a decline) ----
+
+test "016 N+1c tranche 11: an UNTERMINATED test description reproduces Parser.cs's `Trim('\"')` (:574)" {
+    // The LSP shape: the string literal is still being typed, so it has no closing quote. `Trim('"')`
+    // strips EVERY leading and trailing quote — not a paired unwrap — so the description is `par`.
+    actual := RunAst("test \"par")
+    decls := new List<Declaration>()
+    Golden.AddTest(decls, "par", Golden.Block(Golden.NoStmts(), 1, 10), Golden.NoTableParams(), Golden.NoTable(), null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: an EMPTY type-parameter list `<>` still materializes the declaration (:757)" {
+    actual := RunAst("func f<>() { }")
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block(Golden.NoStmts(), 1, 12), null, new List<TypeParameter>(), Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a non-this/base constructor initializer becomes a synthetic empty `this()` (:1559)" {
+    actual := RunAst("class C {\n  constructor() : foo() {\n  }\n}\n")
+    inner := Golden.NoStmts()
+    Golden.Add(inner, Golden.ExprStmt(Golden.Tuple(Golden.NoTupleElems(), 2, 22), 2, 22))
+    Golden.Add(inner, Golden.Block(Golden.NoStmts(), 2, 25))
+    initializer := Golden.Call(Golden.ThisE(2, 19), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 19)
+    members := new List<Declaration>()
+    Golden.AddCtor(members, Golden.NoParams(), Golden.Block(inner, 2, 22), initializer, 2, 3)
+    decls := new List<Declaration>()
+    Golden.AddClassM(decls, "C", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a value-less object-initializer member materializes `<error>` past the `:` (:5376)" {
+    actual := RunFn("x := new T { A: }")
+    props := Golden.NoProps()
+    Golden.AddProp(props, "A", null, Golden.Ident("<error>", 1, 27), 1, 25)
+    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 17), null, 1, 17)
+    expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a body-less LOCAL FUNCTION gets Parser.cs's synthetic empty block (:2530)" {
+    actual := RunAst("func f() {\n    func inner(): int\n}\n")
+    local := Golden.Func("inner", Golden.NoParams(), Golden.SimpleT("int", 2, 19, 22), Golden.Block(Golden.NoStmts(), 3, 1), null, null, Golden.NoConstraints(), Modifiers.None, 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block1(Golden.LocalFunc(local, 2, 5), 1, 10), null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: a non-lambda `on` handler gets the synthetic empty-parameter lambda (:2930)" {
+    actual := RunFn("on w.C foo")
+    handler := Golden.BlockLambda(Golden.NoParams(), Golden.Block(Golden.NoStmts(), 1, 19), 1, 19)
+    subscription := Golden.OnSub(Golden.Member(Golden.Ident("w", 1, 15), "C", false, 1, 16), handler, 1, 12)
+    expected := FnUnit1(Golden.ExprStmt(subscription, 1, 12))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 11: an invalid property accessor still materializes the PropertyDeclaration (:1768)" {
+    actual := RunAst("class C {\n  X: int {\n    5\n  }\n}\n")
+    members := new List<Declaration>()
+    Golden.AddProp(members, "X", Golden.SimpleT("int", 2, 6, 9), null, null, null, Modifiers.None, PropertyModifier.None, 2, 3)
     decls := new List<Declaration>()
     Golden.AddClassM(decls, "C", members, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
